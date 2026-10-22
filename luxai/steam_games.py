@@ -17,12 +17,14 @@ GAMES = {
     "dota2": (570, "Dota 2"),
     "cs2": (730, "Counter-Strike 2"),
     "warthunder": (236390, "War Thunder"),
+    "undertale": (391540, "Undertale"),
 }
 
 ALIASES = {
     "dota2": ("dota", "dota 2", "дота", "доту", "доты", "дота 2", "доту 2"),
     "cs2": ("cs2", "cs 2", "csgo", "cs:go", "кс2", "кс 2", "контр страйк", "counter strike"),
     "warthunder": ("war thunder", "warthunder", "вар тандер", "вартандер", "вар тандр", "war-tunder"),
+    "undertale": ("undertale", "андертейл", "андертэйл", "андертеил", "андертел", "андертале", "андертейла", "андертэла"),
 }
 
 LAUNCH_VERBS = (
@@ -58,6 +60,13 @@ def lookup_steam_game(title: str, timeout: int = 4) -> tuple[int, str] | None:
     query = str(title or "").strip()
     if not query or len(query) > 90 or re.search(r"[\x00-\x1f<>]", query):
         return None
+    # Official Steam IDs for a few frequent games remain available offline
+    # when StoreSearch is unreachable (including Russian transcriptions).
+    normalized_query = _normalized(query)
+    for game_key, aliases in ALIASES.items():
+        if any(_normalized(alias) == normalized_query for alias in aliases) or _normalized(GAMES[game_key][1]) == normalized_query:
+            app_id, name = GAMES[game_key]
+            return app_id, name
     qs = urllib.parse.urlencode({"term": query, "l": "english", "cc": "US"})
     request = urllib.request.Request(
         "https://store.steampowered.com/api/storesearch/?" + qs,
