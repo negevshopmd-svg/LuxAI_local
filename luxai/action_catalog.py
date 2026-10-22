@@ -152,8 +152,7 @@ def validate_step(raw):
     elif action == "open_user_file":
         # Explicit basename only. The actual file must be resolved only
         # when the command runs, so user-created shortcuts survive renames.
-        from luxai.voice_files import parse_open_user_file
-        value = str(target or "").strip(" \\"'«»“”")
+        value = str(target or "").strip().strip("'\"«»“”")
         if (
             not 1 <= len(value) <= 180 or value in (".", "..")
             or ".." in value
