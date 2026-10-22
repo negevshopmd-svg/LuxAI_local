@@ -221,6 +221,30 @@ def main() -> int:
                     "install_windows.bat înainte să pornești aplicația."
                 )
 
+            # Prepare Tesseract OCR on the user's PC as part of the
+            # normal updater. The verified Windows installer and both
+            # language models live in .luxai_data/ocr, a preserved local
+            # folder. Failure does not corrupt the already-updated app.
+            ocr_ready = True
+            if sys.platform == "win32" and venv_python.is_file():
+                print("Pregatesc OCR integrat: Tesseract + rusa/engleza...")
+                try:
+                    ocr_result = subprocess.run(
+                        [str(venv_python), "-m", "luxai.ocr_setup"],
+                        cwd=str(ROOT), check=False, timeout=330,
+                    )
+                    ocr_ready = ocr_result.returncode == 0
+                except (subprocess.TimeoutExpired, OSError) as exc:
+                    ocr_ready = False
+                    print(f"OCR: eroare la instalare: {exc}")
+                if not ocr_ready:
+                    print(
+                        "AVERTISMENT: Codul Jarvis este actualizat, dar "
+                        "Tesseract nu s-a instalat. Verifica internetul "
+                        "sau permisiunile Windows. Instalarea OCR se "
+                        "reincearca si automat din aplicatie."
+                    )
+
             STATE_FILE.write_text(
                 json.dumps({"commit": latest_sha, "branch": BRANCH}, indent=2),
                 encoding="utf-8",
