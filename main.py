@@ -69,7 +69,7 @@ class VoiceWorker(QThread):
     def run(self):
         try:
             self.listener = VoiceListener(
-                model_path=self.cfg.get("whisper_model_path") or "tiny",
+                model_path=self.cfg.get("whisper_model_path") or self.cfg.get("whisper_model") or "small",
                 prefix_enabled=self.cfg.get("prefix_enabled", False),
                 prefix=self.cfg.get("wake_prefix", "Jarvis"),
                 language=self.cfg.get("language", "auto"),
