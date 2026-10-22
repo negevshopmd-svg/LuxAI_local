@@ -91,7 +91,7 @@ class VoiceWorker(QThread):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Nexora AI")
+        self.setWindowTitle("Jarvis")
         self.resize(1120, 720)
         self.setMinimumSize(900, 600)
         self.cfg = load_config()
@@ -128,7 +128,7 @@ class MainWindow(QMainWindow):
         side.addLayout(brand)
         side.addSpacing(24)
 
-        for label, page in [("⌂   Acasă", 0), ("☷   Comenzi", 1), ("▦   Instrumente", 2), ("▣   Nexora AI", 3), ("☷   Setări", 4)]:
+        for label, page in [("⌂   Acasă", 0), ("☷   Comenzi", 1), ("▦   Instrumente", 2), ("▣   Jarvis", 3), ("☷   Setări", 4)]:
             btn = QPushButton(label)
             btn.setObjectName("Nav")
             btn.setProperty("active", page == 0)
@@ -148,7 +148,7 @@ class MainWindow(QMainWindow):
         content_layout.setContentsMargins(24, 20, 24, 18)
         content_layout.setSpacing(14)
         header = QHBoxLayout()
-        self.header_title = QLabel("Nexora AI   |   Acasă")
+        self.header_title = QLabel("Jarvis   |   Acasă")
         self.header_title.setStyleSheet("font-size:17px;font-weight:650;")
         header.addWidget(self.header_title)
         header.addStretch()
@@ -178,7 +178,7 @@ class MainWindow(QMainWindow):
         layout.setSpacing(16)
         top = QHBoxLayout()
         intro = QVBoxLayout()
-        title = QLabel("Bine ai venit în Nexora AI!")
+        title = QLabel("Bine ai venit în Jarvis!")
         title.setStyleSheet("font-size:23px;font-weight:700;")
         subtitle = QLabel("Asistentul tău local este gata de lucru.")
         subtitle.setObjectName("Muted")
@@ -198,7 +198,7 @@ class MainWindow(QMainWindow):
         history_layout.addWidget(history_title)
         self.home_history = QTextEdit()
         self.home_history.setReadOnly(True)
-        self.home_history.setPlaceholderText("Bine ai venit în Nexora AI!\nÎncă nu există comenzi.")
+        self.home_history.setPlaceholderText("Bine ai venit în Jarvis!\nÎncă nu există comenzi.")
         self.home_history.setMinimumHeight(190)
         history_layout.addWidget(self.home_history)
         row.addWidget(history_frame, 3)
@@ -237,7 +237,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(row, 1)
 
         quick = QHBoxLayout()
-        for text, page_num in [("Открыть Nexora AI", 3), ("Настройки", 4), ("Дополнения", 2)]:
+        for text, page_num in [("Открыть Jarvis", 3), ("Настройки", 4), ("Дополнения", 2)]:
             b = QPushButton(text)
             b.clicked.connect(lambda checked=False, p=page_num: self.show_page(p))
             quick.addWidget(b)
@@ -298,7 +298,7 @@ class MainWindow(QMainWindow):
     def build_chat(self):
         page = QWidget()
         layout = QVBoxLayout(page)
-        title = QLabel("Nexora AI")
+        title = QLabel("Jarvis")
         title.setObjectName("PageTitle")
         layout.addWidget(title)
         subtitle = QLabel("Общение с локальным помощником. Ваши модели и настройки остаются на компьютере.")
@@ -307,7 +307,7 @@ class MainWindow(QMainWindow):
         frame, box = card()
         self.log = QTextEdit()
         self.log.setReadOnly(True)
-        self.log.setPlaceholderText("Nexora AI появится здесь после первого сообщения.")
+        self.log.setPlaceholderText("Jarvis появится здесь после первого сообщения.")
         box.addWidget(self.log, 1)
         row = QHBoxLayout()
         self.command = QLineEdit()
@@ -374,8 +374,8 @@ class MainWindow(QMainWindow):
 
     def show_page(self, index):
         self.pages.setCurrentIndex(index)
-        titles = ["Главная", "Команды", "Дополнения", "Nexora AI", "Настройки"]
-        self.header_title.setText("Nexora AI   |   " + titles[index])
+        titles = ["Главная", "Команды", "Дополнения", "Jarvis", "Настройки"]
+        self.header_title.setText("Jarvis   |   " + titles[index])
         for i, button in enumerate(self.nav_buttons):
             button.setProperty("active", i == index)
             button.style().unpolish(button)
@@ -484,17 +484,17 @@ class MainWindow(QMainWindow):
                 flags=re.IGNORECASE,
             )
             if not match:
-                reminder = f"Pentru activare, începe comanda cu «{prefix}»."
+                reminder = (f"Для активации скажите «{prefix}» перед командой." if self.cfg.get("language") == "ru" else f"Pentru activare, începe comanda cu «{prefix}».")
                 self.mic_status.setText(reminder)
-                self.append_message("Nexora AI", reminder, "#a5b9dc")
+                self.append_message("Jarvis", reminder, "#a5b9dc")
                 return
             spoken = spoken[match.end():].lstrip(" ,.!?:;-")
             if not spoken:
-                reminder = "Te ascult. Spune comanda după prefix."
+                reminder = ("Слушаю. Произнесите команду после имени." if self.cfg.get("language") == "ru" else "Te ascult. Spune comanda după prefix.")
                 self.mic_status.setText(reminder)
-                self.append_message("Nexora AI", reminder, "#a5b9dc")
+                self.append_message("Jarvis", reminder, "#a5b9dc")
                 return
-        self.mic_status.setText("Comandă vocală recunoscută — procesez…")
+        self.mic_status.setText("Команда распознана — выполняю…" if self.cfg.get("language") == "ru" else "Comandă vocală recunoscută — procesez…")
         self.run_command(spoken)
 
     @staticmethod
@@ -533,19 +533,30 @@ class MainWindow(QMainWindow):
         try:
             result = self.agent.handle(text, confirm_callback=self.confirm_action)
         except Exception as e:
-            result = f"Eroare: {e}"
-        self.append_message("Nexora AI", result, "#a5b9dc")
+            result = f"Ошибка: {e}" if self.cfg.get("language") == "ru" else f"Eroare: {e}"
+        self.append_message("Jarvis", result, "#a5b9dc")
         if self.cfg.get("tts_enabled", True):
-            speak(result, enabled=True)
+            played = speak(result, enabled=True, language=self.cfg.get("language", "ru"))
+            if not played:
+                self.mic_status.setText(
+                    "Нет русской голосовой модели. Проверьте voice_error.log и папку voices."
+                    if self.cfg.get("language") == "ru"
+                    else "Vocea nu este disponibilă. Verifică voice_error.log și folderul voices."
+                )
 
     def confirm_action(self, description):
         dialog = QMessageBox(self)
-        dialog.setWindowTitle("Confirmă acțiunea")
-        dialog.setText(f"Nexora AI dorește să execute:\\n\\n{description}\\n\\nSpune „da” sau „nu” ori alege un buton.")
-        dialog.setInformativeText("Răspuns vocal disponibil cât timp microfonul este activ.")
+        russian = self.cfg.get("language") == "ru"
+        dialog.setWindowTitle("Подтвердите действие" if russian else "Confirmă acțiunea")
+        if russian:
+            dialog.setText(f"Джарвис хочет выполнить действие:\n\n{description}\n\nСкажите «да» или «нет», либо нажмите кнопку.")
+            dialog.setInformativeText("Голосовое подтверждение доступно, пока микрофон включён.")
+        else:
+            dialog.setText(f"Jarvis dorește să execute:\n\n{description}\n\nSpune „da” sau „nu” ori alege un buton.")
+            dialog.setInformativeText("Răspuns vocal disponibil cât timp microfonul este activ.")
         dialog.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        dialog.button(QMessageBox.StandardButton.Yes).setText("Da")
-        dialog.button(QMessageBox.StandardButton.No).setText("Nu")
+        dialog.button(QMessageBox.StandardButton.Yes).setText("Да" if russian else "Da")
+        dialog.button(QMessageBox.StandardButton.No).setText("Нет" if russian else "Nu")
         dialog.setDefaultButton(QMessageBox.StandardButton.No)
         self.pending_confirmation_dialog = dialog
         self.pending_confirmation_result = None
