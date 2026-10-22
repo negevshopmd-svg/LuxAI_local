@@ -19,7 +19,8 @@ from luxai.ui_home import HomePage
 from luxai.ui_sidebar import NavigationSidebar
 from luxai.styles import build_styles
 from luxai.online_agent import OnlinePlanner
-from luxai.secure_keys import store_api_key
+from luxai.secure_keys import store_api_key, has_api_key
+from luxai.api_providers import PROVIDERS
 
 BASE = Path(__file__).resolve().parent
 CONFIG = BASE / "config.json"
@@ -75,6 +76,7 @@ class VoiceWorker(QThread):
 class MainWindow(QMainWindow):
     online_plan_ready = Signal(str, object)
     local_reply_ready = Signal(str, str)
+    api_test_result = Signal(str)
     tts_played = Signal(bool)
 
     def __init__(self):
@@ -87,6 +89,7 @@ class MainWindow(QMainWindow):
         self.online_planner = OnlinePlanner(self.cfg)
         self.online_plan_ready.connect(self._on_online_plan)
         self.local_reply_ready.connect(self._on_local_reply)
+        self.api_test_result.connect(self._on_api_test_result)
         self.tts_played.connect(self._on_tts_played)
         self._command_queue = []
         self._active_text = None
@@ -258,6 +261,7 @@ class MainWindow(QMainWindow):
             on_save=self.apply_settings,
             on_pick_model=self.pick_model,
             on_test_voice=self.preview_voice,
+            on_test_online=self.test_online_api,
         )
         self.mic = self.settings_panel.mic
         self.prefix = self.settings_panel.prefix
@@ -285,7 +289,7 @@ class MainWindow(QMainWindow):
         new_key = key_field.text().strip()
         if new_key:
             try:
-                store_api_key(new_key)
+                store_api_key(new_key, self.settings_panel.online_provider.currentData())
                 key_field.clear()
                 self.settings_panel.refresh_key_status()
             except (ValueError, OSError, RuntimeError) as exc:
@@ -348,6 +352,46 @@ class MainWindow(QMainWindow):
             self.worker.listener.prefix_enabled = self.cfg.get("prefix_enabled", False)
             self.worker.listener.prefix = self.cfg.get("wake_prefix", "Jarvis")
         self.mic_status.setText("Настройки сохранены.")
+
+    def test_online_api(self):
+        """Test the selected provider with a tiny request in a worker thread."""
+        self.save_settings()
+        provider = self.cfg.get("online_provider", "openai")
+        if provider not in PROVIDERS or not has_api_key(provider):
+            self.mic_status.setText("Сначала сохраните API-ключ выбранного сервиса.")
+            return
+        self.mic_status.setText("Проверяю API (потребуется небольшой запрос)…")
+        chosen = dict(self.cfg)
+        chosen["online_agent_enabled"] = True
+        threading.Thread(
+            target=self._test_online_thread,
+            args=(provider, chosen),
+            name="JarvisApiTest",
+            daemon=True,
+        ).start()
+
+    def _test_online_thread(self, provider, chosen_config):
+        try:
+            planner = OnlinePlanner(chosen_config)
+            proposal = planner.plan(
+                "This is an API connectivity test. Respond with a JSON reply action "
+                "with 'OK' as reply. Do not execute anything.",
+            )
+            ok = isinstance(proposal, dict) and proposal.get("action") == "reply"
+        except Exception:
+            ok = False
+        if not self._closed:
+            self.api_test_result.emit(
+                f"Подключение к {PROVIDERS[provider]['label']} успешно."
+                if ok else
+                f"Не удалось проверить {PROVIDERS[provider]['label']}. "
+                "Проверьте ключ, модель, лимит и online_agent.log."
+            )
+
+    def _on_api_test_result(self, message):
+        self.mic_status.setText(message)
+        if hasattr(self, "settings_panel"):
+            self.settings_panel.online_status.setText(message)
 
     def preview_voice(self):
         self.save_settings()
