@@ -16,7 +16,7 @@ from luxai.fast_intents import strip_wake_name
 from luxai.file_actions import user_folder
 
 OPEN_FILE_RE = re.compile(
-    r"^\s*(?:открой|открыть|откройте|запусти|открой-ка|"
+    r"^\s*(?:открой|откроет|откроешь|открывай|открыть|откройте|запусти|открой-ка|"
     r"open|deschide)\s+"
     r"(?:(?:пожалуйста|мне|этот|мой|мою|my|te rog)\s+)*"
     r"(?:файл|файлик|документ|папку|папка|file|document|"
@@ -26,6 +26,7 @@ OPEN_FILE_RE = re.compile(
 TRAILING_PLACE = re.compile(
     r"\s+(?:на\s+рабоч(?:ем|ий)\s+стол(?:е|а)|"
     r"с\s+рабоч(?:его|ем)\s+стол(?:а|е)|"
+    r"на\s+(?:десктопе|desktop)|с\s+(?:десктопа|desktop)|"
     r"в\s+(?:папке\s+)?(?:документах|загрузках)|"
     r"из\s+(?:папки\s+)?(?:документов|загрузок)|"
     r"on\s+(?:the\s+)?desktop|from\s+(?:the\s+)?desktop|"
