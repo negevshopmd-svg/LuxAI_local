@@ -34,8 +34,8 @@ def main():
     # Under the normal portable-copy path, the OCR binary and its native
     # DLL dependencies are next to LuxAI's local language models.
     assert WINDOWS_EXECUTABLE.exists(), (
-        "Vendor installed only into Program Files; bundled OCR copy missing."
-    ), binary
+        f"Vendor installed only into Program Files; bundled OCR copy missing: {binary}"
+    )
 
     font_path = Path("C:/Windows/Fonts/arial.ttf")
     if not font_path.is_file():
