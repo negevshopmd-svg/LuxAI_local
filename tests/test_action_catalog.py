@@ -104,6 +104,27 @@ class ActionCatalogTests(unittest.TestCase):
             self.assertIn("Сохранено", yes)
             runner.assert_called_once()
 
+    def test_user_defined_terminal_actions_wait_for_real_exit_code(self):
+        from luxai.desktop_actions import _launch_user_script
+        fake_done = type("Result", (), {"returncode": 0})()
+        with mock.patch("luxai.desktop_actions.sys.platform", "win32"), mock.patch(
+            "luxai.desktop_actions.subprocess.run", return_value=fake_done
+        ) as executor:
+            result = _launch_user_script("run_cmd", "echo test")
+            self.assertIn("выполнена", result)
+            args = executor.call_args.args[0]
+            self.assertEqual(args[:3], ["cmd.exe", "/D", "/C"])
+            self.assertEqual(args[3], "echo test")
+            self.assertFalse(executor.call_args.kwargs["shell"])
+            self.assertEqual(executor.call_args.kwargs["timeout"], 25)
+
+        failed = type("Result", (), {"returncode": 7})()
+        with mock.patch("luxai.desktop_actions.sys.platform", "win32"), mock.patch(
+            "luxai.desktop_actions.subprocess.run", return_value=failed
+        ):
+            with self.assertRaisesRegex(OSError, "код 7"):
+                _launch_user_script("run_powershell", "Get-Date")
+
     def test_manual_shell_action_always_requires_confirmation(self):
         agent = LocalAgent({"language": "ru"})
         plan = validate_step({"action": "run_cmd", "target": "echo hello"})
