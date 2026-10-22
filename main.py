@@ -382,7 +382,7 @@ class MainWindow(QMainWindow):
             return
         self.cfg.update({
             "microphone_enabled": self.mic.isChecked(),
-            "prefix_enabled": self.prefix.isChecked(),
+            "prefix_enabled": self.prefix.isChecked() or self.home_prefix.isChecked(),
             "wake_prefix": self.prefix_text.text().strip() or "Jarvis",
             "language": self.language.currentData(),
             "tts_enabled": self.tts.isChecked(),
@@ -396,6 +396,11 @@ class MainWindow(QMainWindow):
             self.prefix.setChecked(enabled)
         if hasattr(self, "mic"):
             self.save_settings()
+        # Restart the listener so prefix changes apply immediately.
+        if self.worker and self.worker.isRunning():
+            self.stop_listener()
+            if self.cfg.get("microphone_enabled", True):
+                self.start_listener()
 
     def sync_quiet(self, enabled):
         if hasattr(self, "tts"):
@@ -419,6 +424,7 @@ class MainWindow(QMainWindow):
         if self.worker and self.worker.isRunning():
             return
         self.save_settings()
+        # Always pass the latest saved prefix settings to a newly started listener.
         self.worker = VoiceWorker(dict(self.cfg))
         self.worker.transcript.connect(self.handle_voice)
         self.worker.status.connect(self.mic_status.setText)
