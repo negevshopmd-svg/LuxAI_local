@@ -24,6 +24,7 @@ from luxai.api_verification import check_api_key_detailed
 from luxai.api_providers import PROVIDERS
 from luxai.command_registry import CommandRegistry
 from luxai.ui_commands import CommandsPage
+from luxai.command_wizard import CommandWizard, is_create_command_request
 
 BASE = Path(__file__).resolve().parent
 CONFIG = BASE / "config.json"
@@ -81,6 +82,7 @@ class MainWindow(QMainWindow):
     local_reply_ready = Signal(str, str)
     api_test_result = Signal(str, bool, str, object)
     tts_played = Signal(bool)
+    wizard_plan_ready = Signal(str, object)
 
     def __init__(self):
         super().__init__()
@@ -90,8 +92,12 @@ class MainWindow(QMainWindow):
         self.cfg = load_config()
         self.agent = LocalAgent(self.cfg)
         self.command_registry = CommandRegistry()
+        self.command_wizard = CommandWizard(
+            self.command_registry, self.cfg.get("wake_prefix", "Jarvis"),
+        )
         self.online_planner = OnlinePlanner(self.cfg)
         self.online_plan_ready.connect(self._on_online_plan)
+        self.wizard_plan_ready.connect(self._on_wizard_plan)
         self.local_reply_ready.connect(self._on_local_reply)
         self.api_test_result.connect(self._on_api_test_result)
         self.tts_played.connect(self._on_tts_played)
@@ -188,7 +194,59 @@ class MainWindow(QMainWindow):
         """Show editable built-in and learned commands instead of only history."""
         self.commands_page = CommandsPage(self.command_registry)
         self.commands_page.run_requested.connect(self.run_saved_command)
+        self.commands_page.voice_create_requested.connect(self.start_voice_command_wizard)
         self.pages.addWidget(self.commands_page)
+
+    def _wizard_response(self, message):
+        if not message:
+            return
+        self.append_message("Jarvis", message, "#a5b9dc")
+        self.mic_status.setText("Создание голосовой команды")
+        if self.cfg.get("tts_enabled", True):
+            self._queue_speech(message, self.cfg.get("language", "ru"))
+
+    def start_voice_command_wizard(self):
+        if self.command_wizard.active:
+            self._wizard_response("Команда уже создаётся. Продолжите или скажите «отмена».")
+            return
+        self.command_wizard.wake_prefix = self.cfg.get("wake_prefix", "Jarvis")
+        self._wizard_response(self.command_wizard.start())
+
+    def _wizard_handle_answer(self, text):
+        response, online_description, saved = self.command_wizard.feed(text)
+        self._wizard_response(response)
+        if saved:
+            self.commands_page.refresh()
+        if online_description:
+            if self.online_planner.enabled():
+                history = tuple()
+                threading.Thread(
+                    target=self._wizard_online_thread,
+                    args=(online_description, history),
+                    daemon=True, name="JarvisVoiceCommandPlanner",
+                ).start()
+            else:
+                response, _ = self.command_wizard.accept_online_plan(None)
+                self._wizard_response(response)
+
+    def _wizard_online_thread(self, description, history):
+        try:
+            proposal = self.online_planner.plan(description, history=history)
+        except Exception:
+            proposal = None
+        if not self._closed:
+            try:
+                self.wizard_plan_ready.emit(description, proposal)
+            except RuntimeError:
+                pass
+
+    def _on_wizard_plan(self, description, plan):
+        if self._closed or not self.command_wizard.active:
+            return
+        if self.command_wizard.stage != "online" or self.command_wizard.description != description:
+            return
+        response, _ = self.command_wizard.accept_online_plan(plan)
+        self._wizard_response(response)
 
     def run_saved_command(self, entry):
         if not isinstance(entry, dict) or not entry.get("enabled"):
@@ -304,6 +362,8 @@ class MainWindow(QMainWindow):
         if self.agent:
             self.agent.update_config(self.cfg)
         self.online_planner.update_config(self.cfg)
+        if hasattr(self, "command_wizard"):
+            self.command_wizard.wake_prefix = self.cfg.get("wake_prefix", "Jarvis")
 
     def apply_settings(self, *_):
         """Save settings and apply them to running services where supported."""
@@ -606,6 +666,12 @@ class MainWindow(QMainWindow):
         # Always record what was recognized, including speech without the wake prefix.
         self.append_message("Tu (voce)", spoken, "#79a6ff")
 
+        # Wizard replies do not need the wake word: the assistant explicitly
+        # asked the user to dictate a phrase or action in the next utterance.
+        if self.command_wizard.active:
+            self._wizard_handle_answer(spoken)
+            return
+
         if self.cfg.get("prefix_enabled", False):
             configured = str(self.cfg.get("wake_prefix", "Jarvis") or "Jarvis")
             # Accept multiple names separated by commas, plus common Whisper variants.
@@ -673,6 +739,12 @@ class MainWindow(QMainWindow):
         """Queue multi-part commands, routing unfamiliar ones off the UI thread."""
         text = str(text or "").strip()
         if not text:
+            return
+        if self.command_wizard.active:
+            self._wizard_handle_answer(text)
+            return
+        if is_create_command_request(text):
+            self.start_voice_command_wizard()
             return
         self.save_settings()
         if len(self._command_queue) >= 8:
