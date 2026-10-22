@@ -3,9 +3,49 @@
 Jarvis uses two distinct agents:
 
 1. **Online planner**, optional, interprets unfamiliar commands and returns structured JSON. Supported presets: **DeepSeek**, **OpenAI**, **OrcaRouter**, **OpenRouter**, **Groq**, **Google Gemini**, **Mistral AI**, **Together AI**, **Fireworks AI**, **xAI/Grok** and **Anthropic/Claude**. A custom **HTTPS OpenAI-compatible** `/chat/completions` endpoint is available for other providers.
-2. **Local executor** independently checks the proposal and runs only an allowlisted action (or answers via the local `.gguf` model). It never copies an online model's CMD/PowerShell commands into the terminal. Frequent commands (time, Dota 2, Telegram, etc.) bypass cloud inference entirely.
+2. **Local Windows executor** validates the proposed action, locates installed programs, verifies Steam App IDs and executes only the corresponding supported operation. With cloud enabled and an API key saved, **Gemini runs first for unfamiliar voice tasks**. Explicitly saved personal shortcuts and instant conversational responses still bypass cloud to avoid unnecessary delays. The local GGUF model is only a conversational fallback and is **never permitted to claim it executed Windows actions**.
 
 **Important:** API keys cannot be used interchangeably. Choose the provider that **issued the key**. API-key prefixes are not reliable enough to identify the provider automatically. The app cannot guarantee compatibility with every API or model: nonstandard authentication/protocols and individual providers' model limits may require an adapter.
+
+## Схема Gemini → локальный Windows-исполнитель
+
+**Примеры:**
+
+- «Жарвис, открой Firefox» → Gemini выбирает действие open_app и название
+  firefox. Локальный исполнитель ищет установленную программу в Windows
+  App Paths, PATH и ярлыках Start Menu. После подтверждения пытается
+  открыть найденную реальную программу. «Передал Windows запрос на запуск»
+  не означает доказательство, что программа появилась на экране.
+- «Запусти Undertale в Steam» → Gemini выбирает steam_game и официальное
+  название Undertale. Локальный исполнитель проверяет ID через Steam Store
+  или проверенный каталог: 391540. Запускает URI steam://rungameid/391540
+  (эквивалент CMD start steam://rungameid/391540, без произвольного shell).
+- «Создай файл на рабочем столе» → локальный исполнитель создаёт файл с
+  подтверждением и проверкой существования.
+- «Переименуй его в заметки.txt» → если в текущей сессии недавно был
+  создан или переименован файл, Jarvis подставляет реальное имя последнего
+  файла. Переименование не заменяет существующие файлы.
+- «Удали его» → файл перемещается в Корзину Windows, только после
+  подтверждения пользователя.
+- «Какая погода завтра в Кишинёве?» → Gemini использует Google Search
+  grounding, а не выдаёт устаревшее предположение локальной модели.
+  Поиск может расходовать квоту и быть платным на некоторых тарифах.
+
+**Чтобы Gemini действительно вызывался первым:** выберите Google Gemini в
+Настройки → ИИ-провайдер, сохраните рабочий ключ, нажмите Проверить ключ,
+включите Облачный помощник. Строка состояния показывает этапы
+«Шаг 1/2: онлайн-планировщик Google Gemini» и
+«Шаг 2/2: локальный исполнитель». При ошибке API неисполненные действия
+отмечаются «Системное действие НЕ выполнено».
+
+**Безопасность:** модель не запускает произвольные команды CMD или
+PowerShell, только проверенные функции Windows со строго ограниченными
+параметрами. Если модель предложит путь или исполняемый скрипт, запрос
+отклоняется. Скрипты, вручную введённые пользователем в редакторе,
+запускаются отдельно, с явным подтверждением.
+
+Документация Google Search grounding:
+https://ai.google.dev/gemini-api/docs/generate-content/google-search.
 
 ## Настройка DeepSeek
 
