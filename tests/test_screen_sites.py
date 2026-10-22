@@ -164,7 +164,8 @@ class ScreenButtonTests(unittest.TestCase):
 
         snap = self._snapshot([VisibleButton("Да", (10, 10, 60, 40))])
         user32 = types.SimpleNamespace(
-            SetForegroundWindow=mock.Mock(return_value=True)
+            SetForegroundWindow=mock.Mock(return_value=True),
+            WindowFromPoint=mock.Mock(return_value=142),
         )
         fake_mouse = types.SimpleNamespace(
             moveTo=mock.Mock(), click=mock.Mock()
@@ -175,6 +176,8 @@ class ScreenButtonTests(unittest.TestCase):
             return_value=(8765, "Some Desktop Program")
         ), mock.patch(
             "luxai.screen_interact._foreground_hwnd", return_value=142
+        ), mock.patch(
+            "luxai.screen_interact._window_pid", return_value=8765
         ), mock.patch(
             "luxai.screen_interact.inspect_screen_buttons",
             return_value=snap
@@ -188,6 +191,42 @@ class ScreenButtonTests(unittest.TestCase):
         fake_mouse.moveTo.assert_called_once_with(35, 25, duration=0.12)
         fake_mouse.click.assert_called_once_with(35, 25)
 
+    def test_covered_button_in_another_process_never_clicked(self):
+        import ctypes
+        import sys
+        import types
+
+        snap = self._snapshot([VisibleButton("Да", (10, 10, 60, 40))])
+        user32 = types.SimpleNamespace(
+            SetForegroundWindow=mock.Mock(return_value=True),
+            WindowFromPoint=mock.Mock(return_value=143),
+        )
+        fake_mouse = types.SimpleNamespace(moveTo=mock.Mock(), click=mock.Mock())
+        with mock.patch.object(
+            ctypes, "windll",
+            types.SimpleNamespace(user32=user32), create=True,
+        ), mock.patch(
+            "luxai.screen_interact._valid_external_window",
+            return_value=(8765, "Some Desktop Program")
+        ), mock.patch(
+            "luxai.screen_interact._foreground_hwnd",
+            return_value=142
+        ), mock.patch(
+            "luxai.screen_interact._window_pid",
+            return_value=9999  # Jarvis or another window overlays the target
+        ), mock.patch(
+            "luxai.screen_interact.inspect_screen_buttons",
+            return_value=snap
+        ), mock.patch(
+            "luxai.screen_interact.time.sleep"
+        ), mock.patch.dict(sys.modules, {"pyautogui": fake_mouse}):
+            result = click_inspected_button(
+                snap, "yes", confirm=lambda _: True,
+            )
+        self.assertIn("закрыта другим окном", result)
+        fake_mouse.moveTo.assert_not_called()
+        fake_mouse.click.assert_not_called()
+
     def test_button_moved_after_confirmation_prevents_click(self):
         import ctypes
         import sys
@@ -199,7 +238,8 @@ class ScreenButtonTests(unittest.TestCase):
         with mock.patch.object(
             ctypes, "windll",
             types.SimpleNamespace(user32=types.SimpleNamespace(
-                SetForegroundWindow=mock.Mock(return_value=True)
+                SetForegroundWindow=mock.Mock(return_value=True),
+                WindowFromPoint=mock.Mock(return_value=142),
             )),
             create=True,
         ), mock.patch(
