@@ -37,14 +37,38 @@ class QtActionTests(unittest.TestCase):
         self.assertIn("press_enter", picker._buttons)
         picker.close()
 
-    def test_sensitive_actions_are_disabled_in_palette(self):
+    def test_terminal_actions_have_explicit_parameter_dialog(self):
         picker = ActionPicker()
         picker.category_list.setCurrentRow(1)
         self.assertIn("run_cmd", picker._buttons)
-        self.assertFalse(picker._buttons["run_cmd"].isEnabled())
-        self.assertFalse(picker._buttons["run_powershell"].isEnabled())
-        picker._choose_action("open_website")
+        self.assertTrue(picker._buttons["run_cmd"].isEnabled())
+        self.assertTrue(picker._buttons["run_powershell"].isEnabled())
+        picker._choose_action("run_cmd")
         self.assertTrue(picker.add_button.isEnabled())
+        editor = ActionOptionsDialog("run_cmd")
+        editor.target.setText("echo hello")
+        editor._accept()
+        self.assertEqual(editor.result(), QDialog.DialogCode.Accepted)
+        self.assertEqual(editor.data["target"], "echo hello")
+        editor.close()
+        picker.close()
+
+    def test_action_tiles_keep_title_description_in_separate_rows(self):
+        from PySide6.QtWidgets import QLabel
+        from PySide6.QtCore import Qt
+        picker = ActionPicker()
+        self.assertTrue(bool(picker.windowFlags() & Qt.WindowType.FramelessWindowHint))
+        picker.show()
+        QApplication.processEvents()
+        picker.category_list.setCurrentRow(1)
+        QApplication.processEvents()
+        tile = picker._buttons["run_cmd"]
+        title = tile.findChild(QLabel, "TileTitle")
+        description = tile.findChild(QLabel, "TileDescription")
+        self.assertIsNotNone(title)
+        self.assertIsNotNone(description)
+        self.assertGreaterEqual(description.geometry().top(), title.geometry().bottom())
+        self.assertGreaterEqual(tile.height(), 70)
         picker.close()
 
     def test_parameter_dialog_validates_website(self):
