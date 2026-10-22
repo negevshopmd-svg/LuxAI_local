@@ -16,15 +16,17 @@ import urllib.request
 GAMES = {
     "dota2": (570, "Dota 2"),
     "cs2": (730, "Counter-Strike 2"),
+    "warthunder": (236390, "War Thunder"),
 }
 
 ALIASES = {
     "dota2": ("dota", "dota 2", "дота", "доту", "доты", "дота 2", "доту 2"),
     "cs2": ("cs2", "cs 2", "csgo", "cs:go", "кс2", "кс 2", "контр страйк", "counter strike"),
+    "warthunder": ("war thunder", "warthunder", "вар тандер", "вартандер", "вар тандр", "war-tunder"),
 }
 
 LAUNCH_VERBS = (
-    "открой", "открыть", "запусти", "запустить", "включи",
+    "открой", "открыть", "открывай", "запусти", "запустить", "включи",
     "open", "launch", "start", "run", "play", "deschide", "porneste", "pornește",
 )
 
