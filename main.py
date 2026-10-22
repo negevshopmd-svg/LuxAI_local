@@ -13,40 +13,13 @@ from luxai.agent import LocalAgent
 from luxai.voice import VoiceListener, speak
 from luxai.screen import capture_screen, read_screen_text
 from luxai.settings_panel import SettingsPanel
+from luxai.ui_home import HomePage
+from luxai.ui_sidebar import NavigationSidebar
+from luxai.styles import build_styles
 
 BASE = Path(__file__).resolve().parent
 CONFIG = BASE / "config.json"
 
-STYLE = """
-QWidget { background:#101319; color:#e9edf5; font-family:'Fuzzy Bubbles','Segoe UI'; font-size:13px; }
-QMainWindow { background:#101319; }
-QFrame#Sidebar { background:#151a23; border-right:1px solid #252c39; }
-QFrame#Card { background:#1b2029; border:1px solid #303744; border-radius:15px; }
-QLabel#PageTitle { font-size:23px; font-weight:700; color:#f4f6fb; }
-QLabel#Muted { color:#a2a9b7; }
-QPushButton { background:#252c38; color:#e9edf5; border:1px solid #363f4e; border-radius:9px; padding:9px 13px; }
-QPushButton:hover { background:#30394a; border-color:#4d7fff; }
-QPushButton#Primary { background:#3978f6; border:0; color:white; font-weight:600; }
-QPushButton#Primary:hover { background:#4d88ff; }
-QPushButton#Nav { text-align:left; padding:12px 14px; background:transparent; border:0; border-radius:9px; color:#b7bfcc; }
-QPushButton#Nav:hover { background:#222936; color:white; }
-QPushButton#Nav[active="true"] { background:#252d3a; color:white; border-left:3px solid #4b83ff; }
-QFrame#SettingsSidebar { background:#1b2029; border:1px solid #303744; border-radius:15px; }
-QPushButton#SettingsNav { background:transparent; border:0; text-align:left; padding:10px 12px; color:#b7bfcc; }
-QPushButton#SettingsNav:hover { background:#252c38; }
-QPushButton#SettingsNav[selected="true"] { background:#30394a; color:white; border-left:3px solid #4b83ff; }
-QLineEdit, QTextEdit, QComboBox { background:#131820; border:1px solid #343c4a; border-radius:9px; padding:10px; selection-background-color:#3978f6; }
-QLineEdit:focus, QTextEdit:focus, QComboBox:focus { border-color:#4b83ff; }
-QCheckBox { spacing:10px; color:#cbd2dd; }
-QCheckBox::indicator { width:17px; height:17px; }
-QCheckBox::indicator:unchecked { background:#252c38; border:1px solid #4a5362; border-radius:8px; }
-QCheckBox::indicator:checked { background:#3978f6; border:1px solid #3978f6; border-radius:8px; }
-QSlider::groove:horizontal { height:5px; background:#343c4a; border-radius:2px; }
-QSlider::sub-page:horizontal { background:#3978f6; border-radius:2px; }
-QSlider::handle:horizontal { background:white; width:15px; margin:-5px 0; border-radius:7px; }
-QScrollBar:vertical { background:#151a23; width:9px; margin:2px; }
-QScrollBar::handle:vertical { background:#3a4352; min-height:25px; border-radius:4px; }
-"""
 
 def load_config():
     try:
@@ -117,54 +90,34 @@ class MainWindow(QMainWindow):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
-        sidebar = QFrame()
-        sidebar.setObjectName("Sidebar")
-        sidebar.setFixedWidth(176)
-        side = QVBoxLayout(sidebar)
-        side.setContentsMargins(12, 18, 12, 14)
-        side.setSpacing(8)
-
-        brand = QHBoxLayout()
-        logo = QLabel("◉")
-        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        logo.setFixedSize(42, 42)
-        logo.setStyleSheet("background:#2f70e8;color:white;border-radius:21px;font-size:25px;font-weight:700;")
-        brand_name = QLabel("JARVIS")
-        brand_name.setStyleSheet("font-size:17px;font-weight:800;letter-spacing:1px;")
-        brand.addWidget(logo)
-        brand.addWidget(brand_name)
-        brand.addStretch()
-        side.addLayout(brand)
-        side.addSpacing(24)
-
-        for label, page in [("⌂   Главная", 0), ("☷   Команды", 1), ("▦   Дополнения", 2), ("▣   Jarvis", 3), ("☷   Настройки", 4)]:
-            btn = QPushButton(label)
-            btn.setObjectName("Nav")
-            btn.setProperty("active", page == 0)
-            btn.clicked.connect(lambda checked=False, p=page: self.show_page(p))
-            side.addWidget(btn)
-            self.nav_buttons.append(btn)
-        side.addStretch()
-        collapse = QPushButton("◁   Свернуть")
-        collapse.setObjectName("Nav")
-        collapse.clicked.connect(lambda: sidebar.setFixedWidth(72 if sidebar.width() > 100 else 176))
-        side.addWidget(collapse)
-        outer.addWidget(sidebar)
+        self.sidebar = NavigationSidebar()
+        self.sidebar.page_selected.connect(self.show_page)
+        self.nav_buttons = self.sidebar.nav_buttons
+        outer.addWidget(self.sidebar)
 
         content = QWidget()
         self.content_frame = content
-        content.setStyleSheet("background:#101319;")
+        content.setObjectName("MainContent")
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(24, 20, 24, 18)
         content_layout.setSpacing(14)
         header = QHBoxLayout()
         self.header_title = QLabel("Jarvis   |   Главная")
+        self.header_title.setObjectName("HeaderTitle")
         self.header_title.setStyleSheet("font-size:17px;font-weight:650;")
         header.addWidget(self.header_title)
         header.addStretch()
         self.mic_status = QLabel("●  Локальный режим")
         self.mic_status.setStyleSheet("color:#8ea2c2;padding-right:8px;")
         header.addWidget(self.mic_status)
+        self.header_mic_button = QPushButton("◉" if self.cfg.get("microphone_enabled", True) else "◌")
+        self.header_mic_button.setObjectName("HeaderMic")
+        self.header_mic_button.setFixedSize(42, 40)
+        self.header_mic_button.setToolTip("Включить или выключить микрофон")
+        self.header_mic_button.setCheckable(True)
+        self.header_mic_button.setChecked(self.cfg.get("microphone_enabled", True))
+        self.header_mic_button.clicked.connect(self.toggle_microphone_from_header)
+        header.addWidget(self.header_mic_button)
         content_layout.addLayout(header)
 
         self.pages = QStackedWidget()
@@ -184,77 +137,23 @@ class MainWindow(QMainWindow):
             self.start_listener()
 
     def build_home(self):
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 8, 0, 0)
-        layout.setSpacing(16)
-        top = QHBoxLayout()
-        intro = QVBoxLayout()
-        title = QLabel("Добро пожаловать в Jarvis!")
-        title.setStyleSheet("font-size:23px;font-weight:700;")
-        subtitle = QLabel("Ваш локальный ассистент готов к работе.")
-        subtitle.setObjectName("Muted")
-        intro.addWidget(title)
-        intro.addWidget(subtitle)
-        top.addLayout(intro, 1)
-        self.avatar = QLabel(" ")
-        self.avatar.setFixedSize(150, 150)
-        self.avatar.setStyleSheet("background:qradialgradient(cx:0.8,cy:0.5,radius:1,stop:0 #4788ff,stop:0.38 #3569c4,stop:0.68 #203454,stop:1 #101319);border-radius:75px;")
-        top.addWidget(self.avatar)
-        layout.addLayout(top)
+        """Create the separate Luxify-inspired home widget."""
+        self.home_page = HomePage(self.cfg)
+        self.home_history = self.home_page.home_history
+        self.home_prefix = self.home_page.home_prefix
+        self.home_quiet = self.home_page.home_quiet
+        self.home_avatar = self.home_page.home_avatar
+        self.home_top = self.home_page.home_top
+        self.volume = self.home_page.volume
+        self.volume_label = self.home_page.volume_label
+        self.avatar = self.home_page.avatar
 
-        row = QHBoxLayout()
-        history_frame, history_layout = card()
-        history_title = QLabel("История команд")
-        history_title.setStyleSheet("font-size:17px;font-weight:700;")
-        history_layout.addWidget(history_title)
-        self.home_history = QTextEdit()
-        self.home_history.setReadOnly(True)
-        self.home_history.setPlaceholderText("Здесь появится история ваших команд.")
-        self.home_history.setMinimumHeight(190)
-        history_layout.addWidget(self.home_history)
-        row.addWidget(history_frame, 3)
-
-        control_frame, control_layout = card()
-        control_title = QLabel("Панель управления")
-        control_title.setStyleSheet("font-size:17px;font-weight:700;")
-        control_layout.addWidget(control_title)
-        self.home_prefix = QCheckBox("Режим префикса")
-        self.home_prefix.setChecked(self.cfg.get("prefix_enabled", False))
         self.home_prefix.toggled.connect(self.sync_prefix)
-        control_layout.addWidget(self.home_prefix)
-        self.home_quiet = QCheckBox("Тихий режим (без голоса)")
-        self.home_quiet.setChecked(not self.cfg.get("tts_enabled", True))
         self.home_quiet.toggled.connect(self.sync_quiet)
-        control_layout.addWidget(self.home_quiet)
-        self.home_avatar = QCheckBox("Анимация аватара")
-        self.home_avatar.setChecked(True)
         self.home_avatar.toggled.connect(self.sync_animation)
-        control_layout.addWidget(self.home_avatar)
-        self.home_top = QCheckBox("Окно поверх остальных")
-        self.home_top.setChecked(False)
         self.home_top.toggled.connect(self.set_always_on_top)
-        control_layout.addWidget(self.home_top)
-        volume_row = QHBoxLayout()
-        volume_row.addWidget(QLabel("Громкость"))
-        self.volume = QSlider(Qt.Orientation.Horizontal)
-        self.volume.setRange(0, 100)
-        self.volume.setValue(int(self.cfg.get("voice_volume", 80)))
-        volume_row.addWidget(self.volume, 1)
-        self.volume_label = QLabel(f"{self.volume.value()}%")
         self.volume.valueChanged.connect(self.sync_volume)
-        volume_row.addWidget(self.volume_label)
-        control_layout.addLayout(volume_row)
-        row.addWidget(control_frame, 2)
-        layout.addLayout(row, 1)
-
-        quick = QHBoxLayout()
-        for text, page_num in [("Открыть Jarvis", 3), ("Настройки", 4), ("Дополнения", 2)]:
-            b = QPushButton(text)
-            b.clicked.connect(lambda checked=False, p=page_num: self.show_page(p))
-            quick.addWidget(b)
-        layout.addLayout(quick)
-        self.pages.addWidget(page)
+        self.pages.addWidget(self.home_page)
 
     def build_commands(self):
         page = QWidget()
@@ -351,12 +250,13 @@ class MainWindow(QMainWindow):
 
     def show_page(self, index):
         self.pages.setCurrentIndex(index)
-        titles = ["Главная", "Команды", "Дополнения", "Jarvis", "Настройки"]
+        titles = ["Главная", "Команды", "Дополнения", "Jarvis AI", "Настройки"]
         self.header_title.setText("Jarvis   |   " + titles[index])
-        for i, button in enumerate(self.nav_buttons):
-            button.setProperty("active", i == index)
-            button.style().unpolish(button)
-            button.style().polish(button)
+        self.sidebar.set_active(index)
+
+    def toggle_microphone_from_header(self, enabled):
+        self.settings_panel.mic.setChecked(bool(enabled))
+        self.apply_settings()
 
     def save_settings(self, *_):
         if not hasattr(self, "settings_panel"):
@@ -428,51 +328,35 @@ class MainWindow(QMainWindow):
             self.mic_status.setText("Голос недоступен: откройте voice_error.log.")
 
     def apply_appearance(self):
+        """Apply the shared look to every page, including the separate home."""
         theme = self.cfg.get("ui_theme", "dark")
         accent = self.cfg.get("ui_accent", "#3978f6")
-        style = STYLE
-        if theme == "light":
-            # Replace all dark surfaces and main text colours for a readable light theme.
-            replacements = {
-                "#101319": "#f5f7fb",
-                "#151a23": "#eef1f7",
-                "#1b2029": "#ffffff",
-                "#131820": "#ffffff",
-                "#252c38": "#e3e8f2",
-                "#252d3a": "#dce7ff",
-                "#222936": "#e6ecf6",
-                "#303744": "#ccd4e0",
-                "#343c4a": "#b4becc",
-                "#363f4e": "#b4becc",
-                "#e9edf5": "#20293b",
-                "#f4f6fb": "#162034",
-                "#b7bfcc": "#344054",
-                "#cbd2dd": "#344054",
-                "#a2a9b7": "#667085",
-            }
-            for old, new in replacements.items():
-                style = style.replace(old, new)
-        style = style.replace("#3978f6", accent).replace("#4b83ff", accent)
         app = QApplication.instance()
-        if app:
-            app.setStyleSheet(style)
+        if app is not None:
+            app.setStyleSheet(build_styles(theme, accent))
+
+        # SettingsPanel has a local frame style; keep it synchronized too.
         if hasattr(self, "settings_panel"):
-            card_bg = "#ffffff" if theme == "light" else "#1b2029"
-            card_border = "#ccd4e0" if theme == "light" else "#303744"
-            heading_color = "#162034" if theme == "light" else "#f4f6fb"
+            card_bg = "#ffffff" if theme == "light" else "#1b1d20"
+            card_border = "#cdd6e4" if theme == "light" else "#30343a"
+            heading_color = "#162034" if theme == "light" else "#f0f2f6"
             for section in self.settings_panel.sections:
                 section.setStyleSheet(
                     f"QFrame#SettingsCard {{background:{card_bg}; border:1px solid {card_border}; border-radius:15px;}}"
                     "QFrame#SettingsCard QLabel {background:transparent; border:0;}"
                     "QFrame#SettingsCard QCheckBox {background:transparent; border:0;}"
                 )
-                # Section headings are styled on construction; adapt their foreground.
                 for child in section.findChildren(QLabel):
                     if child.text() in [name for name, _ in self.settings_panel.SECTIONS]:
-                        child.setStyleSheet(f"font-size:18px; font-weight:700; color:{heading_color};")
-        self.content_frame.setStyleSheet("background:#f5f7fb;" if theme == "light" else "background:#101319;")
-        self.setWindowOpacity(max(0.65, 1.0 - float(self.cfg.get("ui_transparency", 0)) / 100))
-        self.avatar.setVisible(bool(self.cfg.get("ui_animations", True)))
+                        child.setStyleSheet(
+                            f"font-size:18px; font-weight:700; color:{heading_color};"
+                        )
+
+        self.setWindowOpacity(
+            max(0.65, 1.0 - float(self.cfg.get("ui_transparency", 0)) / 100)
+        )
+        self.avatar.set_theme(theme)
+        self.avatar.set_animated(bool(self.cfg.get("ui_animations", True)))
         self.setWindowFlag(
             Qt.WindowType.WindowStaysOnTopHint,
             bool(self.cfg.get("always_on_top", False)),
@@ -554,7 +438,7 @@ class MainWindow(QMainWindow):
             self.save_settings()
 
     def sync_animation(self, enabled):
-        self.avatar.setVisible(enabled)
+        self.avatar.set_animated(enabled)
         if hasattr(self, "settings_panel"):
             self.settings_panel.animations.setChecked(enabled)
             self.save_settings()
@@ -675,7 +559,11 @@ class MainWindow(QMainWindow):
         entry = f'<p style="margin:8px 0"><b style="color:{color}">{html.escape(who)}:</b><br>{safe}</p>'
         self.log.append(entry)
         self.command_history.append(entry)
-        self.home_history.append(entry)
+        color_line = "#4388f9" if who.startswith("Tu") else "#868d98"
+        self.home_history.append(
+            f'<p style="margin:5px 0; padding-left:10px; border-left:2px solid {color_line};">'
+            f'<span style="color:{color_line};font-weight:600;">{html.escape(who)}</span>  {safe}</p>'
+        )
         self.history.append((who, str(text)))
 
     def run_command(self, text):
@@ -808,10 +696,8 @@ def load_project_font():
 
 app = QApplication(sys.argv)
 app.setStyle("Fusion")
-load_project_font()
-app.setStyleSheet(STYLE)
-available_fonts = {family.lower() for family in QFontDatabase.families()}
-app.setFont(QFont("Fuzzy Bubbles" if "fuzzy bubbles" in available_fonts else "Segoe UI", 10))
+app.setFont(QFont("Segoe UI", 10))
+app.setStyleSheet(build_styles())
 w = MainWindow()
 w.show()
 sys.exit(app.exec())
