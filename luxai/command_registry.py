@@ -15,6 +15,7 @@ from pathlib import Path
 from luxai.fast_intents import strip_wake_name
 from luxai.file_actions import safe_name, ALLOWED_LOCATIONS
 from luxai.steam_games import GAMES
+from luxai.action_catalog import CATALOG, validate_step
 
 BASE = Path(__file__).resolve().parents[1]
 DATA_DIR = BASE / ".luxai_data"
@@ -28,7 +29,7 @@ GAME_TARGETS = tuple(GAMES)
 ACTIONS = {
     "open_app", "launch_game", "steam_verified", "create_file",
     "create_folder", "list_files", "time", "minimize_windows",
-}
+} | {name for name, item in CATALOG.items() if item["available"]}
 
 
 def _built_in(category, title, action, target="", phrases=(), location="desktop"):
@@ -119,6 +120,16 @@ def checked_command(raw, builtin=False):
     action = raw.get("action")
     target = raw.get("target", "")
     location = raw.get("location", "desktop")
+    raw_steps = raw.get("steps")
+    validated_steps = []
+    if raw_steps is not None:
+        if not isinstance(raw_steps, list) or not 1 <= len(raw_steps) <= 8:
+            raise ValueError("A command must contain 1 to 8 actions")
+        validated_steps = [validate_step(step) for step in raw_steps]
+        first = validated_steps[0]
+        action = first["action"]
+        target = first["target"]
+        location = first["location"]
     title = str(raw.get("title", "")).strip()
     phrases = raw.get("phrases", [])
     if action not in ACTIONS or not isinstance(target, str) or not isinstance(title, str):
@@ -165,6 +176,7 @@ def checked_command(raw, builtin=False):
         "enabled": bool(raw.get("enabled", True)),
         "builtin": bool(builtin),
         "learned": bool(raw.get("learned", False)) if not builtin else False,
+        "steps": validated_steps,
     }
 
 
