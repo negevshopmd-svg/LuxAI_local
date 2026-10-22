@@ -120,7 +120,7 @@ def close_installed_app(name: str, confirmed=None) -> tuple[bool, str]:
         f"Закрыть «{name}»? Открытых окон: {len(windows)}.\n"
         "Несохранённые документы могут вызвать запрос на сохранение."
     )
-    if confirmed is not None and not confirmed("⚠ " + question):
+    if confirmed is not None and not confirmed(question):
         return False, "Действие отменено."
 
     from ctypes import wintypes
