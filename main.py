@@ -1,5 +1,7 @@
 import re
 import sys, os, json, html, urllib.request
+import queue
+import threading
 from pathlib import Path
 from PySide6.QtCore import Qt, QThread, Signal, QTimer
 from PySide6.QtGui import QFontDatabase, QFont, QAction
@@ -16,6 +18,8 @@ from luxai.settings_panel import SettingsPanel
 from luxai.ui_home import HomePage
 from luxai.ui_sidebar import NavigationSidebar
 from luxai.styles import build_styles
+from luxai.online_agent import OnlinePlanner
+from luxai.secure_keys import store_api_key
 
 BASE = Path(__file__).resolve().parent
 CONFIG = BASE / "config.json"
@@ -55,7 +59,7 @@ class VoiceWorker(QThread):
                 microphone_device=self.cfg.get("microphone_device", -1),
                 beam_size=self.cfg.get("whisper_beam_size", 1),
             )
-            self.status.emit("Microfon activ — ascultare locală")
+            self.status.emit("Микрофон включён — локальное распознавание")
             for text in self.listener.listen():
                 if self.isInterruptionRequested():
                     break
@@ -66,9 +70,13 @@ class VoiceWorker(QThread):
         finally:
             if self.listener:
                 self.listener.stop()
-            self.status.emit("Microfon oprit")
+            self.status.emit("Микрофон выключен")
 
 class MainWindow(QMainWindow):
+    online_plan_ready = Signal(str, object)
+    local_reply_ready = Signal(str, str)
+    tts_played = Signal(bool)
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Jarvis")
@@ -76,6 +84,17 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(900, 600)
         self.cfg = load_config()
         self.agent = LocalAgent(self.cfg)
+        self.online_planner = OnlinePlanner(self.cfg)
+        self.online_plan_ready.connect(self._on_online_plan)
+        self.local_reply_ready.connect(self._on_local_reply)
+        self.tts_played.connect(self._on_tts_played)
+        self._command_queue = []
+        self._active_text = None
+        self._processing = False
+        self._closed = False
+        self._speech_queue = queue.Queue(maxsize=8)
+        self._speech_thread = threading.Thread(target=self._speech_loop, daemon=True, name="JarvisSpeech")
+        self._speech_thread.start()
         self.worker = None
         self.history = []
         self.nav_buttons = []
@@ -262,9 +281,20 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "settings_panel"):
             return
         self.cfg.update(self.settings_panel.collect())
+        key_field = self.settings_panel.api_key_entry
+        new_key = key_field.text().strip()
+        if new_key:
+            try:
+                store_api_key(new_key)
+                key_field.clear()
+                self.settings_panel.refresh_key_status()
+            except (ValueError, OSError, RuntimeError) as exc:
+                self.mic_status.setText("Ошибка сохранения ключа API.")
+                print(f"API key storage failed: {type(exc).__name__}")
         save_config(self.cfg)
         if self.agent:
             self.agent.update_config(self.cfg)
+        self.online_planner.update_config(self.cfg)
 
     def apply_settings(self, *_):
         """Save settings and apply them to running services where supported."""
@@ -327,11 +357,8 @@ class MainWindow(QMainWindow):
             "en": "Hello. I am Jarvis, your voice assistant.",
             "ro": "Salut. Sunt Jarvis, asistentul tău vocal.",
         }.get(language, "Здравствуйте. Я Джарвис, ваш голосовой помощник.")
-        self.mic_status.setText("Проверяю голос…")
-        if speak(example, enabled=True, language=language):
-            self.mic_status.setText("Голос воспроизведён.")
-        else:
-            self.mic_status.setText("Голос недоступен: откройте voice_error.log.")
+        self.mic_status.setText("Воспроизвожу пример голоса…")
+        self._queue_speech(example, language)
 
     def apply_appearance(self):
         """Apply the shared look to every page, including the separate home."""
@@ -576,40 +603,171 @@ class MainWindow(QMainWindow):
         self.history.append((who, str(text)))
 
     def run_command(self, text):
+        """Queue multi-part commands, routing unfamiliar ones off the UI thread."""
+        text = str(text or "").strip()
+        if not text:
+            return
         self.save_settings()
-        try:
-            pieces = [text]
-            connectors = [
-                token.strip() for token in
-                self.cfg.get("command_chain_words", "и затем, потом").split(",")
-                if token.strip()
-            ]
-            for connector in connectors:
-                split_parts = []
-                for part in pieces:
-                    split_parts.extend(re.split(r"\s+" + re.escape(connector) + r"\s+", part, flags=re.IGNORECASE))
-                pieces = split_parts
-            pieces = [piece.strip() for piece in pieces if piece.strip()]
-            if not pieces or len(pieces) > 4:
-                pieces = [text]
-            responses = []
+        if len(self._command_queue) >= 8:
+            self.mic_status.setText("Очередь заполнена. Подождите завершения команды.")
+            return
+        pieces = [text]
+        connectors = [
+            word.strip() for word in self.cfg.get("command_chain_words", "и затем, потом").split(",")
+            if word.strip()
+        ]
+        for connector in connectors:
+            next_parts = []
             for part in pieces:
-                answer = self.agent.handle(part, confirm_callback=self.confirm_action)
-                responses.append(answer)
-                if "отмен" in answer.lower() or "anulat" in answer.lower() or "cancelled" in answer.lower():
-                    break
-            result = "\n".join(responses)
-        except Exception as e:
-            result = f"Ошибка: {e}" if self.cfg.get("language") == "ru" else f"Eroare: {e}"
-        self.append_message("Jarvis", result, "#a5b9dc")
-        if self.cfg.get("tts_enabled", True):
-            played = speak(result, enabled=True, language=self.cfg.get("language", "ru"))
-            if not played:
-                self.mic_status.setText(
-                    "Нет русской голосовой модели. Проверьте voice_error.log и папку voices."
-                    if self.cfg.get("language") == "ru"
-                    else "Vocea nu este disponibilă. Verifică voice_error.log și folderul voices."
+                next_parts.extend(
+                    re.split(r"\s+" + re.escape(connector) + r"\s+", part, flags=re.IGNORECASE)
                 )
+            pieces = next_parts
+        pieces = [part.strip() for part in pieces if part.strip()]
+        if not pieces or len(pieces) > 4:
+            pieces = [text]
+        self._command_queue.append({"parts": pieces, "answers": []})
+        self._dispatch_command()
+
+    def _dispatch_command(self):
+        if self._processing or self._closed or not self._command_queue:
+            return
+        current = self._command_queue[0]
+        if not current["parts"]:
+            self._finish_command_group()
+            return
+        text = current["parts"].pop(0)
+        self._active_text = text
+        self._processing = True
+        try:
+            # Fast deterministic commands never need a cloud round trip or LLM.
+            answer = self.agent.handle_fast(text, confirm_callback=self.confirm_action)
+            if answer is not None:
+                self._resolved_command(text, answer)
+                return
+        except Exception as exc:
+            self._resolved_command(text, self._error_message(exc))
+            return
+
+        if self.online_planner.enabled():
+            self.mic_status.setText("Облачный агент распознаёт команду…")
+            history = tuple(dict(msg) for msg in self.agent.history[-4:])
+            threading.Thread(
+                target=self._online_thread, args=(text, history),
+                daemon=True, name="JarvisOnlinePlanner",
+            ).start()
+        else:
+            self._start_local_chat(text)
+
+    def _online_thread(self, text, history):
+        try:
+            proposal = self.online_planner.plan(text, history=history)
+        except Exception:
+            proposal = None
+        if not self._closed:
+            try:
+                self.online_plan_ready.emit(text, proposal)
+            except RuntimeError:
+                pass
+
+    def _on_online_plan(self, text, proposal):
+        if self._closed or not self._processing or text != self._active_text:
+            return
+        answer = None
+        if proposal:
+            try:
+                answer = self.agent.execute_plan(
+                    text, proposal, confirm_callback=self.confirm_action,
+                )
+            except Exception:
+                answer = None
+        if answer is not None:
+            self._resolved_command(text, answer)
+        else:
+            self._start_local_chat(text)
+
+    def _start_local_chat(self, text):
+        self.mic_status.setText("Локальный ИИ готовит ответ…")
+        threading.Thread(
+            target=self._local_thread, args=(text,),
+            daemon=True, name="JarvisLocalChat",
+        ).start()
+
+    def _local_thread(self, text):
+        try:
+            answer = self.agent.handle_chat(text)
+        except Exception as exc:
+            answer = self._error_message(exc)
+        if not self._closed:
+            try:
+                self.local_reply_ready.emit(text, answer)
+            except RuntimeError:
+                pass
+
+    def _on_local_reply(self, text, answer):
+        if not self._closed and self._processing and text == self._active_text:
+            self._resolved_command(text, answer)
+
+    def _error_message(self, exc):
+        if self.cfg.get("language") == "ru":
+            return f"Ошибка: {exc}"
+        return f"Eroare: {exc}"
+
+    def _resolved_command(self, text, answer):
+        if not self._command_queue:
+            return
+        group = self._command_queue[0]
+        group["answers"].append(str(answer or ""))
+        self._processing = False
+        self._active_text = None
+        if any(word in str(answer).lower() for word in ("отмен", "anulat", "cancelled")):
+            group["parts"].clear()
+        QTimer.singleShot(0, self._dispatch_command)
+
+    def _finish_command_group(self):
+        if not self._command_queue:
+            return
+        group = self._command_queue.pop(0)
+        result = "\n".join(answer for answer in group["answers"] if answer).strip()
+        if result:
+            self.append_message("Jarvis", result, "#a5b9dc")
+            self.mic_status.setText("Команда обработана.")
+            if self.cfg.get("tts_enabled", True):
+                self._queue_speech(result, self.cfg.get("language", "ru"))
+        QTimer.singleShot(0, self._dispatch_command)
+
+    def _queue_speech(self, text, language):
+        if self._closed:
+            return
+        try:
+            self._speech_queue.put_nowait((text, language))
+        except queue.Full:
+            # Prefer the latest relevant reply when many messages arrive rapidly.
+            try:
+                self._speech_queue.get_nowait()
+                self._speech_queue.put_nowait((text, language))
+            except queue.Empty:
+                pass
+
+    def _speech_loop(self):
+        while True:
+            task = self._speech_queue.get()
+            if task is None:
+                return
+            text, language = task
+            try:
+                played = speak(text, enabled=True, language=language)
+            except Exception:
+                played = False
+            if not self._closed:
+                try:
+                    self.tts_played.emit(played)
+                except RuntimeError:
+                    pass
+
+    def _on_tts_played(self, played):
+        if not played:
+            self.mic_status.setText("Нет подходящего голоса. Проверьте voice_error.log.")
 
     def confirm_action(self, description):
         if not self.cfg.get("confirm_desktop_actions", True):
@@ -675,6 +833,11 @@ class MainWindow(QMainWindow):
             return
         if self.tray_icon:
             self.tray_icon.hide()
+        self._closed = True
+        try:
+            self._speech_queue.put_nowait(None)
+        except queue.Full:
+            pass
         self.stop_listener()
         event.accept()
 
