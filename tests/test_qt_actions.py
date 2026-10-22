@@ -19,6 +19,26 @@ else:
     from luxai.command_registry import CommandRegistry
 
 
+def _load_main_class_for_mock_tests():
+    """Load UI routing without heavy microphone/screenshot libraries in CI."""
+    import sys
+    import types
+    from unittest import mock
+
+    voice = types.ModuleType("luxai.voice")
+    voice.VoiceListener = object
+    voice.speak = lambda *args, **kwargs: True
+    screen = types.ModuleType("luxai.screen")
+    screen.capture_screen = lambda: None
+    screen.read_screen_text = lambda *args, **kwargs: ""
+    with mock.patch.dict(sys.modules, {
+        "luxai.voice": voice,
+        "luxai.screen": screen,
+    }):
+        from main import MainWindow
+    return MainWindow
+
+
 @unittest.skipIf(QApplication is None, "PySide6 not installed")
 class QtActionTests(unittest.TestCase):
     @classmethod
@@ -28,7 +48,7 @@ class QtActionTests(unittest.TestCase):
     def test_main_dispatch_routes_unknown_voice_action_to_gemini_before_local(self):
         import types
         from unittest import mock
-        from main import MainWindow
+        MainWindow = _load_main_class_for_mock_tests()
 
         record = {"parts": ["Открой Firefox"], "answers": [], "routes": []}
         fake = types.SimpleNamespace(
@@ -62,7 +82,7 @@ class QtActionTests(unittest.TestCase):
     def test_main_dispatch_does_not_use_gguf_to_claim_failed_file_operation(self):
         import types
         from unittest import mock
-        from main import MainWindow
+        MainWindow = _load_main_class_for_mock_tests()
 
         fake = types.SimpleNamespace(
             _processing=False, _closed=False,
