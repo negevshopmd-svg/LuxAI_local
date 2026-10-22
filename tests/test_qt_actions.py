@@ -173,7 +173,8 @@ class QtActionTests(unittest.TestCase):
         )
         MainWindow.run_command(fake, "Теперь я тебе могу диктовать и ты будешь писать.")
         self.assertTrue(fake.dictation_active)
-        with mock.patch.object(__import__("sys").modules["main"], "_type_unicode_windows") as send:
+        send = mock.Mock()
+        with mock.patch.dict(MainWindow._type_voice_chunk.__globals__, {"_type_unicode_windows": send}):
             MainWindow._type_voice_chunk(fake, "Привет друзья")
             send.assert_called_once_with("Привет друзья ")
             MainWindow._type_voice_chunk(fake, "Стоп.")
