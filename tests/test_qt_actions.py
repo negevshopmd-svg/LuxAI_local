@@ -213,6 +213,35 @@ class QtActionTests(unittest.TestCase):
         self.assertEqual(selected, ["yes"])
         dialog.close()
 
+    def test_builtin_word_command_bypasses_cloud_even_when_gemini_connected(self):
+        import types
+        from unittest import mock
+        MainWindow = _load_main_class_for_mock_tests()
+        builtin = {
+            "builtin": True,
+            "action": "open_app",
+            "target": "word",
+            "location": "desktop",
+            "enabled": True,
+        }
+        fake = types.SimpleNamespace(
+            _processing=False, _closed=False,
+            _command_queue=[{"parts": ["Открой Word"]}],
+            cfg={"language": "ru", "wake_prefix": "Jarvis"},
+            command_registry=types.SimpleNamespace(
+                disabled_match=lambda *_: False,
+                match=lambda *_: builtin,
+            ),
+            agent=types.SimpleNamespace(history=[]),
+            online_planner=types.SimpleNamespace(
+                enabled=mock.Mock(side_effect=AssertionError("Presets need no Gemini")),
+            ),
+            _execute_registered=mock.Mock(),
+        )
+        MainWindow._dispatch_command(fake)
+        fake.online_planner.enabled.assert_not_called()
+        fake._execute_registered.assert_called_once_with("Открой Word", builtin)
+
     def test_desktop_filename_dispatches_to_local_file_opener_not_explorer(self):
         import types
         from unittest import mock
