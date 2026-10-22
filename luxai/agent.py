@@ -14,6 +14,7 @@ class LocalAgent:
         self.history = []
         self.max_history_messages = 10
         self.last_execution_success = False
+        self.last_executed_plan = None
 
     def update_config(self, config):
         self.config = dict(config)
@@ -179,6 +180,8 @@ class LocalAgent:
             if not confirm_callback(self._say(f"Запустить {title}", f"Pornește {title}", f"Launch {title}", text)):
                 return self._say("Действие отменено.", "Acțiune anulată.", "Action cancelled.", text)
             if launch_steam_game(app_id):
+                self.last_execution_success = True
+                self.last_executed_plan = {"action": "launch_game", "target": game}
                 return self._say(
                     f"Запускаю {title} через Steam.",
                     f"Pornesc {title} prin Steam.",
@@ -207,6 +210,8 @@ class LocalAgent:
                     if not confirm_callback(self._say(f"Открыть {app.capitalize()}", f"Deschide {app.capitalize()}", f"Open {app.capitalize()}", text)):
                         return self._say("Действие отменено.", "Acțiune anulată.", "Action cancelled.", text)
                     if self._open_application(app):
+                        self.last_execution_success = True
+                        self.last_executed_plan = {"action": "open_app", "target": app}
                         return self._say(f"Открыл {app.capitalize()}.", f"Am deschis {app.capitalize()}.", f"Opened {app.capitalize()}.", text)
                     return self._say(
                         f"Не удалось найти {app.capitalize()} на компьютере.",
@@ -334,6 +339,7 @@ class LocalAgent:
 
     def handle_fast(self, text, confirm_callback=lambda _: False):
         self.last_execution_success = False
+        self.last_executed_plan = None
         command = strip_wake_name(text, self.config.get("wake_prefix", "Jarvis"))
         if not command:
             response = self._say("Слушаю.", "Te ascult.", "I'm listening.", text)
