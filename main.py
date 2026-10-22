@@ -26,6 +26,7 @@ from luxai.command_registry import CommandRegistry
 from luxai.ui_commands import CommandsPage
 from luxai.command_wizard import CommandWizard, is_create_command_request
 from luxai.intent_routing import is_operational_request, routine_reply, suspicious_completion_reply
+from luxai.ocr_setup import ensure_tesseract, find_tesseract, language_data_ready
 from luxai.websites import website_plan
 from luxai.screen_interact import (
     _foreground_hwnd, _valid_external_window,
@@ -101,6 +102,7 @@ class MainWindow(QMainWindow):
     macro_step_ready = Signal(int, bool, str)
     direct_task_ready = Signal(str, str, str)
     screen_inspection_ready = Signal(str, object, str)
+    ocr_setup_ready = Signal(bool, str)
 
     def __init__(self):
         super().__init__()
@@ -117,6 +119,7 @@ class MainWindow(QMainWindow):
         self.online_plan_ready.connect(self._on_online_plan)
         self.direct_task_ready.connect(self._on_direct_task_ready)
         self.screen_inspection_ready.connect(self._on_screen_inspection_ready)
+        self.ocr_setup_ready.connect(self._on_ocr_setup_ready)
         self.macro_step_ready.connect(self._on_macro_step_ready)
         self.wizard_plan_ready.connect(self._on_wizard_plan)
         self.local_reply_ready.connect(self._on_local_reply)
@@ -203,6 +206,45 @@ class MainWindow(QMainWindow):
 
         if self.cfg.get("microphone_enabled", True):
             self.start_listener()
+        # OCR is part of Jarvis. If Update.bat couldn't finish installing it
+        # (offline Windows or locked directory), retry without freezing GUI.
+        if sys.platform == "win32":
+            threading.Thread(
+                target=self._ocr_setup_worker, daemon=True,
+                name="JarvisBundledOCR",
+            ).start()
+
+    def _ocr_setup_worker(self):
+        try:
+            binary, languages = ensure_tesseract(
+                self.cfg.get("tesseract_path", "")
+            )
+            success, message = True, (
+                f"Встроенный Tesseract OCR готов: rus + eng. "
+                f"Файлы: {binary.parent}"
+            )
+        except Exception as exc:
+            success, message = False, (
+                "Встроенный OCR пока недоступен: " + str(exc)[:250]
+            )
+        if not self._closed:
+            try:
+                self.ocr_setup_ready.emit(success, message)
+            except RuntimeError:
+                pass
+
+    def _on_ocr_setup_ready(self, success, message):
+        if self._closed:
+            return
+        self._ocr_ready = bool(success)
+        if hasattr(self, "settings_panel"):
+            try:
+                self.settings_panel.set_ocr_status(success, message)
+            except (AttributeError, RuntimeError):
+                pass
+        # Do not overwrite microphone/online command state mid-conversation.
+        if not success and not self._processing:
+            self.mic_status.setToolTip(message)
 
     def build_home(self):
         """Create the separate Luxify-inspired home widget."""
