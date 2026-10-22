@@ -161,7 +161,7 @@ class FileAndCommandTests(unittest.TestCase):
                 intent, confirm_callback=lambda _prompt: True,
             )
         self.assertTrue(agent.last_execution_success)
-        self.assertIn("Создано:", result)
+        self.assertIn("Проверено: создано", result)
         self.assertEqual(create.call_count, 1)
         self.assertTrue((self.home / "Desktop" / "Новый файл.txt").exists())
 
