@@ -59,11 +59,16 @@ class OnlinePlanner:
         self._cache = OrderedDict()
 
     def update_config(self, config):
+        updated = dict(config)
+        if updated == self.config:
+            return
         old_model = self.config.get("online_model")
-        self.config = dict(config)
-        if old_model != self.config.get("online_model"):
+        old_enabled = self.config.get("online_agent_enabled")
+        self.config = updated
+        if old_model != updated.get("online_model"):
             self._cache.clear()
-        self._blocked_until = 0.0
+        if old_model != updated.get("online_model") or old_enabled != updated.get("online_agent_enabled"):
+            self._blocked_until = 0.0
 
     def enabled(self):
         return bool(self.config.get("online_agent_enabled", False) and get_api_key())
