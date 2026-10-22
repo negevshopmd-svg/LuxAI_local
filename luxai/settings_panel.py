@@ -312,13 +312,30 @@ class SettingsPanel(QWidget):
         self.api_key_entry = QLineEdit()
         self.api_key_entry.setEchoMode(QLineEdit.EchoMode.Password)
         self.api_key_entry.setMaxLength(2048)
+        self.api_key_entry.setToolTip("Ключ скрыт. Не делитесь им с другими.")
+        self.api_key_controls = QWidget()
+        self.api_key_controls_layout = QHBoxLayout(self.api_key_controls)
+        self.api_key_controls_layout.setContentsMargins(0, 0, 0, 0)
+        self.api_key_controls_layout.setSpacing(7)
+        self.api_key_controls_layout.addWidget(self.api_key_entry, 1)
+        self.api_test_button = QPushButton("Проверить ключ")
+        self.api_test_button.setMinimumWidth(130)
+        self.api_test_button.setToolTip(
+            "Проверить введённый или сохранённый ключ. Тест использует небольшую часть квоты API."
+        )
+        if self.on_test_online:
+            self.api_test_button.clicked.connect(self.on_test_online)
+        else:
+            self.api_test_button.setEnabled(False)
+        self.api_key_controls_layout.addWidget(self.api_test_button)
         self._row(
             panel, "API-ключ выбранного сервиса",
-            "Не сохраняется в config.json; Windows шифрует ключ для текущего пользователя.",
-            self.api_key_entry,
+            "Проверка доступна до сохранения ключа; тестовый запрос может расходовать квоту.",
+            self.api_key_controls,
         )
         self.key_status = QLabel("")
         self.key_status.setObjectName("Muted")
+        self.key_status.setWordWrap(True)
         panel.addWidget(self.key_status)
 
         self.online_timeout = QSpinBox()
@@ -334,10 +351,6 @@ class SettingsPanel(QWidget):
         delete_button = QPushButton("Удалить ключ")
         delete_button.clicked.connect(self._clear_key)
         buttons.addWidget(delete_button)
-        if self.on_test_online:
-            test_button = QPushButton("Проверить API")
-            test_button.clicked.connect(self.on_test_online)
-            buttons.addWidget(test_button)
         panel.addLayout(buttons)
 
         self.online_status = QLabel(
@@ -351,6 +364,7 @@ class SettingsPanel(QWidget):
         panel.addWidget(self.online_status)
 
         self.online_provider.currentIndexChanged.connect(self._on_provider_changed)
+        self.api_key_entry.textChanged.connect(self._on_key_text_changed)
         self.refresh_key_status()
         self._refresh_provider_keys_button()
 
@@ -376,6 +390,24 @@ class SettingsPanel(QWidget):
         self.api_key_entry.clear()
         self.refresh_key_status()
         self._refresh_provider_keys_button()
+
+    def _on_key_text_changed(self, text):
+        if text.strip():
+            self.key_status.setText(
+                "Новый ключ введён. Нажмите «Проверить ключ», затем «Сохранить настройки»."
+            )
+        else:
+            self.refresh_key_status()
+
+    def set_test_busy(self, busy):
+        self.api_test_button.setEnabled(not busy)
+        self.api_test_button.setText("Проверка…" if busy else "Проверить ключ")
+        if busy:
+            self.key_status.setText("Проверка ключа и выбранной модели через API…")
+
+    def show_test_result(self, message, valid):
+        self.set_test_busy(False)
+        self.key_status.setText(("✓ " if valid else "✕ ") + message)
 
     def _refresh_provider_keys_button(self):
         provider = self.online_provider.currentData()
