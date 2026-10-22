@@ -10,7 +10,7 @@ import math
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
-    QCheckBox, QFrame, QHBoxLayout, QLabel, QSlider, QTextEdit,
+    QCheckBox, QFrame, QHBoxLayout, QLabel, QPushButton, QSlider, QTextEdit,
     QVBoxLayout, QWidget,
 )
 
@@ -186,6 +186,14 @@ class HomePage(QWidget):
         self.volume_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         volume.addWidget(self.volume_label)
         control_layout.addLayout(volume)
+        self.screen_assist_button = QPushButton("▣  Посмотреть кнопки на экране")
+        self.screen_assist_button.setObjectName("ScreenAssistButton")
+        self.screen_assist_button.setToolTip(
+            "Показать локальный снимок и кнопки Да/Нет активной программы. "
+            "Можно также сказать: «Жарвис, покажи кнопки на экране»."
+        )
+        self.screen_assist_button.setMinimumHeight(36)
+        control_layout.addWidget(self.screen_assist_button)
         control_layout.addStretch(1)
         left.addWidget(control_card, 2)
 
