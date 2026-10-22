@@ -1,17 +1,20 @@
-"""Extensible local neural voices for LuxAI.
+"""Local speech playback using Piper models, with language-aware Windows fallback.
 
-Put Piper voice files (.onnx and matching .onnx.json) in the voices/ directory.
-No Windows system TTS is used. Add more model files to make more voices available.
+Russian speech prefers the ru_RU-dmitri-medium neural voice even if other
+Piper models are installed. Never substitute an English SAPI voice for Russian.
+Voice failures are written to voice_error.log because the app uses pythonw.exe.
 """
 from __future__ import annotations
 
+import base64
 import json
 import re
-import base64
 import subprocess
 import sys
-import wave
+import tempfile
 import urllib.request
+import wave
+from datetime import datetime
 from pathlib import Path
 
 import sounddevice as sd
@@ -19,15 +22,21 @@ import sounddevice as sd
 ROOT = Path(__file__).resolve().parents[1]
 VOICES_DIR = ROOT / "voices"
 CONFIG_PATH = ROOT / "config.json"
+ERROR_LOG = ROOT / "voice_error.log"
+
+DEFAULT_RUSSIAN = "ru_RU-dmitri-medium"
+PIPER_BASE_URL = (
+    "https://huggingface.co/rhasspy/piper-voices/resolve/main/"
+    "ru/ru_RU/dmitri/medium/"
+)
 
 
 class VoiceManager:
-    """Load and play local Piper neural voices, with an extensible voice catalogue."""
+    """Select and play voices matching the assistant's configured language."""
 
     def __init__(self):
         self._voice = None
         self._loaded_path = None
-        self._piper_voice_class = None
         self.config = self._load_config()
 
     @staticmethod
@@ -36,6 +45,15 @@ class VoiceManager:
             return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return {}
+
+    @staticmethod
+    def _log(message: str) -> None:
+        try:
+            with ERROR_LOG.open("a", encoding="utf-8") as f:
+                f.write(f"{datetime.now():%Y-%m-%d %H:%M:%S} {message}\n")
+        except OSError:
+            pass
+        print(message)
 
     def available_voices(self) -> list[dict]:
         VOICES_DIR.mkdir(parents=True, exist_ok=True)
@@ -51,149 +69,168 @@ class VoiceManager:
             })
         return found
 
-    def _download_default_voice(self) -> Path | None:
-        """Install a default masculine Russian Piper voice on first use if none exists."""
-        model_name = "ru_RU-dmitri-medium"
-        model_path = VOICES_DIR / f"{model_name}.onnx"
-        metadata_path = VOICES_DIR / f"{model_name}.onnx.json"
-        if model_path.is_file() and metadata_path.is_file():
-            return model_path
+    def _download_russian_voice(self) -> Path | None:
+        """Download Dmitri's local Russian Piper model if it is missing."""
         VOICES_DIR.mkdir(parents=True, exist_ok=True)
-        base_url = (
-            "https://huggingface.co/rhasspy/piper-voices/resolve/main/"
-            "ru/ru_RU/dmitri/medium/"
+        model_path = VOICES_DIR / f"{DEFAULT_RUSSIAN}.onnx"
+        metadata_path = VOICES_DIR / f"{DEFAULT_RUSSIAN}.onnx.json"
+        files = (
+            (model_path, 10_000_000),
+            (metadata_path, 100),
         )
-        for filename, destination, minimum_size in (
-            (f"{model_name}.onnx", model_path, 1_000_000),
-            (f"{model_name}.onnx.json", metadata_path, 100),
-        ):
-            if destination.is_file() and destination.stat().st_size >= minimum_size:
+        if all(p.is_file() and p.stat().st_size >= size for p, size in files):
+            return model_path
+        for path, minimum_size in files:
+            if path.is_file() and path.stat().st_size >= minimum_size:
                 continue
-            temporary = destination.with_suffix(destination.suffix + ".download")
+            temporary = path.with_name(path.name + ".download")
             try:
                 request = urllib.request.Request(
-                    base_url + filename,
+                    PIPER_BASE_URL + path.name,
                     headers={"User-Agent": "JarvisLocalAssistant/1.0"},
                 )
-                with urllib.request.urlopen(request, timeout=30) as response, temporary.open("wb") as out:
+                with urllib.request.urlopen(request, timeout=60) as response, temporary.open("wb") as dest:
                     while True:
                         chunk = response.read(1024 * 1024)
                         if not chunk:
                             break
-                        out.write(chunk)
+                        dest.write(chunk)
                 if temporary.stat().st_size < minimum_size:
-                    raise ValueError("Descărcarea modelului vocal este incompletă.")
-                temporary.replace(destination)
+                    raise ValueError("Downloaded Russian voice model is incomplete")
+                temporary.replace(path)
             except Exception as exc:
                 temporary.unlink(missing_ok=True)
-                print(f"Nu am putut descărca vocea masculină implicită Piper: {exc}")
+                self._log(f"Russian Piper download failed ({path.name}): {exc}")
                 return None
-        print("Vocea masculină rusă Piper a fost instalată local.")
+        self._log("Russian Piper voice Dmitri installed.")
         return model_path
 
-    def _select_model(self) -> Path | None:
-        # Allow an explicit model path, otherwise use the configured voice name,
-        # then a conventional jarvis model name, then the first installed voice.
+    def _select_model(self, language: str) -> Path | None:
+        voices = self.available_voices()
+        # An explicitly configured model remains a user choice.
         explicit = str(self.config.get("voice_model_path", "") or "").strip()
         if explicit:
-            path = Path(explicit).expanduser()
-            return path if path.is_file() else None
+            candidate = Path(explicit).expanduser()
+            if candidate.is_file() and candidate.with_suffix(candidate.suffix + ".json").is_file():
+                return candidate
+            self._log(f"Configured Piper model not found: {explicit}")
 
-        voices = self.available_voices()
-        selected = str(self.config.get("voice_id", "jarvis") or "jarvis").strip().lower()
-        for item in voices:
-            if item["id"].lower() == selected and item["ready"]:
-                return Path(item["model"])
-        for item in voices:
-            if item["id"].lower() == "jarvis" and item["ready"]:
-                return Path(item["model"])
-        for item in voices:
-            if item["ready"]:
-                return Path(item["model"])
-        # Default to a natural masculine Russian voice when the app has no voice installed.
-        return self._download_default_voice()
+        selected = str(self.config.get("voice_id", "") or "").strip().lower()
+        if selected:
+            for voice in voices:
+                if voice["ready"] and voice["id"].lower() == selected:
+                    if language != "ru" or voice["id"].lower().startswith("ru_"):
+                        return Path(voice["model"])
 
-    @staticmethod
-    def _windows_speak(text: str) -> bool:
-        """Fallback to installed Windows SAPI voices when Piper is unavailable."""
+        if language == "ru":
+            # Never use an English model just because it appears first alphabetically.
+            for voice in voices:
+                if voice["ready"] and voice["id"].lower() == DEFAULT_RUSSIAN.lower():
+                    return Path(voice["model"])
+            for voice in voices:
+                if voice["ready"] and voice["id"].lower().startswith("ru_"):
+                    return Path(voice["model"])
+            return self._download_russian_voice()
+
+        prefixes = {"ro": "ro_", "en": "en_" }
+        prefix = prefixes.get(language)
+        if prefix:
+            for voice in voices:
+                if voice["ready"] and voice["id"].lower().startswith(prefix):
+                    return Path(voice["model"])
+        for voice in voices:
+            if voice["ready"]:
+                return Path(voice["model"])
+        return None
+
+    def _windows_speak(self, text: str, language: str) -> bool:
+        """Fallback to SAPI, but only if Windows has a voice for the language."""
         if sys.platform != "win32":
             return False
         encoded = base64.b64encode(text.encode("utf-16-le")).decode("ascii")
+        culture = {"ru": "ru-*", "ro": "ro-*", "en": "en-*"}.get(language, "ru-*")
         script = (
             "Add-Type -AssemblyName System.Speech; "
             "$s=New-Object System.Speech.Synthesis.SpeechSynthesizer; "
             "$s.SetOutputToDefaultAudioDevice(); "
-            "$v=$s.GetInstalledVoices() | Where-Object {"
-            "$_.VoiceInfo.Gender -eq 'Male' -and $_.VoiceInfo.Culture.Name -like 'ru-*'"
-            "} | Select-Object -First 1; "
-            "if (-not $v) {$v=$s.GetInstalledVoices() | Where-Object {"
-            "$_.VoiceInfo.Gender -eq 'Male'"
-            "} | Select-Object -First 1}; "
-            "if ($v) {$s.SelectVoice($v.VoiceInfo.Name)}; "
+            "$all=@($s.GetInstalledVoices() | Where-Object { $_.Enabled -and "
+            "$_.VoiceInfo.Culture.Name -like '" + culture + "' }); "
+            "if ($all.Count -eq 0) { "
+            "[Console]::Error.WriteLine('No matching Windows SAPI voice for " + language + "'); "
+            "$s.Dispose(); exit 9 }; "
+            "$v=$all | Where-Object { $_.VoiceInfo.Gender -eq 'Male' } | Select-Object -First 1; "
+            "if (-not $v) { $v=$all | Select-Object -First 1 }; "
+            "$s.SelectVoice($v.VoiceInfo.Name); "
             "$t=[Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('" + encoded + "')); "
             "$s.Speak($t); $s.Dispose()"
         )
         try:
             result = subprocess.run(
                 ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
-                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-                timeout=90, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                timeout=90,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
             if result.returncode == 0:
                 return True
-            print("Windows TTS error:", result.stderr.decode("utf-8", errors="replace")[:400])
+            self._log(
+                "Windows SAPI unavailable for " + language + ": "
+                + result.stderr.decode("utf-8", errors="replace")[:500]
+            )
         except Exception as exc:
-            print(f"Windows TTS unavailable: {exc}")
+            self._log(f"Windows SAPI playback failed: {exc}")
         return False
 
-    def speak(self, text: str) -> bool:
-        text = re.sub(r"\s+", " ", str(text or "")).strip()
+    def speak(self, text: str, language: str | None = None) -> bool:
+        text = re.sub(r"\s+", " ", str(text or "")).strip()[:700]
         if not text:
             return False
-        text = text[:700]
-        model_path = self._select_model()
-        if model_path is None:
-            print(
-                "Vocea neurală nu este instalată. Pune un model Piper .onnx și fișierul "
-                "său .onnx.json în folderul 'voices'. Nu se folosește vocea Windows."
-            )
-            return self._windows_speak(text)
+        # Settings can change while the application is running.
+        self.config = self._load_config()
+        language = (language or self.config.get("language", "ru") or "ru").lower()
+        if language not in ("ru", "ro", "en"):
+            language = "ru" if re.search(r"[а-яё]", text, flags=re.IGNORECASE) else "ro"
 
-        try:
-            if self._voice is None or self._loaded_path != str(model_path):
-                from piper import PiperVoice
-                self._piper_voice_class = PiperVoice
-                self._voice = PiperVoice.load(str(model_path))
-                self._loaded_path = str(model_path)
-
-            import tempfile
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp:
-                wav_path = Path(temp.name)
+        model_path = self._select_model(language)
+        if model_path is not None:
             try:
-                with wave.open(str(wav_path), "wb") as wav_file:
-                    self._voice.synthesize_wav(text, wav_file)
-                import soundfile as sf
-                audio, sample_rate = sf.read(str(wav_path), dtype="float32")
-                sd.play(audio, sample_rate)
-                sd.wait()
-            finally:
-                wav_path.unlink(missing_ok=True)
+                if self._voice is None or self._loaded_path != str(model_path):
+                    from piper import PiperVoice
+                    self._voice = PiperVoice.load(str(model_path))
+                    self._loaded_path = str(model_path)
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp:
+                    wav_path = Path(temp.name)
+                try:
+                    with wave.open(str(wav_path), "wb") as wav_file:
+                        self._voice.synthesize_wav(text, wav_file)
+                    import soundfile as sf
+                    audio, sample_rate = sf.read(str(wav_path), dtype="float32")
+                    sd.play(audio, sample_rate)
+                    sd.wait()
+                    return True
+                finally:
+                    wav_path.unlink(missing_ok=True)
+            except Exception as exc:
+                self._log(f"Piper playback failed for {model_path.name}: {exc}")
+
+        if self._windows_speak(text, language):
             return True
-        except Exception as exc:
-            print(f"Eroare la redarea vocii neurale: {exc}")
-            return self._windows_speak(text)
+        self._log(
+            f"No working {language} voice. Check voices/{DEFAULT_RUSSIAN}.onnx, "
+            "the corresponding .onnx.json, sound output and voice_error.log."
+        )
+        return False
 
 
 _manager = VoiceManager()
 
 
-def speak(text: str, enabled: bool = True) -> bool:
-    """Public compatibility function used by the app."""
+def speak(text: str, enabled: bool = True, language: str | None = None) -> bool:
     if not enabled:
         return False
-    return _manager.speak(text)
+    return _manager.speak(text, language=language)
 
 
 def available_voices() -> list[dict]:
-    """Return installed voice models for a future voice-selection UI."""
     return _manager.available_voices()
