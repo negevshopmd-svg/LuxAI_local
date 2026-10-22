@@ -33,6 +33,17 @@ ALIASES = {
     "стим": "steam",
     "спотифай": "spotify",
     "эдж": "edge",
+    "visual studio code": "vscode",
+    "visual studio код": "vscode",
+    "vs code": "vscode",
+    "v s code": "vscode",
+    "vscode": "vscode",
+    "вс код": "vscode",
+    "ви эс код": "vscode",
+    "визуал студио код": "vscode",
+    "визуал студия код": "vscode",
+    "код студио": "vscode",
+    "визуал студио": "visual studio",
 }
 EXEC_NAMES = {
     "firefox": ("firefox.exe",),
@@ -45,6 +56,10 @@ EXEC_NAMES = {
     "notepad": ("notepad.exe",),
     "calculator": ("calc.exe",),
     "explorer": ("explorer.exe",),
+    "vscode": ("Code.exe",),
+    "visual studio": ("devenv.exe",),
+    "pycharm": ("pycharm64.exe", "pycharm.exe"),
+    "blender": ("blender.exe",),
 }
 # Resolve common apps even if they haven't registered App Paths.
 COMMON_DIRS = {
@@ -54,6 +69,11 @@ COMMON_DIRS = {
     "telegram": ("Telegram Desktop/Telegram.exe",),
     "steam": ("Steam/steam.exe",),
     "spotify": ("Spotify/Spotify.exe",),
+    "vscode": (
+        "Programs/Microsoft VS Code/Code.exe",
+        "Microsoft VS Code/Code.exe",
+    ),
+    "visual studio": ("Microsoft Visual Studio/2022/Community/Common7/IDE/devenv.exe",),
 }
 
 
@@ -82,6 +102,8 @@ def _match_name(query: str, candidate: str) -> bool:
     candidate = candidate.casefold()
     # Exact or app-name with normal vendor suffix; no fuzzy substring "cmd".
     stem = Path(candidate).stem if candidate.endswith(".exe") or candidate.endswith(".lnk") else candidate
+    if query == "vscode" and ("visual studio code" in stem or stem == "code"):
+        return True
     return query == stem or query == candidate or (
         query in stem.split() and len(query) >= 4
     )
@@ -148,16 +170,15 @@ def resolve_installed_app(name: str) -> Path | None:
 
 
 def launch_installed_app(name: str, confirmed=None) -> tuple[bool, str]:
-    """Return (dispatched_to_Windows, human description).
+    """Locate, request Windows launch, then verify process presence.
 
-    A dispatched launch cannot prove that app became visible. The assistant
-    must never say "opened" until the OS process/window is observed.
+    A successful subprocess.Popen is NOT proof that an application opened.
+    Return verified success only after a known executable's process appears.
     """
+    import time
     query = normalized_name(name)
     path = resolve_installed_app(query)
     if path is None:
-        # Some Windows Store/auto-updated apps register a protocol handler
-        # but have no stable executable or Start Menu shortcut.
         known_protocols = {
             "telegram": "tg://resolve",
             "discord": "discord://",
@@ -171,23 +192,41 @@ def launch_installed_app(name: str, confirmed=None) -> tuple[bool, str]:
                 return False, "Действие отменено."
             try:
                 os.startfile(known_protocols[query])
-                return True, f"Передал Windows запрос на запуск «{name}»."
-            except (OSError, AttributeError):
-                pass
+            except (OSError, AttributeError) as exc:
+                return False, f"Не удалось запустить «{name}»: {exc}"
+            return True, f"Отправил запрос запуска «{name}» через Windows. Проверьте окно приложения."
         return False, f"Не нашёл установленную программу «{name}»."
+
     if confirmed is not None and not confirmed(f"Запустить «{name}»?\n{path}"):
         return False, "Действие отменено."
     if sys.platform != "win32":
         return False, "Запуск программ поддерживается только на Windows."
     try:
+        from luxai.windows_control import running_pids
+        was_running = bool(running_pids(query))
         if path.suffix.lower() == ".lnk":
             os.startfile(str(path))
         else:
             subprocess.Popen(
                 [str(path)],
-                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL, shell=False, close_fds=True,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                shell=False,
+                close_fds=True,
             )
-        return True, f"Передал Windows запрос на запуск «{name}»."
+        for _ in range(9):
+            if running_pids(query):
+                return True, (
+                    f"Проверено: процесс «{name}» запущен."
+                    if not was_running else
+                    f"«{name}» уже запущен. Запрос на открытие передан Windows."
+                )
+            time.sleep(0.14)
+        # Do not suggest it opened when process observation has not succeeded.
+        return False, (
+            f"Запрос на запуск «{name}» отправлен, "
+            "но появление процесса пока не подтверждено."
+        )
     except (OSError, ValueError) as error:
         return False, f"Windows не удалось запустить «{name}»: {error}"
