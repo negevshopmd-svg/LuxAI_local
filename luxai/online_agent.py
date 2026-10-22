@@ -19,46 +19,60 @@ from luxai.secure_keys import get_api_key
 from luxai.api_providers import PROVIDERS, endpoint_for, model_for
 from luxai.steam_games import lookup_steam_game
 from luxai.file_actions import safe_name, ALLOWED_LOCATIONS
+from luxai.windows_apps import normalized_name
+from luxai.steam_games import GAMES
 
 ALLOWED_ACTIONS = {
     "open_app", "launch_game", "steam_game", "minimize_windows",
     "search_web", "time", "reply", "none",
-    "create_file", "create_folder", "list_files",
+    "create_file", "create_folder", "list_files", "rename_file", "trash_file",
+    "web_answer",
 }
 CACHE_ACTIONS = {"open_app", "launch_game", "minimize_windows"}
 LOG_FILE = Path(__file__).resolve().parents[1] / "online_agent.log"
 
-_SYSTEM = """You are the ONLINE PLANNER for a Windows voice assistant Jarvis.
-Interpret the user's command and respond with EXACTLY ONE JSON object:
-{"action": "open_app|launch_game|steam_game|minimize_windows|search_web|time|create_file|create_folder|list_files|reply|none",
- "target": "string", "reply": "string", "location": "desktop|documents|downloads"}
+_SYSTEM = """You are GEMINI (or another CLOUD PLANNER) for a Windows assistant called Jarvis.
+Your role is to understand each user's task and send a JSON plan to a LOCAL
+WINDOWS EXECUTOR. The local executor, not you, performs actions with Windows.
+Respond with ONLY ONE compact JSON object, not markdown or thoughts:
+{"action":"open_app|steam_game|launch_game|minimize_windows|create_file|create_folder|rename_file|trash_file|list_files|search_web|web_answer|time|reply|none",
+ "target":"string","reply":"string","source":"string","location":"desktop|documents|downloads","content":"string"}
+Examples:
+- "Открой фаерфокс" -> {"action":"open_app","target":"firefox","reply":""}
+- "Открой Blender" -> {"action":"open_app","target":"Blender","reply":""}
+- "Открой Undertale в Steam" -> {"action":"steam_game","target":"Undertale","reply":""}
+- "Запусти андертейл" -> {"action":"steam_game","target":"Undertale","reply":""}
+- "Создай файл на рабочем столе" -> {"action":"create_file","target":"Новый файл.txt","location":"desktop","reply":""}
+- "Переименуй его в заметки.txt" -> {"action":"rename_file","source":"@last","target":"заметки.txt","location":"desktop","reply":""}
+- "Удали созданный файл" -> {"action":"trash_file","source":"@last","target":"","location":"desktop","reply":""}
+- "Какая погода завтра в Кишиневе?" -> {"action":"web_answer","target":"Какая погода завтра в Кишинёве?","reply":""}
 Rules:
-- You NEVER execute anything. The LOCAL agent validates your proposal.
-- Do not generate code, a terminal command, a CMD line, PowerShell, registry
-  operation, file path, URL, script, or executable as a target.
-- open_app target MUST be exactly one of telegram, discord, chrome, firefox,
-  edge, spotify, steam, notepad, calculator, explorer.
-- launch_game target MUST be dota2, cs2 or warthunder.
-  Dota/Dota 2 = dota2, Counter-Strike 2 = cs2, War Thunder = warthunder.
-- steam_game target is ONLY the official game title (no appid or URL). The
-  local agent can verify it with the Steam store before launching.
-- minimize_windows target must be empty.
-- time target empty.
-- create_file target is a SINGLE BASENAME (e.g. "Отчёт.txt"), not a path.
-  If no name was requested use "Новый файл.txt"; only .txt/.md/.csv/.json/.log.
-  Set location to desktop, documents or downloads. Never overwrite.
-- create_folder target is a SINGLE folder name; default "Новая папка".
-- list_files target empty and location is desktop, documents or downloads.
-- Do not propose reading, deleting, overwriting or moving private files.
-  No arbitrary shell commands; the local executor always asks confirmation
-  before creating files and folders.
-- search_web target is a short search phrase if user explicitly asks to search
-  the web, not a URL.
-- reply action: concise natural-language answer to conversation/questions,
-  in the user's language (Russian when the input is Russian).
-- Never claim a program opened until the local executor confirms success.
-- If the command is ambiguous, respond with reply asking a concise question.
-- Do not include thoughts or markdown code blocks.
+- open_app target is an APP NAME only. It may be any installed Windows app,
+  not just a fixed list; never supply executable paths, scripts, code or flags.
+  The local computer will search the Windows App Paths and Start menu itself.
+- steam_game target is the game's official TITLE (Undertale, War Thunder etc).
+  The LOCAL executor verifies the Steam App ID with trusted Steam Store data.
+  DO NOT generate arbitrary CMD commands or raw Steam URIs. Local executor
+  constructs the verified Steam launch URI.
+- launch_game target may be dota2, cs2, warthunder, undertale if obvious.
+- create_file / create_folder: basename only, no paths, never overwrite;
+  select desktop, documents, or downloads. For no name use "Новый файл.txt".
+  You may supply content for create_file only if the user dictated that content.
+- rename_file: source is original basename or "@last" when user says "его",
+  target is new basename. Do not invent a prior filename; if no known source
+  use "@last" and local executor determines whether a previous file exists.
+- trash_file: source is basename or "@last"; file moves to Recycle Bin,
+  NEVER permanently deleted. Confirm with user before doing this.
+- search_web means OPEN browser search results.
+- web_answer means ANSWER factual, weather, news and current web questions
+  using Google Search grounding (if available), without claiming it is live
+  when it isn't.
+- reply means ordinary conversation, NOT a claim that Windows actions ran.
+  Never use reply to assert "opened", "created", "renamed", "deleted" or
+  "launched" a file/app; only executor may confirm operations.
+- You may not issue raw CMD, PowerShell, registry changes, arbitrary paths,
+  shell operators, or executables. Let the user configure manual macros.
+- Keep Russian responses Russian. If uncertain ask a short clarification.
 """
 
 
@@ -67,6 +81,7 @@ class OnlinePlanner:
         self.config = dict(config)
         self._blocked_until = 0.0
         self._cache = OrderedDict()
+        self.last_error = ""
 
     def update_config(self, config):
         updated = dict(config)
@@ -117,38 +132,48 @@ class OnlinePlanner:
         reply = result.get("reply", "")
         if action not in ALLOWED_ACTIONS or not isinstance(target, str) or not isinstance(reply, str):
             return None
-        if len(target) > 100 or len(reply) > 1000:
+        if len(target) > 150 or len(reply) > 1000:
             return None
         target = target.strip()
-        if action == "open_app" and target not in {
-            "telegram", "discord", "chrome", "firefox", "edge",
-            "spotify", "steam", "notepad", "calculator", "explorer",
-        }:
+        if action == "open_app":
+            try:
+                target = normalized_name(target)
+            except ValueError:
+                return None
+        if action == "launch_game" and target not in GAMES:
             return None
-        if action == "launch_game" and target not in {"dota2", "cs2", "warthunder"}:
-            return None
-        if action in {"time", "minimize_windows", "reply", "none", "list_files"}:
+        if action in {"time", "minimize_windows", "reply", "none", "list_files", "trash_file"}:
             target = ""
-        if action in {"steam_game", "search_web"}:
-            if not target or not re.fullmatch(r"[^\x00-\x1f<>\r\n]{1,100}", target):
+        if action in {"steam_game", "search_web", "web_answer"}:
+            if not target or not re.fullmatch(r"[^\x00-\x1f<>\r\n]{1,150}", target):
                 return None
         location = result.get("location", "desktop")
-        if action in {"create_file", "create_folder", "list_files"}:
+        if action in {"create_file", "create_folder", "rename_file", "trash_file", "list_files"}:
             if location not in ALLOWED_LOCATIONS:
                 return None
-            if action in {"create_file", "create_folder"}:
+            if action in {"create_file", "create_folder", "rename_file"}:
                 try:
-                    target = safe_name(
-                        target, is_folder=action == "create_folder",
-                    )
+                    target = safe_name(target, is_folder=action == "create_folder")
                 except ValueError:
                     return None
+            source = result.get("source", "")
+            if action in {"rename_file", "trash_file"}:
+                if not isinstance(source, str) or len(source) > 100:
+                    return None
+                if source != "@last":
+                    try:
+                        source = safe_name(source, is_folder=True)
+                    except ValueError:
+                        return None
+            else:
+                source = ""
             content = result.get("content", "")
             if not isinstance(content, str) or len(content) > 4096:
                 return None
             return {
                 "action": action, "target": target, "reply": reply.strip(),
-                "location": location, "content": content,
+                "source": source, "location": location,
+                "content": content if action == "create_file" else "",
             }
         return {"action": action, "target": target, "reply": reply.strip()}
 
@@ -225,10 +250,85 @@ class OnlinePlanner:
             raw = response.read(1024 * 1024)
         return json.loads(raw)
 
+    def _grounded_answer(self, question: str, model: str, key: str, timeout: int) -> str:
+        """Ask Gemini's native Google Search grounding tool to browse.
+
+        The OpenAI-compatible chat endpoint does not automatically search.
+        This native endpoint is used for weather, news and current facts.
+        """
+        if self._provider() != "gemini":
+            return (
+                "Поиск в интернете через текущего AI-провайдера не настроен. "
+                "Выберите Gemini и проверьте API-ключ, либо попросите открыть поиск."
+            )
+        from luxai.api_providers import validate_model
+        import urllib.parse
+        model = validate_model(model)
+        url = (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            + urllib.parse.quote(model, safe="") + ":generateContent"
+        )
+        payload = {
+            "contents": [{
+                "parts": [{"text": (
+                    "Ответь по-русски кратко на основании свежих проверяемых "
+                    "результатов Google Search. Укажи конкретную дату прогноза "
+                    "для вопросов о погоде. Если нет данных, скажи об этом. "
+                    "Вопрос: " + question[:450]
+                )}]
+            }],
+            "tools": [{"google_search": {}}],
+        }
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers={
+                "x-goog-api-key": key,
+                "Content-Type": "application/json",
+                "User-Agent": "JarvisLocalAssistant/3",
+            },
+            method="POST",
+        )
+
+        class _NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                raise urllib.error.HTTPError(
+                    req.full_url, code, "No key forwarding", headers, fp,
+                )
+
+        opener = urllib.request.build_opener(_NoRedirect())
+        with opener.open(request, timeout=max(5, min(20, timeout * 2))) as response:
+            result = json.loads(response.read(1024 * 1024))
+        candidates = result.get("candidates", [])
+        if not candidates:
+            raise ValueError("Google Search returned no answer")
+        answer = " ".join(
+            str(part.get("text", ""))
+            for part in candidates[0].get("content", {}).get("parts", [])
+            if isinstance(part, dict) and "text" in part
+        ).strip()
+        if not answer:
+            raise ValueError("No grounded text")
+        grounding_meta = candidates[0].get("groundingMetadata", {})
+        sources = []
+        for entry in grounding_meta.get("groundingChunks", [])[:6]:
+            web = entry.get("web", {}) if isinstance(entry, dict) else {}
+            link = str(web.get("uri", ""))
+            if link.startswith("https://") and len(link) <= 400:
+                sources.append(link)
+        if sources:
+            answer += "\nИсточники: " + " ".join(sources[:2])
+        return answer[:1200]
+
     def plan(self, text, history=()):
         provider = self._provider()
-        if not self.enabled() or time.monotonic() < self._blocked_until:
+        if not self.enabled():
+            self.last_error = "онлайн-агент выключен или API-ключ отсутствует"
             return None
+        if time.monotonic() < self._blocked_until:
+            self.last_error = "провайдер временно недоступен после ошибки API"
+            return None
+        self.last_error = ""
         key = text.strip().casefold()
         cache_key = (provider, key)
         if cache_key in self._cache:
@@ -261,7 +361,14 @@ class OnlinePlanner:
             proposal = self._validate(self._read_json_content(raw_text))
             if proposal is None:
                 self._log(f"{provider} returned an invalid proposal; local fallback")
+                self.last_error = "Gemini вернул действие в неверном формате"
                 return None
+            if proposal["action"] == "web_answer":
+                answer = self._grounded_answer(proposal["target"], model, api_key, timeout)
+                return {
+                    "action": "reply", "target": "", "reply": answer,
+                    "grounded": provider == "gemini",
+                }
             if proposal["action"] == "steam_game":
                 match = lookup_steam_game(
                     proposal["target"],
@@ -290,12 +397,15 @@ class OnlinePlanner:
                     self._cache.popitem(last=False)
             return proposal
         except urllib.error.HTTPError as exc:
+            self.last_error = f"{provider}: HTTP {exc.code}"
             self._log(f"{provider} HTTP {exc.code}; local fallback")
             self._blocked_until = time.monotonic() + (60 if exc.code in (401, 402, 403, 429) else 20)
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            self.last_error = f"{provider}: нет подключения или превышено время ожидания"
             self._log(f"{provider} connection problem ({type(exc).__name__}); local fallback")
             self._blocked_until = time.monotonic() + 20
         except (ValueError, TypeError, KeyError, IndexError) as exc:
+            self.last_error = f"{provider}: ошибка ответа модели ({type(exc).__name__})"
             self._log(f"{provider} response issue ({type(exc).__name__}); local fallback")
             self._blocked_until = time.monotonic() + 10
         return None
