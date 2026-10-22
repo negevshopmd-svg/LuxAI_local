@@ -787,6 +787,9 @@ class MainWindow(QMainWindow):
                 return
             saved = self.command_registry.match(text, self.cfg.get("wake_prefix", "Jarvis"))
             if saved is not None:
+                if saved.get("steps"):
+                    self._run_saved_steps(text, saved["steps"])
+                    return
                 plan = {
                     "action": saved["action"],
                     "target": saved.get("target", ""),
@@ -834,6 +837,68 @@ class MainWindow(QMainWindow):
                 else "облачный помощник выключен"
             )
             self._start_local_chat(text, reason=reason)
+
+    def _run_saved_steps(self, text, steps):
+        """Run a verified command's actions in order, with async QTimer pauses."""
+        from luxai.action_catalog import validate_step
+        try:
+            verified = [validate_step(item) for item in steps]
+            if not 1 <= len(verified) <= 8:
+                raise ValueError("Недопустимое количество действий")
+        except (TypeError, ValueError) as exc:
+            self._current_route = "ошибка команды"
+            self._resolved_command(text, f"Недопустимая команда: {exc}")
+            return
+        self._macro_context = {
+            "text": text,
+            "steps": verified,
+            "index": 0,
+            "messages": [],
+        }
+        self._current_route = "готовая команда"
+        self._next_macro_step()
+
+    def _next_macro_step(self):
+        if self._closed or not self._processing:
+            return
+        ctx = getattr(self, "_macro_context", None)
+        if not ctx:
+            return
+        if ctx["index"] >= len(ctx["steps"]):
+            output = " ".join(ctx["messages"]) or "Команда выполнена."
+            self._macro_context = None
+            self._resolved_command(ctx["text"], output)
+            return
+        step = ctx["steps"][ctx["index"]]
+        ctx["index"] += 1
+        if step["action"] == "wait_seconds":
+            count = int(step["target"])
+            self.mic_status.setText(f"Пауза {count} сек (шаг {ctx['index']})")
+            QTimer.singleShot(count * 1000, self._next_macro_step)
+            return
+        try:
+            self.agent.last_execution_success = False
+            answer = self.agent.execute_plan(
+                ctx["text"], step, confirm_callback=self.confirm_action,
+            )
+            if answer:
+                ctx["messages"].append(str(answer))
+            if not self.agent.last_execution_success:
+                ctx["messages"].append(
+                    f"Последующие действия не выполнены (шаг {ctx['index']})."
+                )
+                output = " ".join(ctx["messages"])
+                self._macro_context = None
+                self._resolved_command(ctx["text"], output)
+                return
+        except Exception as exc:
+            ctx["messages"].append(f"Шаг {ctx['index']}: {exc}")
+            output = " ".join(ctx["messages"])
+            self._macro_context = None
+            self._resolved_command(ctx["text"], output)
+            return
+        # Schedule instead of recursion so UI remains responsive.
+        QTimer.singleShot(0, self._next_macro_step)
 
     def _online_thread(self, text, history):
         try:
@@ -971,7 +1036,7 @@ class MainWindow(QMainWindow):
         # confirmation for ordinary app launches has been disabled.
         file_write = any(
             token in str(description).casefold()
-            for token in ("создать файл", "создать папку", "create ", "creez ")
+            for token in ("создать файл", "создать папку", "create ", "creez ", "⚠")
         )
         if not file_write and not self.cfg.get("confirm_desktop_actions", True):
             return True
