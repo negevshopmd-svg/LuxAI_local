@@ -36,6 +36,10 @@ def user_folder(location="desktop", home: Path | None = None) -> Path:
 
 def safe_name(name: str, is_folder=False) -> str:
     value = str(name or "").strip().strip("'\"«»“”")
+    # Whisper can transcribe the spoken TXT extension in Cyrillic.
+    # These are explicit transcription variants, not arbitrary extensions.
+    if not is_folder:
+        value = re.sub(r"(?i)\.(?:текст|тексте|тхт|тиэксти)$", ".txt", value)
     if not value:
         value = DEFAULT_FOLDER if is_folder else DEFAULT_FILE
     if not is_folder and "." not in value:
@@ -111,6 +115,47 @@ def parse_file_intent(text: str) -> dict | None:
         place = "downloads"
     if re.search(r"(?:рабоч(?:ем|ий) стол(?:е|а)|desktop|десктоп)", lowered):
         place = "desktop"
+
+    # Allow bounded offline rename/Recycle Bin workflows, with a real
+    # last-created file context. If the command is incomplete, ask for a
+    # filename rather than claiming a write happened.
+    if re.search(r"\b(?:переименуй|переименовать|переименуйте|rename)\b", lowered):
+        match = re.search(
+            r"\b(?:в|на|как|to)\s+([A-Za-zА-Яа-яЁё0-9_.() -]{1,100})\s*$",
+            text, flags=re.IGNORECASE,
+        )
+        if not match:
+            return None
+        destination = match.group(1).strip(" .,!?:")
+        try:
+            target = safe_name(destination)
+        except ValueError:
+            return None
+        return {
+            "action": "rename_file", "source": "@last", "target": target,
+            "location": place, "content": "",
+        }
+
+    if re.search(r"\b(?:удали|удалить|сотри|удалите|delete)\b", lowered):
+        match = re.search(
+            r"\b(?:файл|file)\s+([A-Za-zА-Яа-яЁё0-9_.() -]{1,100})",
+            text, flags=re.IGNORECASE,
+        )
+        source = "@last"
+        if match:
+            candidate = re.split(
+                r"\s+(?:с|из)\s+рабоч(?:его|ем)\s+стол(?:а|е)",
+                match.group(1), maxsplit=1, flags=re.IGNORECASE,
+            )[0].strip(" .,!?")
+            if candidate.casefold() not in {"его", "этот", "новый", ""}:
+                try:
+                    source = safe_name(candidate, is_folder=True)
+                except ValueError:
+                    return None
+        return {
+            "action": "trash_file", "source": source, "target": "",
+            "location": place, "content": "",
+        }
 
     if re.search(r"(?:что|какие)\s+(?:есть\s+)?(?:файлы|файлов|папки)\b|(?:покажи|список)\s+(?:мне\s+)?(?:файлы|файлов|папки)", lowered):
         return {"action": "list_files", "target": "", "location": place, "content": ""}
