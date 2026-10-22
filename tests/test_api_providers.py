@@ -20,6 +20,15 @@ class ProviderTests(unittest.TestCase):
         )
         self.assertEqual(model_for("deepseek"), "deepseek-flash")
 
+    def test_orcarouter_uses_its_own_endpoint_and_model(self):
+        self.assertEqual(
+            endpoint_for("orcarouter"),
+            "https://api.orcarouter.ai/v1/chat/completions",
+        )
+        self.assertEqual(model_for("orcarouter"), "orcarouter/auto")
+        self.assertNotEqual(endpoint_for("orcarouter"), endpoint_for("openrouter"))
+        self.assertEqual(secure_keys._secret_file("orcarouter").name, "orcarouter_key.dpapi")
+
     def test_catalog_endpoints_use_https(self):
         for provider in PROVIDERS:
             if provider != "custom":
