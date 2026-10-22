@@ -223,6 +223,16 @@ class CommandRegistry:
                 return dict(item)
         return None
 
+    def disabled_match(self, spoken, prefix="Jarvis"):
+        """Avoid executing explicitly disabled built-in triggers via looser AI rules."""
+        phrase = normalize_phrase(strip_wake_name(spoken, prefix))
+        for item in BUILTINS:
+            if item["id"] not in self.disabled_builtins:
+                continue
+            if any(normalize_phrase(candidate) == phrase for candidate in item["phrases"]):
+                return True
+        return False
+
     def save_custom(self, raw):
         data = dict(raw)
         if not data.get("id"):
