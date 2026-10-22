@@ -356,10 +356,17 @@ class SettingsPanel(QWidget):
         panel.addWidget(self.key_status)
 
         self.online_timeout = QSpinBox()
-        self.online_timeout.setRange(3, 10)
+        self.online_timeout.setRange(35, 120)
         self.online_timeout.setSuffix(" сек")
-        self.online_timeout.setValue(int(self.cfg.get("online_timeout", 5)))
-        self._row(panel, "Таймаут облака", "Если сервис не отвечает, переключиться на локальный ИИ.", self.online_timeout)
+        # Migrate legacy 3–10 second timeouts: old defaults made Gemini time
+        # out long before it could plan commands. Default is now 60 seconds.
+        self.online_timeout.setValue(max(60, int(self.cfg.get("online_timeout", 60))))
+        self._row(
+            panel, "Время ответа облачного ИИ",
+            "Gemini может думать от 35 до 120 секунд. По умолчанию 60 сек. "
+            "При HTTP 429 лимит аккаунта не исчезнет от увеличения времени.",
+            self.online_timeout,
+        )
 
         buttons = QHBoxLayout()
         self.provider_keys_button = QPushButton("Получить ключ")
