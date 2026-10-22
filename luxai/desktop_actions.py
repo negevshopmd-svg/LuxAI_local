@@ -5,10 +5,17 @@ keyboard/mouse operations are explicit user-created, prevalidated macro steps.
 """
 from __future__ import annotations
 
+import base64
 import ctypes
+import os
+import subprocess
 import sys
+import threading
+import time
+import uuid
 import urllib.parse
 import webbrowser
+from pathlib import Path
 
 from luxai.action_catalog import HOTKEYS, validate_step
 
@@ -71,15 +78,164 @@ def _type_unicode_windows(text: str):
             raise OSError("Windows rejected keyboard input")
 
 
-def execute_desktop_step(raw: dict) -> str:
-    """Return a result message if action succeeds; raise for failed actions.
+_mouse_hold_lock = threading.Lock()
 
-    Caller must obtain user approval for potentially impactful steps.
-    Pauses are handled asynchronously by QTimer in main.py, not here.
+
+def _launch_user_script(action: str, command: str) -> str:
+    """Launch an explicitly configured script with user privileges only.
+
+    Cloud plans and voice-wizard plans never carry these actions. Caller
+    revalidates the manually saved step and requires explicit confirmation
+    of the complete command on every launch.
+    """
+    if sys.platform != "win32":
+        raise OSError("CMD и PowerShell доступны только на Windows")
+    args = (
+        ["cmd.exe", "/D", "/C", command]
+        if action == "run_cmd"
+        else ["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command]
+    )
+    subprocess.Popen(
+        args,
+        cwd=str(Path.home()),
+        shell=False,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    return "Команда передана Windows для выполнения с правами текущего пользователя."
+
+
+def _mouse_hold(button: str, seconds: int):
+    """Always release mouse even if application closes during a hold."""
+    if not _mouse_hold_lock.acquire(blocking=False):
+        raise RuntimeError("Другое удержание мыши ещё выполняется")
+
+    import pyautogui as gui
+
+    def release():
+        try:
+            gui.mouseDown(button=button)
+            try:
+                time.sleep(seconds)
+            finally:
+                gui.mouseUp(button=button)
+        finally:
+            _mouse_hold_lock.release()
+
+    threading.Thread(target=release, daemon=True, name="JarvisMouseRelease").start()
+
+
+def _play_mci_mp3(path: str):
+    """Play user-selected MP3 via native Windows MCI asynchronously."""
+    winmm = ctypes.windll.winmm
+    alias = "jarvis_" + uuid.uuid4().hex[:15]
+    command = f'open "{path}" type mpegvideo alias {alias}'
+    if winmm.mciSendStringW(command, None, 0, None):
+        raise OSError("Не удалось открыть MP3 через Windows MCI")
+    if winmm.mciSendStringW(f"play {alias}", None, 0, None):
+        winmm.mciSendStringW(f"close {alias}", None, 0, None)
+        raise OSError("Не удалось воспроизвести MP3")
+
+    def close_after_playback():
+        buffer = ctypes.create_unicode_buffer(128)
+        try:
+            deadline = time.monotonic() + 600
+            while time.monotonic() < deadline:
+                time.sleep(0.5)
+                if winmm.mciSendStringW(
+                    f"status {alias} mode", buffer, len(buffer), None
+                ):
+                    break
+                if buffer.value.lower() not in {"playing", "seeking"}:
+                    break
+        finally:
+            winmm.mciSendStringW(f"close {alias}", None, 0, None)
+
+    threading.Thread(
+        target=close_after_playback, daemon=True, name="JarvisMP3",
+    ).start()
+
+
+def _app_volume(target: str):
+    """Set current audio session volume for a known selected application."""
+    app, value = target.split(":", 1)
+    processes = {
+        "telegram": ("telegram.exe",), "discord": ("discord.exe",),
+        "steam": ("steam.exe", "steamwebhelper.exe"),
+        "chrome": ("chrome.exe",), "firefox": ("firefox.exe",),
+        "edge": ("msedge.exe",), "spotify": ("spotify.exe",),
+    }
+    if app not in processes:
+        raise OSError("Для этого приложения нет звуковой сессии")
+    try:
+        import comtypes
+        from pycaw.pycaw import AudioUtilities
+    except ImportError as exc:
+        raise OSError("Установите зависимости pycaw и comtypes через Update.bat") from exc
+
+    comtypes.CoInitialize()
+    try:
+        sessions = AudioUtilities.GetAllSessions()
+        matched = 0
+        for session in sessions:
+            try:
+                if session.Process and session.Process.name().casefold() in processes[app]:
+                    session.SimpleAudioVolume.SetMasterVolume(int(value) / 100, None)
+                    matched += 1
+            except (OSError, AttributeError):
+                continue
+        if matched == 0:
+            raise OSError("Приложение не запущено или нет активного аудиопотока")
+    finally:
+        comtypes.CoUninitialize()
+
+
+def _monitor_power(on: bool):
+    if sys.platform != "win32":
+        raise OSError("Управление экраном доступно только на Windows")
+    SMTO_ABORTIFHUNG = 0x0002
+    result = ctypes.c_size_t()
+    ctypes.windll.user32.SendMessageTimeoutW(
+        0xFFFF, 0x0112, 0xF170, -1 if on else 2,
+        SMTO_ABORTIFHUNG, 1500, ctypes.byref(result),
+    )
+    # Windows may prevent the monitor from turning on/off depending on
+    # hardware and power policy; SendMessage is a best-effort request.
+
+
+def _female_sapi(text: str):
+    if sys.platform != "win32":
+        raise OSError("Системная озвучка доступна только на Windows")
+    encoded_text = base64.b64encode(text.encode("utf-8")).decode("ascii")
+    # User text is passed as a base64 literal, not executable PowerShell code.
+    code = (
+        "Add-Type -AssemblyName System.Speech;"
+        "$voice = New-Object System.Speech.Synthesis.SpeechSynthesizer;"
+        "$voice.SelectVoiceByHints([System.Speech.Synthesis.VoiceGender]::Female);"
+        "$voice.Speak([Text.Encoding]::UTF8.GetString("
+        f"[Convert]::FromBase64String('{encoded_text}')));"
+        "$voice.Dispose();"
+    )
+    subprocess.Popen(
+        ["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive",
+         "-EncodedCommand", base64.b64encode(code.encode("utf-16-le")).decode("ascii")],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+
+
+def execute_desktop_step(raw: dict) -> str:
+    """Execute one saved, validated local action after confirmation.
+
+    CMD, PowerShell and file launching are not available to cloud plan schemas.
+    Long playback and mouse-hold actions are queued, avoiding UI blocking.
     """
     step = validate_step(raw)
-    action = step["action"]
-    target = step["target"]
+    action, target = step["action"], step["target"]
 
     if action == "noop":
         return ""
@@ -87,23 +243,70 @@ def execute_desktop_step(raw: dict) -> str:
         if not webbrowser.open(target, new=2):
             raise OSError("Не удалось открыть сайт")
         return "Открыл сайт."
-    if action == "search_web":
-        url = "https://www.google.com/search?" + urllib.parse.urlencode({"q": target})
+    if action in {"search_web", "open_first_result"}:
+        params = {"q": target}
+        if action == "open_first_result":
+            params["btnI"] = "I"
+        url = "https://www.google.com/search?" + urllib.parse.urlencode(params)
         if not webbrowser.open(url, new=2):
-            raise OSError("Не удалось открыть результаты поиска")
-        return "Открыл результаты поиска."
+            raise OSError("Не удалось открыть поисковик")
+        return (
+            "Открываю первый результат через поиск Google."
+            if action == "open_first_result" else
+            "Открыл результаты поиска."
+        )
+    if action in {"run_cmd", "run_powershell"}:
+        return _launch_user_script(action, target)
+    if action == "run_file":
+        if sys.platform != "win32":
+            raise OSError("Открытие пользовательских файлов доступно только на Windows")
+        os.startfile(target)
+        return "Запускаю выбранный файл."
     if action in {"speak_text", "speak_ready", "speak_done"}:
         return {
             "speak_text": target,
             "speak_ready": "Вас понял, сэр.",
             "speak_done": "Всё готово, сэр.",
         }[action]
+    if action == "voice_male":
+        return target  # Jarvis's normal response TTS reads this at macro completion.
+    if action == "voice_female":
+        _female_sapi(target)
+        return "Запущена женская системная озвучка."
+    if action in {"play_mp3", "play_wav"}:
+        if sys.platform != "win32":
+            raise OSError("Воспроизведение файлов доступно только на Windows")
+        if not Path(target).is_file():
+            raise FileNotFoundError("Аудиофайл отсутствует")
+        if action == "play_wav":
+            import winsound
+            winsound.PlaySound(
+                target,
+                winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_NODEFAULT,
+            )
+        else:
+            _play_mci_mp3(target)
+        return "Воспроизвожу аудиофайл."
+    if action in {"monitor_on", "monitor_off"}:
+        _monitor_power(on=action == "monitor_on")
+        return "Команда управления монитором отправлена Windows."
+    if action == "sleep_pc":
+        if sys.platform != "win32":
+            raise OSError("Спящий режим поддерживается только на Windows")
+        if not ctypes.windll.powrprof.SetSuspendState(False, False, False):
+            raise OSError("Windows не разрешила спящий режим")
+        return "Компьютер переведён в спящий режим."
     if action == "lock_screen":
         if sys.platform != "win32":
             raise OSError("Блокировка экрана доступна только на Windows")
         if not ctypes.windll.user32.LockWorkStation():
             raise OSError("Не удалось заблокировать экран")
         return "Экран заблокирован."
+    if action == "app_volume":
+        if sys.platform != "win32":
+            raise OSError("Громкость приложения поддерживается только на Windows")
+        _app_volume(target)
+        return "Громкость приложения изменена."
 
     if sys.platform != "win32":
         raise OSError("Это действие поддерживается только на Windows")
@@ -112,7 +315,6 @@ def execute_desktop_step(raw: dict) -> str:
         _type_unicode_windows(target)
         return "Текст введён."
 
-    # Import lazily: pyautogui needs a real Windows graphical session.
     import pyautogui as gui
     gui.FAILSAFE = True
     gui.PAUSE = 0.06
@@ -127,10 +329,13 @@ def execute_desktop_step(raw: dict) -> str:
         return "Нажато Ctrl+S."
     if action == "mouse_click":
         gui.click()
-        return "Клик выполнен."
+        return "Левый клик выполнен."
     if action == "mouse_double_click":
         gui.doubleClick(interval=0.14)
         return "Двойной клик выполнен."
+    if action == "mouse_middle_click":
+        gui.click(button="middle")
+        return "Клик колёсиком выполнен."
     if action == "mouse_scroll":
         gui.scroll(int(target))
         return "Прокрутка выполнена."
@@ -140,6 +345,9 @@ def execute_desktop_step(raw: dict) -> str:
             raise ValueError("Координаты за пределами экрана")
         gui.moveTo(x, y, duration=0.15)
         return "Курсор перемещён."
+    if action in ("mouse_hold", "mouse_right_hold"):
+        _mouse_hold("right" if action == "mouse_right_hold" else "left", int(target))
+        return "Кнопка мыши временно удерживается."
     if action == "volume_up":
         gui.press("volumeup", presses=2, interval=0.05)
         return "Громкость увеличена."
