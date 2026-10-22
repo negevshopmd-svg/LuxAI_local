@@ -21,7 +21,7 @@ class BundledOCRTests(unittest.TestCase):
             path = Path(folder) / "eng.traineddata"
             content = b"sample-ocr-model-binary"
             path.write_bytes(content)
-            header = b"blob " + str(len(content)).encode("ascii") + b"\\0"
+            header = b"blob " + str(len(content)).encode("ascii") + b"\0"
             expected = hashlib.sha1(header + content).hexdigest()
             with mock.patch.dict(
                 ocr_setup.MODEL_BLOBS,
