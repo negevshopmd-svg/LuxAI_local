@@ -174,12 +174,15 @@ def _install_binary() -> Path:
             if check.read(2) != b"MZ":
                 raise OCRInstallError("Загруженный файл не является Windows EXE.")
         try:
+            # NSIS requires /D to be the LAST parameter, with an UNQUOTED
+            # destination path even when the folder contains spaces.
+            # Pass a raw Windows command line (shell=False), specifying the
+            # trusted, SHA-256 verified executable as lpApplicationName.
+            command = f'"{installer}" /S /D={INSTALL_DIR}'
             result = subprocess.run(
-                [
-                    str(installer),
-                    "/S",
-                    "/D=" + str(INSTALL_DIR),
-                ],
+                command,
+                executable=str(installer),
+                shell=False,
                 check=False,
                 timeout=180,
                 cwd=str(OCR_ROOT),
