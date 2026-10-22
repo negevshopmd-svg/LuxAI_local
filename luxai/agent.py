@@ -9,6 +9,7 @@ from luxai.file_actions import (
     rename_user_item, trash_user_item, ALLOWED_LOCATIONS,
 )
 from luxai.windows_apps import launch_installed_app, normalized_name
+from luxai.websites import open_website
 from luxai.windows_control import close_installed_app
 from luxai.windows_volume import windows_volume
 from luxai.desktop_actions import execute_desktop_step
@@ -485,7 +486,12 @@ class LocalAgent:
                     f"Nu am putut executa «{title}»: {exc}",
                     f"Could not execute «{title}»: {exc}", text,
                 )
-        if action == "set_system_volume":
+        if action == "open_site":
+            if not isinstance(target, str):
+                return "Неверный адрес сайта."
+            success, answer = open_website(target)
+            self.last_execution_success = bool(success)
+        elif action == "set_system_volume":
             try:
                 if not isinstance(target, str) or not target.isdecimal():
                     return "Укажите громкость числом от 0 до 100%."
