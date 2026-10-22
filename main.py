@@ -69,7 +69,7 @@ class VoiceWorker(QThread):
     def run(self):
         try:
             self.listener = VoiceListener(
-                model_path=self.cfg.get("whisper_model_path") or self.cfg.get("whisper_model", "small"),
+                model_path=self.cfg.get("whisper_model_path") or self.cfg.get("whisper_model", "tiny"),
                 prefix_enabled=self.cfg.get("prefix_enabled", False),
                 prefix=self.cfg.get("wake_prefix", "Jarvis"),
                 language=self.cfg.get("language", "auto"),
@@ -464,8 +464,31 @@ class MainWindow(QMainWindow):
                 self.pending_confirmation_result = answer
                 self.pending_confirmation_dialog.done(1 if answer else 0)
                 return
-        self.append_message("Tu (voce)", text, "#79a6ff")
-        self.run_command(text)
+
+        spoken = text.strip()
+        if not spoken:
+            return
+        # Always record what was recognized, including speech without the wake prefix.
+        self.append_message("Tu (voce)", spoken, "#79a6ff")
+
+        if self.cfg.get("prefix_enabled", False):
+            prefix = (self.cfg.get("wake_prefix", "Jarvis") or "Jarvis").strip()
+            # Accept common Russian transliterations of Jarvis as well as the configured word.
+            escaped = re.escape(prefix)
+            match = re.match(r"^\\s*(?:" + escaped + r"|джарвис|джарвис[а-яё]*)(?=$|[\\s,.:;!?-])", spoken, flags=re.IGNORECASE)
+            if not match:
+                reminder = f"Pentru activare, începe comanda cu «{prefix}»."
+                self.mic_status.setText(reminder)
+                self.append_message("Nexora AI", reminder, "#a5b9dc")
+                return
+            spoken = spoken[match.end():].lstrip(" ,.!?:;-")
+            if not spoken:
+                reminder = "Te ascult. Spune comanda după prefix."
+                self.mic_status.setText(reminder)
+                self.append_message("Nexora AI", reminder, "#a5b9dc")
+                return
+        self.mic_status.setText("Comandă vocală recunoscută — procesez…")
+        self.run_command(spoken)
 
     @staticmethod
     def _parse_confirmation(text):
