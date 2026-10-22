@@ -16,10 +16,9 @@ from collections import OrderedDict
 from pathlib import Path
 
 from luxai.secure_keys import get_api_key
+from luxai.api_providers import PROVIDERS, endpoint_for, model_for
 from luxai.steam_games import lookup_steam_game
 
-API_URL = "https://api.openai.com/v1/chat/completions"
-ALLOWED_MODELS = {"gpt-4.1-nano", "gpt-4.1-mini", "gpt-4o-mini"}
 ALLOWED_ACTIONS = {
     "open_app", "launch_game", "steam_game", "minimize_windows",
     "search_web", "time", "reply", "none",
@@ -62,16 +61,32 @@ class OnlinePlanner:
         updated = dict(config)
         if updated == self.config:
             return
-        old_model = self.config.get("online_model")
-        old_enabled = self.config.get("online_agent_enabled")
+        previous = (
+            self.config.get("online_provider", "openai"),
+            self.config.get("online_model"),
+            self.config.get("online_custom_url"),
+        )
+        current = (
+            updated.get("online_provider", "openai"),
+            updated.get("online_model"),
+            updated.get("online_custom_url"),
+        )
+        was_enabled = self.config.get("online_agent_enabled", False)
         self.config = updated
-        if old_model != updated.get("online_model"):
+        if previous != current:
             self._cache.clear()
-        if old_model != updated.get("online_model") or old_enabled != updated.get("online_agent_enabled"):
+        if previous != current or was_enabled != updated.get("online_agent_enabled", False):
             self._blocked_until = 0.0
 
+    def _provider(self):
+        value = self.config.get("online_provider", "openai")
+        return value if value in PROVIDERS else "openai"
+
     def enabled(self):
-        return bool(self.config.get("online_agent_enabled", False) and get_api_key())
+        return bool(
+            self.config.get("online_agent_enabled", False)
+            and get_api_key(self._provider())
+        )
 
     @staticmethod
     def _log(message):
@@ -108,20 +123,92 @@ class OnlinePlanner:
                 return None
         return {"action": action, "target": target, "reply": reply.strip()}
 
+    @staticmethod
+    def _read_json_content(text):
+        """Parse a JSON-only reply, tolerating markdown fences from weaker models."""
+        if isinstance(text, list):
+            text = "".join(
+                str(item.get("text", ""))
+                for item in text if isinstance(item, dict) and item.get("type") == "text"
+            )
+        if not isinstance(text, str):
+            raise ValueError("Empty provider response")
+        text = text.strip()
+        if text.startswith("```"):
+            text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.IGNORECASE)
+        return json.loads(text)
+
+    @staticmethod
+    def _extract_text(response, provider):
+        if provider == "anthropic":
+            content = response.get("content", [])
+            return "".join(
+                item.get("text", "")
+                for item in content if isinstance(item, dict) and item.get("type") == "text"
+            )
+        return response["choices"][0]["message"]["content"]
+
+    def _request(self, provider, model, api_key, messages, timeout):
+        """Send to one explicitly selected provider, without cross-host redirects."""
+        endpoint = endpoint_for(provider, self.config.get("online_custom_url", ""))
+        if provider == "anthropic":
+            payload = {
+                "model": model,
+                "system": _SYSTEM,
+                "messages": [m for m in messages if m["role"] != "system"],
+                "max_tokens": 300,
+            }
+            headers = {
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+            }
+        else:
+            payload = {
+                "model": model,
+                "messages": messages,
+                "max_tokens": 300,
+                "temperature": 0,
+            }
+            if provider in {"openai", "deepseek"}:
+                payload["response_format"] = {"type": "json_object"}
+            headers = {"Authorization": "Bearer " + api_key}
+        headers.update({
+            "Content-Type": "application/json",
+            "User-Agent": "JarvisLocalAssistant/2.1",
+        })
+        request = urllib.request.Request(
+            endpoint,
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+
+        class _NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                raise urllib.error.HTTPError(
+                    req.full_url, code, "Redirect blocked for API credentials", headers, fp,
+                )
+
+        opener = urllib.request.build_opener(_NoRedirect())
+        with opener.open(request, timeout=timeout) as response:
+            if response.status != 200:
+                raise ValueError("Unexpected API response status")
+            raw = response.read(1024 * 1024)
+        return json.loads(raw)
+
     def plan(self, text, history=()):
+        provider = self._provider()
         if not self.enabled() or time.monotonic() < self._blocked_until:
             return None
         key = text.strip().casefold()
-        if key in self._cache:
-            self._cache.move_to_end(key)
-            return dict(self._cache[key])
-        key_value = get_api_key()
-        if not key_value:
+        cache_key = (provider, key)
+        if cache_key in self._cache:
+            self._cache.move_to_end(cache_key)
+            return dict(self._cache[cache_key])
+        api_key = get_api_key(provider)
+        if not api_key:
             return None
 
-        model = str(self.config.get("online_model", "gpt-4.1-nano"))
-        if model not in ALLOWED_MODELS:
-            model = "gpt-4.1-nano"
         timeout = max(3, min(10, int(self.config.get("online_timeout", 5))))
         messages = [{"role": "system", "content": _SYSTEM}]
         for m in list(history)[-4:]:
@@ -131,33 +218,20 @@ class OnlinePlanner:
                     "content": str(m.get("content", ""))[:500],
                 })
         messages.append({"role": "user", "content": text[:700]})
-        body = json.dumps({
-            "model": model,
-            "messages": messages,
-            "response_format": {"type": "json_object"},
-            "temperature": 0,
-            "max_tokens": 160,
-        }, ensure_ascii=False).encode("utf-8")
-        request = urllib.request.Request(
-            API_URL,
-            data=body,
-            headers={
-                "Authorization": "Bearer " + key_value,
-                "Content-Type": "application/json",
-                "User-Agent": "JarvisLocalAssistant/2.0",
-            },
-            method="POST",
-        )
+
         try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
-                if response.status != 200:
-                    raise ValueError("Unexpected API response status")
-                raw = response.read(1024 * 1024)
-            result = json.loads(raw)
-            content = result["choices"][0]["message"]["content"]
-            proposal = self._validate(json.loads(content))
+            configured_model = self.config.get("online_model") or None
+            # Older installations stored an OpenAI model without a provider.
+            if provider != "openai" and configured_model in {
+                "gpt-4.1-nano", "gpt-4.1-mini", "gpt-4o-mini",
+            }:
+                configured_model = None
+            model = model_for(provider, configured_model)
+            response = self._request(provider, model, api_key, messages, timeout)
+            raw_text = self._extract_text(response, provider)
+            proposal = self._validate(self._read_json_content(raw_text))
             if proposal is None:
-                self._log("Planner returned an invalid proposal; local fallback")
+                self._log(f"{provider} returned an invalid proposal; local fallback")
                 return None
             if proposal["action"] == "steam_game":
                 match = lookup_steam_game(
@@ -182,17 +256,17 @@ class OnlinePlanner:
                         "reply": "",
                     }
             if proposal["action"] in CACHE_ACTIONS:
-                self._cache[key] = proposal
+                self._cache[cache_key] = proposal
                 if len(self._cache) > 32:
                     self._cache.popitem(last=False)
             return proposal
         except urllib.error.HTTPError as exc:
-            self._log(f"OpenAI HTTP {exc.code}; local fallback")
+            self._log(f"{provider} HTTP {exc.code}; local fallback")
             self._blocked_until = time.monotonic() + (60 if exc.code in (401, 402, 403, 429) else 20)
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
-            self._log(f"OpenAI connection problem ({type(exc).__name__}); local fallback")
+            self._log(f"{provider} connection problem ({type(exc).__name__}); local fallback")
             self._blocked_until = time.monotonic() + 20
         except (ValueError, TypeError, KeyError, IndexError) as exc:
-            self._log(f"OpenAI response issue ({type(exc).__name__}); local fallback")
+            self._log(f"{provider} response issue ({type(exc).__name__}); local fallback")
             self._blocked_until = time.monotonic() + 10
         return None
