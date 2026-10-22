@@ -165,11 +165,28 @@ class ActionOptionsDialog(QDialog):
         self.data = None
         details = CATALOG[action]
         self.setWindowTitle("Настроить действие")
+        self.setObjectName("ActionOptionsDialog")
+        self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
         self.setMinimumWidth(500)
         self.resize(550, 320)
+        self.setStyleSheet(
+            "QDialog#ActionOptionsDialog{background:#1c2738;color:#f1f5fb;"
+            "border:1px solid #3b4d67;}QLabel{color:#f1f5fb;}"
+        )
         layout = QVBoxLayout(self)
         layout.setContentsMargins(23, 20, 23, 20)
         layout.setSpacing(14)
+        header = QHBoxLayout()
+        small_title = QLabel("Настроить действие")
+        small_title.setStyleSheet("color:#9fb2ce;font-weight:600;")
+        header.addWidget(small_title)
+        header.addStretch()
+        close = QPushButton("×")
+        close.setObjectName("PickerClose")
+        close.setFixedSize(32, 32)
+        close.clicked.connect(self.reject)
+        header.addWidget(close)
+        layout.addLayout(header)
 
         heading = QLabel(details["title"])
         heading.setStyleSheet("font-size:18px; font-weight:700;")
