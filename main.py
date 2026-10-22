@@ -1271,10 +1271,15 @@ def load_project_font():
             print(f"Nu am putut încărca fontul {filename}: {exc}")
     return loaded
 
-app = QApplication(sys.argv)
-app.setStyle("Fusion")
-app.setFont(QFont("Segoe UI", 10))
-app.setStyleSheet(build_styles())
-w = MainWindow()
-w.show()
-sys.exit(app.exec())
+def main():
+    app = QApplication(sys.argv)
+    app.setStyle("Fusion")
+    app.setFont(QFont("Segoe UI", 10))
+    app.setStyleSheet(build_styles())
+    window = MainWindow()
+    window.show()
+    return app.exec()
+
+
+if __name__ == "__main__":
+    sys.exit(main())
