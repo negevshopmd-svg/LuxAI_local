@@ -80,6 +80,17 @@ class CloudExecutionTests(unittest.TestCase):
         self.assertEqual(result["action"], "steam_verified")
         self.assertEqual(result["appid"], 391540)
 
+    def test_russian_offline_rename_transcription_and_delete_intents(self):
+        from luxai.file_actions import parse_file_intent, safe_name
+        self.assertEqual(safe_name("заметка.тексте"), "заметка.txt")
+        action = parse_file_intent("Переименуй его на заметка.тексте")
+        self.assertEqual(action["action"], "rename_file")
+        self.assertEqual(action["target"], "заметка.txt")
+        self.assertEqual(action["source"], "@last")
+        action = parse_file_intent("Удали его")
+        self.assertEqual(action["action"], "trash_file")
+        self.assertEqual(action["source"], "@last")
+
     def test_only_verified_file_rename_is_reported(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
