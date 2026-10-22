@@ -89,7 +89,7 @@ class VoiceWorker(QThread):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Luxify Assistant")
+        self.setWindowTitle("Nexora AI")
         self.resize(1120, 720)
         self.setMinimumSize(900, 600)
         self.cfg = load_config()
@@ -116,7 +116,7 @@ class MainWindow(QMainWindow):
         logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         logo.setFixedSize(42, 42)
         logo.setStyleSheet("background:#2f70e8;color:white;border-radius:21px;font-size:25px;font-weight:700;")
-        brand_name = QLabel("LUXIFY")
+        brand_name = QLabel("NEXORA")
         brand_name.setStyleSheet("font-size:17px;font-weight:800;letter-spacing:1px;")
         brand.addWidget(logo)
         brand.addWidget(brand_name)
@@ -124,7 +124,7 @@ class MainWindow(QMainWindow):
         side.addLayout(brand)
         side.addSpacing(24)
 
-        for label, page in [("⌂   Главная", 0), ("☷   Команды", 1), ("▦   Дополнения", 2), ("▣   Luxify AI", 3), ("☷   Настройки", 4)]:
+        for label, page in [("⌂   Acasă", 0), ("☷   Comenzi", 1), ("▦   Instrumente", 2), ("▣   Nexora AI", 3), ("☷   Setări", 4)]:
             btn = QPushButton(label)
             btn.setObjectName("Nav")
             btn.setProperty("active", page == 0)
@@ -136,9 +136,6 @@ class MainWindow(QMainWindow):
         collapse.setObjectName("Nav")
         collapse.clicked.connect(lambda: sidebar.setFixedWidth(72 if sidebar.width() > 100 else 176))
         side.addWidget(collapse)
-        account = QLabel("◎   Аккаунт")
-        account.setStyleSheet("color:#9da6b5;padding:10px 4px;")
-        side.addWidget(account)
         outer.addWidget(sidebar)
 
         content = QWidget()
@@ -147,7 +144,7 @@ class MainWindow(QMainWindow):
         content_layout.setContentsMargins(24, 20, 24, 18)
         content_layout.setSpacing(14)
         header = QHBoxLayout()
-        self.header_title = QLabel("Luxify Assistant   |   Главная")
+        self.header_title = QLabel("Nexora AI   |   Acasă")
         self.header_title.setStyleSheet("font-size:17px;font-weight:650;")
         header.addWidget(self.header_title)
         header.addStretch()
@@ -177,9 +174,9 @@ class MainWindow(QMainWindow):
         layout.setSpacing(16)
         top = QHBoxLayout()
         intro = QVBoxLayout()
-        title = QLabel("Добро пожаловать в Luxify Assistant!")
+        title = QLabel("Bine ai venit în Nexora AI!")
         title.setStyleSheet("font-size:23px;font-weight:700;")
-        subtitle = QLabel("Ваш локальный помощник готов к работе.")
+        subtitle = QLabel("Asistentul tău local este gata de lucru.")
         subtitle.setObjectName("Muted")
         intro.addWidget(title)
         intro.addWidget(subtitle)
@@ -197,7 +194,7 @@ class MainWindow(QMainWindow):
         history_layout.addWidget(history_title)
         self.home_history = QTextEdit()
         self.home_history.setReadOnly(True)
-        self.home_history.setPlaceholderText("Добро пожаловать в Luxify Assistant!\nКоманды ещё не выполнялись")
+        self.home_history.setPlaceholderText("Bine ai venit în Nexora AI!\nÎncă nu există comenzi.")
         self.home_history.setMinimumHeight(190)
         history_layout.addWidget(self.home_history)
         row.addWidget(history_frame, 3)
@@ -236,7 +233,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(row, 1)
 
         quick = QHBoxLayout()
-        for text, page_num in [("Открыть Luxify AI", 3), ("Настройки", 4), ("Дополнения", 2)]:
+        for text, page_num in [("Открыть Nexora AI", 3), ("Настройки", 4), ("Дополнения", 2)]:
             b = QPushButton(text)
             b.clicked.connect(lambda checked=False, p=page_num: self.show_page(p))
             quick.addWidget(b)
@@ -297,7 +294,7 @@ class MainWindow(QMainWindow):
     def build_chat(self):
         page = QWidget()
         layout = QVBoxLayout(page)
-        title = QLabel("Luxify AI")
+        title = QLabel("Nexora AI")
         title.setObjectName("PageTitle")
         layout.addWidget(title)
         subtitle = QLabel("Общение с локальным помощником. Ваши модели и настройки остаются на компьютере.")
@@ -306,7 +303,7 @@ class MainWindow(QMainWindow):
         frame, box = card()
         self.log = QTextEdit()
         self.log.setReadOnly(True)
-        self.log.setPlaceholderText("Luxify AI появится здесь после первого сообщения.")
+        self.log.setPlaceholderText("Nexora AI появится здесь после первого сообщения.")
         box.addWidget(self.log, 1)
         row = QHBoxLayout()
         self.command = QLineEdit()
@@ -327,7 +324,7 @@ class MainWindow(QMainWindow):
         title = QLabel("Настройки")
         title.setObjectName("PageTitle")
         layout.addWidget(title)
-        desc = QLabel("Настările sunt salvate local în config.json.")
+        desc = QLabel("Setările sunt salvate local în config.json.")
         desc.setObjectName("Muted")
         layout.addWidget(desc)
         frame, box = card()
@@ -373,8 +370,8 @@ class MainWindow(QMainWindow):
 
     def show_page(self, index):
         self.pages.setCurrentIndex(index)
-        titles = ["Главная", "Команды", "Дополнения", "Luxify AI", "Настройки"]
-        self.header_title.setText("Luxify Assistant   |   " + titles[index])
+        titles = ["Главная", "Команды", "Дополнения", "Nexora AI", "Настройки"]
+        self.header_title.setText("Nexora AI   |   " + titles[index])
         for i, button in enumerate(self.nav_buttons):
             button.setProperty("active", i == index)
             button.style().unpolish(button)
@@ -471,7 +468,7 @@ class MainWindow(QMainWindow):
             result = self.agent.handle(text, confirm_callback=self.confirm_action)
         except Exception as e:
             result = f"Eroare: {e}"
-        self.append_message("Luxify AI", result, "#a5b9dc")
+        self.append_message("Nexora AI", result, "#a5b9dc")
         if self.cfg.get("tts_enabled", True):
             speak(result, enabled=True)
 
