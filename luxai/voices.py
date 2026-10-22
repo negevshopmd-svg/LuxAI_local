@@ -149,10 +149,13 @@ class VoiceManager:
             return False
         encoded = base64.b64encode(text.encode("utf-16-le")).decode("ascii")
         culture = {"ru": "ru-*", "ro": "ro-*", "en": "en-*"}.get(language, "ru-*")
+        volume = max(0, min(100, int(self.config.get("voice_volume", 80))))
+        rate = max(-10, min(10, round((float(self.config.get("voice_speed", 1.0)) - 1.0) * 8)))
         script = (
             "Add-Type -AssemblyName System.Speech; "
             "$s=New-Object System.Speech.Synthesis.SpeechSynthesizer; "
             "$s.SetOutputToDefaultAudioDevice(); "
+            "$s.Volume=" + str(volume) + "; $s.Rate=" + str(rate) + "; "
             "$all=@($s.GetInstalledVoices() | Where-Object { $_.Enabled -and "
             "$_.VoiceInfo.Culture.Name -like '" + culture + "' }); "
             "if ($all.Count -eq 0) { "
@@ -192,6 +195,13 @@ class VoiceManager:
         if language not in ("ru", "ro", "en"):
             language = "ru" if re.search(r"[а-яё]", text, flags=re.IGNORECASE) else "ro"
 
+        voice_engine = str(self.config.get("voice_engine", "piper") or "piper").lower()
+        if voice_engine == "windows":
+            if self._windows_speak(text, language):
+                return True
+            self._log(f"Windows voice unavailable for {language}; choose Piper in settings.")
+            return False
+
         model_path = self._select_model(language)
         if model_path is not None:
             try:
@@ -199,14 +209,23 @@ class VoiceManager:
                     from piper import PiperVoice
                     self._voice = PiperVoice.load(str(model_path))
                     self._loaded_path = str(model_path)
+                volume = max(0.0, min(1.0, float(self.config.get("voice_volume", 80)) / 100))
+                speed = max(0.7, min(1.4, float(self.config.get("voice_speed", 1.0))))
                 with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp:
                     wav_path = Path(temp.name)
                 try:
                     with wave.open(str(wav_path), "wb") as wav_file:
-                        self._voice.synthesize_wav(text, wav_file)
+                        try:
+                            from piper.config import SynthesisConfig
+                            self._voice.synthesize_wav(
+                                text, wav_file,
+                                syn_config=SynthesisConfig(length_scale=1.0 / speed),
+                            )
+                        except ImportError:
+                            self._voice.synthesize_wav(text, wav_file)
                     import soundfile as sf
                     audio, sample_rate = sf.read(str(wav_path), dtype="float32")
-                    sd.play(audio, sample_rate)
+                    sd.play(audio * volume, sample_rate)
                     sd.wait()
                     return True
                 finally:
