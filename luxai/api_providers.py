@@ -48,7 +48,7 @@ PROVIDERS = {
     "gemini": {
         "label": "Google Gemini",
         "url": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-        "model": "gemini-2.5-flash",
+        "model": "gemini-3.5-flash-lite",
         "api_keys": "https://aistudio.google.com/api-keys",
         "json_mode": False,
     },
