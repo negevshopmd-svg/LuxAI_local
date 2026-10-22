@@ -9,6 +9,7 @@ from pathlib import Path
 import webbrowser
 
 from luxai.secure_keys import has_api_key, clear_api_key
+from luxai.api_providers import PROVIDERS
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -30,12 +31,13 @@ class SettingsPanel(QWidget):
         ("Система", "Автозапуск и сворачивание"),
     )
 
-    def __init__(self, config, on_save, on_pick_model, on_test_voice):
+    def __init__(self, config, on_save, on_pick_model, on_test_voice, on_test_online=None):
         super().__init__()
         self.cfg = dict(config)
         self.on_save = on_save
         self.on_pick_model = on_pick_model
         self.on_test_voice = on_test_voice
+        self.on_test_online = on_test_online
         self.sections = []
         self.section_buttons = []
 
@@ -262,56 +264,95 @@ class SettingsPanel(QWidget):
     def _build_ai(self):
         panel = self._section(
             "ИИ-провайдер",
-            "Два агента: облачный ИИ разбирает команды, локальный выполняет разрешённые действия.",
+            "Онлайн-ИИ разбирает сложные команды, локальный агент проверяет и выполняет действия.",
         )
         self.online_agent_enabled = self._toggle(self.cfg.get("online_agent_enabled", False))
         self._row(
             panel, "Облачный помощник",
-            "Работает только с интернетом и вашим OpenAI API-ключом. Без связи остаётся локальный режим.",
+            "Работает только при подключении к интернету и с вашим ключом выбранного сервиса.",
             self.online_agent_enabled,
         )
-        self.online_model = self._combo(
-            [
-                ("GPT-4.1 nano — быстро и экономно", "gpt-4.1-nano"),
-                ("GPT-4o mini", "gpt-4o-mini"),
-                ("GPT-4.1 mini", "gpt-4.1-mini"),
-            ],
-            self.cfg.get("online_model", "gpt-4.1-nano"),
+        provider_name = self.cfg.get("online_provider", "openai")
+        if provider_name not in PROVIDERS:
+            provider_name = "openai"
+        self.online_provider = self._combo(
+            [(settings["label"], name) for name, settings in PROVIDERS.items()],
+            provider_name,
         )
-        self._row(panel, "Модель облачного агента", "Только разбор намерения и короткие ответы.", self.online_model)
+        self._row(
+            panel, "Поставщик AI API",
+            "Выберите, чей ключ вы хотите использовать — DeepSeek, OpenAI или другой.",
+            self.online_provider,
+        )
+
+        saved_model = self.cfg.get("online_model", "")
+        default_model = PROVIDERS[provider_name]["model"]
+        if provider_name != "openai" and saved_model in {
+            "gpt-4.1-nano", "gpt-4.1-mini", "gpt-4o-mini",
+        }:
+            saved_model = ""
+        self.online_model = QLineEdit(saved_model or default_model)
+        self.online_model.setMaxLength(140)
+        self.online_model.setPlaceholderText("Введите ID модели")
+        self._row(
+            panel, "Модель API",
+            "У разных сервисов разные названия моделей. При смене сервиса будет подставлен пример.",
+            self.online_model,
+        )
+        self.custom_api_url = QLineEdit(self.cfg.get("online_custom_url", ""))
+        self.custom_api_url.setMaxLength(500)
+        self.custom_api_url.setPlaceholderText("https://provider.example/v1/chat/completions")
+        self._row(
+            panel, "Другой HTTPS endpoint",
+            "Только для пункта «Другой API». Ключ будет отправлен указанному вами серверу.",
+            self.custom_api_url,
+        )
+        self.custom_api_url.setEnabled(provider_name == "custom")
 
         self.api_key_entry = QLineEdit()
         self.api_key_entry.setEchoMode(QLineEdit.EchoMode.Password)
-        self.api_key_entry.setMaxLength(512)
-        self.api_key_entry.setPlaceholderText(
-            "Ключ сохранён в Windows" if has_api_key() else "Вставьте собственный OpenAI API-ключ"
-        )
+        self.api_key_entry.setMaxLength(2048)
         self._row(
-            panel, "OpenAI API-ключ",
-            "После сохранения шифруется Windows DPAPI и не записывается в config.json.",
+            panel, "API-ключ выбранного сервиса",
+            "Не сохраняется в config.json; Windows шифрует ключ для текущего пользователя.",
             self.api_key_entry,
         )
+        self.key_status = QLabel("")
+        self.key_status.setObjectName("Muted")
+        panel.addWidget(self.key_status)
+
         self.online_timeout = QSpinBox()
         self.online_timeout.setRange(3, 10)
         self.online_timeout.setSuffix(" сек")
         self.online_timeout.setValue(int(self.cfg.get("online_timeout", 5)))
-        self._row(panel, "Таймаут облака", "Если сеть не отвечает, продолжить локально.", self.online_timeout)
-        key_buttons = QHBoxLayout()
-        get_key = QPushButton("Открыть страницу API-ключей")
-        get_key.clicked.connect(lambda: webbrowser.open("https://platform.openai.com/api-keys"))
-        key_buttons.addWidget(get_key)
-        clear = QPushButton("Удалить сохранённый ключ")
-        clear.clicked.connect(self._clear_key)
-        key_buttons.addWidget(clear)
-        panel.addLayout(key_buttons)
+        self._row(panel, "Таймаут облака", "Если сервис не отвечает, переключиться на локальный ИИ.", self.online_timeout)
+
+        buttons = QHBoxLayout()
+        self.provider_keys_button = QPushButton("Получить ключ")
+        self.provider_keys_button.clicked.connect(self._open_provider_keys)
+        buttons.addWidget(self.provider_keys_button)
+        delete_button = QPushButton("Удалить ключ")
+        delete_button.clicked.connect(self._clear_key)
+        buttons.addWidget(delete_button)
+        if self.on_test_online:
+            test_button = QPushButton("Проверить API")
+            test_button.clicked.connect(self.on_test_online)
+            buttons.addWidget(test_button)
+        panel.addLayout(buttons)
+
         self.online_status = QLabel(
-            "Когда облачный агент включён, ваша команда и до четырёх последних реплик "
-            "отправляются в OpenAI. API оплачивается отдельно от ChatGPT, бесплатный "
-            "доступ не гарантирован. Никогда не отправляйте ключ в чат или на GitHub."
+            "У каждого поставщика собственный ключ и лимиты. Некоторые сервисы "
+            "предоставляют бесплатные квоты, но это зависит от аккаунта. При включении "
+            "онлайн-ИИ команда и до четырёх предыдущих реплик отправляются выбранному "
+            "сервису. Никогда не публикуйте ключи в чате или на GitHub."
         )
         self.online_status.setObjectName("Muted")
         self.online_status.setWordWrap(True)
         panel.addWidget(self.online_status)
+
+        self.online_provider.currentIndexChanged.connect(self._on_provider_changed)
+        self.refresh_key_status()
+        self._refresh_provider_keys_button()
 
         self.model_label = QLabel(
             Path(self.cfg.get("llm_model_path", "")).name or "Модель не выбрана"
@@ -320,29 +361,56 @@ class SettingsPanel(QWidget):
         self.model_label.setWordWrap(True)
         self._row(
             panel, "Локальная модель ИИ",
-            "Отвечает без интернета, когда облако выключено или недоступно.",
+            "Продолжает работать без интернета, даже если онлайн API недоступен.",
             self.model_label,
         )
         choose = QPushButton("Выбрать локальную модель .gguf")
         choose.clicked.connect(self.on_pick_model)
         panel.addWidget(choose)
 
+    def _on_provider_changed(self, *_):
+        provider = self.online_provider.currentData()
+        self.online_model.setText(PROVIDERS[provider]["model"])
+        self.custom_api_url.setEnabled(provider == "custom")
+        # Never accidentally send an unsaved key to a different provider.
+        self.api_key_entry.clear()
+        self.refresh_key_status()
+        self._refresh_provider_keys_button()
+
+    def _refresh_provider_keys_button(self):
+        provider = self.online_provider.currentData()
+        self.provider_keys_button.setEnabled(bool(PROVIDERS[provider]["api_keys"]))
+
+    def _open_provider_keys(self):
+        provider = self.online_provider.currentData()
+        url = PROVIDERS[provider]["api_keys"]
+        if url:
+            webbrowser.open(url)
+
     def _clear_key(self):
+        provider = self.online_provider.currentData()
+        name = PROVIDERS[provider]["label"]
         answer = QMessageBox.question(
-            self, "OpenAI API", "Удалить сохранённый на этом компьютере API-ключ?",
+            self, "API-ключ",
+            f"Удалить локально сохранённый ключ для {name}?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
         if answer == QMessageBox.StandardButton.Yes:
-            clear_api_key()
+            clear_api_key(provider)
             self.api_key_entry.clear()
-            self.api_key_entry.setPlaceholderText("Вставьте собственный OpenAI API-ключ")
-            self.online_agent_enabled.setChecked(False)
+            self.refresh_key_status()
 
     def refresh_key_status(self):
+        provider = self.online_provider.currentData()
+        name = PROVIDERS[provider]["label"]
+        stored = has_api_key(provider)
         self.api_key_entry.setPlaceholderText(
-            "Ключ сохранён в Windows" if has_api_key()
-            else "Вставьте собственный OpenAI API-ключ"
+            f"Ключ {name} уже сохранён" if stored else f"Введите свой ключ {name}"
+        )
+        self.key_status.setText(
+            f"✓ Ключ {name} найден на этом компьютере." if stored
+            else f"Ключ {name} пока не установлен."
         )
 
     def _build_synthesis(self):
@@ -414,6 +482,8 @@ class SettingsPanel(QWidget):
             "autostart_windows": self.autostart.isChecked(),
             "minimize_to_tray": self.tray_on_close.isChecked(),
             "online_agent_enabled": self.online_agent_enabled.isChecked(),
-            "online_model": self.online_model.currentData(),
+            "online_provider": self.online_provider.currentData(),
+            "online_model": self.online_model.text().strip(),
+            "online_custom_url": self.custom_api_url.text().strip(),
             "online_timeout": self.online_timeout.value(),
         }
