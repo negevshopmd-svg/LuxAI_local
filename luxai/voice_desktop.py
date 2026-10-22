@@ -94,7 +94,7 @@ def read_screen_locally(tesseract_path="") -> str:
             return (
                 "Не удалось прочитать экран: Tesseract OCR не установлен или не найден. "
                 "Установите Tesseract с русским языком и укажите путь "
-                "в Настройки → Tesseract."
+                "в Настройки → Система → Tesseract OCR."
             )
         return f"Не удалось прочитать экран: {type(exc).__name__}: {reason[:150]}"
     text = " ".join(str(actual).split())
