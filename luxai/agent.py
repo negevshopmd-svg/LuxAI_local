@@ -4,6 +4,7 @@ from pathlib import Path
 from luxai.screen import capture_screen, read_screen_text
 from luxai.steam_games import GAMES, local_game_intent, launch_steam_game
 from luxai.fast_intents import strip_wake_name, quick_reply, has_launch_verb
+from luxai.file_actions import create_user_item, list_user_items, parse_file_intent, safe_name, ALLOWED_LOCATIONS
 
 class LocalAgent:
     def __init__(self, config):
@@ -12,6 +13,7 @@ class LocalAgent:
         self.loaded_path = None
         self.history = []
         self.max_history_messages = 10
+        self.last_execution_success = False
 
     def update_config(self, config):
         self.config = dict(config)
@@ -160,6 +162,10 @@ class LocalAgent:
         simple = quick_reply(text, self._response_language(text))
         if simple is not None:
             return simple
+        # File operations have a trusted local implementation, no AI needed.
+        file_intent = parse_file_intent(text)
+        if file_intent is not None:
+            return self._perform_file_action(text, file_intent, confirm_callback)
         if (
             any(x in t for x in ["what time", "time is it", "cat e ceasul", "cât e ceasul"])
             or re.search(r"\b(?:сколько|скока)\s+(?:сейчас\s+)?врем(?:ени|я)\b|\bкоторый\s+час\b", t)
@@ -257,6 +263,68 @@ class LocalAgent:
                 return self._say(f"Не удалось прочитать экран: {e}", f"Nu am putut citi ecranul: {e}", f"Could not read screen: {e}", text)
         return None
 
+    def _perform_file_action(self, text, plan, confirm_callback):
+        """Perform a constrained file operation only after user confirmation."""
+        action = plan.get("action")
+        location = plan.get("location", "desktop")
+        if location not in ALLOWED_LOCATIONS:
+            return self._say(
+                "Можно работать только с рабочим столом, документами и загрузками.",
+                "Pot lucra doar pe Desktop, în Documents și Downloads.",
+                "I can work only on Desktop, Documents and Downloads.", text,
+            )
+        if action == "list_files":
+            try:
+                names = list_user_items(location)
+                self.last_execution_success = True
+                names = names[:20]
+                return self._say(
+                    "Файлы: " + (", ".join(names) if names else "папка пуста"),
+                    "Fișiere: " + (", ".join(names) if names else "folderul este gol"),
+                    "Files: " + (", ".join(names) if names else "folder is empty"),
+                    text,
+                )
+            except (OSError, ValueError) as exc:
+                return self._say(
+                    f"Не могу прочитать папку: {exc}",
+                    f"Nu pot citi folderul: {exc}",
+                    f"Cannot list folder: {exc}", text,
+                )
+        if action not in ("create_file", "create_folder"):
+            return None
+        try:
+            valid_name = safe_name(plan.get("target", ""), is_folder=action == "create_folder")
+        except ValueError:
+            return self._say(
+                "Недопустимое имя файла или папки.",
+                "Nume de fișier sau folder nepermis.",
+                "Invalid file or folder name.", text,
+            )
+        label = "папку" if action == "create_folder" else "файл"
+        if not confirm_callback(self._say(
+            f"Создать {label} «{valid_name}» ({location})?",
+            f"Creez {valid_name} ({location})?",
+            f"Create {valid_name} ({location})?", text,
+        )):
+            return self._say("Действие отменено.", "Acțiune anulată.", "Action cancelled.", text)
+        try:
+            path = create_user_item(
+                action, valid_name, location,
+                content=plan.get("content", ""),
+            )
+            self.last_execution_success = True
+            return self._say(
+                f"Создано: {path.name} ({location}).",
+                f"Creat: {path.name} ({location}).",
+                f"Created: {path.name} ({location}).", text,
+            )
+        except (OSError, ValueError) as exc:
+            return self._say(
+                f"Не удалось создать: {exc}",
+                f"Nu am putut crea: {exc}",
+                f"Could not create: {exc}", text,
+            )
+
     def remember(self, text, answer):
         self.history.extend([
             {"role": "user", "content": str(text)[:1000]},
@@ -265,6 +333,7 @@ class LocalAgent:
         self.history = self.history[-self.max_history_messages:]
 
     def handle_fast(self, text, confirm_callback=lambda _: False):
+        self.last_execution_success = False
         command = strip_wake_name(text, self.config.get("wake_prefix", "Jarvis"))
         if not command:
             response = self._say("Слушаю.", "Te ascult.", "I'm listening.", text)
@@ -276,11 +345,17 @@ class LocalAgent:
 
     def execute_plan(self, text, plan, confirm_callback=lambda _: False):
         """Execute only local allowlisted actions from a validated online plan."""
+        self.last_execution_success = False
         if not isinstance(plan, dict):
             return None
         action = plan.get("action")
         target = plan.get("target", "")
         answer = None
+        if action in ("create_file", "create_folder", "list_files"):
+            result = self._perform_file_action(text, plan, confirm_callback)
+            if result:
+                self.remember(text, result)
+            return result
         if action == "reply" and isinstance(plan.get("reply"), str):
             answer = plan["reply"][:700].strip() or None
         elif action == "time":
@@ -305,6 +380,7 @@ class LocalAgent:
                         success = False
                 else:
                     success = self._open_application(target)
+                self.last_execution_success = bool(success)
                 answer = self._say(
                     f"Открыл {target}." if success else f"Не удалось открыть {target}.",
                     f"Am deschis {target}." if success else f"Nu am putut deschide {target}.",
@@ -326,6 +402,7 @@ class LocalAgent:
                 answer = self._say("Действие отменено.", "Acțiune anulată.", "Action cancelled.", text)
             else:
                 success = launch_steam_game(app_id)
+                self.last_execution_success = bool(success)
                 answer = self._say(
                     f"Запускаю {title} через Steam." if success else f"Не удалось запустить {title}.",
                     f"Pornesc {title} prin Steam." if success else f"Nu am putut porni {title}.",
@@ -343,6 +420,7 @@ class LocalAgent:
                 else:
                     url = "https://www.google.com/search?" + urllib.parse.urlencode({"q": query})
                     success = webbrowser.open(url)
+                    self.last_execution_success = bool(success)
                     answer = self._say(
                         "Открыл результаты поиска." if success else "Не удалось открыть поиск.",
                         "Am deschis rezultatele căutării." if success else "Nu am putut deschide căutarea.",
