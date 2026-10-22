@@ -83,6 +83,7 @@ class MainWindow(QMainWindow):
     api_test_result = Signal(str, bool, str, object)
     tts_played = Signal(bool)
     wizard_plan_ready = Signal(str, object)
+    macro_step_ready = Signal(int, bool, str)
 
     def __init__(self):
         super().__init__()
@@ -97,6 +98,7 @@ class MainWindow(QMainWindow):
         )
         self.online_planner = OnlinePlanner(self.cfg)
         self.online_plan_ready.connect(self._on_online_plan)
+        self.macro_step_ready.connect(self._on_macro_step_ready)
         self.wizard_plan_ready.connect(self._on_wizard_plan)
         self.local_reply_ready.connect(self._on_local_reply)
         self.api_test_result.connect(self._on_api_test_result)
@@ -890,6 +892,33 @@ class MainWindow(QMainWindow):
             ctx["messages"].append("Jarvis свёрнут в системный трей.")
             QTimer.singleShot(0, self._next_macro_step)
             return
+        if step["action"] in {
+            "run_cmd", "run_powershell", "app_volume", "voice_female",
+            "sleep_pc",
+        }:
+            from luxai.action_catalog import CATALOG
+            title = CATALOG[step["action"]]["title"]
+            detail = step["target"]
+            if not self.confirm_action(
+                "⚠ Подтвердите действие: " + title +
+                (("\n\n" + detail) if detail else "") +
+                ("\n\nЭто ваша вручную сохранённая команда. "
+                 "Она может изменить систему или файлы."
+                 if step["action"] in ("run_cmd", "run_powershell") else "")
+            ):
+                ctx["messages"].append("Действие отменено.")
+                result = " ".join(ctx["messages"])
+                self._macro_context = None
+                self._resolved_command(ctx["text"], result)
+                return
+            self.mic_status.setText(f"Выполняется шаг {ctx['index']}: {title}")
+            threading.Thread(
+                target=self._macro_worker,
+                args=(dict(step), ctx["index"]),
+                daemon=True,
+                name="JarvisManualAction",
+            ).start()
+            return
         try:
             self.agent.last_execution_success = False
             answer = self.agent.execute_plan(
@@ -913,6 +942,34 @@ class MainWindow(QMainWindow):
             return
         # Schedule instead of recursion so UI remains responsive.
         QTimer.singleShot(0, self._next_macro_step)
+
+    def _macro_worker(self, step, index):
+        from luxai.desktop_actions import execute_desktop_step
+        try:
+            output = execute_desktop_step(step)
+            ok = True
+        except Exception as exc:
+            output = str(exc)
+            ok = False
+        if not self._closed:
+            try:
+                self.macro_step_ready.emit(index, ok, output)
+            except RuntimeError:
+                pass
+
+    def _on_macro_step_ready(self, index, ok, message):
+        ctx = getattr(self, "_macro_context", None)
+        if self._closed or not ctx or not self._processing or ctx["index"] != index:
+            return
+        if message:
+            ctx["messages"].append(message if ok else f"Шаг {index}: {message}")
+        if not ok:
+            ctx["messages"].append("Оставшиеся действия не выполнены.")
+            result = " ".join(ctx["messages"])
+            self._macro_context = None
+            self._resolved_command(ctx["text"], result)
+        else:
+            QTimer.singleShot(0, self._next_macro_step)
 
     def _online_thread(self, text, history):
         try:
