@@ -28,6 +28,8 @@ from luxai.command_wizard import CommandWizard, is_create_command_request
 from luxai.intent_routing import is_operational_request, routine_reply, suspicious_completion_reply
 from luxai.ocr_setup import ensure_tesseract, find_tesseract, language_data_ready
 from luxai.websites import website_plan
+from luxai.voice_files import parse_open_user_file
+from luxai.voice_shortcuts import keyboard_action_plan, command_capabilities_reply
 from luxai.screen_interact import (
     _foreground_hwnd, _valid_external_window,
     is_screen_inspection_request, button_choice,
@@ -1144,6 +1146,40 @@ class MainWindow(QMainWindow):
             if is_screen_inspection_request(text):
                 self._start_screen_inspection(text)
                 return
+            # Files explicitly named on the user's Desktop/Documents/Downloads
+            # are opened by Windows directly; never reinterpret a file request
+            # as launching Explorer, or ask a cloud model for an arbitrary path.
+            file_plan = parse_open_user_file(text)
+            if file_plan is not None:
+                answer = self.agent.execute_plan(
+                    text, file_plan, confirm_callback=self.confirm_action,
+                )
+                self._current_route = "локальные файлы Windows"
+                self._resolved_command(text, answer or "Не удалось открыть файл.")
+                return
+
+            # Hotkeys and command-editor capabilities are known locally.
+            keyboard = keyboard_action_plan(text)
+            if keyboard is not None:
+                # Only target the currently focused external application.
+                if self.isActiveWindow():
+                    answer = (
+                        "Выберите окно другой программы и повторите команду. "
+                        "В окно самого Jarvis клавиши не отправляются."
+                    )
+                else:
+                    answer = self.agent.execute_plan(
+                        text, keyboard, confirm_callback=self.confirm_action,
+                    ) or "Клавиша не нажата."
+                self._current_route = "локальная клавиатура"
+                self._resolved_command(text, answer)
+                return
+            capabilities = command_capabilities_reply(text)
+            if capabilities is not None:
+                self._current_route = "каталог действий"
+                self._resolved_command(text, capabilities)
+                return
+
             site = website_plan(text)
             if site is not None:
                 answer = self.agent.execute_plan(
@@ -1287,7 +1323,7 @@ class MainWindow(QMainWindow):
             from luxai.action_catalog import CATALOG
             title = CATALOG[step["action"]]["title"]
             detail = step["target"]
-            if not self.confirm_action(
+            if step["action"] in ("run_cmd", "run_powershell", "sleep_pc") and not self.confirm_action(
                 "⚠ Подтвердите действие: " + title +
                 (("\n\n" + detail) if detail else "") +
                 ("\n\nЭто ваша вручную сохранённая команда. "
@@ -1515,13 +1551,14 @@ class MainWindow(QMainWindow):
             self.mic_status.setText("Нет подходящего голоса. Проверьте voice_error.log.")
 
     def confirm_action(self, description):
-        # File/folder writes are always confirmed, even when the optional
-        # confirmation for ordinary app launches has been disabled.
-        file_write = any(
-            token in str(description).casefold()
-            for token in ("создать файл", "создать папку", "create ", "creez ", "⚠")
-        )
-        if not file_write and not self.cfg.get("confirm_desktop_actions", True):
+        # Ordinary app launches, documents, sites, text and hotkeys execute
+        # immediately. Previous config.json files used
+        # confirm_desktop_actions=True by default; ignore that legacy option
+        # so users don't inherit endless prompts after the upgrade.
+        # Explicit risky operations still present a dialog even when the
+        # general confirmation toggle is disabled.
+        risk = "⚠" in str(description)
+        if not risk and not self.cfg.get("confirm_all_actions", False):
             return True
         dialog = QMessageBox(self)
         russian = self.cfg.get("language") == "ru"
