@@ -446,6 +446,20 @@ class MainWindow(QMainWindow):
         app = QApplication.instance()
         if app:
             app.setStyleSheet(style)
+        if hasattr(self, "settings_panel"):
+            card_bg = "#ffffff" if theme == "light" else "#1b2029"
+            card_border = "#ccd4e0" if theme == "light" else "#303744"
+            heading_color = "#162034" if theme == "light" else "#f4f6fb"
+            for section in self.settings_panel.sections:
+                section.setStyleSheet(
+                    f"QFrame#SettingsCard {{background:{card_bg}; border:1px solid {card_border}; border-radius:15px;}}"
+                    "QFrame#SettingsCard QLabel {background:transparent; border:0;}"
+                    "QFrame#SettingsCard QCheckBox {background:transparent; border:0;}"
+                )
+                # Section headings are styled on construction; adapt their foreground.
+                for child in section.findChildren(QLabel):
+                    if child.text() in [name for name, _ in self.settings_panel.SECTIONS]:
+                        child.setStyleSheet(f"font-size:18px; font-weight:700; color:{heading_color};")
         self.setWindowOpacity(max(0.65, 1.0 - float(self.cfg.get("ui_transparency", 0)) / 100))
         self.avatar.setVisible(bool(self.cfg.get("ui_animations", True)))
         self.setWindowFlag(
@@ -460,7 +474,7 @@ class MainWindow(QMainWindow):
             return
         try:
             import winreg
-            key_path = r"Software\\Microsoft\\Windows\\CurrentVersion\\Run"
+            key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
             with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as key:
                 if enabled:
                     executable = str(BASE / ".venv" / "Scripts" / "pythonw.exe")
@@ -652,7 +666,7 @@ class MainWindow(QMainWindow):
             for connector in connectors:
                 split_parts = []
                 for part in pieces:
-                    split_parts.extend(re.split(r"\\s+" + re.escape(connector) + r"\\s+", part, flags=re.IGNORECASE))
+                    split_parts.extend(re.split(r"\s+" + re.escape(connector) + r"\s+", part, flags=re.IGNORECASE))
                 pieces = split_parts
             pieces = [piece.strip() for piece in pieces if piece.strip()]
             if not pieces or len(pieces) > 4:
@@ -663,7 +677,7 @@ class MainWindow(QMainWindow):
                 responses.append(answer)
                 if "отмен" in answer.lower() or "anulat" in answer.lower() or "cancelled" in answer.lower():
                     break
-            result = "\\n".join(responses)
+            result = "\n".join(responses)
         except Exception as e:
             result = f"Ошибка: {e}" if self.cfg.get("language") == "ru" else f"Eroare: {e}"
         self.append_message("Jarvis", result, "#a5b9dc")
