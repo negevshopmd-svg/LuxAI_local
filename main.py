@@ -1,17 +1,18 @@
 import re
-import sys, json, html, urllib.request
+import sys, os, json, html, urllib.request
 from pathlib import Path
-from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtGui import QFontDatabase, QFont
+from PySide6.QtCore import Qt, QThread, Signal, QTimer
+from PySide6.QtGui import QFontDatabase, QFont, QAction
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QCheckBox, QLineEdit, QTextEdit, QFileDialog, QMessageBox,
-    QComboBox, QStackedWidget, QFrame, QSlider, QSizePolicy
+    QComboBox, QStackedWidget, QFrame, QSlider, QSizePolicy, QSystemTrayIcon, QMenu, QStyle
 )
 
 from luxai.agent import LocalAgent
 from luxai.voice import VoiceListener, speak
 from luxai.screen import capture_screen, read_screen_text
+from luxai.settings_panel import SettingsPanel
 
 BASE = Path(__file__).resolve().parent
 CONFIG = BASE / "config.json"
@@ -74,6 +75,8 @@ class VoiceWorker(QThread):
                 prefix_enabled=self.cfg.get("prefix_enabled", False),
                 prefix=self.cfg.get("wake_prefix", "Jarvis"),
                 language=self.cfg.get("language", "auto"),
+                microphone_device=self.cfg.get("microphone_device", -1),
+                beam_size=self.cfg.get("whisper_beam_size", 1),
             )
             self.status.emit("Microfon activ — ascultare locală")
             for text in self.listener.listen():
@@ -101,6 +104,8 @@ class MainWindow(QMainWindow):
         self.nav_buttons = []
         self.pending_confirmation_dialog = None
         self.pending_confirmation_result = None
+        self._quitting = False
+        self.tray_icon = None
 
         root = QWidget()
         self.setCentralWidget(root)
@@ -166,6 +171,8 @@ class MainWindow(QMainWindow):
         self.build_addons()
         self.build_chat()
         self.build_settings()
+        self._setup_tray()
+        self.apply_appearance()
         self.show_page(0)
 
         if self.cfg.get("microphone_enabled", True):
@@ -323,54 +330,19 @@ class MainWindow(QMainWindow):
         self.pages.addWidget(page)
 
     def build_settings(self):
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        title = QLabel("Настройки")
-        title.setObjectName("PageTitle")
-        layout.addWidget(title)
-        desc = QLabel("Setările sunt salvate local în config.json.")
-        desc.setObjectName("Muted")
-        layout.addWidget(desc)
-        frame, box = card()
-        self.mic = QCheckBox("Microfon activ")
-        self.mic.setChecked(self.cfg.get("microphone_enabled", True))
-        self.mic.toggled.connect(self.toggle_mic)
-        box.addWidget(self.mic)
-        self.prefix = QCheckBox("Necesită prefix pentru activare")
-        self.prefix.setChecked(self.cfg.get("prefix_enabled", False))
-        self.prefix.toggled.connect(self.sync_prefix)
-        box.addWidget(self.prefix)
-        self.tts = QCheckBox("Răspuns vocal")
-        self.tts.setChecked(self.cfg.get("tts_enabled", True))
-        self.tts.toggled.connect(self.save_settings)
-        box.addWidget(self.tts)
-        row = QHBoxLayout()
-        row.addWidget(QLabel("Prefix de activare"))
-        self.prefix_text = QLineEdit(self.cfg.get("wake_prefix", "Jarvis"))
-        row.addWidget(self.prefix_text, 1)
-        row.addWidget(QLabel("Limbă"))
-        self.language = QComboBox()
-        for label, value in [("Detectare automată", "auto"), ("Română", "ro"), ("Русский", "ru"), ("English", "en")]:
-            self.language.addItem(label, value)
-        idx = self.language.findData(self.cfg.get("language", "auto"))
-        self.language.setCurrentIndex(max(0, idx))
-        row.addWidget(self.language)
-        box.addLayout(row)
-        model_row = QHBoxLayout()
-        self.model_label = QLabel(Path(self.cfg.get("llm_model_path", "")).name or "Nicio model selectat")
-        self.model_label.setObjectName("Muted")
-        model_row.addWidget(self.model_label, 1)
-        choose = QPushButton("Alege model .gguf")
-        choose.clicked.connect(self.pick_model)
-        model_row.addWidget(choose)
-        box.addLayout(model_row)
-        save = QPushButton("Salvează setările")
-        save.setObjectName("Primary")
-        save.clicked.connect(self.save_settings)
-        box.addWidget(save)
-        layout.addWidget(frame)
-        layout.addStretch()
-        self.pages.addWidget(page)
+        self.settings_panel = SettingsPanel(
+            self.cfg,
+            on_save=self.apply_settings,
+            on_pick_model=self.pick_model,
+            on_test_voice=self.preview_voice,
+        )
+        self.mic = self.settings_panel.mic
+        self.prefix = self.settings_panel.prefix
+        self.tts = self.settings_panel.tts
+        self.prefix_text = self.settings_panel.prefix_text
+        self.language = self.settings_panel.language
+        self.model_label = self.settings_panel.model_label
+        self.pages.addWidget(self.settings_panel)
 
     def show_page(self, index):
         self.pages.setCurrentIndex(index)
@@ -382,18 +354,156 @@ class MainWindow(QMainWindow):
             button.style().polish(button)
 
     def save_settings(self, *_):
-        if not hasattr(self, "mic"):
+        if not hasattr(self, "settings_panel"):
             return
-        self.cfg.update({
-            "microphone_enabled": self.mic.isChecked(),
-            "prefix_enabled": self.prefix.isChecked(),
-            "wake_prefix": self.prefix_text.text().strip() or "Jarvis",
-            "language": self.language.currentData(),
-            "tts_enabled": self.tts.isChecked(),
-        })
+        self.cfg.update(self.settings_panel.collect())
         save_config(self.cfg)
         if self.agent:
             self.agent.update_config(self.cfg)
+
+    def apply_settings(self, *_):
+        """Save settings and apply them to running services where supported."""
+        old = dict(self.cfg)
+        self.save_settings()
+        self.apply_appearance()
+        if old.get("autostart_windows", False) != self.cfg.get("autostart_windows", False):
+            self._set_autostart(self.cfg.get("autostart_windows", False))
+        if hasattr(self, "home_prefix"):
+            self.home_prefix.blockSignals(True)
+            self.home_prefix.setChecked(self.cfg.get("prefix_enabled", False))
+            self.home_prefix.blockSignals(False)
+        if hasattr(self, "home_quiet"):
+            self.home_quiet.blockSignals(True)
+            self.home_quiet.setChecked(not self.cfg.get("tts_enabled", True))
+            self.home_quiet.blockSignals(False)
+        if hasattr(self, "home_top"):
+            self.home_top.blockSignals(True)
+            self.home_top.setChecked(self.cfg.get("always_on_top", False))
+            self.home_top.blockSignals(False)
+        if hasattr(self, "home_avatar"):
+            self.home_avatar.blockSignals(True)
+            self.home_avatar.setChecked(self.cfg.get("ui_animations", True))
+            self.home_avatar.blockSignals(False)
+        if self.tray_icon:
+            if self.cfg.get("minimize_to_tray", False) and QSystemTrayIcon.isSystemTrayAvailable():
+                self.tray_icon.show()
+            else:
+                self.tray_icon.hide()
+        changed_audio = any(
+            old.get(k) != self.cfg.get(k)
+            for k in ("language", "microphone_device", "whisper_beam_size")
+        )
+        enabled = self.cfg.get("microphone_enabled", True)
+        if changed_audio or old.get("microphone_enabled", True) != enabled:
+            self.stop_listener()
+            if enabled:
+                self.start_listener()
+        elif self.worker and self.worker.listener:
+            self.worker.listener.prefix_enabled = self.cfg.get("prefix_enabled", False)
+            self.worker.listener.prefix = self.cfg.get("wake_prefix", "Jarvis")
+        self.mic_status.setText("Настройки сохранены.")
+
+    def preview_voice(self):
+        self.save_settings()
+        language = self.cfg.get("language", "ru")
+        example = {
+            "ru": "Здравствуйте. Я Джарвис, ваш голосовой помощник.",
+            "en": "Hello. I am Jarvis, your voice assistant.",
+            "ro": "Salut. Sunt Jarvis, asistentul tău vocal.",
+        }.get(language, "Здравствуйте. Я Джарвис, ваш голосовой помощник.")
+        self.mic_status.setText("Проверяю голос…")
+        if speak(example, enabled=True, language=language):
+            self.mic_status.setText("Голос воспроизведён.")
+        else:
+            self.mic_status.setText("Голос недоступен: откройте voice_error.log.")
+
+    def apply_appearance(self):
+        theme = self.cfg.get("ui_theme", "dark")
+        accent = self.cfg.get("ui_accent", "#3978f6")
+        style = STYLE
+        if theme == "light":
+            # Replace all dark surfaces and main text colours for a readable light theme.
+            replacements = {
+                "#101319": "#f5f7fb",
+                "#151a23": "#eef1f7",
+                "#1b2029": "#ffffff",
+                "#131820": "#ffffff",
+                "#252c38": "#e3e8f2",
+                "#252d3a": "#dce7ff",
+                "#222936": "#e6ecf6",
+                "#303744": "#ccd4e0",
+                "#343c4a": "#b4becc",
+                "#363f4e": "#b4becc",
+                "#e9edf5": "#20293b",
+                "#f4f6fb": "#162034",
+                "#b7bfcc": "#344054",
+                "#cbd2dd": "#344054",
+                "#a2a9b7": "#667085",
+            }
+            for old, new in replacements.items():
+                style = style.replace(old, new)
+        style = style.replace("#3978f6", accent).replace("#4b83ff", accent)
+        app = QApplication.instance()
+        if app:
+            app.setStyleSheet(style)
+        self.setWindowOpacity(max(0.65, 1.0 - float(self.cfg.get("ui_transparency", 0)) / 100))
+        self.avatar.setVisible(bool(self.cfg.get("ui_animations", True)))
+        self.setWindowFlag(
+            Qt.WindowType.WindowStaysOnTopHint,
+            bool(self.cfg.get("always_on_top", False)),
+        )
+        if self.isVisible():
+            self.show()
+
+    def _set_autostart(self, enabled):
+        if sys.platform != "win32":
+            return
+        try:
+            import winreg
+            key_path = r"Software\\Microsoft\\Windows\\CurrentVersion\\Run"
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as key:
+                if enabled:
+                    executable = str(BASE / ".venv" / "Scripts" / "pythonw.exe")
+                    command = f'"{executable}" "{BASE / "main.py"}"'
+                    winreg.SetValueEx(key, "LuxAI_Jarvis", 0, winreg.REG_SZ, command)
+                else:
+                    try:
+                        winreg.DeleteValue(key, "LuxAI_Jarvis")
+                    except FileNotFoundError:
+                        pass
+        except Exception as exc:
+            QMessageBox.warning(self, "Автозапуск", f"Не удалось изменить автозапуск: {exc}")
+
+    def _setup_tray(self):
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return
+        self.tray_icon = QSystemTrayIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon), self
+        )
+        self.tray_icon.setToolTip("Jarvis")
+        menu = QMenu(self)
+        show_action = QAction("Открыть Jarvis", self)
+        show_action.triggered.connect(self.show_from_tray)
+        menu.addAction(show_action)
+        quit_action = QAction("Выход", self)
+        quit_action.triggered.connect(self.quit_from_tray)
+        menu.addAction(quit_action)
+        self.tray_icon.setContextMenu(menu)
+        self.tray_icon.activated.connect(
+            lambda reason: self.show_from_tray()
+            if reason == QSystemTrayIcon.ActivationReason.Trigger else None
+        )
+        if self.cfg.get("minimize_to_tray", False):
+            self.tray_icon.show()
+
+    def show_from_tray(self):
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
+    def quit_from_tray(self):
+        self._quitting = True
+        self.close()
 
     def sync_prefix(self, enabled):
         # Keep both controls synchronized without restarting/blocking the audio thread.
@@ -418,8 +528,9 @@ class MainWindow(QMainWindow):
             self.save_settings()
 
     def set_always_on_top(self, enabled):
-        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, enabled)
-        self.show()
+        self.settings_panel.on_top.setChecked(enabled)
+        self.save_settings()
+        self.apply_appearance()
 
     def toggle_mic(self, enabled):
         self.save_settings()
@@ -497,14 +608,15 @@ class MainWindow(QMainWindow):
         self.mic_status.setText("Команда распознана — выполняю…" if self.cfg.get("language") == "ru" else "Comandă vocală recunoscută — procesez…")
         self.run_command(spoken)
 
-    @staticmethod
-    def _parse_confirmation(text):
+    def _parse_confirmation(self, text):
         t = text.lower().strip()
         t = html.unescape(t)
         yes = ["yes", "yeah", "yep", "да", "ага", "конечно", "подтверждаю",
                "давай", "так", "так, да", "так пожалуйста", "da", "да", "sigur", "confirm", "confirmă", "permite", "desigur", "ok", "okay"]
         no = ["no", "nope", "нет", "не надо", "отмена", "отмени", "не разрешаю",
               "nu", "nu permite", "anulează", "anuleaza", "refuz", "stop"]
+        yes.extend(word.strip().lower() for word in self.cfg.get("confirm_yes_words", "").split(",") if word.strip())
+        no.extend(word.strip().lower() for word in self.cfg.get("confirm_no_words", "").split(",") if word.strip())
         normalized = re.sub(r"[.!?,;:]+", "", t).strip()
         if normalized in yes:
             return True
@@ -531,7 +643,27 @@ class MainWindow(QMainWindow):
     def run_command(self, text):
         self.save_settings()
         try:
-            result = self.agent.handle(text, confirm_callback=self.confirm_action)
+            pieces = [text]
+            connectors = [
+                token.strip() for token in
+                self.cfg.get("command_chain_words", "и затем, потом").split(",")
+                if token.strip()
+            ]
+            for connector in connectors:
+                split_parts = []
+                for part in pieces:
+                    split_parts.extend(re.split(r"\\s+" + re.escape(connector) + r"\\s+", part, flags=re.IGNORECASE))
+                pieces = split_parts
+            pieces = [piece.strip() for piece in pieces if piece.strip()]
+            if not pieces or len(pieces) > 4:
+                pieces = [text]
+            responses = []
+            for part in pieces:
+                answer = self.agent.handle(part, confirm_callback=self.confirm_action)
+                responses.append(answer)
+                if "отмен" in answer.lower() or "anulat" in answer.lower() or "cancelled" in answer.lower():
+                    break
+            result = "\\n".join(responses)
         except Exception as e:
             result = f"Ошибка: {e}" if self.cfg.get("language") == "ru" else f"Eroare: {e}"
         self.append_message("Jarvis", result, "#a5b9dc")
@@ -545,6 +677,8 @@ class MainWindow(QMainWindow):
                 )
 
     def confirm_action(self, description):
+        if not self.cfg.get("confirm_desktop_actions", True):
+            return True
         dialog = QMessageBox(self)
         russian = self.cfg.get("language") == "ru"
         dialog.setWindowTitle("Подтвердите действие" if russian else "Confirmă acțiunea")
@@ -560,6 +694,10 @@ class MainWindow(QMainWindow):
         dialog.setDefaultButton(QMessageBox.StandardButton.No)
         self.pending_confirmation_dialog = dialog
         self.pending_confirmation_result = None
+        QTimer.singleShot(
+            max(5, min(180, int(self.cfg.get("confirmation_timeout", 30)))) * 1000,
+            lambda: dialog.reject() if dialog.isVisible() else None,
+        )
         try:
             clicked = dialog.exec()
             if self.pending_confirmation_result is not None:
@@ -591,6 +729,17 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "OCR", f"OCR nu este configurat sau a eșuat:\n{e}")
 
     def closeEvent(self, event):
+        if (
+            not self._quitting
+            and self.cfg.get("minimize_to_tray", False)
+            and self.tray_icon
+            and QSystemTrayIcon.isSystemTrayAvailable()
+        ):
+            self.hide()
+            event.ignore()
+            return
+        if self.tray_icon:
+            self.tray_icon.hide()
         self.stop_listener()
         event.accept()
 
