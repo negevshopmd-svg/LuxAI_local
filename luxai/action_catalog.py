@@ -39,6 +39,7 @@ _ACTIONS = [
     ("mouse_scroll", "Мышь", "Клик колесом / прокрутка", "Прокрутка колеса мыши", True),
     ("mouse_move", "Мышь", "Переместить курсор", "Перемещает курсор к координатам экрана", True),
     ("mouse_hold", "Мышь", "Зажать кнопку", "Требует отдельного безопасного режима", False),
+    ("noop", "Программа", "Пустое действие", "Не выполняет никаких действий — разделитель шагов", True),
     ("wait_seconds", "Программа", "Пауза в секундах", "Ждёт 1–30 секунд до следующего действия", True),
     ("wait_minutes", "Программа", "Пауза в минутах", "Длинное ожидание — пока недоступно", False),
     ("tray_minimize", "Программа", "Свернуть Jarvis в трей", "Требует отдельного управления окном", False),
@@ -87,7 +88,7 @@ HOTKEYS = {
 NO_TARGET = {
     "time", "minimize_windows", "press_enter", "save_document",
     "mouse_click", "mouse_double_click", "volume_up", "volume_down",
-    "lock_screen", "list_files", "speak_ready", "speak_done",
+    "lock_screen", "list_files", "speak_ready", "speak_done", "noop",
 }
 
 
