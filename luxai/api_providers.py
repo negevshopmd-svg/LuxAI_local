@@ -24,6 +24,13 @@ PROVIDERS = {
         "api_keys": "https://platform.openai.com/api-keys",
         "json_mode": True,
     },
+    "orcarouter": {
+        "label": "OrcaRouter (orcarouter.ai)",
+        "url": "https://api.orcarouter.ai/v1/chat/completions",
+        "model": "orcarouter/auto",
+        "api_keys": "https://www.orcarouter.ai/console/get-started",
+        "json_mode": False,
+    },
     "openrouter": {
         "label": "OpenRouter",
         "url": "https://openrouter.ai/api/v1/chat/completions",
@@ -92,6 +99,7 @@ PROVIDERS = {
 ENV_VARS = {
     "openai": "OPENAI_API_KEY",
     "deepseek": "DEEPSEEK_API_KEY",
+    "orcarouter": "ORCAROUTER_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
     "groq": "GROQ_API_KEY",
     "gemini": "GEMINI_API_KEY",
