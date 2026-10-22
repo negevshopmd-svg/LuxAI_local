@@ -123,10 +123,25 @@ class LocalAgent:
                         pass
         return False
 
+    def _response_language(self, text=""):
+        """Use configured language for UI/actions, detect script when set to auto."""
+        selected = str(self.config.get("language", "auto") or "auto").lower()
+        if selected in ("ru", "ro", "en"):
+            return selected
+        if re.search(r"[а-яё]", text, re.IGNORECASE):
+            return "ru"
+        if re.search(r"\b(?:open|launch|hello|hey|please|start)\b", text, re.IGNORECASE):
+            return "en"
+        return "ro"
+
+    def _say(self, ru, ro, en=None, text=""):
+        language = self._response_language(text)
+        return ru if language == "ru" else (en or ro) if language == "en" else ro
+
     def _simple_action(self, text, confirm_callback):
         t = text.lower().strip()
         if any(x in t for x in ["what time", "time is it", "cat e ceasul", "cât e ceasul", "который час", "сколько времени"]):
-            return datetime.datetime.now().strftime("Ora locală: %H:%M")
+            return self._say("Местное время: ", "Ora locală: ", "Local time: ", text) + datetime.datetime.now().strftime("%H:%M")
         # Short, natural responses to greetings; no model needed.
         normalized = re.sub(r"[!?,.\s]+", " ", t).strip()
         greetings = {
@@ -136,11 +151,12 @@ class LocalAgent:
             "bună seara", "buna seara",
         }
         if normalized in greetings:
-            if any(word in normalized for word in ("привет", "здравствуй", "здравствуйте", "доброе", "добрый", "хай")):
-                return "Привет. Я Джарвис. Чем помочь?"
-            if normalized in {"hello", "hi", "hey"}:
-                return "Hi, I'm Jarvis. How can I help?"
-            return "Salut! Sunt Jarvis. Cu ce te pot ajuta?"
+            return self._say(
+                "Привет. Я Джарвис. Чем помочь?",
+                "Salut! Sunt Jarvis. Cu ce te pot ajuta?",
+                "Hi, I'm Jarvis. How can I help?",
+                text,
+            )
         # App-launch intents in Romanian, Russian and English.
         app_aliases = {
             "telegram": ["telegram", "телеграм", "телеграмм"],
@@ -155,35 +171,40 @@ class LocalAgent:
         if any(v in t for v in open_verbs):
             for app, aliases in app_aliases.items():
                 if any(alias in t for alias in aliases):
-                    if not confirm_callback(f"Deschide {app.capitalize()}"):
-                        return "Acțiune anulată."
+                    if not confirm_callback(self._say(f"Открыть {app.capitalize()}", f"Deschide {app.capitalize()}", f"Open {app.capitalize()}", text)):
+                        return self._say("Действие отменено.", "Acțiune anulată.", "Action cancelled.", text)
                     if self._open_application(app):
-                        return f"Am deschis {app.capitalize()}."
-                    return f"Nu am găsit {app.capitalize()} instalat. Verifică meniul Start sau instalarea aplicației."
+                        return self._say(f"Открыл {app.capitalize()}.", f"Am deschis {app.capitalize()}.", f"Opened {app.capitalize()}.", text)
+                    return self._say(
+                        f"Не удалось найти {app.capitalize()} на компьютере.",
+                        f"Nu am găsit {app.capitalize()} instalat.",
+                        f"Could not find {app.capitalize()} on this computer.",
+                        text,
+                    )
         if any(x in t for x in ["open notepad", "deschide notepad", "открой блокнот"]):
-            if confirm_callback("Deschide Notepad"):
+            if confirm_callback(self._say("Открыть Notepad", "Deschide Notepad", "Open Notepad", text)):
                 subprocess.Popen(["notepad.exe"])
-                return "Am deschis Notepad."
-            return "Acțiune anulată."
+                return self._say("Открыл Блокнот.", "Am deschis Notepad.", "Opened Notepad.", text)
+            return self._say("Действие отменено.", "Acțiune anulată.", "Action cancelled.", text)
         if any(x in t for x in ["open calculator", "deschide calculator", "открой калькулятор"]):
-            if confirm_callback("Deschide Calculator"):
+            if confirm_callback(self._say("Открыть Calculator", "Deschide Calculator", "Open Calculator", text)):
                 subprocess.Popen(["calc.exe"])
-                return "Am deschis Calculator."
+                return self._say("Открыл Калькулятор.", "Am deschis Calculator.", "Opened Calculator.", text)
             return "Acțiune anulată."
         if any(x in t for x in ["open explorer", "deschide explorer", "открой проводник"]):
-            if confirm_callback("Deschide File Explorer"):
+            if confirm_callback(self._say("Открыть File Explorer", "Deschide File Explorer", "Open File Explorer", text)):
                 subprocess.Popen(["explorer.exe"])
-                return "Am deschis File Explorer."
+                return self._say("Открыл Проводник.", "Am deschis File Explorer.", "Opened File Explorer.", text)
             return "Acțiune anulată."
         if any(x in t for x in ["open browser", "deschide browser", "открой браузер"]):
-            if confirm_callback("Deschide browserul implicit"):
+            if confirm_callback(self._say("Открыть browserul implicit", "Deschide browserul implicit", "Open browserul implicit", text)):
                 webbrowser.open("about:blank")
-                return "Am deschis browserul implicit."
+                return self._say("Открыл браузер.", "Am deschis browserul implicit.", "Opened the default browser.", text)
             return "Acțiune anulată."
         minimize_phrases = ["сверни все окна", "свернуть все окна", "minimize all windows", "minimize every window", "minimize all", "minimize windows", "minimizează toate ferestrele", "minimizeaza toate ferestrele"]
         if any(phrase in t for phrase in minimize_phrases):
-            if not confirm_callback("Minimizează toate ferestrele deschise"):
-                return "Bine, nu am schimbat ferestrele."
+            if not confirm_callback(self._say("Свернуть все окна", "Minimizează toate ferestrele deschise", "Minimize all windows", text)):
+                return self._say("Хорошо, окна не тронуты.", "Bine, nu am schimbat ferestrele.", "Okay, windows left as they were.", text)
             try:
                 import ctypes
                 user32 = ctypes.windll.user32
@@ -197,16 +218,16 @@ class LocalAgent:
                         minimized += 1
                     return True
                 user32.EnumWindows(callback_type(minimize_window), 0)
-                return f"Am minimizat {minimized} ferestre."
+                return self._say(f"Свернул окон: {minimized}.", f"Am minimizat {minimized} ferestre.", f"Minimized {minimized} windows.", text)
             except Exception as exc:
-                return f"Nu am putut minimiza ferestrele: {exc}"
+                return self._say(f"Не удалось свернуть окна: {exc}", f"Nu am putut minimiza ferestrele: {exc}", f"Could not minimize windows: {exc}", text)
         if any(x in t for x in ["read screen", "citește ecranul", "прочитай экран"]):
             try:
                 p = capture_screen()
                 txt = read_screen_text(p, self.config.get("tesseract_path", ""))
-                return ("Text detectat: " + txt[:1800]) if txt.strip() else "Nu am detectat text. Verifică instalarea Tesseract."
+                return (self._say("Текст на экране: ", "Text detectat: ", "Screen text: ", text) + txt[:1800]) if txt.strip() else self._say("Текст не найден. Проверьте Tesseract.", "Nu am detectat text. Verifică instalarea Tesseract.", "No text detected. Check Tesseract.", text)
             except Exception as e:
-                return f"Nu am putut citi ecranul: {e}"
+                return self._say(f"Не удалось прочитать экран: {e}", f"Nu am putut citi ecranul: {e}", f"Could not read screen: {e}", text)
         return None
 
     def handle(self, text, confirm_callback=lambda _: False):
@@ -220,13 +241,18 @@ class LocalAgent:
             return action
         llm = self._load_llm()
         if llm is None:
-            return ("Nu este selectat niciun model AI local. Apasă «Alege model AI (.gguf)» și selectează un model. "
-                    "Comenzile de bază pentru aplicații pot funcționa și fără model.")
+            return self._say(
+                "Локальная модель ИИ не выбрана. Выберите файл .gguf в настройках. Простые команды работают и без модели.",
+                "Nu este selectat niciun model AI local. Alege un fișier .gguf în setări.",
+                "No local AI model selected. Choose a .gguf file in Settings.",
+                text,
+            )
         messages = [{
             "role": "system",
             "content": (
                 "Ты Джарвис (Jarvis), мужской голосовой помощник пользователя. "
-                "Говори уверенно, спокойно, естественно и кратко. Отвечай на языке последнего сообщения. "
+                f"Язык ответа: {self._response_language(text)}. Всегда отвечай на этом языке. "
+                "Говори уверенно, спокойно, естественно и кратко. "
                 "Учитывай предыдущие сообщения и контекст разговора. Выводи только готовый ответ пользователю. "
                 "Никогда не показывай ход мыслей, заметки, пояснения о языке, переводы в скобках, "
                 "внутренние комментарии, повторения формата диалога или фразы вроде 'Примечание:', "
@@ -265,4 +291,4 @@ class LocalAgent:
                 {"role": "assistant", "content": answer},
             ])
             self.history = self.history[-self.max_history_messages:]
-        return answer or "Sunt aici. Cu ce te pot ajuta?"
+        return answer or self._say("Я здесь. Чем помочь?", "Sunt aici. Cu ce te pot ajuta?", "I'm here. How can I help?", text)
