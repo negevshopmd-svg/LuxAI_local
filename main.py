@@ -20,7 +20,7 @@ from luxai.ui_sidebar import NavigationSidebar
 from luxai.styles import build_styles
 from luxai.online_agent import OnlinePlanner
 from luxai.secure_keys import store_api_key, get_api_key
-from luxai.api_verification import check_api_key
+from luxai.api_verification import check_api_key_detailed
 from luxai.api_providers import PROVIDERS
 
 BASE = Path(__file__).resolve().parent
@@ -77,7 +77,7 @@ class VoiceWorker(QThread):
 class MainWindow(QMainWindow):
     online_plan_ready = Signal(str, object)
     local_reply_ready = Signal(str, str)
-    api_test_result = Signal(str, bool, str)
+    api_test_result = Signal(str, bool, str, object)
     tts_played = Signal(bool)
 
     def __init__(self):
@@ -97,6 +97,7 @@ class MainWindow(QMainWindow):
         self._processing = False
         self._closed = False
         self._api_test_running = False
+        self._api_test_requested_model = None
         self._speech_queue = queue.Queue(maxsize=8)
         self._speech_thread = threading.Thread(target=self._speech_loop, daemon=True, name="JarvisSpeech")
         self._speech_thread.start()
@@ -372,6 +373,7 @@ class MainWindow(QMainWindow):
             self.mic_status.setText(message)
             return
         self._api_test_running = True
+        self._api_test_requested_model = settings.get("online_model")
         self.settings_panel.set_test_busy(True)
         self.mic_status.setText("Проверяю подключение к API…")
         threading.Thread(
@@ -383,25 +385,34 @@ class MainWindow(QMainWindow):
 
     def _test_online_thread(self, provider, settings, key):
         try:
-            valid, result = check_api_key(settings, key)
+            valid, message, suggested_model = check_api_key_detailed(settings, key)
         except Exception:
-            valid, result = False, "Ошибка проверки API. Проверьте настройки и подключение."
+            valid, message, suggested_model = (
+                False, "Ошибка проверки API. Проверьте настройки и подключение.", None,
+            )
         if not self._closed:
             try:
-                self.api_test_result.emit(provider, valid, result)
+                self.api_test_result.emit(provider, valid, message, suggested_model)
             except RuntimeError:
                 pass
 
-    def _on_api_test_result(self, provider, valid, message):
+    def _on_api_test_result(self, provider, valid, message, suggested_model):
         self._api_test_running = False
         if self._closed or not hasattr(self, "settings_panel"):
             return
-        # The user may have switched to another provider during the request.
-        if self.settings_panel.online_provider.currentData() != provider:
-            self.settings_panel.set_test_busy(False)
-            self.settings_panel.refresh_key_status()
+        panel = self.settings_panel
+        # Do not alter a model/provider changed while the asynchronous test ran.
+        if panel.online_provider.currentData() != provider:
+            panel.set_test_busy(False)
+            panel.refresh_key_status()
             return
-        self.settings_panel.show_test_result(message, valid)
+        if (
+            valid and suggested_model and
+            panel.online_model.text().strip() == self._api_test_requested_model and
+            suggested_model != panel.online_model.text().strip()
+        ):
+            panel.online_model.setText(suggested_model)
+        panel.show_test_result(message, valid)
         self.mic_status.setText(message)
 
     def preview_voice(self):
