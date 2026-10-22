@@ -25,6 +25,69 @@ class QtActionTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
+    def test_main_dispatch_routes_unknown_voice_action_to_gemini_before_local(self):
+        import types
+        from unittest import mock
+        from main import MainWindow
+
+        record = {"parts": ["Открой Firefox"], "answers": [], "routes": []}
+        fake = types.SimpleNamespace(
+            _processing=False, _closed=False, _command_queue=[record],
+            cfg={"language": "ru", "online_provider": "gemini", "wake_prefix": "Jarvis"},
+            command_registry=types.SimpleNamespace(
+                disabled_match=lambda text, prefix: False,
+                match=lambda text, prefix: None,
+            ),
+            agent=types.SimpleNamespace(
+                handle_fast=mock.Mock(return_value="WRONG LOCAL"),
+                history=[],
+            ),
+            online_planner=types.SimpleNamespace(
+                enabled=lambda: True,
+            ),
+            mic_status=types.SimpleNamespace(setText=mock.Mock()),
+            _online_thread=lambda *_: None,
+            _resolved_command=mock.Mock(),
+        )
+        with mock.patch("main.threading.Thread") as thread:
+            MainWindow._dispatch_command(fake)
+        self.assertEqual(fake._active_text, "Открой Firefox")
+        self.assertEqual(fake._processing, True)
+        fake.agent.handle_fast.assert_not_called()
+        fake._resolved_command.assert_not_called()
+        thread.assert_called_once()
+        self.assertIn("JarvisCloudFirst", str(thread.call_args))
+        self.assertIn("онлайн-планировщик", fake.mic_status.setText.call_args.args[0])
+
+    def test_main_dispatch_does_not_use_gguf_to_claim_failed_file_operation(self):
+        import types
+        from unittest import mock
+        from main import MainWindow
+
+        fake = types.SimpleNamespace(
+            _processing=False, _closed=False,
+            _command_queue=[{"parts": ["Переименуй этот файл"], "answers": [], "routes": []}],
+            cfg={"language": "ru", "online_provider": "gemini", "wake_prefix": "Jarvis"},
+            command_registry=types.SimpleNamespace(
+                disabled_match=lambda *_: False,
+                match=lambda *_: None,
+            ),
+            agent=types.SimpleNamespace(
+                handle_fast=mock.Mock(return_value=None),
+                history=[],
+            ),
+            online_planner=types.SimpleNamespace(enabled=lambda: False),
+            mic_status=types.SimpleNamespace(setText=mock.Mock()),
+            _resolved_command=mock.Mock(),
+            _start_local_chat=mock.Mock(),
+        )
+        import types as pytypes
+        fake._safe_local_fallback = pytypes.MethodType(MainWindow._safe_local_fallback, fake)
+        MainWindow._dispatch_command(fake)
+        fake._start_local_chat.assert_not_called()
+        fake._resolved_command.assert_called_once()
+        self.assertIn("Системное действие НЕ выполнено", fake._resolved_command.call_args.args[1])
+
     def test_picker_opens_and_filters_categories(self):
         picker = ActionPicker()
         self.assertEqual(picker.windowTitle(), "Добавить действие")
