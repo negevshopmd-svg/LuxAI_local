@@ -181,7 +181,7 @@ class LocalAgent:
             return simple
         # Windows master volume is read back from Core Audio, never guessed.
         volume_match = re.search(
-            r"(?:громкост\\w*|звук\\w*|volume|volum)[^\\d\\n]{0,55}(\\d{1,3})\\s*%?",
+            r"(?:громкост\w*|звук\w*|volume|volum)[^\d\n]{0,55}(\d{1,3})\s*%?",
             t, flags=re.IGNORECASE,
         )
         if volume_match:
@@ -193,14 +193,14 @@ class LocalAgent:
                 confirm_callback,
             )
         if re.search(
-            r"^(?:закрой|закрыть|закрывай|close|închide)\\b", t,
+            r"^(?:закрой|закрыть|закрывай|close|închide)\b", t,
             flags=re.IGNORECASE,
         ):
             candidate = re.sub(
-                r"^(?:закрой|закрыть|закрывай|close|închide)\\s+",
+                r"^(?:закрой|закрыть|закрывай|close|închide)\s+",
                 "", t, flags=re.IGNORECASE,
             ).strip(" .!?")
-            candidate = re.sub(r"^пожалуйста\\s+", "", candidate)
+            candidate = re.sub(r"^пожалуйста\s+", "", candidate)
             if candidate in ("его", "её", "ее", "это", "it", "его пожалуйста"):
                 candidate = "@last"
             return self.execute_plan(
