@@ -27,11 +27,17 @@ class ActionCatalogTests(unittest.TestCase):
             self.assertIn(category, headings)
             self.assertTrue(any(a["category"] == category for a in CATALOG.values()))
 
-    def test_unsafe_actions_are_unavailable(self):
-        for action in ("run_cmd", "run_powershell", "sleep_pc", "mouse_hold"):
-            self.assertFalse(CATALOG[action]["available"])
-            with self.assertRaises(ValueError):
-                validate_step({"action": action, "target": "echo hello"})
+    def test_all_reference_actions_have_real_implementations(self):
+        for action, definition in CATALOG.items():
+            self.assertTrue(definition["available"], action)
+        self.assertEqual(validate_step({"action": "run_cmd", "target": "echo hello"})["target"], "echo hello")
+        self.assertEqual(validate_step({"action": "run_powershell", "target": "Get-Date"})["action"], "run_powershell")
+        self.assertEqual(validate_step({"action": "mouse_hold", "target": "3"})["target"], "3")
+        self.assertEqual(validate_step({"action": "wait_minutes", "target": "2"})["target"], "2")
+        with self.assertRaises(ValueError):
+            validate_step({"action": "run_cmd", "target": "echo hello\nother"})
+        with self.assertRaises(ValueError):
+            validate_step({"action": "mouse_hold", "target": "10"})
 
     def test_safe_browser_url_validation(self):
         for url in ("http://example.org", "https://localhost/path", "file:///tmp/test", "https://127.0.0.1"):
@@ -71,11 +77,13 @@ class ActionCatalogTests(unittest.TestCase):
     def test_invalid_macro_rejected(self):
         with tempfile.TemporaryDirectory() as folder:
             registry = CommandRegistry(Path(folder) / "commands.json")
+            # GUI-created terminal steps are permitted only with explicit
+            # user confirmation; invalid shell contents cannot contain newlines.
             with self.assertRaises(ValueError):
                 registry.save_custom({
                     "title": "Bad", "phrases": ["do bad"],
                     "action": "run_cmd", "target": "x",
-                    "steps": [{"action": "run_cmd", "target": "rm -rf"}],
+                    "steps": [{"action": "run_cmd", "target": "echo hello\nother"}],
                 })
             with self.assertRaises(ValueError):
                 registry.save_custom({
@@ -95,6 +103,37 @@ class ActionCatalogTests(unittest.TestCase):
             yes = agent.execute_plan("сохранить документ", step, lambda _: True)
             self.assertIn("Сохранено", yes)
             runner.assert_called_once()
+
+    def test_manual_shell_action_always_requires_confirmation(self):
+        agent = LocalAgent({"language": "ru"})
+        plan = validate_step({"action": "run_cmd", "target": "echo hello"})
+        prompts = []
+        with mock.patch("luxai.agent.execute_desktop_step") as runner:
+            answer = agent.execute_plan(
+                "start command", plan,
+                lambda message: prompts.append(message) or False,
+            )
+            self.assertIn("отменено", answer)
+            runner.assert_not_called()
+        self.assertIn("echo hello", prompts[0])
+        self.assertIn("CMD", prompts[0])
+
+    def test_new_action_arguments_are_validated(self):
+        cases = [
+            ({"action": "app_volume", "target": "telegram:75"}, "telegram:75"),
+            ({"action": "voice_female", "target": "Привет"}, "Привет"),
+            ({"action": "mouse_right_hold", "target": "2"}, "2"),
+            ({"action": "open_first_result", "target": "python docs"}, "python docs"),
+        ]
+        for plan, value in cases:
+            self.assertEqual(validate_step(plan)["target"], value)
+        for plan in (
+            {"action": "app_volume", "target": "invalid:80"},
+            {"action": "wait_minutes", "target": "100"},
+            {"action": "run_powershell", "target": ""},
+        ):
+            with self.assertRaises(ValueError):
+                validate_step(plan)
 
     def test_website_is_opened_via_browser_not_cmd(self):
         with mock.patch("luxai.desktop_actions.webbrowser.open", return_value=True) as browser:
