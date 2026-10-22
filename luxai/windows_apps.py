@@ -156,6 +156,24 @@ def launch_installed_app(name: str, confirmed=None) -> tuple[bool, str]:
     query = normalized_name(name)
     path = resolve_installed_app(query)
     if path is None:
+        # Some Windows Store/auto-updated apps register a protocol handler
+        # but have no stable executable or Start Menu shortcut.
+        known_protocols = {
+            "telegram": "tg://resolve",
+            "discord": "discord://",
+            "spotify": "spotify:",
+            "steam": "steam://open/main",
+        }
+        if sys.platform == "win32" and query in known_protocols:
+            if confirmed is not None and not confirmed(
+                f"Запустить «{name}» через зарегистрированный протокол Windows?"
+            ):
+                return False, "Действие отменено."
+            try:
+                os.startfile(known_protocols[query])
+                return True, f"Передал Windows запрос на запуск «{name}»."
+            except (OSError, AttributeError):
+                pass
         return False, f"Не нашёл установленную программу «{name}»."
     if confirmed is not None and not confirmed(f"Запустить «{name}»?\n{path}"):
         return False, "Действие отменено."
