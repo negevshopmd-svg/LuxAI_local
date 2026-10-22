@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 import tempfile
 import urllib.error
 import urllib.request
@@ -143,6 +144,35 @@ def main() -> int:
                 dest = ROOT / rel
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src, dest)
+
+            # Update the existing virtual environment after refreshing
+            # requirements. Without this, adding new Windows action libraries
+            # such as pycaw leaves controls visible but nonfunctional.
+            win_python = ROOT / ".venv" / "Scripts" / "python.exe"
+            unix_python = ROOT / ".venv" / "bin" / "python"
+            venv_python = win_python if win_python.is_file() else unix_python
+            requirements = ROOT / "requirements.txt"
+            if venv_python.is_file() and requirements.is_file():
+                print("Verific și instalez dependențele noi în .venv...")
+                process = subprocess.run(
+                    [
+                        str(venv_python), "-m", "pip", "install",
+                        "--disable-pip-version-check",
+                        "-r", str(requirements),
+                    ],
+                    cwd=str(ROOT), timeout=300, check=False,
+                )
+                if process.returncode != 0:
+                    raise RuntimeError(
+                        "Fișierele au fost actualizate, dar pip nu a instalat "
+                        "toate dependențele. Rulează install_windows.bat "
+                        "sau încearcă din nou Update.bat."
+                    )
+            else:
+                print(
+                    "AVERTISMENT: .venv nu există; rulează "
+                    "install_windows.bat înainte să pornești aplicația."
+                )
 
             STATE_FILE.write_text(
                 json.dumps({"commit": latest_sha, "branch": BRANCH}, indent=2),
