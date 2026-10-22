@@ -1,45 +1,56 @@
-# Jarvis: local executor + optional OpenAI planner
+# Jarvis: local executor + optional multi-provider AI planner
 
-Jarvis keeps two separate roles:
+Jarvis uses two distinct agents:
 
-1. **Local executor** runs the trusted Windows/Steam actions and asks for confirmation when that setting is enabled. Frequent actions (time, Dota 2, Telegram, Discord, etc.) are handled locally without using tokens or waiting for the network.
-2. **Online planner** optionally interprets commands not covered by local shortcuts and returns a structured JSON proposal. The local executor checks the target against an allowlist, and never executes arbitrary AI-generated CMD or PowerShell commands.
+1. **Online planner**, optional, interprets unfamiliar commands and returns structured JSON. Supported presets: **DeepSeek**, **OpenAI**, **OpenRouter**, **Groq**, **Google Gemini**, **Mistral AI**, **Together AI**, **Fireworks AI**, **xAI/Grok** and **Anthropic/Claude**. A custom **HTTPS OpenAI-compatible** `/chat/completions` endpoint is available for other providers.
+2. **Local executor** independently checks the proposal and runs only an allowlisted action (or answers via the local `.gguf` model). It never copies an online model's CMD/PowerShell commands into the terminal. Frequent commands (time, Dota 2, Telegram, etc.) bypass cloud inference entirely.
 
-Online replies use an OpenAI API key belonging to the user. The key is **not** included in the repository. ChatGPT Free/Plus plans do not automatically provide free API usage; API billing is separate and any promotional API credits depend on account eligibility.
+**Important:** API keys cannot be used interchangeably. Choose the provider that **issued the key**. API-key prefixes are not reliable enough to identify the provider automatically. The app cannot guarantee compatibility with every API or model: nonstandard authentication/protocols and individual providers' model limits may require an adapter.
 
-## Настройка
+## Настройка DeepSeek
 
-1. Откройте Jarvis → **Настройки** → **ИИ-провайдер**.
-2. Нажмите **Открыть страницу API-ключей** (https://platform.openai.com/api-keys).
-3. Создайте ключ в своём аккаунте OpenAI и, если нужно, настройте API-биллинг.
-4. Вставьте ключ в поле **OpenAI API-ключ**, включите **Облачный помощник** и нажмите **Сохранить настройки**.
-5. Начните с **GPT-4.1 nano** для коротких и быстрых команд. Можно уменьшить таймаут до 3 секунд.
+1. **Отзовите любой ключ, который уже публиковали в чате или другом месте, и создайте новый.**
+2. Откройте Jarvis → **Настройки → ИИ-провайдер**.
+3. В меню **Поставщик AI API** выберите **DeepSeek**.
+4. Модель: **`deepseek-flash`** (быстрый вариант согласно текущим документам DeepSeek). Если в вашем аккаунте доступна другая модель, впишите её ID.
+5. Вставьте **новый** ключ DeepSeek в поле **API-ключ выбранного сервиса**.
+6. Включите **Облачный помощник** и нажмите **Сохранить настройки**.
+7. Нажмите **Проверить API** для небольшого платного/лимитируемого тестового запроса.
 
-The key is encrypted for the current Windows user with DPAPI, stored in `.luxai_secrets/openai_key.dpapi`, and never written to `config.json`. The folder and logs are ignored by Git and protected by `Update.py`. To delete the stored key, press **Удалить сохранённый ключ**. An `OPENAI_API_KEY` environment variable also works and overrides the stored key.
+DeepSeek docs: https://api-docs.deepseek.com/guides/search_fetch and https://api-docs.deepseek.com/guides/json_mode/.
 
-**Privacy:** When enabled, the command and up to four recent conversation messages are sent to the OpenAI API. When disabled, commands remain local except for explicitly requested actions such as web search or first-time downloading of a Piper voice model.
+## Настройка других провайдеров
 
-## Examples
+Choose the service from the same list, specify a compatible model ID and enter a key **issued by that service**. Every provider has a **Получить ключ** link in settings. For an unsupported but OpenAI-compatible host, select **Другой OpenAI-совместимый HTTPS API**, enter a complete public **`https://.../chat/completions`** URL, a model ID, and its own key. The application rejects HTTP, embedded URL credentials and local/private-IP URL literals. **A custom provider receives your key and messages**, so only use a service you trust.
 
-- `Жарвис, сколько время?` → fast local clock response.
-- `Жарвис, открой доту` → (after confirmation, if enabled) Windows opens `steam://rungameid/570`.
-- `Жарвис, запусти Counter-Strike 2` → known Steam app ID 730.
-- A request to open an unfamiliar Steam game can be classified by the online planner; Jarvis then checks the exact title via the Steam Store API. The online model cannot supply the Steam ID directly.
-- Commands for the desktop are allowlisted. An online response containing arbitrary shell code is rejected.
+Claude uses its native **Messages API** rather than the OpenAI endpoint. Model IDs can change; use the model IDs available to your account.
 
-## Offline / errors
+**API costs:** ChatGPT subscriptions do not grant OpenAI API credits; DeepSeek and the other providers have separate pricing/limits. Some have free or trial quotas, but these are not guaranteed.
 
-- With no key or with **Облачный помощник** off: Jarvis uses local shortcuts or the selected `.gguf` model.
-- If the API is slow, unavailable or out of credit: Jarvis falls back to the local model. Requests are paused briefly after network/billing errors instead of repeatedly waiting.
-- Connectivity errors and HTTP status codes appear in `online_agent.log`, without storing API keys or conversation text.
-- Speech problems appear in `voice_error.log`.
+## Credentials and privacy
 
-Run `Update.bat` and restart using `run_windows.bat` after repository updates.
+- Jarvis keeps keys **separately per provider**, encrypted with Windows DPAPI, in `.luxai_secrets/<provider>_key.dpapi`. Existing `openai_key.dpapi` keys still work.
+- Keys are never included in `config.json` and are never committed to GitHub; `Update.py` preserves the secret folder.
+- Optional environment variables: `DEEPSEEK_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `GROQ_API_KEY`, `GEMINI_API_KEY`, `MISTRAL_API_KEY`, `TOGETHER_API_KEY`, `FIREWORKS_API_KEY`, `XAI_API_KEY`, `ANTHROPIC_API_KEY` and `JARVIS_CUSTOM_API_KEY`.
+- To remove the selected stored key, click **Удалить ключ**. This does not unset an environment variable.
+- When enabled, online planning transmits your current command plus up to four recent conversation messages to the **selected** provider. In offline mode these messages are not uploaded for online planning.
+- Network failures, quotas, unsupported models and authentication errors fall back to local responses. `online_agent.log` contains only status codes/error classes, **not keys or conversations**.
 
-### Testing
+## Fast local commands
 
-The repository includes `tests/test_routing.py` and an automated GitHub Actions job. Run:
+- `Жарвис, сколько время?` → current local time, offline.
+- `Жарвис, открой доту` → confirmed launch via `steam://rungameid/570`.
+- `Жарвис, запусти Counter-Strike 2` → confirmed launch via Steam app ID 730.
+- Unknown Steam game titles are resolved only via an exact match against the Steam Store API; untrusted app IDs/URLs/commands provided by an AI are never executed.
+
+## Updating/testing
+
+Run `Update.bat`, restart with `run_windows.bat`, choose a provider under Settings, and save. With a valid connection and key, test **Проверить API**. Without credentials, Jarvis stays local.
+
+Offline syntax and routing checks:
 
 ```cmd
 .venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
+
+Provider adapters are in `luxai/api_providers.py`, routing in `luxai/online_agent.py`, and Windows key storage in `luxai/secure_keys.py`.
