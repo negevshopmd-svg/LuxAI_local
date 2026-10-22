@@ -137,10 +137,10 @@ class LocalAgent:
         }
         if normalized in greetings:
             if any(word in normalized for word in ("привет", "здравствуй", "здравствуйте", "доброе", "добрый", "хай")):
-                return "Привет! Я Nexora. Чем помочь?"
+                return "Привет. Я Джарвис. Чем помочь?"
             if normalized in {"hello", "hi", "hey"}:
-                return "Hi! I'm Nexora. How can I help?"
-            return "Salut! Sunt Nexora. Cu ce te pot ajuta?"
+                return "Hi, I'm Jarvis. How can I help?"
+            return "Salut! Sunt Jarvis. Cu ce te pot ajuta?"
         # App-launch intents in Romanian, Russian and English.
         app_aliases = {
             "telegram": ["telegram", "телеграм", "телеграмм"],
@@ -212,6 +212,11 @@ class LocalAgent:
     def handle(self, text, confirm_callback=lambda _: False):
         action = self._simple_action(text, confirm_callback)
         if action is not None:
+            self.history.extend([
+                {"role": "user", "content": text},
+                {"role": "assistant", "content": action},
+            ])
+            self.history = self.history[-self.max_history_messages:]
             return action
         llm = self._load_llm()
         if llm is None:
