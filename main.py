@@ -1128,7 +1128,10 @@ class MainWindow(QMainWindow):
             # Explicitly authored/learned personal commands are intentionally
             # instant, even if Gemini is enabled. Every unknown spoken action
             # is handed to Gemini first when the cloud key works.
-            if saved is not None and not saved.get("builtin", True):
+            if saved is not None:
+                # Both shipped presets and user-authored commands have
+                # precise, prevalidated actions. Execute them immediately
+                # without waiting for the online planner or local GGUF.
                 self._execute_registered(text, saved)
                 return
 
