@@ -6,6 +6,7 @@ on:
       - ".github/workflows/ocr-windows.yml"
       - "luxai/ocr_setup.py"
       - "tests/test_bundled_ocr.py"
+      - "tests/smoke_windows_ocr.py"
   workflow_dispatch:
 
 permissions:
