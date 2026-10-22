@@ -92,17 +92,15 @@ class ActionCatalogTests(unittest.TestCase):
                     "steps": [{"action": "noop"}] * 9,
                 })
 
-    def test_user_selected_keyboard_action_executes_only_after_confirmation(self):
+    def test_user_selected_keyboard_action_runs_without_prompt(self):
         agent = LocalAgent({"language": "ru"})
         step = validate_step({"action": "hotkey", "target": "ctrl+s"})
-        with mock.patch("luxai.agent.execute_desktop_step") as runner:
-            no = agent.execute_plan("сохранить документ", step, lambda _: False)
-            self.assertIn("отменено", no)
-            runner.assert_not_called()
-            runner.return_value = "Сохранено."
-            yes = agent.execute_plan("сохранить документ", step, lambda _: True)
-            self.assertIn("Сохранено", yes)
+        with mock.patch("luxai.agent.execute_desktop_step", return_value="Сохранено.") as runner:
+            callback = mock.Mock(side_effect=AssertionError("No ordinary hotkey prompt"))
+            answer = agent.execute_plan("сохранить документ", step, callback)
+            self.assertIn("Сохранено", answer)
             runner.assert_called_once()
+            callback.assert_not_called()
 
     def test_user_defined_terminal_actions_wait_for_real_exit_code(self):
         from luxai.desktop_actions import _launch_user_script
