@@ -8,5 +8,8 @@
   "whisper_model_path": "",
   "llm_model_path": "C:/Users/vlad/Desktop/LuxAI_Local/models/Qwen3-8B-Q4_K_M.gguf",
   "tesseract_path": "",
-  "confirm_desktop_actions": true
+  "confirm_desktop_actions": true,
+  "online_agent_enabled": false,
+  "online_model": "gpt-4.1-nano",
+  "online_timeout": 5
 }
