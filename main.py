@@ -95,6 +95,7 @@ class MainWindow(QMainWindow):
         self._command_queue = []
         self._active_text = None
         self._processing = False
+        self._current_route = ""
         self._closed = False
         self._api_test_running = False
         self._api_test_requested_model = None
@@ -692,7 +693,7 @@ class MainWindow(QMainWindow):
         pieces = [part.strip() for part in pieces if part.strip()]
         if not pieces or len(pieces) > 4:
             pieces = [text]
-        self._command_queue.append({"parts": pieces, "answers": []})
+        self._command_queue.append({"parts": pieces, "answers": [], "routes": []})
         self._dispatch_command()
 
     def _dispatch_command(self):
@@ -709,6 +710,7 @@ class MainWindow(QMainWindow):
             # Fast deterministic commands never need a cloud round trip or LLM.
             answer = self.agent.handle_fast(text, confirm_callback=self.confirm_action)
             if answer is not None:
+                self._current_route = "быстро"
                 self._resolved_command(text, answer)
                 return
         except Exception as exc:
@@ -716,14 +718,21 @@ class MainWindow(QMainWindow):
             return
 
         if self.online_planner.enabled():
-            self.mic_status.setText("Облачный агент распознаёт команду…")
+            provider = self.cfg.get("online_provider", "openai")
+            label = PROVIDERS.get(provider, {}).get("label", provider)
+            self.mic_status.setText(f"Онлайн-агент {label} обрабатывает команду…")
             history = tuple(dict(msg) for msg in self.agent.history[-4:])
             threading.Thread(
                 target=self._online_thread, args=(text, history),
                 daemon=True, name="JarvisOnlinePlanner",
             ).start()
         else:
-            self._start_local_chat(text)
+            reason = (
+                "нет сохранённого ключа онлайн-агента"
+                if self.cfg.get("online_agent_enabled", False)
+                else "облачный помощник выключен"
+            )
+            self._start_local_chat(text, reason=reason)
 
     def _online_thread(self, text, history):
         try:
@@ -748,12 +757,26 @@ class MainWindow(QMainWindow):
             except Exception:
                 answer = None
         if answer is not None:
+            provider = self.cfg.get("online_provider", "openai")
+            self._current_route = "онлайн: " + PROVIDERS.get(provider, {}).get("label", provider)
             self._resolved_command(text, answer)
         else:
-            self._start_local_chat(text)
+            self._start_local_chat(text, reason="облачный ответ недоступен")
 
-    def _start_local_chat(self, text):
-        self.mic_status.setText("Локальный ИИ готовит ответ…")
+    def _start_local_chat(self, text, reason=""):
+        if not self.cfg.get("local_llm_fallback_enabled", True):
+            self._current_route = "без тяжёлой модели"
+            answer = (
+                "Облачный агент недоступен. Проверьте API-ключ и соединение. "
+                "Быстрые голосовые команды продолжают работать."
+                if self.cfg.get("language") == "ru" else
+                "Agentul online nu este disponibil. Verifică cheia API și conexiunea."
+            )
+            self._resolved_command(text, answer)
+            return
+        self._current_route = "локальный GGUF"
+        suffix = f" ({reason})" if reason else ""
+        self.mic_status.setText("Локальный ИИ готовит ответ…" + suffix)
         threading.Thread(
             target=self._local_thread, args=(text,),
             daemon=True, name="JarvisLocalChat",
@@ -784,6 +807,8 @@ class MainWindow(QMainWindow):
             return
         group = self._command_queue[0]
         group["answers"].append(str(answer or ""))
+        group["routes"].append(self._current_route or "локально")
+        self._current_route = ""
         self._processing = False
         self._active_text = None
         if any(word in str(answer).lower() for word in ("отмен", "anulat", "cancelled")):
@@ -795,9 +820,10 @@ class MainWindow(QMainWindow):
             return
         group = self._command_queue.pop(0)
         result = "\n".join(answer for answer in group["answers"] if answer).strip()
+        routes = list(dict.fromkeys(route for route in group["routes"] if route))
         if result:
             self.append_message("Jarvis", result, "#a5b9dc")
-            self.mic_status.setText("Команда обработана.")
+            self.mic_status.setText("Готово: " + (", ".join(routes) or "локально"))
             if self.cfg.get("tts_enabled", True):
                 self._queue_speech(result, self.cfg.get("language", "ru"))
         QTimer.singleShot(0, self._dispatch_command)
