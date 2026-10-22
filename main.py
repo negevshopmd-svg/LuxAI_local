@@ -127,6 +127,7 @@ class MainWindow(QMainWindow):
         self._processing = False
         self.dictation_active = False
         self._screen_snapshot = None
+        self._pending_screen_click = None
         self._screen_dialog = None
         self._last_external_hwnd = 0
         self._current_route = ""
@@ -972,6 +973,7 @@ class MainWindow(QMainWindow):
         ):
             return
         if error or snapshot is None:
+            self._pending_screen_click = None
             answer = (
                 "Не удалось проверить кнопки: " + (error or "нет доступного окна")
             )
@@ -1004,7 +1006,16 @@ class MainWindow(QMainWindow):
             "Скажите «нажми да» или «нажми нет»."
         )
         self.mic_status.setText(message)
-        if not gui_request:
+        auto_click = getattr(self, "_pending_screen_click", None)
+        self._pending_screen_click = None
+        if not gui_request and auto_click:
+            # A direct «нажми да» triggers inspection automatically; the
+            # subsequent modal confirmation still requires an explicit yes.
+            self._current_route = "Windows UI Automation"
+            self._resolved_command(
+                text, self._click_screen_choice(auto_click),
+            )
+        elif not gui_request:
             self._current_route = "Windows UI Automation"
             self._resolved_command(text, message)
 
@@ -1079,8 +1090,14 @@ class MainWindow(QMainWindow):
 
             choice = button_choice(text)
             if choice:
-                self._current_route = "Windows UI Automation"
-                self._resolved_command(text, self._click_screen_choice(choice))
+                import time
+                snapshot = getattr(self, "_screen_snapshot", None)
+                if snapshot is None or time.monotonic() - snapshot.captured > 90:
+                    self._pending_screen_click = choice
+                    self._start_screen_inspection(text)
+                else:
+                    self._current_route = "Windows UI Automation"
+                    self._resolved_command(text, self._click_screen_choice(choice))
                 return
             if is_screen_inspection_request(text):
                 self._start_screen_inspection(text)
