@@ -22,6 +22,7 @@ APP_LABELS = {
     "chrome": "Google Chrome", "firefox": "Mozilla Firefox",
     "edge": "Microsoft Edge", "spotify": "Spotify",
     "notepad": "Блокнот", "calculator": "Калькулятор",
+    "word": "Microsoft Word",
     "explorer": "Проводник Windows",
 }
 LOCATION_LABELS = {
