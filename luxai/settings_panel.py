@@ -223,9 +223,21 @@ class SettingsPanel(QWidget):
         panel.addWidget(preview)
 
     def _build_commands(self):
-        panel = self._section("Выполнение команд", "Подтверждения перед управлением приложениями и окнами.")
-        self.confirm = self._toggle(self.cfg.get("confirm_desktop_actions", True))
-        self._row(panel, "Подтверждать действия", "Запрашивать разрешение перед открытием программ и другими действиями.", self.confirm)
+        panel = self._section(
+            "Выполнение команд",
+            "Обычные голосовые действия выполняются сразу. "
+            "Сон, выключение, скрипты и опасные действия требуют разрешения.",
+        )
+        # confirm_desktop_actions was enabled by default in older versions.
+        # It must not silently re-enable repetitive dialogs on upgrade.
+        self.confirm = self._toggle(self.cfg.get("confirm_all_actions", False))
+        self._row(
+            panel, "Подтверждать также обычные действия",
+            "Необязательная настройка: спрашивать разрешение даже "
+            "для открытия приложений, сайтов и документов. "
+            "Опасные действия всегда требуют подтверждения.",
+            self.confirm,
+        )
         self.confirm_yes = QLineEdit(self.cfg.get("confirm_yes_words", "да, ага, конечно, подтверждаю, давай"))
         self._row(panel, "Слова «да»", "Варианты голосового подтверждения через запятую.", self.confirm_yes)
         self.confirm_no = QLineEdit(self.cfg.get("confirm_no_words", "нет, отмена, отмени, не надо"))
@@ -591,7 +603,8 @@ class SettingsPanel(QWidget):
             "voice_volume": self.voice_volume.value(),
             "voice_engine": self.voice_engine.currentData(),
             "voice_speed": round(self.voice_speed.value() / 100, 2),
-            "confirm_desktop_actions": self.confirm.isChecked(),
+            "confirm_desktop_actions": False,
+            "confirm_all_actions": self.confirm.isChecked(),
             "confirm_yes_words": self.confirm_yes.text().strip(),
             "confirm_no_words": self.confirm_no.text().strip(),
             "confirmation_timeout": self.confirm_timeout.value(),
