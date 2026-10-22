@@ -20,7 +20,7 @@ from luxai.online_agent import OnlinePlanner
 class AdultNavigationTests(unittest.TestCase):
     def test_adult_site_including_russian_whisper_variants_is_https_navigation(self):
         for phrase in (
-            "Открой порно-хам.", "Открой Порнхаб", "Открой порно хаб",
+            "Открой порно-хам.", "Откроет порно-хам.", "Открой Порнхаб", "Открой порно хаб",
             "Жарвис, открой порнхаб в браузере", "Open Pornhub",
             "Открой сайт Pornhub.com",
         ):
@@ -47,6 +47,7 @@ class DesktopFileTests(unittest.TestCase):
     def test_russian_file_requests_and_location(self):
         phrases = {
             "Открой файл Отчёт.docx на рабочем столе": ("Отчёт.docx", "desktop"),
+            "Откроет файл Отчёт.docx на десктопе": ("Отчёт.docx", "desktop"),
             "Открой файл «Мой отчёт.pdf» с рабочего стола.": ("Мой отчёт.pdf", "desktop"),
             "Открой документ Резюме в документах": ("Резюме", "documents"),
             "Открой файл Лекции.mp4 в загрузках": ("Лекции.mp4", "downloads"),
