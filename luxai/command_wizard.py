@@ -13,6 +13,10 @@ from luxai.command_registry import APP_TARGETS, CommandRegistry, checked_command
 from luxai.fast_intents import strip_wake_name, has_launch_verb
 from luxai.file_actions import parse_file_intent
 from luxai.steam_games import local_game_intent, GAMES
+from luxai.voice_shortcuts import keyboard_action_plan
+from luxai.voice_files import parse_open_user_file
+from luxai.websites import website_plan
+from luxai.action_catalog import CATALOG, validate_step
 
 
 def is_create_command_request(text: str) -> bool:
@@ -30,6 +34,18 @@ def _action_from_description(text: str) -> dict | None:
     """Narrow intent resolver, suitable for an untrusted voice utterance."""
     s = str(text or "").strip()
     t = s.casefold()
+    keyboard = keyboard_action_plan(s)
+    if keyboard is not None:
+        return keyboard
+    opened = parse_open_user_file(s)
+    if opened is not None:
+        return opened
+    website = website_plan(s)
+    if website is not None:
+        return {
+            "action": "open_website", "target": website["target"],
+            "location": "desktop",
+        }
     file_action = parse_file_intent(s)
     if file_action:
         return file_action
@@ -78,16 +94,40 @@ def _describe(plan):
         return "сказать время"
     if action == "minimize_windows":
         return "свернуть все окна"
+    if action == "open_user_file":
+        return f"открыть файл «{target}» ({location})"
+    if action == "open_website":
+        return f"открыть сайт «{target}» в браузере"
+    if action == "hotkey":
+        return f"нажать клавиши {target.upper()}"
+    if action == "press_enter":
+        return "нажать Enter"
+    if action == "save_document":
+        return "сохранить Ctrl+S"
+    if action in CATALOG:
+        return CATALOG[action]["title"]
     raise ValueError("Unsupported command plan")
 
 
 def _allowed_plan(plan: dict) -> dict | None:
     if not isinstance(plan, dict):
         return None
-    if plan.get("action") not in {
+    allowed_legacy = {
         "open_app", "launch_game", "steam_verified", "create_file", "create_folder",
         "list_files", "time", "minimize_windows",
-    }:
+    }
+    action = plan.get("action")
+    if action in {"open_user_file", "open_website", "hotkey", "press_enter",
+                  "save_document"}:
+        try:
+            step = validate_step(plan)
+        except (TypeError, ValueError):
+            return None
+        return {
+            "action": step["action"], "target": step["target"],
+            "location": step["location"], "steps": [step],
+        }
+    if action not in allowed_legacy:
         return None
     example = {
         "id": "voice_preview",
@@ -157,8 +197,10 @@ class CommandWizard:
             self.stage = "action"
             return (
                 f"Запомнил фразу «{self.phrase}». Что нужно делать? "
-                "Например: открыть Telegram, запустить War Thunder, "
-                "создать файл на рабочем столе.",
+                "Например: открыть Telegram или YouTube, открыть файл "
+                "с рабочего стола, нажать Enter или Ctrl+S. "
+                "Сложные цепочки с мышью и паузами можно создать "
+                "в разделе Команды → Новая команда → Действия.",
                 None, None,
             )
         if self.stage == "action":
@@ -181,6 +223,7 @@ class CommandWizard:
                         "category": "Мои команды", "action": self.plan["action"],
                         "target": self.plan.get("target", ""),
                         "location": self.plan.get("location", "desktop"),
+                        "steps": self.plan.get("steps", []),
                         "appid": self.plan.get("appid"),
                         "enabled": True,
                     }
@@ -208,7 +251,9 @@ class CommandWizard:
             self.stage = "action"
             return (
                 "Не смог безопасно определить действие. "
-                "Попробуйте сказать: открыть Telegram, создать файл или запустить игру.",
+                "Попробуйте сказать: открыть Telegram, открыть YouTube в браузере, "
+                "нажать Enter, создать файл или запустить игру. "
+                "Остальные действия доступны в визуальном редакторе.",
                 None,
             )
         self.plan = verified
