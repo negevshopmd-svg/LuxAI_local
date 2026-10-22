@@ -385,6 +385,15 @@ class SettingsPanel(QWidget):
         self.refresh_key_status()
         self._refresh_provider_keys_button()
 
+        self.local_llm_fallback = self._toggle(
+            self.cfg.get("local_llm_fallback_enabled", True)
+        )
+        self._row(
+            panel, "Резервный локальный ИИ",
+            "Если облачный API недоступен, запускать тяжёлую GGUF-модель. "
+            "Выключите для максимальной скорости: быстрые команды работают и без неё.",
+            self.local_llm_fallback,
+        )
         self.model_label = QLabel(
             Path(self.cfg.get("llm_model_path", "")).name or "Модель не выбрана"
         )
@@ -544,6 +553,7 @@ class SettingsPanel(QWidget):
             "always_on_top": self.on_top.isChecked(),
             "autostart_windows": self.autostart.isChecked(),
             "minimize_to_tray": self.tray_on_close.isChecked(),
+            "local_llm_fallback_enabled": self.local_llm_fallback.isChecked(),
             "online_agent_enabled": self.online_agent_enabled.isChecked(),
             "online_provider": self.online_provider.currentData(),
             "online_model": self.online_model.text().strip(),
