@@ -256,8 +256,8 @@ class LocalAgent:
         answer = re.sub(r"^<think>.*?(?:</think>|$)", "", answer, flags=re.IGNORECASE | re.DOTALL)
         answer = re.sub(r"(?im)^\s*(?:Примечание|Note|Notă|Примечания)\s*:[^\n]*", "", answer)
         answer = re.sub(r"(?is)\n?\s*\((?:Примечание|Note|Notă):.*", "", answer)
-        answer = re.sub(r"(?im)^\\s*(?:Nexora|Jarvis|Джарвис)\\s*:\\s*", "", answer).strip()
-        answer = re.sub(r"(?im)^\s*(?:Пользователь|User|Tu)\s*:\s*.*$, "", answer).strip()
+        answer = re.sub(r"(?im)^\s*(?:Nexora|Jarvis|Джарвис)\s*:\s*", "", answer).strip()
+        answer = re.sub(r"(?im)^\s*(?:Пользователь|User|Tu)\s*:\s*.*$", "", answer).strip()
         answer = answer.strip(" \n\r\t\\")
         if answer:
             self.history.extend([
