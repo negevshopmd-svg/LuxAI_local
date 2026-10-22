@@ -19,7 +19,7 @@ MAX_CLIPBOARD_BYTES = 12 * 1024 * 1024
 MAX_SELECTED_CHARS = 6500
 
 SELECTION_WORDS = re.compile(
-    r"(?:выделенн\w*|выделил\w*|выделен\w*|выбранн\w*|"
+    r"(?:выделенн\w*|выделил\w*|выделю|выделяю|выделен\w*|выбранн\w*|"
     r"selected|highlighted|selectat\w*|evidențiat\w*)", re.I,
 )
 SUMMARY_WORDS = re.compile(
