@@ -367,8 +367,12 @@ class LocalAgent:
         desktop_features = {
             "noop", "open_website", "type_text", "hotkey", "press_enter",
             "save_document", "mouse_double_click", "mouse_click", "mouse_scroll",
+            "mouse_middle_click", "mouse_hold", "mouse_right_hold",
             "mouse_move", "speak_text", "speak_ready", "speak_done",
-            "volume_up", "volume_down", "lock_screen",
+            "voice_male", "voice_female", "play_mp3", "play_wav",
+            "volume_up", "volume_down", "app_volume", "lock_screen",
+            "monitor_on", "monitor_off", "sleep_pc",
+            "run_cmd", "run_powershell", "run_file", "open_first_result",
         }
         if action in desktop_features:
             try:
@@ -378,12 +382,20 @@ class LocalAgent:
             mandatory_approval = action in {
                 "type_text", "hotkey", "press_enter", "save_document",
                 "mouse_double_click", "mouse_click", "mouse_scroll",
-                "mouse_move", "lock_screen",
+                "mouse_middle_click", "mouse_hold", "mouse_right_hold",
+                "mouse_move", "lock_screen", "monitor_off", "monitor_on",
+                "sleep_pc", "run_cmd", "run_powershell", "run_file",
+                "app_volume", "voice_female",
             }
             title = CATALOG[action]["title"]
+            full_command = action in {"run_cmd", "run_powershell"}
+            detail = validated["target"] if full_command else validated["target"][:160]
             if mandatory_approval and not confirm_callback(
                 "⚠ Подтвердите действие: " + title +
-                (f" — {validated['target'][:100]}" if validated["target"] else "")
+                (f"\n\n{detail}" if detail else "") +
+                ("\n\nКоманда может изменять файлы и систему. "
+                 "Выполняется с вашими правами, без администратора."
+                 if full_command else "")
             ):
                 return self._say("Действие отменено.", "Acțiune anulată.", "Action cancelled.", text)
             if action == "open_website" and not confirm_callback(
