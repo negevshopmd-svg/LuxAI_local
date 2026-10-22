@@ -44,7 +44,13 @@ class LocalAgent:
         return self.llm
 
     def _open_application(self, app):
-        """Try common Windows launch methods; return True only when launch was requested successfully."""
+        """Find a real local executable/shortcut instead of assuming app exists."""
+        try:
+            resolved, _detail = launch_installed_app(app)
+            if resolved:
+                return True
+        except ValueError:
+            return False
         import shutil
         import os
         import glob
@@ -190,7 +196,7 @@ class LocalAgent:
                 self.last_execution_success = True
                 self.last_executed_plan = {"action": "launch_game", "target": game}
                 return self._say(
-                    f"Запускаю {title} через Steam.",
+                    f"Отправил Steam команду запуска {title} (AppID {app_id}).",
                     f"Pornesc {title} prin Steam.",
                     f"Launching {title} through Steam.",
                     text,
@@ -206,7 +212,10 @@ class LocalAgent:
             "telegram": ["telegram", "телеграм", "телеграмм", "телегу", "телеграму"],
             "discord": ["discord", "дискорд"],
             "chrome": ["chrome", "google chrome", "гугл хром"],
-            "firefox": ["firefox", "файрфокс"],
+            "firefox": [
+                "firefox", "файрфокс", "файерфокс", "фаерфокс",
+                "фоерфокс", "фаирфокс", "феер фокс", "мозила",
+            ],
             "edge": ["microsoft edge", "edge", "эдж"],
             "spotify": ["spotify", "спотифай"],
             "steam": ["steam", "стим"],
@@ -219,7 +228,11 @@ class LocalAgent:
                     if self._open_application(app):
                         self.last_execution_success = True
                         self.last_executed_plan = {"action": "open_app", "target": app}
-                        return self._say(f"Открыл {app.capitalize()}.", f"Am deschis {app.capitalize()}.", f"Opened {app.capitalize()}.", text)
+                        return self._say(
+                            f"Передал Windows запрос на запуск {app.capitalize()}.",
+                            f"Am trimis către Windows cererea de pornire pentru {app.capitalize()}.",
+                            f"Sent Windows a launch request for {app.capitalize()}.", text,
+                        )
                     return self._say(
                         f"Не удалось найти {app.capitalize()} на компьютере.",
                         f"Nu am găsit {app.capitalize()} instalat.",
