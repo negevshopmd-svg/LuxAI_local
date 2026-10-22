@@ -152,6 +152,7 @@ class MainWindow(QMainWindow):
         outer.addWidget(sidebar)
 
         content = QWidget()
+        self.content_frame = content
         content.setStyleSheet("background:#101319;")
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(24, 20, 24, 18)
@@ -469,6 +470,7 @@ class MainWindow(QMainWindow):
                 for child in section.findChildren(QLabel):
                     if child.text() in [name for name, _ in self.settings_panel.SECTIONS]:
                         child.setStyleSheet(f"font-size:18px; font-weight:700; color:{heading_color};")
+        self.content_frame.setStyleSheet("background:#f5f7fb;" if theme == "light" else "background:#101319;")
         self.setWindowOpacity(max(0.65, 1.0 - float(self.cfg.get("ui_transparency", 0)) / 100))
         self.avatar.setVisible(bool(self.cfg.get("ui_animations", True)))
         self.setWindowFlag(
