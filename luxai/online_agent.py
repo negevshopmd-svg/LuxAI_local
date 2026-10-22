@@ -16,6 +16,7 @@ from collections import OrderedDict
 from pathlib import Path
 
 from luxai.secure_keys import get_api_key
+from luxai.steam_games import lookup_steam_game
 
 API_URL = "https://api.openai.com/v1/chat/completions"
 ALLOWED_MODELS = {"gpt-4.1-nano", "gpt-4.1-mini", "gpt-4o-mini"}
@@ -153,6 +154,28 @@ class OnlinePlanner:
             if proposal is None:
                 self._log("Planner returned an invalid proposal; local fallback")
                 return None
+            if proposal["action"] == "steam_game":
+                match = lookup_steam_game(
+                    proposal["target"],
+                    timeout=max(2, min(4, timeout)),
+                )
+                if match is None:
+                    proposal = {
+                        "action": "reply", "target": "",
+                        "reply": (
+                            "Не удалось найти игру с точным названием в Steam."
+                            if re.search(r"[а-яё]", text, re.IGNORECASE)
+                            else "I couldn't find that exact game title on Steam."
+                        ),
+                    }
+                else:
+                    app_id, official_name = match
+                    proposal = {
+                        "action": "steam_verified",
+                        "target": official_name,
+                        "appid": app_id,
+                        "reply": "",
+                    }
             if proposal["action"] in CACHE_ACTIONS:
                 self._cache[key] = proposal
                 if len(self._cache) > 32:
