@@ -360,7 +360,8 @@ class SettingsPanel(QWidget):
         self.online_timeout.setSuffix(" сек")
         # Migrate legacy 3–10 second timeouts: old defaults made Gemini time
         # out long before it could plan commands. Default is now 60 seconds.
-        self.online_timeout.setValue(max(60, int(self.cfg.get("online_timeout", 60))))
+        legacy_timeout = int(self.cfg.get("online_timeout", 60))
+        self.online_timeout.setValue(60 if legacy_timeout < 35 else min(legacy_timeout, 120))
         self._row(
             panel, "Время ответа облачного ИИ",
             "Gemini может думать от 35 до 120 секунд. По умолчанию 60 сек. "
