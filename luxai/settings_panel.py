@@ -287,7 +287,11 @@ class SettingsPanel(QWidget):
 
         saved_model = self.cfg.get("online_model", "")
         default_model = PROVIDERS[provider_name]["model"]
-        if provider_name != "openai" and saved_model in {
+        # A model from another provider, or the AI Studio "Antigravity" agent
+        # name, must not be used as a Gemini chat completion model.
+        if provider_name == "gemini" and not str(saved_model).strip().startswith("gemini-"):
+            saved_model = ""
+        elif provider_name != "openai" and saved_model in {
             "gpt-4.1-nano", "gpt-4.1-mini", "gpt-4o-mini",
         }:
             saved_model = ""
@@ -299,7 +303,20 @@ class SettingsPanel(QWidget):
             "У разных сервисов разные названия моделей. При смене сервиса будет подставлен пример.",
             self.online_model,
         )
-        self.custom_api_url = QLineEdit(self.cfg.get("online_custom_url", ""))
+        self.gemini_hint = QLabel(
+            "Gemini: «Antigravity» — агент AI Studio, а не модель chat API. "
+            "Нажмите «Проверить ключ»: Jarvis подберёт доступную модель из вашего проекта."
+        )
+        self.gemini_hint.setObjectName("Muted")
+        self.gemini_hint.setWordWrap(True)
+        self.gemini_hint.setVisible(provider_name == "gemini")
+        panel.addWidget(self.gemini_hint)
+        # Avoid showing an old OrcaRouter URL in Google Gemini settings.
+        # It is only relevant when the custom provider is selected.
+        self._saved_custom_endpoint = self.cfg.get("online_custom_url", "")
+        self.custom_api_url = QLineEdit(
+            self._saved_custom_endpoint if provider_name == "custom" else ""
+        )
         self.custom_api_url.setMaxLength(500)
         self.custom_api_url.setPlaceholderText("https://provider.example/v1/chat/completions")
         self._row(
@@ -385,7 +402,15 @@ class SettingsPanel(QWidget):
     def _on_provider_changed(self, *_):
         provider = self.online_provider.currentData()
         self.online_model.setText(PROVIDERS[provider]["model"])
-        self.custom_api_url.setEnabled(provider == "custom")
+        self.gemini_hint.setVisible(provider == "gemini")
+        if self.custom_api_url.isEnabled():
+            self._saved_custom_endpoint = self.custom_api_url.text().strip()
+        if provider == "custom":
+            self.custom_api_url.setText(self._saved_custom_endpoint)
+            self.custom_api_url.setEnabled(True)
+        else:
+            self.custom_api_url.setText("")
+            self.custom_api_url.setEnabled(False)
         # Never accidentally send an unsaved key to a different provider.
         self.api_key_entry.clear()
         self.refresh_key_status()
@@ -522,6 +547,10 @@ class SettingsPanel(QWidget):
             "online_agent_enabled": self.online_agent_enabled.isChecked(),
             "online_provider": self.online_provider.currentData(),
             "online_model": self.online_model.text().strip(),
-            "online_custom_url": self.custom_api_url.text().strip(),
+            "online_custom_url": (
+                self.custom_api_url.text().strip()
+                if self.online_provider.currentData() == "custom"
+                else self._saved_custom_endpoint
+            ),
             "online_timeout": self.online_timeout.value(),
         }
