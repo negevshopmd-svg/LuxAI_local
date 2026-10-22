@@ -90,11 +90,17 @@ def read_screen_locally(tesseract_path="") -> str:
         actual = read_screen_text(picture, tesseract_path=tesseract_path)
     except Exception as exc:
         reason = str(exc)
-        if "tesseract" in reason.casefold() or isinstance(exc, FileNotFoundError):
+        if (
+            "tesseract" in reason.casefold()
+            or "ocr" in reason.casefold()
+            or isinstance(exc, FileNotFoundError)
+        ):
             return (
-                "Не удалось прочитать экран: Tesseract OCR не установлен или не найден. "
-                "Установите Tesseract с русским языком и укажите путь "
-                "в Настройки → Система → Tesseract OCR."
+                "Не удалось прочитать экран: встроенный Tesseract OCR "
+                "не готов. " + reason[:180] + " "
+                "Проверьте интернет и статус автоустановки в "
+                "Настройки → Система → Встроенный Tesseract OCR "
+                "или повторите Update.bat."
             )
         return f"Не удалось прочитать экран: {type(exc).__name__}: {reason[:150]}"
     text = " ".join(str(actual).split())
