@@ -18,7 +18,7 @@ class LocalAgent:
         if self.llm is not None and self.loaded_path == path:
             return self.llm
         from llama_cpp import Llama
-        self.llm = Llama(model_path=path, n_ctx=4096, n_threads=max(2, (os.cpu_count() or 4)-2), verbose=False)
+        self.llm = Llama(model_path=path, n_ctx=2048, n_threads=max(2, (os.cpu_count() or 4)-2), n_batch=256, verbose=False)
         self.loaded_path = path
         return self.llm
 
@@ -64,11 +64,14 @@ class LocalAgent:
             return ("Nu este selectat niciun model AI local. Apasă «Alege model AI (.gguf)» și selectează un model. "
                     "Comenzile de bază pentru aplicații pot funcționa și fără model.")
         prompt = (
-            "Ești Lux AI, asistent desktop local. Răspunde în limba utilizatorului "
-            "(română, rusă sau engleză). Ești offline. Nu pretinde că ai executat acțiuni. "
-            "Nu inventa acces la ecran sau fișiere. Nu genera comenzi shell. "
-            "Dacă cererea cere control de desktop pe care nu îl poți efectua, explică limita.\\n"
-            f"Utilizator: {text}\\nLux AI:"
+            "Ești Nexora AI, un asistent desktop local. Instrucțiuni obligatorii: "
+            "Răspunde direct, clar și concis, de regulă în 1-4 propoziții. "
+            "Răspunde numai în limba în care ți-a scris utilizatorul. "
+            "Nu adăuga traduceri în engleză, nu pune traduceri sau explicații între paranteze "
+            "și nu repeta întrebarea. Tradu sau explică un termen doar dacă utilizatorul cere asta. "
+            "Nu inventa fapte și nu pretinde că ai făcut acțiuni pe care nu le-ai executat. "
+            "Nu genera comenzi shell. Dacă nu știi ceva, spune asta simplu.\\n"
+            f"Utilizator: {text}\\nNexora AI:"
         )
-        result = llm(prompt, max_tokens=350, temperature=0.4, stop=["Utilizator:"])
+        result = llm(prompt, max_tokens=160, temperature=0.3, stop=["Utilizator:", "Пользователь:", "User:"])
         return result["choices"][0]["text"].strip() or "Nu am un răspuns acum."
