@@ -294,6 +294,12 @@ class MainWindow(QMainWindow):
             self.volume.setValue(int(self.cfg.get("voice_volume", 80)))
             self.volume.blockSignals(False)
             self.volume_label.setText(f"{self.volume.value()}%")
+        if hasattr(self, "header_mic_button"):
+            mic_enabled = self.cfg.get("microphone_enabled", True)
+            self.header_mic_button.blockSignals(True)
+            self.header_mic_button.setChecked(mic_enabled)
+            self.header_mic_button.setText("◉" if mic_enabled else "◌")
+            self.header_mic_button.blockSignals(False)
         if self.tray_icon:
             if self.cfg.get("minimize_to_tray", False) and QSystemTrayIcon.isSystemTrayAvailable():
                 self.tray_icon.show()
@@ -460,7 +466,7 @@ class MainWindow(QMainWindow):
             self.start_listener()
         else:
             self.stop_listener()
-            self.mic_status.setText("●  Microfon oprit")
+            self.mic_status.setText("●  Микрофон выключен")
 
     def start_listener(self):
         if self.worker and self.worker.isRunning():
@@ -506,11 +512,14 @@ class MainWindow(QMainWindow):
         self.append_message("Tu (voce)", spoken, "#79a6ff")
 
         if self.cfg.get("prefix_enabled", False):
-            prefix = (self.cfg.get("wake_prefix", "Jarvis") or "Jarvis").strip()
-            # Whisper may transcribe the same wake word as Жарвис, Джарвис or Jarvis.
-            # Match only the initial name, then pass the rest of the utterance as a command.
-            aliases = [prefix, "Jarvis", "Джарвис", "Жарвис", "Джервис", "Жервис"]
-            variants = "|".join(re.escape(name) for name in aliases if name)
+            configured = str(self.cfg.get("wake_prefix", "Jarvis") or "Jarvis")
+            # Accept multiple names separated by commas, plus common Whisper variants.
+            aliases = [name.strip() for name in configured.split(",") if name.strip()]
+            aliases += ["Jarvis", "Джарвис", "Жарвис", "Джервис", "Жервис"]
+            prefix = aliases[0]
+            variants = "|".join(
+                re.escape(name) for name in sorted(set(aliases), key=len, reverse=True)
+            )
             match = re.match(
                 r"^\s*(?:" + variants + r")(?=$|[\s,.:;!?—–-])",
                 spoken,
