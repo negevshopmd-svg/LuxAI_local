@@ -2,7 +2,7 @@
 
 Jarvis uses two distinct agents:
 
-1. **Online planner**, optional, interprets unfamiliar commands and returns structured JSON. Supported presets: **DeepSeek**, **OpenAI**, **OpenRouter**, **Groq**, **Google Gemini**, **Mistral AI**, **Together AI**, **Fireworks AI**, **xAI/Grok** and **Anthropic/Claude**. A custom **HTTPS OpenAI-compatible** `/chat/completions` endpoint is available for other providers.
+1. **Online planner**, optional, interprets unfamiliar commands and returns structured JSON. Supported presets: **DeepSeek**, **OpenAI**, **OrcaRouter**, **OpenRouter**, **Groq**, **Google Gemini**, **Mistral AI**, **Together AI**, **Fireworks AI**, **xAI/Grok** and **Anthropic/Claude**. A custom **HTTPS OpenAI-compatible** `/chat/completions` endpoint is available for other providers.
 2. **Local executor** independently checks the proposal and runs only an allowlisted action (or answers via the local `.gguf` model). It never copies an online model's CMD/PowerShell commands into the terminal. Frequent commands (time, Dota 2, Telegram, etc.) bypass cloud inference entirely.
 
 **Important:** API keys cannot be used interchangeably. Choose the provider that **issued the key**. API-key prefixes are not reliable enough to identify the provider automatically. The app cannot guarantee compatibility with every API or model: nonstandard authentication/protocols and individual providers' model limits may require an adapter.
@@ -19,6 +19,30 @@ Jarvis uses two distinct agents:
 
 DeepSeek docs: https://api-docs.deepseek.com/guides/search_fetch and https://api-docs.deepseek.com/guides/json_mode/.
 
+## Настройка OrcaRouter
+
+**OrcaRouter (orcarouter.ai) — отдельный сервис, не OpenRouter.** Ключи
+OrcaRouter необходимо отправлять только на `api.orcarouter.ai`. Если вы
+получили 401 при использовании OrcaRouter-ключа с OpenRouter или DeepSeek,
+это ожидаемый отказ чужого API.
+
+1. Если API-ключ появился на скриншоте или был отправлен в чат, отзовите
+   его и создайте новый на https://www.orcarouter.ai/console/get-started.
+2. В Jarvis откройте **Настройки → ИИ-провайдер** и выберите
+   **OrcaRouter (orcarouter.ai)**.
+3. Укажите модель `orcarouter/auto`.
+4. Введите **новый** OrcaRouter-ключ и нажмите **Проверить ключ**.
+5. При успешном тестировании включите **Облачный помощник** и сохраните
+   настройки. Никаких ключей в GitHub или чате!
+
+Подтверждённая документацией OrcaRouter настройка:
+`https://api.orcarouter.ai/v1/chat/completions` и
+`orcarouter/auto`: https://www.orcarouter.ai/switch/openrouter.
+
+Бесплатный план OrcaRouter не обязательно включает средства для
+платных моделей. Если баланс равен нулю, проверьте
+**Billing → Add credit**. Не публикуйте скриншоты с видимыми ключами.
+
 ## Настройка других провайдеров
 
 Choose the service from the same list, specify a compatible model ID and enter a key **issued by that service**. Every provider has a **Получить ключ** link in settings. For an unsupported but OpenAI-compatible host, select **Другой OpenAI-совместимый HTTPS API**, enter a complete public **`https://.../chat/completions`** URL, a model ID, and its own key. The application rejects HTTP, embedded URL credentials and local/private-IP URL literals. **A custom provider receives your key and messages**, so only use a service you trust.
@@ -31,7 +55,7 @@ Claude uses its native **Messages API** rather than the OpenAI endpoint. Model I
 
 - Jarvis keeps keys **separately per provider**, encrypted with Windows DPAPI, in `.luxai_secrets/<provider>_key.dpapi`. Existing `openai_key.dpapi` keys still work.
 - Keys are never included in `config.json` and are never committed to GitHub; `Update.py` preserves the secret folder.
-- Optional environment variables: `DEEPSEEK_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `GROQ_API_KEY`, `GEMINI_API_KEY`, `MISTRAL_API_KEY`, `TOGETHER_API_KEY`, `FIREWORKS_API_KEY`, `XAI_API_KEY`, `ANTHROPIC_API_KEY` and `JARVIS_CUSTOM_API_KEY`.
+- Optional environment variables: `DEEPSEEK_API_KEY`, `OPENAI_API_KEY`, `ORCAROUTER_API_KEY`, `OPENROUTER_API_KEY`, `GROQ_API_KEY`, `GEMINI_API_KEY`, `MISTRAL_API_KEY`, `TOGETHER_API_KEY`, `FIREWORKS_API_KEY`, `XAI_API_KEY`, `ANTHROPIC_API_KEY` and `JARVIS_CUSTOM_API_KEY`.
 - To remove the selected stored key, click **Удалить ключ**. This does not unset an environment variable.
 - When enabled, online planning transmits your current command plus up to four recent conversation messages to the **selected** provider. In offline mode these messages are not uploaded for online planning.
 - Network failures, quotas, unsupported models and authentication errors fall back to local responses. `online_agent.log` contains only status codes/error classes, **not keys or conversations**.
