@@ -13,3 +13,4 @@ pycaw>=20230407
 comtypes>=1.2
 Send2Trash>=1.8.3
 psutil>=5.9
+tzdata>=2025.2
