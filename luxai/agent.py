@@ -10,6 +10,7 @@ from luxai.file_actions import (
 )
 from luxai.windows_apps import launch_installed_app, normalized_name
 from luxai.websites import open_website
+from luxai.voice_files import parse_open_user_file, open_user_file
 from luxai.windows_control import close_installed_app
 from luxai.windows_volume import windows_volume
 from luxai.desktop_actions import execute_desktop_step
@@ -208,6 +209,10 @@ class LocalAgent:
                 text, {"action": "close_app", "target": candidate},
                 confirm_callback,
             )
+        # Open an explicitly named existing document instead of Explorer.
+        open_intent = parse_open_user_file(text)
+        if open_intent is not None:
+            return self.execute_plan(text, open_intent, confirm_callback)
         # File operations have a trusted local implementation, no AI needed.
         file_intent = parse_file_intent(text)
         if file_intent is not None:
@@ -362,7 +367,7 @@ class LocalAgent:
                 prompt = f"Переименовать «{source}» в «{destination}» ({location})?"
             else:
                 prompt = f"Переместить файл «{source}» в корзину Windows ({location})?"
-            if not confirm_callback("⚠ " + prompt):
+            if not confirm_callback(("⚠ " if action == "trash_file" else "") + prompt):
                 return "Действие отменено."
             try:
                 if action == "rename_file":
@@ -390,7 +395,7 @@ class LocalAgent:
             f"Создать {'папку' if action == 'create_folder' else 'файл'} "
             f"«{valid_name}» ({location})?"
         )
-        if not confirm_callback("⚠ " + prompt):
+        if not confirm_callback(prompt):
             return "Действие отменено."
         try:
             path = create_user_item(
@@ -431,6 +436,15 @@ class LocalAgent:
         action = plan.get("action")
         target = plan.get("target", "")
         answer = None
+        if action == "open_user_file":
+            success, answer = open_user_file(
+                target, plan.get("location", "desktop"),
+                confirm=confirm_callback,
+            )
+            self.last_execution_success = bool(success)
+            if answer:
+                self.remember(text, answer)
+            return answer
         if action in ("create_file", "create_folder", "rename_file", "trash_file", "list_files"):
             result = self._perform_file_action(text, plan, confirm_callback)
             if result:
@@ -451,13 +465,10 @@ class LocalAgent:
                 validated = validate_step(plan)
             except (TypeError, ValueError):
                 return "Некорректные параметры действия."
+            # Routine keystrokes, websites and editing do not need approval.
             mandatory_approval = action in {
-                "type_text", "hotkey", "press_enter", "save_document",
-                "mouse_double_click", "mouse_click", "mouse_scroll",
-                "mouse_middle_click", "mouse_hold", "mouse_right_hold",
-                "mouse_move", "lock_screen", "monitor_off", "monitor_on",
-                "sleep_pc", "run_cmd", "run_powershell", "run_file",
-                "app_volume", "voice_female",
+                "lock_screen", "monitor_off", "sleep_pc",
+                "run_cmd", "run_powershell", "run_file",
             }
             title = CATALOG[action]["title"]
             full_command = action in {"run_cmd", "run_powershell"}
@@ -468,10 +479,6 @@ class LocalAgent:
                 ("\n\nКоманда может изменять файлы и систему. "
                  "Выполняется с вашими правами, без администратора."
                  if full_command else "")
-            ):
-                return self._say("Действие отменено.", "Acțiune anulată.", "Action cancelled.", text)
-            if action == "open_website" and not confirm_callback(
-                f"Открыть сайт: {validated['target']}"
             ):
                 return self._say("Действие отменено.", "Acțiune anulată.", "Action cancelled.", text)
             try:
