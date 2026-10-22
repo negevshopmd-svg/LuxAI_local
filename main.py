@@ -170,6 +170,7 @@ class MainWindow(QMainWindow):
         self._setup_tray()
         self.apply_appearance()
         self.show_page(0)
+        self.mic_status.setText(self._provider_status_text())
 
         if self.cfg.get("microphone_enabled", True):
             self.start_listener()
@@ -368,6 +369,16 @@ class MainWindow(QMainWindow):
         if hasattr(self, "command_wizard"):
             self.command_wizard.wake_prefix = self.cfg.get("wake_prefix", "Jarvis")
 
+    def _provider_status_text(self):
+        """Show configuration state, not an unverified claim of API connectivity."""
+        if self.online_planner.enabled():
+            provider = self.cfg.get("online_provider", "openai")
+            name = PROVIDERS.get(provider, {}).get("label", provider)
+            return f"Онлайн-ИИ настроен: {name} → Windows (проверить ключ)"
+        if self.cfg.get("online_agent_enabled", False):
+            return "Онлайн-ИИ включён, но ключ выбранного провайдера не сохранён"
+        return "Облачный ИИ выключен — локальный режим"
+
     def apply_settings(self, *_):
         """Save settings and apply them to running services where supported."""
         old = dict(self.cfg)
@@ -419,7 +430,7 @@ class MainWindow(QMainWindow):
         elif self.worker and self.worker.listener:
             self.worker.listener.prefix_enabled = self.cfg.get("prefix_enabled", False)
             self.worker.listener.prefix = self.cfg.get("wake_prefix", "Jarvis")
-        self.mic_status.setText("Настройки сохранены.")
+        self.mic_status.setText("Настройки сохранены. " + self._provider_status_text())
 
     def test_online_api(self):
         """Test the text currently in the key field (or stored key), without saving."""
