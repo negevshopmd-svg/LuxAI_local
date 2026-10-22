@@ -42,6 +42,12 @@ class VoiceListener:
         sample_rate = 16000
         chunk_seconds = 1
         silence_seconds = 5
+        # A lower RMS threshold catches quieter microphones and normal speaking volume.
+        # Keep it configurable via config.json if a particular microphone needs tuning.
+        try:
+            speech_threshold = float(__import__("os").environ.get("NEXORA_VOICE_THRESHOLD", "0.004"))
+        except (TypeError, ValueError):
+            speech_threshold = 0.004
         block = int(sample_rate * chunk_seconds)
         q = queue.Queue()
 
@@ -62,7 +68,7 @@ class VoiceListener:
                 except queue.Empty:
                     continue
                 level = float(np.sqrt(np.mean(np.square(chunk)))) if len(chunk) else 0.0
-                if level >= 0.009:
+                if level >= speech_threshold:
                     speech_started = True
                     silence_chunks = 0
                     audio_parts.append(chunk)
