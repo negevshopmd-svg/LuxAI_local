@@ -26,7 +26,7 @@ ALLOWED_ACTIONS = {
     "open_app", "launch_game", "steam_game", "minimize_windows",
     "search_web", "time", "reply", "none",
     "create_file", "create_folder", "list_files", "rename_file", "trash_file",
-    "web_answer",
+    "web_answer", "close_app", "set_system_volume", "get_system_volume",
 }
 CACHE_ACTIONS = {"open_app", "launch_game", "minimize_windows"}
 LOG_FILE = Path(__file__).resolve().parents[1] / "online_agent.log"
@@ -35,11 +35,16 @@ _SYSTEM = """You are GEMINI (or another CLOUD PLANNER) for a Windows assistant c
 Your role is to understand each user's task and send a JSON plan to a LOCAL
 WINDOWS EXECUTOR. The local executor, not you, performs actions with Windows.
 Respond with ONLY ONE compact JSON object, not markdown or thoughts:
-{"action":"open_app|steam_game|launch_game|minimize_windows|create_file|create_folder|rename_file|trash_file|list_files|search_web|web_answer|time|reply|none",
+{"action":"open_app|close_app|set_system_volume|get_system_volume|steam_game|launch_game|minimize_windows|create_file|create_folder|rename_file|trash_file|list_files|search_web|web_answer|time|reply|none",
  "target":"string","reply":"string","source":"string","location":"desktop|documents|downloads","content":"string"}
 Examples:
 - "Открой фаерфокс" -> {"action":"open_app","target":"firefox","reply":""}
 - "Открой Blender" -> {"action":"open_app","target":"Blender","reply":""}
+- "Открой Visual Studio Code" -> {"action":"open_app","target":"vscode","reply":""}
+- "Закрой Visual Studio Code" -> {"action":"close_app","target":"vscode","reply":""}
+- "Закрой его" -> {"action":"close_app","target":"@last","reply":""}
+- "Поставь звук Windows на 100%" -> {"action":"set_system_volume","target":"100","reply":""}
+- "Громкость Windows сейчас?" -> {"action":"get_system_volume","target":"","reply":""}
 - "Открой Undertale в Steam" -> {"action":"steam_game","target":"Undertale","reply":""}
 - "Запусти андертейл" -> {"action":"steam_game","target":"Undertale","reply":""}
 - "Создай файл на рабочем столе" -> {"action":"create_file","target":"Новый файл.txt","location":"desktop","reply":""}
@@ -47,6 +52,13 @@ Examples:
 - "Удали созданный файл" -> {"action":"trash_file","source":"@last","target":"","location":"desktop","reply":""}
 - "Какая погода завтра в Кишиневе?" -> {"action":"web_answer","target":"Какая погода завтра в Кишинёве?","reply":""}
 Rules:
+- close_app target is an APP NAME only, like vscode, or "@last"
+  to refer to the most recent real application started by Jarvis.
+  The executor asks permission and closes visible windows gracefully.
+- set_system_volume target is an integer percentage string 0..100.
+  Always use this tool when the user requests a Windows speaker volume.
+  NEVER claim the audio level changed unless the local executor checked it.
+- get_system_volume target is empty; executor reads real Windows endpoint.
 - open_app target is an APP NAME only. It may be any installed Windows app,
   not just a fixed list; never supply executable paths, scripts, code or flags.
   The local computer will search the Windows App Paths and Start menu itself.
@@ -135,14 +147,19 @@ class OnlinePlanner:
         if len(target) > 150 or len(reply) > 1000:
             return None
         target = target.strip()
-        if action == "open_app":
-            try:
-                target = normalized_name(target)
-            except ValueError:
+        if action in ("open_app", "close_app"):
+            if not (action == "close_app" and target == "@last"):
+                try:
+                    target = normalized_name(target)
+                except ValueError:
+                    return None
+        if action == "set_system_volume":
+            if not target.isdecimal() or not 0 <= int(target) <= 100:
                 return None
+            target = str(int(target))
         if action == "launch_game" and target not in GAMES:
             return None
-        if action in {"time", "minimize_windows", "reply", "none", "list_files", "trash_file"}:
+        if action in {"time", "minimize_windows", "reply", "none", "list_files", "trash_file", "get_system_volume"}:
             target = ""
         if action in {"steam_game", "search_web", "web_answer"}:
             if not target or not re.fullmatch(r"[^\x00-\x1f<>\r\n]{1,150}", target):
