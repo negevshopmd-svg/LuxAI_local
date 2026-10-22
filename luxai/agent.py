@@ -28,7 +28,6 @@ class LocalAgent:
         import os
         import glob
 
-        # Installed desktop apps can register URI handlers even when their EXE path varies.
         uri_schemes = {
             "telegram": "tg://resolve",
             "discord": "discord://",
@@ -49,7 +48,6 @@ class LocalAgent:
             "edge": ["msedge.exe"],
             "spotify": ["Spotify.exe"],
         }
-        # First try PATH.
         for exe in executable_names.get(app, []):
             found = shutil.which(exe)
             if found:
@@ -60,8 +58,8 @@ class LocalAgent:
                     pass
 
         local = os.environ.get("LOCALAPPDATA", "")
-        program_files = os.environ.get("PROGRAMFILES", r"C:\\Program Files")
-        program_files_x86 = os.environ.get("PROGRAMFILES(X86)", r"C:\\Program Files (x86)")
+        program_files = os.environ.get("PROGRAMFILES", r"C:\Program Files")
+        program_files_x86 = os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)")
         candidates = {
             "telegram": [
                 os.path.join(local, "Telegram Desktop", "Telegram.exe"),
@@ -91,9 +89,7 @@ class LocalAgent:
             ],
         }
         for pattern in candidates.get(app, []):
-            matches = glob.glob(pattern)
-            for path in matches:
-                # Discord's Update.exe needs the --processStart argument.
+            for path in glob.glob(pattern):
                 args = [path, "--processStart", "Discord.exe"] if app == "discord" and path.lower().endswith("update.exe") else [path]
                 try:
                     if os.path.isfile(path):
@@ -102,11 +98,10 @@ class LocalAgent:
                 except OSError:
                     continue
 
-        # Finally, use Windows Start Menu shortcuts (including per-user shortcuts).
         start_menu_dirs = [
-            os.path.join(os.environ.get("APPDATA", ""), r"Microsoft\\Windows\\Start Menu\\Programs"),
-            os.path.join(program_files, r"Microsoft\\Windows\\Start Menu\\Programs"),
-            os.path.join(program_files_x86, r"Microsoft\\Windows\\Start Menu\\Programs"),
+            os.path.join(os.environ.get("APPDATA", ""), r"Microsoft\Windows\Start Menu\Programs"),
+            os.path.join(program_files, r"Microsoft\Windows\Start Menu\Programs"),
+            os.path.join(program_files_x86, r"Microsoft\Windows\Start Menu\Programs"),
         ]
         needles = {
             "telegram": ("telegram",),
@@ -130,6 +125,20 @@ class LocalAgent:
         t = text.lower().strip()
         if any(x in t for x in ["what time", "time is it", "cat e ceasul", "cât e ceasul", "который час", "сколько времени"]):
             return datetime.datetime.now().strftime("Ora locală: %H:%M")
+        # Short, natural responses to greetings; no model needed.
+        normalized = re.sub(r"[!?,.\s]+", " ", t).strip()
+        greetings = {
+            "привет", "здравствуй", "здравствуйте", "доброе утро", "добрый день",
+            "добрый вечер", "хай", "hello", "hi", "hey", "salut", "bună",
+            "buna", "bună ziua", "buna ziua", "bună dimineața", "buna dimineata",
+            "bună seara", "buna seara",
+        }
+        if normalized in greetings:
+            if any(word in normalized for word in ("привет", "здравствуй", "здравствуйте", "доброе", "добрый", "хай")):
+                return "Привет! Я Nexora. Чем помочь?"
+            if normalized in {"hello", "hi", "hey"}:
+                return "Hi! I'm Nexora. How can I help?"
+            return "Salut! Sunt Nexora. Cu ce te pot ajuta?"
         # App-launch intents in Romanian, Russian and English.
         app_aliases = {
             "telegram": ["telegram", "телеграм", "телеграмм"],
@@ -187,14 +196,17 @@ class LocalAgent:
             return ("Nu este selectat niciun model AI local. Apasă «Alege model AI (.gguf)» și selectează un model. "
                     "Comenzile de bază pentru aplicații pot funcționa și fără model.")
         prompt = (
-            "Ești Nexora AI, un AGENT desktop local care trebuie să încerce să execute cererile prin instrumentele disponibile, nu doar să ofere sfaturi. Pentru acțiuni pe care le poate efectua aplicația, folosește instrumentele și codul agentului. Instrucțiuni obligatorii: "
-            "Răspunde direct, clar și concis, de regulă în 1-4 propoziții. "
-            "Răspunde numai în limba în care ți-a scris utilizatorul. "
-            "Nu adăuga traduceri în engleză, nu pune traduceri sau explicații între paranteze "
-            "și nu repeta întrebarea. Tradu sau explică un termen doar dacă utilizatorul cere asta. "
-            "Nu inventa fapte și nu pretinde că ai făcut acțiuni pe care nu le-ai executat. Dacă nu există instrument pentru o acțiune, spune clar limita. "
-            "Nu genera comenzi shell. Dacă nu știi ceva, spune asta simplu.\\n"
-            f"Utilizator: {text}\\nNexora AI:"
+            "Ești Nexora, asistentul desktop local al utilizatorului. Vorbește ca Nexora, nu te prezenta ca un model AI generic. "
+            "Răspunde direct și natural, de obicei în 1-2 propoziții scurte. La un salut simplu, răspunde cu un salut scurt și întreabă cum poți ajuta. "
+            "Nu povesti raționamentul intern, nu descrie analiza pe care o faci, nu repeta mesajul utilizatorului și nu spune lucruri precum «Okay, the user said...». "
+            "Afișează numai răspunsul final pentru utilizator; nu include blocuri <think> sau comentarii despre instrucțiuni. "
+            "Răspunde numai în limba utilizatorului. Nu adăuga traduceri sau explicații între paranteze decât dacă sunt cerute. "
+            "Nu inventa fapte și nu pretinde că ai executat acțiuni pe care nu le-ai făcut. Nu genera comenzi shell. "
+            f"Utilizator: {text}\nNexora:"
         )
-        result = llm(prompt, max_tokens=160, temperature=0.3, stop=["Utilizator:", "Пользователь:", "User:"])
-        return result["choices"][0]["text"].strip() or "Nu am un răspuns acum."
+        result = llm(prompt, max_tokens=120, temperature=0.3, stop=["Utilizator:", "Пользователь:", "User:", "<|im_end|>"])
+        answer = result["choices"][0]["text"].strip()
+        # Defensively remove explicit reasoning tags if a model emits them anyway.
+        answer = re.sub(r"<think>.*?</think>", "", answer, flags=re.IGNORECASE | re.DOTALL).strip()
+        answer = re.sub(r"^<think>.*?(?:</think>|$)", "", answer, flags=re.IGNORECASE | re.DOTALL).strip()
+        return answer or "Sunt aici. Cu ce te pot ajuta?"
