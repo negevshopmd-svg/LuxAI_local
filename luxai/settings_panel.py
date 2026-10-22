@@ -281,7 +281,7 @@ class SettingsPanel(QWidget):
         )
         self._row(
             panel, "Поставщик AI API",
-            "Выберите, чей ключ вы хотите использовать — DeepSeek, OpenAI или другой.",
+            "OrcaRouter и OpenRouter — разные сервисы. Ключ должен принадлежать выбранному провайдеру.",
             self.online_provider,
         )
 
@@ -393,9 +393,15 @@ class SettingsPanel(QWidget):
 
     def _on_key_text_changed(self, text):
         if text.strip():
-            self.key_status.setText(
-                "Новый ключ введён. Нажмите «Проверить ключ», затем «Сохранить настройки»."
-            )
+            if text.strip().startswith("sk-orca-") and self.online_provider.currentData() != "orcarouter":
+                self.key_status.setText(
+                    "Похоже, это ключ OrcaRouter. Выберите «OrcaRouter (orcarouter.ai)» "
+                    "в списке провайдеров, иначе проверка может вернуть 401."
+                )
+            else:
+                self.key_status.setText(
+                    "Новый ключ введён. Нажмите «Проверить ключ», затем «Сохранить настройки»."
+                )
         else:
             self.refresh_key_status()
 
