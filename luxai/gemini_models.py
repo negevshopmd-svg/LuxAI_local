@@ -30,7 +30,7 @@ PREFERRED_MODELS = (
 # which are not regular text chat-completion models.
 EXCLUDED_SEGMENTS = (
     "image", "tts", "embedding", "transcribe",
-    "live", "native-audio", "realtime", "computer-use",
+    "live", "native-audio", "realtime", "computer-use", "banana", "veo", "lyria",
 )
 
 
