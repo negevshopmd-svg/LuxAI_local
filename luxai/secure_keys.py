@@ -65,7 +65,7 @@ def get_api_key() -> str:
     try:
         if SECRET_FILE.is_file():
             return _win_crypt(SECRET_FILE.read_bytes(), encrypt=False).decode("utf-8").strip()
-    except (OSError, ValueError, UnicodeError, RuntimeError):
+    except (OSError, ValueError, UnicodeError, RuntimeError, AttributeError):
         return ""
     return ""
 
