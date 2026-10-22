@@ -474,9 +474,15 @@ class MainWindow(QMainWindow):
 
         if self.cfg.get("prefix_enabled", False):
             prefix = (self.cfg.get("wake_prefix", "Jarvis") or "Jarvis").strip()
-            # Accept common Russian transliterations of Jarvis as well as the configured word.
-            escaped = re.escape(prefix)
-            match = re.match(r"^\s*(?:" + escaped + r"|джарвис|джарвис[а-яё]*)(?=$|[\s,.:;!?-])", spoken, flags=re.IGNORECASE)
+            # Whisper may transcribe the same wake word as Жарвис, Джарвис or Jarvis.
+            # Match only the initial name, then pass the rest of the utterance as a command.
+            aliases = [prefix, "Jarvis", "Джарвис", "Жарвис", "Джервис", "Жервис"]
+            variants = "|".join(re.escape(name) for name in aliases if name)
+            match = re.match(
+                r"^\s*(?:" + variants + r")(?=$|[\s,.:;!?—–-])",
+                spoken,
+                flags=re.IGNORECASE,
+            )
             if not match:
                 reminder = f"Pentru activare, începe comanda cu «{prefix}»."
                 self.mic_status.setText(reminder)
