@@ -257,9 +257,13 @@ class OnlinePlanner:
         """Send to one explicitly selected provider, without cross-host redirects."""
         endpoint = endpoint_for(provider, self.config.get("online_custom_url", ""))
         if provider == "anthropic":
+            system_message = next(
+                (m.get("content", _SYSTEM) for m in messages
+                 if m.get("role") == "system"), _SYSTEM,
+            )
             payload = {
                 "model": model,
-                "system": _SYSTEM,
+                "system": str(system_message),
                 "messages": [m for m in messages if m["role"] != "system"],
                 "max_tokens": 300,
             }
