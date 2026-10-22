@@ -198,12 +198,18 @@ def _install_binary() -> Path:
                 f"Установщик Tesseract завершился с кодом {result.returncode}. "
                 "Возможно, Windows запросил права администратора."
             )
-    if not _valid_binary(WINDOWS_EXECUTABLE):
-        raise OCRInstallError(
-            "Установщик завершился, но встроенный tesseract.exe "
-            "не появился. Проверьте защиту Windows или разрешения."
-        )
-    return WINDOWS_EXECUTABLE
+    if _valid_binary(WINDOWS_EXECUTABLE):
+        return WINDOWS_EXECUTABLE
+    # Some UB-Mannheim NSIS builds keep their registered Program Files
+    # location despite /D=custom-path. The installer may have worked:
+    # discover the ACTUAL executable before reporting false failure.
+    discovered = find_tesseract()
+    if discovered is not None:
+        return discovered
+    raise OCRInstallError(
+        "Установщик завершился, но tesseract.exe не обнаружен "
+        "ни в LuxAI, ни в стандартных папках Windows."
+    )
 
 
 def _install_languages() -> None:
@@ -300,7 +306,14 @@ def main() -> int:
     try:
         binary, models = ensure_tesseract(allow_download=not opts.check)
     except (OCRInstallError, OSError, urllib.error.URLError) as exc:
-        print("OCR: instalarea nu a reusit: " + str(exc))
+        # Windows PowerShell may use cp1252 even though OCR errors contain
+        # Cyrillic; never turn a recoverable install error into UnicodeError.
+        detail = "OCR: instalarea nu a reusit: " + str(exc)
+        try:
+            print(detail)
+        except UnicodeEncodeError:
+            encoding = sys.stdout.encoding or "ascii"
+            print(detail.encode(encoding, errors="backslashreplace").decode(encoding))
         return 1
     print(f"OCR: pregatit automat ({binary}); limbi: rus + eng ({models})")
     return 0
