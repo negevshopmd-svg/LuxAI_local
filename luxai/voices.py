@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import re
 import wave
+import urllib.request
 from pathlib import Path
 
 import sounddevice as sd
@@ -47,6 +48,46 @@ class VoiceManager:
             })
         return found
 
+    def _download_default_voice(self) -> Path | None:
+        """Install a default masculine Russian Piper voice on first use if none exists."""
+        model_name = "ru_RU-dmitri-medium"
+        model_path = VOICES_DIR / f"{model_name}.onnx"
+        metadata_path = VOICES_DIR / f"{model_name}.onnx.json"
+        if model_path.is_file() and metadata_path.is_file():
+            return model_path
+        VOICES_DIR.mkdir(parents=True, exist_ok=True)
+        base_url = (
+            "https://huggingface.co/rhasspy/piper-voices/resolve/main/"
+            "ru/ru_RU/dmitri/medium/"
+        )
+        for filename, destination, minimum_size in (
+            (f"{model_name}.onnx", model_path, 1_000_000),
+            (f"{model_name}.onnx.json", metadata_path, 100),
+        ):
+            if destination.is_file() and destination.stat().st_size >= minimum_size:
+                continue
+            temporary = destination.with_suffix(destination.suffix + ".download")
+            try:
+                request = urllib.request.Request(
+                    base_url + filename,
+                    headers={"User-Agent": "JarvisLocalAssistant/1.0"},
+                )
+                with urllib.request.urlopen(request, timeout=30) as response, temporary.open("wb") as out:
+                    while True:
+                        chunk = response.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        out.write(chunk)
+                if temporary.stat().st_size < minimum_size:
+                    raise ValueError("Descărcarea modelului vocal este incompletă.")
+                temporary.replace(destination)
+            except Exception as exc:
+                temporary.unlink(missing_ok=True)
+                print(f"Nu am putut descărca vocea masculină implicită Piper: {exc}")
+                return None
+        print("Vocea masculină rusă Piper a fost instalată local.")
+        return model_path
+
     def _select_model(self) -> Path | None:
         # Allow an explicit model path, otherwise use the configured voice name,
         # then a conventional jarvis model name, then the first installed voice.
@@ -66,7 +107,8 @@ class VoiceManager:
         for item in voices:
             if item["ready"]:
                 return Path(item["model"])
-        return None
+        # Default to a natural masculine Russian voice when the app has no voice installed.
+        return self._download_default_voice()
 
     def speak(self, text: str) -> bool:
         text = re.sub(r"\s+", " ", str(text or "")).strip()
