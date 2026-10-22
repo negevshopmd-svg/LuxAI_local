@@ -31,9 +31,12 @@ def _load_main_class_for_mock_tests():
     screen = types.ModuleType("luxai.screen")
     screen.capture_screen = lambda: None
     screen.read_screen_text = lambda *args, **kwargs: ""
+    voices = types.ModuleType("luxai.voices")
+    voices.available_voices = lambda *args, **kwargs: []
     with mock.patch.dict(sys.modules, {
         "luxai.voice": voice,
         "luxai.screen": screen,
+        "luxai.voices": voices,
     }):
         from main import MainWindow
     return MainWindow
