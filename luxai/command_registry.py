@@ -23,7 +23,7 @@ REGISTRY_FILE = DATA_DIR / "commands.json"
 MAX_USER_COMMANDS = 300
 APP_TARGETS = (
     "telegram", "discord", "steam", "chrome", "firefox", "edge",
-    "spotify", "notepad", "calculator", "explorer",
+    "spotify", "notepad", "calculator", "explorer", "word",
 )
 GAME_TARGETS = tuple(GAMES)
 ACTIONS = {
@@ -63,6 +63,10 @@ BUILTINS = [
     )),
     _built_in("Приложения", "Spotify", "open_app", "spotify", (
         "открой spotify", "открой спотифай", "open spotify",
+    )),
+    _built_in("Приложения", "Microsoft Word", "open_app", "word", (
+        "открой word", "открой ворд", "открой microsoft word",
+        "запусти word", "запусти ворд",
     )),
     _built_in("Windows", "Блокнот", "open_app", "notepad", (
         "открой блокнот", "запусти блокнот", "open notepad",
