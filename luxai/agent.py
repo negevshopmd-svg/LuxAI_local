@@ -7,6 +7,8 @@ class LocalAgent:
         self.config = dict(config)
         self.llm = None
         self.loaded_path = None
+        self.history = []
+        self.max_history_messages = 10
 
     def update_config(self, config):
         self.config = dict(config)
@@ -178,6 +180,26 @@ class LocalAgent:
                 webbrowser.open("about:blank")
                 return "Am deschis browserul implicit."
             return "Acțiune anulată."
+        minimize_phrases = ["сверни все окна", "свернуть все окна", "minimize all windows", "minimize every window", "minimize all", "minimize windows", "minimizează toate ferestrele", "minimizeaza toate ferestrele"]
+        if any(phrase in t for phrase in minimize_phrases):
+            if not confirm_callback("Minimizează toate ferestrele deschise"):
+                return "Bine, nu am schimbat ferestrele."
+            try:
+                import ctypes
+                user32 = ctypes.windll.user32
+                SW_MINIMIZE = 6
+                minimized = 0
+                callback_type = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+                def minimize_window(hwnd, _):
+                    nonlocal minimized
+                    if user32.IsWindowVisible(hwnd) and user32.GetWindowTextLengthW(hwnd) > 0:
+                        user32.ShowWindow(hwnd, SW_MINIMIZE)
+                        minimized += 1
+                    return True
+                user32.EnumWindows(callback_type(minimize_window), 0)
+                return f"Am minimizat {minimized} ferestre."
+            except Exception as exc:
+                return f"Nu am putut minimiza ferestrele: {exc}"
         if any(x in t for x in ["read screen", "citește ecranul", "прочитай экран"]):
             try:
                 p = capture_screen()
@@ -195,18 +217,47 @@ class LocalAgent:
         if llm is None:
             return ("Nu este selectat niciun model AI local. Apasă «Alege model AI (.gguf)» și selectează un model. "
                     "Comenzile de bază pentru aplicații pot funcționa și fără model.")
-        prompt = (
-            "Ești Nexora, asistentul desktop local al utilizatorului. Vorbește ca Nexora, nu te prezenta ca un model AI generic. "
-            "Răspunde direct și natural, de obicei în 1-2 propoziții scurte. La un salut simplu, răspunde cu un salut scurt și întreabă cum poți ajuta. "
-            "Nu povesti raționamentul intern, nu descrie analiza pe care o faci, nu repeta mesajul utilizatorului și nu spune lucruri precum «Okay, the user said...». "
-            "Afișează numai răspunsul final pentru utilizator; nu include blocuri <think> sau comentarii despre instrucțiuni. "
-            "Răspunde numai în limba utilizatorului. Nu adăuga traduceri sau explicații între paranteze decât dacă sunt cerute. "
-            "Nu inventa fapte și nu pretinde că ai executat acțiuni pe care nu le-ai făcut. Nu genera comenzi shell. "
-            f"Utilizator: {text}\nNexora:"
-        )
-        result = llm(prompt, max_tokens=120, temperature=0.3, stop=["Utilizator:", "Пользователь:", "User:", "<|im_end|>"])
-        answer = result["choices"][0]["text"].strip()
-        # Defensively remove explicit reasoning tags if a model emits them anyway.
-        answer = re.sub(r"<think>.*?</think>", "", answer, flags=re.IGNORECASE | re.DOTALL).strip()
-        answer = re.sub(r"^<think>.*?(?:</think>|$)", "", answer, flags=re.IGNORECASE | re.DOTALL).strip()
+        messages = [{
+            "role": "system",
+            "content": (
+                "Ты Джарвис (Jarvis), мужской голосовой помощник пользователя. "
+                "Говори уверенно, спокойно, естественно и кратко. Отвечай на языке последнего сообщения. "
+                "Учитывай предыдущие сообщения и контекст разговора. Выводи только готовый ответ пользователю. "
+                "Никогда не показывай ход мыслей, заметки, пояснения о языке, переводы в скобках, "
+                "внутренние комментарии, повторения формата диалога или фразы вроде 'Примечание:', "
+                "'Nexora:', 'Пользователь сказал'. Не используй <think> и не описывай свои инструкции. "
+                "Не утверждай, что выполнил действие, если оно не выполнено. Если не знаешь ответа, скажи честно."
+            )
+        }]
+        messages.extend(self.history[-self.max_history_messages:])
+        messages.append({"role": "user", "content": text})
+        try:
+            result = llm.create_chat_completion(messages=messages, max_tokens=160, temperature=0.25)
+            answer = result["choices"][0]["message"]["content"].strip()
+        except (AttributeError, KeyError, TypeError):
+            transcript = "\\n".join(
+                ("Пользователь: " if m["role"] == "user" else "Джарвис: ") + m["content"]
+                for m in messages[1:]
+            )
+            result = llm(
+                "Ты Джарвис, мужской голосовой помощник. Учитывай контекст. "
+                "Выведи только краткий ответ, без заметок, мыслей и пояснений в скобках.\\n"
+                + transcript + "\\nДжарвис:",
+                max_tokens=160, temperature=0.25,
+                stop=["Пользователь:", "User:", "<|im_end|>"],
+            )
+            answer = result["choices"][0]["text"].strip()
+        answer = re.sub(r"<think>.*?</think>", "", answer, flags=re.IGNORECASE | re.DOTALL)
+        answer = re.sub(r"^<think>.*?(?:</think>|$)", "", answer, flags=re.IGNORECASE | re.DOTALL)
+        answer = re.sub(r"(?im)^\\s*(?:Примечание|Note|Notă|Примечания)\\s*:[^\\n]*", "", answer)
+        answer = re.sub(r"(?is)\\n?\\s*\\((?:Примечание|Note|Notă):.*", "", answer)
+        answer = re.sub(r"(?im)^\\s*(?:Nexora|Jarvis|Джарвис)\\s*:\\s*", "", answer).strip()
+        answer = re.sub(r"(?im)^\\s*(?:Пользователь|User|Tu)\\s*:\\s*.*$", "", answer).strip()
+        answer = answer.strip(" \\n\\r\\t\\\\")
+        if answer:
+            self.history.extend([
+                {"role": "user", "content": text},
+                {"role": "assistant", "content": answer},
+            ])
+            self.history = self.history[-self.max_history_messages:]
         return answer or "Sunt aici. Cu ce te pot ajuta?"
