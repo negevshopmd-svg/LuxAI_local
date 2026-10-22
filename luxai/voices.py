@@ -7,6 +7,9 @@ from __future__ import annotations
 
 import json
 import re
+import base64
+import subprocess
+import sys
 import wave
 import urllib.request
 from pathlib import Path
@@ -110,6 +113,39 @@ class VoiceManager:
         # Default to a natural masculine Russian voice when the app has no voice installed.
         return self._download_default_voice()
 
+    @staticmethod
+    def _windows_speak(text: str) -> bool:
+        """Fallback to installed Windows SAPI voices when Piper is unavailable."""
+        if sys.platform != "win32":
+            return False
+        encoded = base64.b64encode(text.encode("utf-16-le")).decode("ascii")
+        script = (
+            "Add-Type -AssemblyName System.Speech; "
+            "$s=New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+            "$s.SetOutputToDefaultAudioDevice(); "
+            "$v=$s.GetInstalledVoices() | Where-Object {"
+            "$_.VoiceInfo.Gender -eq 'Male' -and $_.VoiceInfo.Culture.Name -like 'ru-*'"
+            "} | Select-Object -First 1; "
+            "if (-not $v) {$v=$s.GetInstalledVoices() | Where-Object {"
+            "$_.VoiceInfo.Gender -eq 'Male'"
+            "} | Select-Object -First 1}; "
+            "if ($v) {$s.SelectVoice($v.VoiceInfo.Name)}; "
+            "$t=[Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('" + encoded + "')); "
+            "$s.Speak($t); $s.Dispose()"
+        )
+        try:
+            result = subprocess.run(
+                ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                timeout=90, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            if result.returncode == 0:
+                return True
+            print("Windows TTS error:", result.stderr.decode("utf-8", errors="replace")[:400])
+        except Exception as exc:
+            print(f"Windows TTS unavailable: {exc}")
+        return False
+
     def speak(self, text: str) -> bool:
         text = re.sub(r"\s+", " ", str(text or "")).strip()
         if not text:
@@ -121,7 +157,7 @@ class VoiceManager:
                 "Vocea neurală nu este instalată. Pune un model Piper .onnx și fișierul "
                 "său .onnx.json în folderul 'voices'. Nu se folosește vocea Windows."
             )
-            return False
+            return self._windows_speak(text)
 
         try:
             if self._voice is None or self._loaded_path != str(model_path):
@@ -145,7 +181,7 @@ class VoiceManager:
             return True
         except Exception as exc:
             print(f"Eroare la redarea vocii neurale: {exc}")
-            return False
+            return self._windows_speak(text)
 
 
 _manager = VoiceManager()
