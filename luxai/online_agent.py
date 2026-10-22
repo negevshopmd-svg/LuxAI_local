@@ -94,6 +94,7 @@ class OnlinePlanner:
         self._blocked_until = 0.0
         self._cache = OrderedDict()
         self.last_error = ""
+        self._cooldown_reason = ""
 
     def update_config(self, config):
         updated = dict(config)
@@ -115,6 +116,7 @@ class OnlinePlanner:
             self._cache.clear()
         if previous != current or was_enabled != updated.get("online_agent_enabled", False):
             self._blocked_until = 0.0
+            self._cooldown_reason = ""
 
     def _provider(self):
         value = self.config.get("online_provider", "openai")
@@ -343,7 +345,8 @@ class OnlinePlanner:
             self.last_error = "онлайн-агент выключен или API-ключ отсутствует"
             return None
         if time.monotonic() < self._blocked_until:
-            self.last_error = "провайдер временно недоступен после ошибки API"
+            left = max(1, round(self._blocked_until - time.monotonic()))
+            self.last_error = (self._cooldown_reason or "Сервис ИИ временно недоступен") + f" (повтор через {left} с)"
             return None
         self.last_error = ""
         key = text.strip().casefold()
@@ -414,15 +417,32 @@ class OnlinePlanner:
                     self._cache.popitem(last=False)
             return proposal
         except urllib.error.HTTPError as exc:
-            self.last_error = f"{provider}: HTTP {exc.code}"
+            if exc.code == 429:
+                self.last_error = (
+                    f"{provider}: HTTP 429 — превышена квота или лимит запросов. "
+                    "Проверьте лимиты и модель в Google AI Studio; "
+                    "смена фразы не исправит исчерпанную квоту."
+                )
+                retry_header = exc.headers.get("Retry-After", "") if exc.headers else ""
+                seconds = int(retry_header) if retry_header.isdecimal() else 60
+                cooldown = max(30, min(seconds, 300))
+            elif exc.code in (401, 403):
+                self.last_error = f"{provider}: HTTP {exc.code} — нет доступа; проверьте API-ключ."
+                cooldown = 60
+            else:
+                self.last_error = f"{provider}: HTTP {exc.code}; проверьте выбранную модель и доступ к API."
+                cooldown = 20
+            self._cooldown_reason = self.last_error
             self._log(f"{provider} HTTP {exc.code}; local fallback")
-            self._blocked_until = time.monotonic() + (60 if exc.code in (401, 402, 403, 429) else 20)
+            self._blocked_until = time.monotonic() + cooldown
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             self.last_error = f"{provider}: нет подключения или превышено время ожидания"
+            self._cooldown_reason = self.last_error
             self._log(f"{provider} connection problem ({type(exc).__name__}); local fallback")
             self._blocked_until = time.monotonic() + 20
         except (ValueError, TypeError, KeyError, IndexError) as exc:
             self.last_error = f"{provider}: ошибка ответа модели ({type(exc).__name__})"
+            self._cooldown_reason = self.last_error
             self._log(f"{provider} response issue ({type(exc).__name__}); local fallback")
             self._blocked_until = time.monotonic() + 10
         return None
