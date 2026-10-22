@@ -53,7 +53,7 @@ class OCRInstallError(RuntimeError):
 
 
 def _valid_binary(path: Path) -> bool:
-    return path.is_file() and path.stat().st_size >= 100_000
+    return path.is_file() and path.stat().st_size >= 10_000
 
 
 def find_tesseract(configured_path: str = "") -> Path | None:
