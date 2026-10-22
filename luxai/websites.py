@@ -15,6 +15,19 @@ import webbrowser
 from luxai.fast_intents import strip_wake_name, has_launch_verb
 
 SITES = {
+    # Age-restricted websites are ordinary HTTPS destinations, not an
+    # automatic reason to refuse a navigation request. The user remains
+    # responsible for satisfying site age requirements.
+    "pornhub": "https://www.pornhub.com/",
+    "pornhub.com": "https://www.pornhub.com/",
+    "порнхаб": "https://www.pornhub.com/",
+    "порнохаб": "https://www.pornhub.com/",
+    "порно-хаб": "https://www.pornhub.com/",
+    "порно-хам": "https://www.pornhub.com/",
+    "порно хам": "https://www.pornhub.com/",
+    "порно хаб": "https://www.pornhub.com/",
+    "порн хам": "https://www.pornhub.com/",
+    "порнхаб": "https://www.pornhub.com/",
     "youtube": "https://www.youtube.com/",
     "ютуб": "https://www.youtube.com/",
     "ютубе": "https://www.youtube.com/",
