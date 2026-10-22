@@ -871,10 +871,24 @@ class MainWindow(QMainWindow):
             return
         step = ctx["steps"][ctx["index"]]
         ctx["index"] += 1
-        if step["action"] == "wait_seconds":
+        if step["action"] in ("wait_seconds", "wait_minutes"):
             count = int(step["target"])
-            self.mic_status.setText(f"Пауза {count} сек (шаг {ctx['index']})")
-            QTimer.singleShot(count * 1000, self._next_macro_step)
+            milliseconds = count * (60000 if step["action"] == "wait_minutes" else 1000)
+            unit = "мин" if step["action"] == "wait_minutes" else "сек"
+            self.mic_status.setText(f"Пауза {count} {unit} (шаг {ctx['index']})")
+            QTimer.singleShot(milliseconds, self._next_macro_step)
+            return
+        if step["action"] == "tray_minimize":
+            if not self.tray_icon or not QSystemTrayIcon.isSystemTrayAvailable():
+                ctx["messages"].append("Системный трей недоступен.")
+                result = " ".join(ctx["messages"])
+                self._macro_context = None
+                self._resolved_command(ctx["text"], result)
+                return
+            self.tray_icon.show()
+            self.hide()
+            ctx["messages"].append("Jarvis свёрнут в системный трей.")
+            QTimer.singleShot(0, self._next_macro_step)
             return
         try:
             self.agent.last_execution_success = False
