@@ -28,8 +28,8 @@ _ACTIONS = [
     ("open_app", "Запуск", "Запустить программу", "Открывает выбранное установленное приложение", True),
     ("launch_game", "Запуск", "Запустить игру Steam", "Dota 2, Counter-Strike 2, War Thunder", True),
     ("open_website", "Запуск", "Открыть сайт", "Открывает указанный HTTPS-сайт в браузере", True),
-    ("run_cmd", "Запуск", "Выполнить команду CMD", "Системное действие — пока недоступно", False),
-    ("run_powershell", "Запуск", "Выполнить команду PowerShell", "Системное действие — пока недоступно", False),
+    ("run_cmd", "Запуск", "Выполнить команду CMD", "Только сохранённый пользователем скрипт; подтверждение при каждом запуске", True),
+    ("run_powershell", "Запуск", "Выполнить команду PowerShell", "Только сохранённая вручную команда; обязательное подтверждение", True),
     ("type_text", "Клавиши", "Ввести текст", "Печатает указанный текст в активном окне", True),
     ("hotkey", "Клавиши", "Нажать клавишу или сочетание", "Выбираемое сочетание из безопасного списка", True),
     ("press_enter", "Клавиши", "Нажать Enter", "Отправляет Enter в активное окно", True),
@@ -38,25 +38,30 @@ _ACTIONS = [
     ("mouse_click", "Мышь", "Левый клик", "Нажимает левую кнопку мыши", True),
     ("mouse_scroll", "Мышь", "Клик колесом / прокрутка", "Прокрутка колеса мыши", True),
     ("mouse_move", "Мышь", "Переместить курсор", "Перемещает курсор к координатам экрана", True),
-    ("mouse_hold", "Мышь", "Зажать кнопку", "Требует отдельного безопасного режима", False),
+    ("mouse_hold", "Мышь", "Зажать левую кнопку", "Удерживает кнопку 1–5 секунд и отпускает автоматически", True),
     ("noop", "Программа", "Пустое действие", "Не выполняет никаких действий — разделитель шагов", True),
     ("wait_seconds", "Программа", "Пауза в секундах", "Ждёт 1–30 секунд до следующего действия", True),
-    ("wait_minutes", "Программа", "Пауза в минутах", "Длинное ожидание — пока недоступно", False),
-    ("tray_minimize", "Программа", "Свернуть Jarvis в трей", "Требует отдельного управления окном", False),
+    ("wait_minutes", "Программа", "Пауза в минутах", "Ждёт 1–10 минут без блокировки окна", True),
+    ("tray_minimize", "Программа", "Свернуть Jarvis в трей", "Скрывает окно Jarvis в системный трей", True),
     ("speak_text", "Озвучка", "Произнести текст", "Произносит указанный текст голосом Jarvis", True),
     ("speak_ready", "Озвучка", "Вас понял, сэр", "Готовая фраза подтверждения", True),
     ("speak_done", "Озвучка", "Всё готово, сэр", "Готовая фраза завершения", True),
-    ("play_mp3", "Звук", "Воспроизвести MP3", "Работа со звуковыми файлами пока недоступна", False),
-    ("play_wav", "Звук", "Воспроизвести WAV", "Работа со звуковыми файлами пока недоступна", False),
+    ("play_mp3", "Звук", "Воспроизвести MP3", "Воспроизводит выбранный MP3 через Windows Media Control", True),
+    ("play_wav", "Звук", "Воспроизвести WAV", "Воспроизводит выбранный WAV через Windows", True),
     ("volume_up", "Звук", "Увеличить громкость", "Повышает системную громкость", True),
     ("volume_down", "Звук", "Уменьшить громкость", "Понижает системную громкость", True),
-    ("monitor_on", "Система", "Включить монитор", "Недоступно без отдельной реализации", False),
-    ("monitor_off", "Система", "Выключить монитор", "Недоступно без отдельной реализации", False),
+    ("app_volume", "Звук", "Громкость приложения", "Устанавливает громкость выбранного приложения, если оно запущено", True),
+    ("voice_female", "Звук", "Произнести женским голосом", "Использует доступный женский голос Windows SAPI", True),
+    ("voice_male", "Звук", "Произнести мужским голосом", "Использует настроенный голос Jarvis", True),
+    ("mouse_middle_click", "Мышь", "Клик колёсиком", "Нажимает среднюю кнопку мыши", True),
+    ("mouse_right_hold", "Мышь", "Зажать правую кнопку", "Удерживает правую кнопку 1–5 секунд", True),
+    ("monitor_on", "Система", "Включить монитор", "Посылает Windows запрос включения монитора", True),
+    ("monitor_off", "Система", "Выключить монитор", "Гасит дисплей, не выключая компьютер", True),
     ("lock_screen", "Система", "Заблокировать экран", "Блокирует текущую сессию Windows", True),
-    ("sleep_pc", "Система", "Спящий режим", "Требует отдельного подтверждения и реализации", False),
+    ("sleep_pc", "Система", "Спящий режим", "Отправляет Windows в сон после подтверждения", True),
     ("minimize_windows", "Система", "Свернуть все окна", "Сворачивает открытые окна Windows", True),
     ("search_web", "Браузер", "Найти в интернете", "Открывает результаты поиска по запросу", True),
-    ("open_first_result", "Браузер", "Открыть первый результат", "Ненадёжное действие пока недоступно", False),
+    ("open_first_result", "Браузер", "Открыть первый результат поиска", "Открывает первый найденный результат через поисковик", True),
     ("create_file", "Файлы", "Создать файл", "Создаёт новый файл без перезаписи существующего", True),
     ("create_folder", "Файлы", "Создать папку", "Создаёт новую папку в выбранном месте", True),
     ("list_files", "Файлы", "Показать файлы", "Показывает имена файлов в выбранной папке", True),
@@ -89,6 +94,7 @@ NO_TARGET = {
     "time", "minimize_windows", "press_enter", "save_document",
     "mouse_click", "mouse_double_click", "volume_up", "volume_down",
     "lock_screen", "list_files", "speak_ready", "speak_done", "noop",
+    "mouse_middle_click", "monitor_on", "monitor_off", "sleep_pc", "tray_minimize",
 }
 
 
@@ -152,6 +158,55 @@ def validate_step(raw):
     elif action in ("type_text", "speak_text"):
         if not isinstance(target, str) or not target.strip() or len(target) > 350 or any(ord(ch) in (0, 127) for ch in target):
             raise ValueError("Введите текст длиной до 350 символов")
+        result["target"] = target.strip()
+    elif action in ("run_cmd", "run_powershell"):
+        # Only a user-created macro may carry these steps; cloud schemas reject
+        # them. Execution also shows the FULL command for approval every time.
+        if not isinstance(target, str) or not 1 <= len(target.strip()) <= 500:
+            raise ValueError("Введите команду длиной до 500 символов")
+        if any(ord(ch) < 32 or ord(ch) == 127 for ch in target):
+            raise ValueError("Только одна строка команды без управляющих символов")
+        result["target"] = target.strip()
+    elif action in ("play_mp3", "play_wav"):
+        from pathlib import Path
+        if not isinstance(target, str) or len(target) > 350 or not Path(target).is_absolute():
+            raise ValueError("Выберите локальный аудиофайл через «Обзор»")
+        if Path(target).suffix.casefold() != (".mp3" if action == "play_mp3" else ".wav"):
+            raise ValueError("Неверный формат звукового файла")
+        if not Path(target).is_file():
+            raise ValueError("Звуковой файл не найден")
+        result["target"] = str(Path(target).resolve())
+    elif action in ("voice_female", "voice_male"):
+        if not isinstance(target, str) or not 1 <= len(target.strip()) <= 350:
+            raise ValueError("Введите текст озвучки (до 350 символов)")
+        result["target"] = target.strip()
+    elif action == "app_volume":
+        from luxai.command_registry import APP_TARGETS
+        match = re.fullmatch(r"([a-z]+):(100|[0-9]{1,2})", str(target))
+        if not match or match.group(1) not in APP_TARGETS:
+            raise ValueError("Выберите приложение и громкость от 0 до 100%")
+        result["target"] = f"{match.group(1)}:{int(match.group(2))}"
+    elif action in ("mouse_hold", "mouse_right_hold"):
+        try:
+            duration = int(target)
+        except (TypeError, ValueError):
+            raise ValueError("Длительность удержания должна быть от 1 до 5 секунд") from None
+        if not 1 <= duration <= 5:
+            raise ValueError("Удержание ограничено 5 секундами")
+        result["target"] = str(duration)
+    elif action == "wait_minutes":
+        try:
+            minutes = int(target)
+        except (TypeError, ValueError):
+            raise ValueError("Пауза должна быть от 1 до 10 минут") from None
+        if not 1 <= minutes <= 10:
+            raise ValueError("Пауза должна быть от 1 до 10 минут")
+        result["target"] = str(minutes)
+    elif action == "open_first_result":
+        if not isinstance(target, str) or not 1 <= len(target.strip()) <= 150:
+            raise ValueError("Введите поисковую фразу")
+        if any(ord(ch) < 32 for ch in target):
+            raise ValueError("Неверный поисковый запрос")
         result["target"] = target.strip()
     elif action == "hotkey":
         if target not in HOTKEYS:
