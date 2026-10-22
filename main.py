@@ -26,6 +26,13 @@ from luxai.command_registry import CommandRegistry
 from luxai.ui_commands import CommandsPage
 from luxai.command_wizard import CommandWizard, is_create_command_request
 from luxai.intent_routing import is_operational_request, routine_reply, suspicious_completion_reply
+from luxai.weather_service import is_weather_question, get_weather_report
+from luxai.voice_desktop import (
+    is_dictation_start, is_dictation_stop, dictation_text,
+    wants_screen_read, wants_discord_mic_mute,
+    read_screen_locally, toggle_discord_microphone,
+)
+from luxai.desktop_actions import _type_unicode_windows
 
 BASE = Path(__file__).resolve().parent
 CONFIG = BASE / "config.json"
@@ -85,6 +92,7 @@ class MainWindow(QMainWindow):
     tts_played = Signal(bool)
     wizard_plan_ready = Signal(str, object)
     macro_step_ready = Signal(int, bool, str)
+    direct_task_ready = Signal(str, str, str)
 
     def __init__(self):
         super().__init__()
@@ -99,6 +107,7 @@ class MainWindow(QMainWindow):
         )
         self.online_planner = OnlinePlanner(self.cfg)
         self.online_plan_ready.connect(self._on_online_plan)
+        self.direct_task_ready.connect(self._on_direct_task_ready)
         self.macro_step_ready.connect(self._on_macro_step_ready)
         self.wizard_plan_ready.connect(self._on_wizard_plan)
         self.local_reply_ready.connect(self._on_local_reply)
@@ -107,6 +116,7 @@ class MainWindow(QMainWindow):
         self._command_queue = []
         self._active_text = None
         self._processing = False
+        self.dictation_active = False
         self._current_route = ""
         self._closed = False
         self._api_test_running = False
@@ -680,6 +690,12 @@ class MainWindow(QMainWindow):
         # Always record what was recognized, including speech without the wake prefix.
         self.append_message("Tu (voce)", spoken, "#79a6ff")
 
+        # Dictation explicitly bypasses AI and wake-word filtering. Only an
+        # exact stop phrase ends it; other speech is typed into the other app.
+        if self.dictation_active:
+            self._type_voice_chunk(spoken)
+            return
+
         # Wizard replies do not need the wake word: the assistant explicitly
         # asked the user to dictate a phrase or action in the next utterance.
         if self.command_wizard.active:
@@ -754,6 +770,19 @@ class MainWindow(QMainWindow):
         text = str(text or "").strip()
         if not text:
             return
+        if self.dictation_active:
+            self._type_voice_chunk(text)
+            return
+        if is_dictation_start(text):
+            self.dictation_active = True
+            prompt = (
+                "Режим диктовки включён. Переключитесь в редактор текста. "
+                "Я буду печатать услышанное в активном окне; "
+                "скажите «стоп», чтобы закончить."
+            )
+            self.append_message("Jarvis", prompt, "#a5b9dc")
+            self.mic_status.setText("Диктовка включена — скажите «стоп» для завершения")
+            return
         if self.command_wizard.active:
             self._wizard_handle_answer(text)
             return
@@ -782,6 +811,65 @@ class MainWindow(QMainWindow):
         self._command_queue.append({"parts": pieces, "answers": [], "routes": []})
         self._dispatch_command()
 
+    def _type_voice_chunk(self, spoken):
+        if is_dictation_stop(spoken):
+            self.dictation_active = False
+            answer = "Диктовка остановлена. Ничего больше не печатаю."
+            self.append_message("Jarvis", answer, "#a5b9dc")
+            self.mic_status.setText(answer)
+            return
+        from PySide6.QtWidgets import QApplication
+        if self.isActiveWindow() or QApplication.activeWindow() is self:
+            self.mic_status.setText(
+                "Откройте и активируйте окно редактора. "
+                "В окне Jarvis диктовка не печатает."
+            )
+            return
+        part = dictation_text(spoken)
+        if not part:
+            return
+        try:
+            # Windows Unicode SendInput inserts the transcribed content as text,
+            # without clipboard copies or LLM-generated arbitrary hotkeys.
+            _type_unicode_windows(part[:350])
+            self.mic_status.setText("Диктовка: текст отправлен в активное окно")
+        except (OSError, ValueError) as error:
+            self.mic_status.setText(f"Диктовка: текст не введён: {error}")
+            self.append_message("Jarvis", f"Не удалось ввести текст: {error}", "#a5b9dc")
+
+    def _direct_task_worker(self, text, mode):
+        try:
+            if mode == "weather":
+                answer = get_weather_report(
+                    text, default_city=self.cfg.get("weather_city", "Кишинёв")
+                )
+                if not answer:
+                    answer = "Не удалось распознать запрос о погоде."
+            elif mode == "screen":
+                answer = read_screen_locally(self.cfg.get("tesseract_path", ""))
+            else:
+                answer = "Неизвестное локальное действие."
+        except Exception as exc:
+            if mode == "weather":
+                answer = (
+                    "Не удалось получить актуальный прогноз от Open-Meteo: "
+                    f"{type(exc).__name__}: {str(exc)[:180]}. "
+                    "Для прогноза нужен интернет, но API-ключ Gemini не требуется."
+                )
+            else:
+                answer = f"Не удалось прочитать экран: {type(exc).__name__}: {str(exc)[:180]}"
+        if not self._closed:
+            try:
+                self.direct_task_ready.emit(text, mode, answer)
+            except RuntimeError:
+                pass
+
+    def _on_direct_task_ready(self, text, mode, answer):
+        if self._closed or not self._processing or self._active_text != text:
+            return
+        self._current_route = "Open-Meteo" if mode == "weather" else "локальный OCR"
+        self._resolved_command(text, answer)
+
     def _dispatch_command(self):
         if self._processing or self._closed or not self._command_queue:
             return
@@ -800,6 +888,29 @@ class MainWindow(QMainWindow):
                 return
 
             saved = self.command_registry.match(text, prefix)
+
+            # Live weather and local screen OCR use dedicated, verifiable
+            # services. They work even if Gemini is quota-blocked (HTTP 429).
+            if is_weather_question(text):
+                self.mic_status.setText("Получаю актуальный прогноз Open-Meteo…")
+                threading.Thread(
+                    target=self._direct_task_worker, args=(text, "weather"),
+                    daemon=True, name="JarvisWeather",
+                ).start()
+                return
+            if wants_screen_read(text):
+                self.mic_status.setText("Читаю снимок экрана локально…")
+                threading.Thread(
+                    target=self._direct_task_worker, args=(text, "screen"),
+                    daemon=True, name="JarvisScreenOCR",
+                ).start()
+                return
+            if wants_discord_mic_mute(text):
+                self._current_route = "Discord: глобальная комбинация клавиш"
+                answer = toggle_discord_microphone(self.confirm_action)
+                self._resolved_command(text, answer)
+                return
+
             # Explicitly authored/learned personal commands are intentionally
             # instant, even if Gemini is enabled. Every unknown spoken action
             # is handed to Gemini first when the cloud key works.
