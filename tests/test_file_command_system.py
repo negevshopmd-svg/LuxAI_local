@@ -1,9 +1,17 @@
 """No-network tests for voice-defined commands and safe filesystem functions."""
 import tempfile
 import unittest
+import sys
+import types
 from pathlib import Path
 from unittest import mock
 
+sys.modules.setdefault(
+    "luxai.screen",
+    types.SimpleNamespace(capture_screen=lambda: None, read_screen_text=lambda *args, **kwargs: ""),
+)
+
+from luxai.agent import LocalAgent
 from luxai.command_registry import CommandRegistry
 from luxai.command_wizard import CommandWizard, is_create_command_request
 from luxai.file_actions import (
@@ -129,6 +137,41 @@ class FileAndCommandTests(unittest.TestCase):
         self.assertEqual(OnlinePlanner._validate(valid)["action"], "create_file")
         invalid = dict(valid, target="C:\\Windows\\System32\\evil.exe")
         self.assertIsNone(OnlinePlanner._validate(invalid))
+
+    def test_file_creation_requires_user_approval(self):
+        agent = LocalAgent({"language": "ru"})
+        intent = parse_file_intent("Создай файл на рабочем столе")
+        with mock.patch("luxai.agent.create_user_item") as create:
+            result = agent.execute_plan(
+                "Создай файл на рабочем столе",
+                intent, confirm_callback=lambda _prompt: False,
+            )
+        self.assertIn("отменено", result)
+        create.assert_not_called()
+
+    def test_file_creation_after_confirmation(self):
+        agent = LocalAgent({"language": "ru"})
+        intent = parse_file_intent("Создай файл на рабочем столе")
+        from luxai.file_actions import create_user_item as original
+        def target(*args, **kwargs):
+            return original(*args, home=self.home, **kwargs)
+        with mock.patch("luxai.agent.create_user_item", side_effect=target) as create:
+            result = agent.execute_plan(
+                "Создай файл на рабочем столе",
+                intent, confirm_callback=lambda _prompt: True,
+            )
+        self.assertTrue(agent.last_execution_success)
+        self.assertIn("Создано:", result)
+        self.assertEqual(create.call_count, 1)
+        self.assertTrue((self.home / "Desktop" / "Новый файл.txt").exists())
+
+    def test_wizard_cancellation_does_not_save(self):
+        wizard = CommandWizard(self.registry)
+        wizard.start()
+        wizard.feed("мой новый макрос")
+        self.assertIn("отменено", wizard.feed("отмена")[0])
+        self.assertFalse(wizard.active)
+        self.assertFalse(self.registry.custom)
 
     def test_no_execution_before_wizard_save(self):
         wizard = CommandWizard(self.registry)
