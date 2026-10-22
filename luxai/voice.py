@@ -19,12 +19,12 @@ def speak(text, enabled=True):
         pass
 
 class VoiceListener:
-    """Fast local speech capture: collect speech until 5 seconds of silence, then transcribe once."""
-    def __init__(self, model_path="tiny", prefix_enabled=True, prefix="Jarvis", language="auto"):
+    """Record a complete utterance locally; use Faster-Whisper VAD and transcribe after silence."""
+    def __init__(self, model_path="small", prefix_enabled=True, prefix="Jarvis", language="auto"):
         from faster_whisper import WhisperModel
         import os
         self.model = WhisperModel(
-            model_path or "tiny",
+            model_path or "small",
             device="cpu",
             compute_type="int8",
             cpu_threads=max(2, min(8, os.cpu_count() or 4)),
@@ -40,15 +40,17 @@ class VoiceListener:
 
     def listen(self):
         sample_rate = 16000
-        chunk_seconds = 1
-        silence_seconds = 5
+        # Short audio frames make end-of-speech detection responsive.
+        chunk_seconds = 0.25
+        silence_seconds = 1.25
         # A lower RMS threshold catches quieter microphones and normal speaking volume.
         # Keep it configurable via config.json if a particular microphone needs tuning.
         try:
             speech_threshold = float(__import__("os").environ.get("NEXORA_VOICE_THRESHOLD", "0.004"))
         except (TypeError, ValueError):
-            speech_threshold = 0.004
+            speech_threshold = 0.0035
         block = int(sample_rate * chunk_seconds)
+        silence_chunks_needed = max(1, int(silence_seconds / chunk_seconds))
         q = queue.Queue()
 
         def callback(indata, frames, time_info, status):
@@ -76,7 +78,7 @@ class VoiceListener:
                     audio_parts.append(chunk)
                     silence_chunks += 1
 
-                if speech_started and silence_chunks >= silence_seconds:
+                if speech_started and silence_chunks >= silence_chunks_needed:
                     audio = np.concatenate(audio_parts)
                     audio_parts = []
                     silence_chunks = 0
