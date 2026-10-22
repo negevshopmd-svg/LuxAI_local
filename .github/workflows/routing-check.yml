@@ -29,4 +29,18 @@ jobs:
       - name: Run routing and offscreen Qt tests
         env:
           QT_QPA_PLATFORM: offscreen
-        run: python -m unittest discover -s tests -v
+        run: |
+          python - <<'PY'
+          import os
+          import sys
+          import unittest
+
+          suite = unittest.defaultTestLoader.discover("tests")
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          # The CI runner's headless Qt EGL plugin can segfault during Python
+          # interpreter finalization AFTER tests all pass. This exits only
+          # after all test assertions have run, preserving the pass/fail code.
+          sys.stdout.flush()
+          sys.stderr.flush()
+          os._exit(0 if result.wasSuccessful() else 1)
+          PY
