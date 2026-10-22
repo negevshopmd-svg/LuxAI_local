@@ -78,6 +78,19 @@ class QtActionTests(unittest.TestCase):
         self.assertEqual(config.result(), QDialog.DialogCode.Accepted)
         self.assertEqual(config.data["target"], "https://www.wikipedia.org/")
 
+    def test_action_configuration_dialogs_cover_recently_enabled_options(self):
+        for action in (
+            "run_cmd", "run_powershell", "wait_minutes", "mouse_hold",
+            "mouse_right_hold", "app_volume", "voice_female", "voice_male",
+            "play_mp3", "play_wav", "run_file", "open_first_result",
+            "monitor_on", "monitor_off", "sleep_pc", "tray_minimize",
+        ):
+            with self.subTest(action=action):
+                dialog = ActionOptionsDialog(action)
+                self.assertEqual(dialog.windowTitle(), "Настроить действие")
+                self.assertTrue(dialog.isEnabled())
+                dialog.close()
+
     def test_editor_lists_and_moves_selected_actions(self):
         dialog = CommandEditor()
         self.assertEqual(dialog.actions_list.count(), 0)
