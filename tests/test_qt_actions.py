@@ -181,6 +181,92 @@ class QtActionTests(unittest.TestCase):
             self.assertFalse(fake.dictation_active)
             send.assert_called_once()
 
+    def test_home_has_functional_screen_assist_entrypoint(self):
+        from luxai.ui_home import HomePage
+        home = HomePage({"voice_volume": 80})
+        self.assertIsNotNone(home.screen_assist_button)
+        self.assertTrue(home.screen_assist_button.isEnabled())
+        self.assertIn("кнопки", home.screen_assist_button.text())
+        home.close()
+
+    def test_screen_preview_displays_buttons_and_emits_selection(self):
+        import time
+        from luxai.screen_interact import ScreenInspection, VisibleButton
+        from luxai.ui_screen_assist import ScreenAssistDialog
+
+        snapshot = ScreenInspection(
+            hwnd=100, pid=4000, title="Test Dialog",
+            buttons=(
+                VisibleButton("Да", (15, 20, 85, 50)),
+                VisibleButton("Нет", (100, 20, 180, 50)),
+            ),
+            captured=time.monotonic(),
+        )
+        dialog = ScreenAssistDialog(snapshot)
+        self.assertIn("Test Dialog", dialog.details.text())
+        self.assertTrue(dialog.yes_button.isEnabled())
+        self.assertTrue(dialog.no_button.isEnabled())
+        self.assertEqual(dialog.button_list.count(), 2)
+        selected = []
+        dialog.click_requested.connect(selected.append)
+        dialog.yes_button.click()
+        self.assertEqual(selected, ["yes"])
+        dialog.close()
+
+    def test_spoken_website_is_opened_without_gemini(self):
+        import types
+        from unittest import mock
+        MainWindow = _load_main_class_for_mock_tests()
+        fake = types.SimpleNamespace(
+            _processing=False, _closed=False,
+            _command_queue=[{"parts": ["Открой ютуб в браузере"]}],
+            cfg={"language": "ru", "wake_prefix": "Jarvis"},
+            command_registry=types.SimpleNamespace(
+                disabled_match=lambda *_: False,
+                match=lambda *_: None,
+            ),
+            agent=types.SimpleNamespace(
+                execute_plan=mock.Mock(return_value="Отправил браузеру адрес HTTPS."),
+                history=[],
+            ),
+            online_planner=types.SimpleNamespace(
+                enabled=mock.Mock(side_effect=RuntimeError("Gemini not needed")),
+            ),
+            confirm_action=lambda *_: False,
+            _resolved_command=mock.Mock(),
+        )
+        MainWindow._dispatch_command(fake)
+        fake.online_planner.enabled.assert_not_called()
+        fake.agent.execute_plan.assert_called_once()
+        plan = fake.agent.execute_plan.call_args.args[1]
+        self.assertEqual(plan["action"], "open_site")
+        self.assertEqual(plan["target"], "https://www.youtube.com/")
+        fake._resolved_command.assert_called_once()
+
+    def test_direct_spoken_yes_starts_screen_inspection_without_gemini(self):
+        import types
+        from unittest import mock
+        MainWindow = _load_main_class_for_mock_tests()
+        fake = types.SimpleNamespace(
+            _processing=False, _closed=False,
+            _command_queue=[{"parts": ["Нажми да"]}],
+            cfg={"language": "ru", "wake_prefix": "Jarvis"},
+            command_registry=types.SimpleNamespace(
+                disabled_match=lambda *_: False,
+                match=lambda *_: None,
+            ),
+            agent=types.SimpleNamespace(history=[]),
+            online_planner=types.SimpleNamespace(
+                enabled=mock.Mock(side_effect=RuntimeError("Gemini not needed")),
+            ),
+            _screen_snapshot=None,
+            _start_screen_inspection=mock.Mock(),
+        )
+        MainWindow._dispatch_command(fake)
+        self.assertEqual(fake._pending_screen_click, "yes")
+        fake._start_screen_inspection.assert_called_once_with("Нажми да")
+        fake.online_planner.enabled.assert_not_called()
+
     def test_picker_opens_and_filters_categories(self):
         picker = ActionPicker()
         self.assertEqual(picker.windowTitle(), "Добавить действие")
