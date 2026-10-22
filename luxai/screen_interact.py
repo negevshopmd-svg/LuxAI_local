@@ -19,7 +19,7 @@ from typing import Callable
 from luxai.fast_intents import strip_wake_name
 
 BUTTON_NAMES = {
-    "yes": {"yes", "y", "да", "да!", "oui", "так", "confirm", "confirmă", "confirm",
+    "yes": {"yes", "y", "да", "да!", "da", "oui", "так", "ok", "okay", "ок", "confirm", "confirmă", "confirm",
             "accept", "acceptă", "accepta"},
     "no": {"no", "нет", "nu", "cancel", "отмена", "отменить", "отклонить"},
 }
@@ -181,11 +181,27 @@ def _read_uia_buttons(hwnd: int) -> tuple[VisibleButton, ...]:
         comtypes.CoUninitialize()
 
 
-def _screenshot_png() -> bytes:
+def _screenshot_png(hwnd: int) -> bytes:
     import mss
+    from ctypes import wintypes
     from PIL import Image
+    rect = wintypes.RECT()
+    if not ctypes.windll.user32.GetWindowRect(wintypes.HWND(hwnd), ctypes.byref(rect)):
+        raise OSError("Не удалось получить координаты окна.")
     with mss.mss() as screen:
-        image = screen.grab(screen.monitors[1])
+        # Clip the target window to the entire virtual desktop so multi-
+        # monitor layouts work without capturing unrelated displays.
+        virtual = screen.monitors[0]
+        left = max(rect.left, virtual["left"])
+        top = max(rect.top, virtual["top"])
+        right = min(rect.right, virtual["left"] + virtual["width"])
+        bottom = min(rect.bottom, virtual["top"] + virtual["height"])
+        if right - left < 20 or bottom - top < 20:
+            raise OSError("Окно находится за границами видимого рабочего стола.")
+        image = screen.grab({
+            "left": left, "top": top,
+            "width": right - left, "height": bottom - top,
+        })
     picture = Image.frombytes("RGB", image.size, image.rgb)
     picture.thumbnail((1080, 620))
     buffer = io.BytesIO()
@@ -197,7 +213,11 @@ def inspect_screen_buttons(hwnd: int | None = None, *, include_image=True) -> Sc
     target = _foreground_hwnd() if hwnd is None else int(hwnd)
     pid, title = _valid_external_window(target)
     controls = _read_uia_buttons(target)
-    screenshot = _screenshot_png() if include_image else b""
+    try:
+        screenshot = _screenshot_png(target) if include_image else b""
+    except (OSError, ValueError):
+        # The UIA button list is still useful when screen capture fails.
+        screenshot = b""
     return ScreenInspection(
         hwnd=target, pid=pid, title=title, buttons=controls,
         captured=time.monotonic(), screenshot=screenshot,
@@ -275,5 +295,6 @@ def click_inspected_button(
             f"Нажал кнопку «{candidate.label}» в окне «{title}». "
             "Не могу гарантировать, что приложение приняло действие."
         )
-    except (ValueError, OSError, RuntimeError) as exc:
+    except Exception as exc:
+        # COM/pywinauto and Windows API failures must not crash Jarvis UI.
         return f"Клик не выполнен: {exc}"
