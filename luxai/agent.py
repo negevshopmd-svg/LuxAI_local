@@ -9,6 +9,8 @@ from luxai.file_actions import (
     rename_user_item, trash_user_item, ALLOWED_LOCATIONS,
 )
 from luxai.windows_apps import launch_installed_app, normalized_name
+from luxai.windows_control import close_installed_app
+from luxai.windows_volume import windows_volume
 from luxai.desktop_actions import execute_desktop_step
 from luxai.action_catalog import CATALOG, validate_step
 
@@ -22,6 +24,7 @@ class LocalAgent:
         self.last_execution_success = False
         self.last_executed_plan = None
         self.last_file = None
+        self.last_app = None
 
     def update_config(self, config):
         self.config = dict(config)
@@ -176,6 +179,34 @@ class LocalAgent:
         simple = quick_reply(text, self._response_language(text))
         if simple is not None:
             return simple
+        # Windows master volume is read back from Core Audio, never guessed.
+        volume_match = re.search(
+            r"(?:громкост\\w*|звук\\w*|volume|volum)[^\\d\\n]{0,55}(\\d{1,3})\\s*%?",
+            t, flags=re.IGNORECASE,
+        )
+        if volume_match:
+            level = int(volume_match.group(1))
+            if not 0 <= level <= 100:
+                return "Громкость должна быть от 0 до 100%."
+            return self.execute_plan(
+                text, {"action": "set_system_volume", "target": str(level)},
+                confirm_callback,
+            )
+        if re.search(
+            r"^(?:закрой|закрыть|закрывай|close|închide)\\b", t,
+            flags=re.IGNORECASE,
+        ):
+            candidate = re.sub(
+                r"^(?:закрой|закрыть|закрывай|close|închide)\\s+",
+                "", t, flags=re.IGNORECASE,
+            ).strip(" .!?")
+            candidate = re.sub(r"^пожалуйста\\s+", "", candidate)
+            if candidate in ("его", "её", "ее", "это", "it", "его пожалуйста"):
+                candidate = "@last"
+            return self.execute_plan(
+                text, {"action": "close_app", "target": candidate},
+                confirm_callback,
+            )
         # File operations have a trusted local implementation, no AI needed.
         file_intent = parse_file_intent(text)
         if file_intent is not None:
@@ -227,6 +258,7 @@ class LocalAgent:
                         return self._say("Действие отменено.", "Acțiune anulată.", "Action cancelled.", text)
                     if self._open_application(app):
                         self.last_execution_success = True
+                        self.last_app = app
                         self.last_executed_plan = {"action": "open_app", "target": app}
                         return self._say(
                             f"Передал Windows запрос на запуск {app.capitalize()}.",
@@ -453,7 +485,41 @@ class LocalAgent:
                     f"Nu am putut executa «{title}»: {exc}",
                     f"Could not execute «{title}»: {exc}", text,
                 )
-        if action == "reply" and isinstance(plan.get("reply"), str):
+        if action == "set_system_volume":
+            try:
+                if not isinstance(target, str) or not target.isdecimal():
+                    return "Укажите громкость числом от 0 до 100%."
+                level = int(target)
+                if not 0 <= level <= 100:
+                    return "Громкость должна быть от 0 до 100%."
+                actual = windows_volume(level)
+                self.last_execution_success = True
+                answer = f"Проверено: громкость Windows сейчас {actual}%."
+            except (OSError, ValueError, ImportError) as exc:
+                answer = f"Громкость Windows НЕ изменена: {exc}"
+        elif action == "get_system_volume":
+            try:
+                actual = windows_volume()
+                self.last_execution_success = True
+                answer = f"Громкость Windows сейчас {actual}%."
+            except (OSError, ImportError) as exc:
+                answer = f"Не удалось прочитать громкость Windows: {exc}"
+        elif action == "close_app":
+            if not isinstance(target, str):
+                return "Неверное имя приложения."
+            if target == "@last":
+                if not self.last_app:
+                    return "Не знаю, какое приложение нужно закрыть. Назовите его."
+                target = self.last_app
+            try:
+                normalized_name(target)
+            except ValueError:
+                return "Не удалось распознать имя приложения."
+            success, answer = close_installed_app(target, confirmed=confirm_callback)
+            self.last_execution_success = bool(success)
+            if success and self.last_app == target:
+                self.last_app = None
+        elif action == "reply" and isinstance(plan.get("reply"), str):
             answer = plan["reply"][:1100].strip() or None
         elif action == "time":
             self.last_execution_success = True
@@ -467,6 +533,8 @@ class LocalAgent:
                 target, confirmed=confirm_callback,
             )
             self.last_execution_success = bool(success)
+            if success:
+                self.last_app = normalized_name(target)
             answer = result
         elif action in {"launch_game", "steam_verified"}:
             if action == "launch_game" and target in GAMES:
