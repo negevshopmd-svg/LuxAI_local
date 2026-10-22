@@ -22,6 +22,110 @@ class LocalAgent:
         self.loaded_path = path
         return self.llm
 
+    def _open_application(self, app):
+        """Try common Windows launch methods; return True only when launch was requested successfully."""
+        import shutil
+        import os
+        import glob
+
+        # Installed desktop apps can register URI handlers even when their EXE path varies.
+        uri_schemes = {
+            "telegram": "tg://resolve",
+            "discord": "discord://",
+            "spotify": "spotify:",
+        }
+        if app in uri_schemes:
+            try:
+                os.startfile(uri_schemes[app])
+                return True
+            except (OSError, AttributeError):
+                pass
+
+        executable_names = {
+            "telegram": ["Telegram.exe"],
+            "discord": ["Discord.exe"],
+            "chrome": ["chrome.exe"],
+            "firefox": ["firefox.exe"],
+            "edge": ["msedge.exe"],
+            "spotify": ["Spotify.exe"],
+        }
+        # First try PATH.
+        for exe in executable_names.get(app, []):
+            found = shutil.which(exe)
+            if found:
+                try:
+                    subprocess.Popen([found], close_fds=True)
+                    return True
+                except OSError:
+                    pass
+
+        local = os.environ.get("LOCALAPPDATA", "")
+        program_files = os.environ.get("PROGRAMFILES", r"C:\\Program Files")
+        program_files_x86 = os.environ.get("PROGRAMFILES(X86)", r"C:\\Program Files (x86)")
+        candidates = {
+            "telegram": [
+                os.path.join(local, "Telegram Desktop", "Telegram.exe"),
+                os.path.join(program_files, "Telegram Desktop", "Telegram.exe"),
+                os.path.join(program_files_x86, "Telegram Desktop", "Telegram.exe"),
+            ],
+            "discord": [
+                os.path.join(local, "Discord", "Update.exe"),
+                os.path.join(local, "Discord", "app-*", "Discord.exe"),
+            ],
+            "chrome": [
+                os.path.join(program_files, "Google", "Chrome", "Application", "chrome.exe"),
+                os.path.join(program_files_x86, "Google", "Chrome", "Application", "chrome.exe"),
+                os.path.join(local, "Google", "Chrome", "Application", "chrome.exe"),
+            ],
+            "firefox": [
+                os.path.join(program_files, "Mozilla Firefox", "firefox.exe"),
+                os.path.join(program_files_x86, "Mozilla Firefox", "firefox.exe"),
+            ],
+            "edge": [
+                os.path.join(program_files, "Microsoft", "Edge", "Application", "msedge.exe"),
+                os.path.join(program_files_x86, "Microsoft", "Edge", "Application", "msedge.exe"),
+            ],
+            "spotify": [
+                os.path.join(local, "Microsoft", "WindowsApps", "Spotify.exe"),
+                os.path.join(local, "Spotify", "Spotify.exe"),
+            ],
+        }
+        for pattern in candidates.get(app, []):
+            matches = glob.glob(pattern)
+            for path in matches:
+                # Discord's Update.exe needs the --processStart argument.
+                args = [path, "--processStart", "Discord.exe"] if app == "discord" and path.lower().endswith("update.exe") else [path]
+                try:
+                    if os.path.isfile(path):
+                        subprocess.Popen(args, close_fds=True)
+                        return True
+                except OSError:
+                    continue
+
+        # Finally, use Windows Start Menu shortcuts (including per-user shortcuts).
+        start_menu_dirs = [
+            os.path.join(os.environ.get("APPDATA", ""), r"Microsoft\\Windows\\Start Menu\\Programs"),
+            os.path.join(program_files, r"Microsoft\\Windows\\Start Menu\\Programs"),
+            os.path.join(program_files_x86, r"Microsoft\\Windows\\Start Menu\\Programs"),
+        ]
+        needles = {
+            "telegram": ("telegram",),
+            "discord": ("discord",),
+            "chrome": ("chrome", "google chrome"),
+            "firefox": ("firefox",),
+            "edge": ("edge", "microsoft edge"),
+            "spotify": ("spotify",),
+        }.get(app, (app,))
+        for folder in start_menu_dirs:
+            for shortcut in glob.glob(os.path.join(folder, "**", "*.lnk"), recursive=True):
+                if any(n in os.path.basename(shortcut).lower() for n in needles):
+                    try:
+                        os.startfile(shortcut)
+                        return True
+                    except OSError:
+                        pass
+        return False
+
     def _simple_action(self, text, confirm_callback):
         t = text.lower().strip()
         if any(x in t for x in ["what time", "time is it", "cat e ceasul", "cât e ceasul", "который час", "сколько времени"]):
