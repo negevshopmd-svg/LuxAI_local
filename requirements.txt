@@ -10,3 +10,4 @@ Pillow>=10.0
 pytesseract>=0.3.10
 pyautogui>=0.9.54pycaw>=20230407
 comtypes>=1.2
+Send2Trash>=1.8.3
