@@ -3,6 +3,7 @@ import urllib.parse
 from pathlib import Path
 from luxai.screen import capture_screen, read_screen_text
 from luxai.steam_games import GAMES, local_game_intent, launch_steam_game
+from luxai.fast_intents import strip_wake_name, quick_reply, has_launch_verb
 
 class LocalAgent:
     def __init__(self, config):
@@ -22,7 +23,13 @@ class LocalAgent:
         if self.llm is not None and self.loaded_path == path:
             return self.llm
         from llama_cpp import Llama
-        self.llm = Llama(model_path=path, n_ctx=2048, n_threads=max(2, (os.cpu_count() or 4)-2), n_batch=256, verbose=False)
+        self.llm = Llama(
+            model_path=path,
+            n_ctx=1536,
+            n_threads=max(2, min(8, (os.cpu_count() or 4) - 1)),
+            n_batch=128,
+            verbose=False,
+        )
         self.loaded_path = path
         return self.llm
 
@@ -149,26 +156,15 @@ class LocalAgent:
 
     def _simple_action(self, text, confirm_callback):
         t = text.lower().strip()
+        # Respond to short greetings and thanks without loading the GGUF.
+        simple = quick_reply(text, self._response_language(text))
+        if simple is not None:
+            return simple
         if (
             any(x in t for x in ["what time", "time is it", "cat e ceasul", "cât e ceasul"])
             or re.search(r"\b(?:сколько|скока)\s+(?:сейчас\s+)?врем(?:ени|я)\b|\bкоторый\s+час\b", t)
         ):
             return self._say("Сейчас ", "Ora este ", "It's ", text) + datetime.datetime.now().strftime("%H:%M")
-        # Short, natural responses to greetings; no model needed.
-        normalized = re.sub(r"[!?,.\s]+", " ", t).strip()
-        greetings = {
-            "привет", "здравствуй", "здравствуйте", "доброе утро", "добрый день",
-            "добрый вечер", "хай", "hello", "hi", "hey", "salut", "bună",
-            "buna", "bună ziua", "buna ziua", "bună dimineața", "buna dimineata",
-            "bună seara", "buna seara",
-        }
-        if normalized in greetings:
-            return self._say(
-                "Привет. Я Джарвис. Чем помочь?",
-                "Salut! Sunt Jarvis. Cu ce te pot ajuta?",
-                "Hi, I'm Jarvis. How can I help?",
-                text,
-            )
         # Fast offline Steam launch for common voice commands. The game ID is
         # hardcoded here, never copied from an AI-generated CMD command.
         game = local_game_intent(text)
@@ -191,7 +187,7 @@ class LocalAgent:
             )
         # App-launch intents in Romanian, Russian and English.
         app_aliases = {
-            "telegram": ["telegram", "телеграм", "телеграмм"],
+            "telegram": ["telegram", "телеграм", "телеграмм", "телегу", "телеграму"],
             "discord": ["discord", "дискорд"],
             "chrome": ["chrome", "google chrome", "гугл хром"],
             "firefox": ["firefox", "файрфокс"],
@@ -199,9 +195,7 @@ class LocalAgent:
             "spotify": ["spotify", "спотифай"],
             "steam": ["steam", "стим"],
         }
-        open_verbs = ["open", "launch", "start", "run", "deschide", "pornește", "porneste",
-                      "открой", "запусти", "включи", "abrir"]
-        if any(v in t for v in open_verbs):
+        if has_launch_verb(t):
             for app, aliases in app_aliases.items():
                 if any(alias in t for alias in aliases):
                     if not confirm_callback(self._say(f"Открыть {app.capitalize()}", f"Deschide {app.capitalize()}", f"Open {app.capitalize()}", text)):
@@ -271,10 +265,14 @@ class LocalAgent:
         self.history = self.history[-self.max_history_messages:]
 
     def handle_fast(self, text, confirm_callback=lambda _: False):
-        action = self._simple_action(text, confirm_callback)
-        if action is not None:
-            self.remember(text, action)
-        return action
+        command = strip_wake_name(text, self.config.get("wake_prefix", "Jarvis"))
+        if not command:
+            response = self._say("Слушаю.", "Te ascult.", "I'm listening.", text)
+        else:
+            response = self._simple_action(command, confirm_callback)
+        if response is not None:
+            self.remember(text, response)
+        return response
 
     def execute_plan(self, text, plan, confirm_callback=lambda _: False):
         """Execute only local allowlisted actions from a validated online plan."""
@@ -385,9 +383,15 @@ class LocalAgent:
             )
         }]
         messages.extend(self.history[-self.max_history_messages:])
-        messages.append({"role": "user", "content": text})
+        # Qwen3 defaults to generating lengthy internal reasoning; /no_think
+        # avoids most of that work for short spoken answers.
+        model_name = str(self.loaded_path or "").lower()
+        user_prompt = text + (" /no_think" if "qwen3" in model_name else "")
+        messages.append({"role": "user", "content": user_prompt})
         try:
-            result = llm.create_chat_completion(messages=messages, max_tokens=160, temperature=0.25)
+            result = llm.create_chat_completion(
+                messages=messages, max_tokens=96, temperature=0.2,
+            )
             answer = result["choices"][0]["message"]["content"].strip()
         except (AttributeError, KeyError, TypeError):
             transcript = "\n".join(
@@ -398,7 +402,7 @@ class LocalAgent:
                 "Ты Джарвис, мужской голосовой помощник. Учитывай контекст. "
                 "Выведи только краткий ответ, без заметок, мыслей и пояснений в скобках.\n"
                 + transcript + "\nДжарвис:",
-                max_tokens=160, temperature=0.25,
+                max_tokens=96, temperature=0.2,
                 stop=["Пользователь:", "User:", "<|im_end|>"],
             )
             answer = result["choices"][0]["text"].strip()
@@ -411,4 +415,9 @@ class LocalAgent:
         answer = answer.strip(" \n\r\t\\")
         if answer:
             self.remember(text, answer)
-        return answer or self._say("Я здесь. Чем помочь?", "Sunt aici. Cu ce te pot ajuta?", "I'm here. How can I help?", text)
+        return answer or self._say(
+            "Не удалось сформировать ответ. Попробуйте переформулировать.",
+            "Nu am reușit să formulez un răspuns. Încearcă altfel.",
+            "I couldn't generate an answer. Try rephrasing.",
+            text,
+        )
