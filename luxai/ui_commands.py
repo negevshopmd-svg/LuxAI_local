@@ -1,0 +1,372 @@
+"""Luxify-inspired command library/editor for Jarvis.
+
+Every saved command is a named allowed action, not a user-defined shell line.
+The page exposes built-in defaults plus persistent user-created/learned phrases.
+"""
+from __future__ import annotations
+
+from collections import defaultdict
+
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import (
+    QComboBox, QDialog, QDialogButtonBox, QFormLayout, QFrame,
+    QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
+    QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+)
+
+from luxai.command_registry import APP_TARGETS, CommandRegistry
+from luxai.file_actions import ALLOWED_LOCATIONS
+from luxai.steam_games import GAMES
+
+
+ACTION_CHOICES = [
+    ("Открыть приложение", "open_app"),
+    ("Запустить игру Steam", "launch_game"),
+    ("Создать файл", "create_file"),
+    ("Создать папку", "create_folder"),
+    ("Показать список файлов", "list_files"),
+    ("Сказать текущее время", "time"),
+    ("Свернуть все окна", "minimize_windows"),
+]
+
+LOCATION_CHOICES = [
+    ("Рабочий стол", "desktop"),
+    ("Документы", "documents"),
+    ("Загрузки", "downloads"),
+]
+
+APP_NAMES = {
+    "telegram": "Telegram", "discord": "Discord", "steam": "Steam",
+    "chrome": "Google Chrome", "firefox": "Firefox", "edge": "Microsoft Edge",
+    "spotify": "Spotify", "notepad": "Блокнот",
+    "calculator": "Калькулятор", "explorer": "Проводник",
+}
+
+
+class CommandEditor(QDialog):
+    def __init__(self, command=None, parent=None):
+        super().__init__(parent)
+        self.original = dict(command) if command else {}
+        self.setWindowTitle("Новая команда" if not command else "Изменить команду")
+        self.resize(540, 400)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(20, 18, 20, 18)
+        title = QLabel(self.windowTitle())
+        title.setObjectName("PageTitle")
+        outer.addWidget(title)
+        help_text = QLabel(
+            "Создайте фразу, которую Jarvis будет узнавать мгновенно. "
+            "Можно указать несколько вариантов через запятую."
+        )
+        help_text.setWordWrap(True)
+        help_text.setObjectName("Muted")
+        outer.addWidget(help_text)
+
+        form = QFormLayout()
+        form.setVerticalSpacing(15)
+        self.title_field = QLineEdit(self.original.get("title", ""))
+        self.title_field.setPlaceholderText("Например: Открой мою игру")
+        form.addRow("Название", self.title_field)
+        phrases = ", ".join(self.original.get("phrases", []))
+        self.phrase_field = QLineEdit(phrases)
+        self.phrase_field.setPlaceholderText("открой мою игру, запусти мою игру")
+        form.addRow("Фразы", self.phrase_field)
+
+        self.action_combo = QComboBox()
+        for label, action in ACTION_CHOICES:
+            self.action_combo.addItem(label, action)
+        index = self.action_combo.findData(self.original.get("action", "open_app"))
+        self.action_combo.setCurrentIndex(max(index, 0))
+        form.addRow("Действие", self.action_combo)
+
+        self.app_combo = QComboBox()
+        for app in APP_TARGETS:
+            self.app_combo.addItem(APP_NAMES.get(app, app.title()), app)
+        index = self.app_combo.findData(self.original.get("target"))
+        if index >= 0:
+            self.app_combo.setCurrentIndex(index)
+        form.addRow("Приложение", self.app_combo)
+
+        self.game_combo = QComboBox()
+        for game, (_appid, label) in GAMES.items():
+            self.game_combo.addItem(label, game)
+        index = self.game_combo.findData(self.original.get("target"))
+        if index >= 0:
+            self.game_combo.setCurrentIndex(index)
+        form.addRow("Игра", self.game_combo)
+
+        self.filename = QLineEdit(self.original.get("target") if self.original.get("action") in ("create_file", "create_folder") else "")
+        self.filename.setPlaceholderText("Новый файл.txt или Новая папка")
+        form.addRow("Имя файла/папки", self.filename)
+
+        self.folder = QComboBox()
+        for label, value in LOCATION_CHOICES:
+            self.folder.addItem(label, value)
+        index = self.folder.findData(self.original.get("location", "desktop"))
+        self.folder.setCurrentIndex(max(0, index))
+        form.addRow("Расположение", self.folder)
+
+        outer.addLayout(form)
+        self.note = QLabel(
+            "Безопасность: команды не запускают произвольные CMD/PowerShell скрипты. "
+            "Создание файлов и запуск приложений запрашивают подтверждение, "
+            "если оно включено в настройках."
+        )
+        self.note.setWordWrap(True)
+        self.note.setObjectName("Muted")
+        outer.addWidget(self.note)
+        self.action_combo.currentIndexChanged.connect(self._refresh_fields)
+        self._refresh_fields()
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.button(QDialogButtonBox.StandardButton.Save).setText("Сохранить")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Отмена")
+        buttons.accepted.connect(self._validate_accept)
+        buttons.rejected.connect(self.reject)
+        outer.addWidget(buttons)
+
+    def _refresh_fields(self):
+        action = self.action_combo.currentData()
+        self.app_combo.setVisible(action == "open_app")
+        self.game_combo.setVisible(action == "launch_game")
+        self.filename.setVisible(action in ("create_file", "create_folder"))
+        self.folder.setVisible(action in ("create_file", "create_folder", "list_files"))
+        if action == "create_file":
+            self.filename.setPlaceholderText("Новый файл.txt")
+        elif action == "create_folder":
+            self.filename.setPlaceholderText("Новая папка")
+
+    def get_data(self):
+        action = self.action_combo.currentData()
+        if action == "open_app":
+            target = self.app_combo.currentData()
+        elif action == "launch_game":
+            target = self.game_combo.currentData()
+        elif action in ("create_file", "create_folder"):
+            target = self.filename.text().strip()
+        else:
+            target = ""
+        return {
+            "id": self.original.get("id"),
+            "title": self.title_field.text().strip(),
+            "phrases": [
+                phrase.strip() for phrase in self.phrase_field.text().split(",")
+                if phrase.strip()
+            ],
+            "category": "Мои команды",
+            "action": action,
+            "target": target,
+            "location": self.folder.currentData(),
+            "enabled": self.original.get("enabled", True),
+            "learned": False,
+        }
+
+    def _validate_accept(self):
+        # Validate prior to closing. Registry validates again before persistence.
+        from luxai.command_registry import checked_command
+        from uuid import uuid4
+        test = dict(self.get_data())
+        test["id"] = test["id"] or "user_" + uuid4().hex[:16]
+        try:
+            checked_command(test)
+        except (ValueError, TypeError) as exc:
+            QMessageBox.warning(self, "Ошибка команды", str(exc))
+            return
+        self.accept()
+
+
+class CommandsPage(QWidget):
+    run_requested = Signal(object)
+    changed = Signal()
+
+    def __init__(self, registry: CommandRegistry, parent=None):
+        super().__init__(parent)
+        self.registry = registry
+        self.setObjectName("CommandsPage")
+
+        root = QHBoxLayout(self)
+        root.setContentsMargins(0, 2, 0, 0)
+        root.setSpacing(16)
+        left = QFrame()
+        left.setObjectName("SettingsCard")
+        left_col = QVBoxLayout(left)
+        left_col.setContentsMargins(18, 16, 18, 16)
+        heading = QLabel("Ваши команды")
+        heading.setObjectName("PageTitle")
+        left_col.addWidget(heading)
+        hint = QLabel(
+            "Готовые команды выполняются мгновенно. "
+            "Двойной щелчок запускает выбранную команду."
+        )
+        hint.setObjectName("Muted")
+        hint.setWordWrap(True)
+        left_col.addWidget(hint)
+        self.tree = QTreeWidget()
+        self.tree.setObjectName("CommandTree")
+        self.tree.setHeaderLabels(["Название команды", "Состояние"])
+        self.tree.setRootIsDecorated(True)
+        self.tree.setAlternatingRowColors(False)
+        self.tree.setIndentation(18)
+        self.tree.itemSelectionChanged.connect(self._selection_changed)
+        self.tree.itemDoubleClicked.connect(lambda *_: self.execute_selected())
+        left_col.addWidget(self.tree, 1)
+        root.addWidget(left, 5)
+
+        side = QFrame()
+        side.setObjectName("SettingsSidebar")
+        side.setMinimumWidth(215)
+        side.setMaximumWidth(245)
+        side_col = QVBoxLayout(side)
+        side_col.setContentsMargins(12, 14, 12, 14)
+        side_col.setSpacing(9)
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("Поиск команд")
+        self.search.textChanged.connect(self._filter)
+        side_col.addWidget(self.search)
+        add = QPushButton("＋  Новая команда")
+        add.setObjectName("Primary")
+        add.clicked.connect(self.new_command)
+        side_col.addWidget(add)
+        self.edit = QPushButton("Изменить выбранную")
+        self.edit.clicked.connect(self.edit_selected)
+        side_col.addWidget(self.edit)
+        self.toggle = QPushButton("Выключить команду")
+        self.toggle.clicked.connect(self.toggle_selected)
+        side_col.addWidget(self.toggle)
+        self.remove = QPushButton("Удалить выбранную")
+        self.remove.clicked.connect(self.delete_selected)
+        side_col.addWidget(self.remove)
+        self.run_button = QPushButton("▶  Выполнить сейчас")
+        self.run_button.clicked.connect(self.execute_selected)
+        side_col.addWidget(self.run_button)
+        side_col.addStretch()
+        self.summary = QLabel("")
+        self.summary.setObjectName("Muted")
+        self.summary.setWordWrap(True)
+        side_col.addWidget(self.summary)
+        root.addWidget(side, 2)
+        self.refresh()
+
+    def refresh(self):
+        self.tree.clear()
+        categories = defaultdict(list)
+        records = self.registry.entries()
+        for entry in records:
+            categories[entry["category"]].append(entry)
+        ordering = [
+            "Приложения", "Windows", "Игры Steam", "Файлы",
+            "Мои команды", "Выученные команды",
+        ]
+        for category in ordering + sorted(set(categories) - set(ordering)):
+            group_items = categories.get(category)
+            if not group_items:
+                continue
+            header = QTreeWidgetItem([f"{category}  ({len(group_items)})", ""])
+            header.setFlags(header.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+            self.tree.addTopLevelItem(header)
+            for entry in group_items:
+                item = QTreeWidgetItem([
+                    entry["title"], "●" if entry["enabled"] else "○",
+                ])
+                item.setData(0, Qt.ItemDataRole.UserRole, entry["id"])
+                item.setToolTip(0, ", ".join(entry["phrases"]))
+                header.addChild(item)
+            header.setExpanded(True)
+        custom_count = len(self.registry.custom)
+        self.summary.setText(
+            f"Готовые команды: {len(records) - custom_count}\n"
+            f"Мои/выученные: {custom_count}\n"
+            "Изменения сохраняются между обновлениями."
+        )
+        self._filter(self.search.text())
+        self._selection_changed()
+
+    def _selected(self):
+        current = self.tree.currentItem()
+        if current is None:
+            return None
+        cmd_id = current.data(0, Qt.ItemDataRole.UserRole)
+        return next((cmd for cmd in self.registry.entries() if cmd["id"] == cmd_id), None)
+
+    def _selection_changed(self):
+        entry = self._selected()
+        is_custom = entry is not None and not entry["builtin"]
+        self.edit.setEnabled(is_custom)
+        self.remove.setEnabled(is_custom)
+        self.toggle.setEnabled(entry is not None)
+        self.run_button.setEnabled(bool(entry and entry["enabled"]))
+        self.toggle.setText(
+            "Включить команду" if entry and not entry["enabled"] else "Выключить команду"
+        )
+
+    def _filter(self, keyword):
+        keyword = keyword.strip().casefold()
+        for index in range(self.tree.topLevelItemCount()):
+            group = self.tree.topLevelItem(index)
+            visible = 0
+            for child_idx in range(group.childCount()):
+                item = group.child(child_idx)
+                label = item.text(0).casefold()
+                phrases = item.toolTip(0).casefold()
+                show = not keyword or keyword in label or keyword in phrases
+                item.setHidden(not show)
+                visible += int(show)
+            group.setHidden(visible == 0)
+
+    def new_command(self):
+        dialog = CommandEditor(parent=self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            try:
+                self.registry.save_custom(dialog.get_data())
+                self.refresh()
+                self.changed.emit()
+            except (OSError, ValueError) as exc:
+                QMessageBox.warning(self, "Ошибка", str(exc))
+
+    def edit_selected(self):
+        selected = self._selected()
+        if not selected or selected["builtin"]:
+            return
+        dialog = CommandEditor(selected, parent=self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            try:
+                self.registry.save_custom(dialog.get_data())
+                self.refresh()
+                self.changed.emit()
+            except (OSError, ValueError) as exc:
+                QMessageBox.warning(self, "Ошибка", str(exc))
+
+    def toggle_selected(self):
+        entry = self._selected()
+        if entry:
+            try:
+                self.registry.set_enabled(entry["id"], not entry["enabled"])
+                self.refresh()
+                self.changed.emit()
+            except (ValueError, OSError) as exc:
+                QMessageBox.warning(self, "Ошибка", str(exc))
+
+    def delete_selected(self):
+        entry = self._selected()
+        if not entry or entry["builtin"]:
+            return
+        answer = QMessageBox.question(
+            self, "Удалить команду?",
+            f"Удалить команду «{entry['title']}»?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            try:
+                self.registry.remove_custom(entry["id"])
+                self.refresh()
+                self.changed.emit()
+            except (ValueError, OSError) as exc:
+                QMessageBox.warning(self, "Ошибка", str(exc))
+
+    def execute_selected(self):
+        entry = self._selected()
+        if entry is not None and entry["enabled"]:
+            self.run_requested.emit(dict(entry))
