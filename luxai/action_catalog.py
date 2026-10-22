@@ -27,6 +27,7 @@ CATEGORIES = [
 _ACTIONS = [
     ("open_app", "Запуск", "Запустить программу", "Открывает выбранное установленное приложение", True),
     ("launch_game", "Запуск", "Запустить игру Steam", "Dota 2, Counter-Strike 2, War Thunder", True),
+    ("run_file", "Запуск", "Запустить файл или программу", "Открывает файл, вручную выбранный на вашем компьютере", True),
     ("open_website", "Запуск", "Открыть сайт", "Открывает указанный HTTPS-сайт в браузере", True),
     ("run_cmd", "Запуск", "Выполнить команду CMD", "Только сохранённый пользователем скрипт; подтверждение при каждом запуске", True),
     ("run_powershell", "Запуск", "Выполнить команду PowerShell", "Только сохранённая вручную команда; обязательное подтверждение", True),
@@ -167,11 +168,11 @@ def validate_step(raw):
         if any(ord(ch) < 32 or ord(ch) == 127 for ch in target):
             raise ValueError("Только одна строка команды без управляющих символов")
         result["target"] = target.strip()
-    elif action in ("play_mp3", "play_wav"):
+    elif action in ("play_mp3", "play_wav", "run_file"):
         from pathlib import Path
         if not isinstance(target, str) or len(target) > 350 or not Path(target).is_absolute():
             raise ValueError("Выберите локальный аудиофайл через «Обзор»")
-        if Path(target).suffix.casefold() != (".mp3" if action == "play_mp3" else ".wav"):
+        if action != "run_file" and Path(target).suffix.casefold() != (".mp3" if action == "play_mp3" else ".wav"):
             raise ValueError("Неверный формат звукового файла")
         if not Path(target).is_file():
             raise ValueError("Звуковой файл не найден")
