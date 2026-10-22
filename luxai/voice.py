@@ -9,7 +9,7 @@ from .voices import speak
 
 class VoiceListener:
     """Local microphone capture with lightweight WebRTC VAD and local Whisper transcription."""
-    def __init__(self, model_path="small", prefix_enabled=True, prefix="Jarvis", language="auto"):
+    def __init__(self, model_path="small", prefix_enabled=True, prefix="Jarvis", language="auto", microphone_device=-1, beam_size=1):
         from faster_whisper import WhisperModel
         import os
         self.model = WhisperModel(
@@ -22,6 +22,8 @@ class VoiceListener:
         self.prefix_enabled = prefix_enabled
         self.prefix = (prefix or "Jarvis").strip()
         self.language = None if language == "auto" else language
+        self.microphone_device = None if microphone_device in (-1, None, "") else int(microphone_device)
+        self.beam_size = max(1, min(5, int(beam_size)))
         self._stop = False
 
     def stop(self):
@@ -71,6 +73,7 @@ class VoiceListener:
         utterance_frames = 0
 
         with sd.InputStream(
+            device=self.microphone_device,
             samplerate=sample_rate,
             channels=1,
             dtype="float32",
@@ -128,7 +131,7 @@ class VoiceListener:
                         segments, _info = self.model.transcribe(
                             audio,
                             language=self.language,
-                            beam_size=1,
+                            beam_size=self.beam_size,
                             best_of=1,
                             vad_filter=True,
                             condition_on_previous_text=False,
