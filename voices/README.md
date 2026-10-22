@@ -6,4 +6,4 @@ Aggiungi qui i modelli vocali Piper. Per ogni voce servono entrambi i file:
 
 Il modulo `luxai/voices.py` trova automaticamente i modelli validi. Se in `config.json` imposti `"voice_id": "nome_voce"`, quella voce avrà la priorità; altrimenti cerca una voce chiamata `jarvis` e poi usa la prima voce installata.
 
-La cartella può contenere più voci e sarà possibile aggiungere in futuro un selettore nell'interfaccia. I modelli vocali non sono inclusi nel repository: scegli e scarica un modello Piper compatibile con la lingua desiderata dalla raccolta ufficiale Piper.
+Se non trova alcun modello valido, al primo răspuns vocal aplicația încearcă să descarce automat vocea neurală masculină rusă **ru_RU-dmitri-medium** din colecția Piper și o salvează local. Este necesară conexiune la internet pentru prima descărcare (modelul poate avea zeci de MB). După instalare, vocea funcționează local. Poți adăuga și alte voci în acest folder.
