@@ -1,35 +1,44 @@
-"""Check the selected provider's API key and model without saving credentials.
+"""Safely verify API credentials, chosen model, and real text generation.
 
-A tiny real inference request verifies that the supplied key can authenticate,
-the chosen model is accessible and the chat-completions endpoint responds.
-Results contain only predefined Russian status messages, never credentials or
-response bodies. Any test may consume a small amount of the provider's quota.
+For Gemini: first list models accessible by this key, then choose an actual
+text-capable Gemini model instead of an AI Studio agent name such as
+"Antigravity". The key is never saved or logged by the verifier.
 """
 from __future__ import annotations
 
 import urllib.error
 
 from luxai.api_providers import endpoint_for, model_for
+from luxai.gemini_models import choose_gemini_model, list_gemini_models
 from luxai.online_agent import OnlinePlanner
 
 
-def check_api_key(settings: dict, key: str) -> tuple[bool, str]:
-    provider = str(settings.get("online_provider") or "openai")
-    key = str(key or "").strip()
-    if not key:
-        return False, "API-ключ не введён. Укажите ключ выбранного провайдера."
-    if any(ord(char) < 33 or ord(char) == 127 for char in key):
-        return False, "Неверный формат API-ключа."
+def _api_error(exc: Exception) -> str:
+    if isinstance(exc, urllib.error.HTTPError):
+        code = exc.code
+        if code == 401:
+            return "Ошибка 401: API-ключ неверный, отозван или больше не действует."
+        if code == 403:
+            return "Ошибка 403: у ключа нет доступа к этому API или модели."
+        if code == 402:
+            return "Ошибка 402: недостаточно средств или нужна оплата."
+        if code == 404:
+            return "Ошибка 404: выбранная модель или адрес API не найдены."
+        if code == 429:
+            return "Ошибка 429: закончилась квота или превышен лимит запросов."
+        if code in (400, 422):
+            return (
+                f"Ошибка {code}: модель или формат запроса не поддерживается. "
+                "Проверьте имя модели и настройки API."
+            )
+        return f"Ошибка API (HTTP {code}). Проверьте настройки провайдера."
+    if isinstance(exc, (urllib.error.URLError, TimeoutError, OSError)):
+        return "Нет подключения к API: проверьте интернет и адрес сервера."
+    return "Сервер ответил, но формат ответа не поддерживается Jarvis."
 
-    try:
-        model = model_for(provider, settings.get("online_model") or None)
-        endpoint_for(provider, settings.get("online_custom_url", ""))
-        timeout = max(3, min(10, int(settings.get("online_timeout", 5))))
-    except (ValueError, TypeError, KeyError):
-        return False, "Проверьте модель и HTTPS-адрес API в настройках."
 
-    planner = OnlinePlanner(settings)
-    messages = [
+def _test_messages():
+    return [
         {
             "role": "system",
             "content": (
@@ -42,37 +51,86 @@ def check_api_key(settings: dict, key: str) -> tuple[bool, str]:
             "content": "Connectivity test. Reply exactly as instructed.",
         },
     ]
+
+
+def check_api_key_detailed(settings: dict, key: str) -> tuple[bool, str, str | None]:
+    """Return (success, safe user-facing message, verified model ID).
+
+    A non-None model ID is only offered after a successful generation request.
+    Never mistake a models-list 200 response for evidence chat generation works.
+    """
+    provider = str(settings.get("online_provider") or "openai")
+    key = str(key or "").strip()
+    if not key:
+        return False, "API-ключ не введён. Укажите ключ выбранного провайдера.", None
+    if len(key) > 2048 or any(ord(char) < 33 or ord(char) == 127 for char in key):
+        return False, "Неверный формат API-ключа.", None
     try:
-        result = planner._request(provider, model, key, messages, timeout)
-        response = planner._extract_text(result, provider)
-        parsed = planner._validate(planner._read_json_content(response))
-        if parsed is not None:
-            return True, "API работает: ключ принят, модель отвечает."
-        # 200 confirms authentication and model access, but not structured
-        # JSON compatibility needed by Jarvis's command planner.
-        return False, (
-            "Ключ и модель приняты, но ответ API не соответствует формату "
-            "команд Jarvis. Попробуйте другую модель."
-        )
-    except urllib.error.HTTPError as exc:
-        status = exc.code
-        if status == 401:
-            return False, "Ошибка 401: неверный, отозванный или просроченный API-ключ."
-        if status == 403:
-            return False, "Ошибка 403: нет доступа к API или выбранной модели."
-        if status == 402:
-            return False, "Ошибка 402: недостаточно средств или требуется оплата."
-        if status == 404:
-            return False, "Ошибка 404: указанная модель или API endpoint не найдены."
-        if status == 429:
-            return False, "Ошибка 429: исчерпана квота или превышен лимит запросов."
-        if status in (400, 422):
-            return False, (
-                f"Ошибка {status}: модель или формат запроса не поддерживается. "
-                "Проверьте выбранный API и название модели."
+        configured_model = model_for(provider, settings.get("online_model") or None)
+        endpoint_for(provider, settings.get("online_custom_url", ""))
+        timeout = max(3, min(10, int(settings.get("online_timeout", 5))))
+    except (ValueError, TypeError, KeyError):
+        return False, "Проверьте модель и HTTPS-адрес API в настройках.", None
+
+    choices = [configured_model]
+    if provider == "gemini":
+        # This GET is authenticated. It separates invalid credentials from
+        # invalid model IDs, which otherwise often produce HTTP 400/404.
+        try:
+            available = list_gemini_models(key, timeout=timeout)
+        except (urllib.error.HTTPError, urllib.error.URLError, OSError, TimeoutError) as exc:
+            return False, _api_error(exc), None
+        except (ValueError, TypeError, KeyError, IndexError):
+            return False, "Не удалось получить список моделей Gemini. Проверьте API.", None
+        if not available:
+            return False, "Ключ принят, но доступных текстовых моделей Gemini не найдено.", None
+        chosen = choose_gemini_model(available, configured_model)
+        if chosen is None:
+            return False, "Для этого ключа не найдена доступная модель Gemini.", None
+        choices = [chosen]
+        # If one model is disabled for the project, try one other listed model.
+        backup = choose_gemini_model([m for m in available if m != chosen], None)
+        if backup:
+            choices.append(backup)
+
+    planner = OnlinePlanner(settings)
+    for index, model in enumerate(choices):
+        try:
+            result = planner._request(provider, model, key, _test_messages(), timeout)
+            response = planner._extract_text(result, provider)
+            parsed = planner._validate(planner._read_json_content(response))
+            if parsed is not None:
+                if provider == "gemini" and model != configured_model:
+                    return (
+                        True,
+                        f"API работает. Модель «{configured_model}» недоступна; "
+                        f"проверена «{model}». Поле модели исправлено, нажмите «Сохранить настройки».",
+                        model,
+                    )
+                return True, f"API работает: ключ принят, модель «{model}» отвечает.", model
+            return (
+                False,
+                "Ключ и модель приняты, но ответ API не соответствует формату "
+                "команд Jarvis. Попробуйте другую модель.",
+                None,
             )
-        return False, f"Ошибка API (HTTP {status}). Проверьте настройки провайдера."
-    except (urllib.error.URLError, TimeoutError, OSError):
-        return False, "Нет подключения к API: проверьте интернет и адрес сервера."
-    except (ValueError, TypeError, KeyError, IndexError, UnicodeError):
-        return False, "Сервер ответил, но формат ответа не поддерживается Jarvis."
+        except urllib.error.HTTPError as exc:
+            if (
+                provider == "gemini"
+                and exc.code in (400, 404)
+                and index + 1 < len(choices)
+            ):
+                continue
+            return False, _api_error(exc), None
+        except (
+            urllib.error.URLError, TimeoutError, OSError,
+            ValueError, TypeError, KeyError, IndexError, UnicodeError,
+        ) as exc:
+            return False, _api_error(exc), None
+    return False, "Не удалось проверить модель API.", None
+
+
+def check_api_key(settings: dict, key: str) -> tuple[bool, str]:
+    """Backward-compatible two-value API used by existing callers/tests."""
+    passed, message, _model = check_api_key_detailed(settings, key)
+    return passed, message
