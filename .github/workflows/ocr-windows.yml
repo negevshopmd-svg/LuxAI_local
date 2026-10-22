@@ -11,6 +11,9 @@ on:
 permissions:
   contents: read
 
+env:
+  PYTHONIOENCODING: utf-8
+
 jobs:
   tesseract-install:
     runs-on: windows-latest
@@ -28,6 +31,5 @@ jobs:
           python -c "from luxai.ocr_setup import ensure_tesseract, verify_tesseract; exe, _ = ensure_tesseract(allow_download=False); ready, msg = verify_tesseract(exe); print(msg); assert ready"
       - name: Verify language OCR on an actual generated image
         run: |
-          python -m pip install --disable-pip-version-check Pillow pytesseract
-          python -c "from PIL import Image, ImageDraw; from pathlib import Path; p=Path('ocr_test.png'); i=Image.new('RGB',(550,140),'white'); ImageDraw.Draw(i).text((16,38),'TEST OCR 123',fill='black',stroke_width=1); i.save(p)"
-          python -c "from pathlib import Path; from PIL import Image; import pytesseract; from luxai.ocr_setup import ensure_tesseract; exe, data=ensure_tesseract(allow_download=False); pytesseract.pytesseract.tesseract_cmd=str(exe); result=pytesseract.image_to_string(Image.open('ocr_test.png'),lang='eng',config=f'--tessdata-dir \"{data}\"'); print('OCR image output:',repr(result)); assert 'OCR' in result.upper()"
+          python -m pip install --disable-pip-version-check Pillow pytesseract mss
+          python tests/smoke_windows_ocr.py
