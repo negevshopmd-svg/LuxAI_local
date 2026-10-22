@@ -96,8 +96,11 @@ class BundledOCRTests(unittest.TestCase):
                 return ocr_setup.INSTALLER_SHA256
 
             def simulate_installer(args, **kwargs):
-                self.assertEqual(args[-1], "/D=" + str(target))
-                self.assertEqual(args[1], "/S")
+                self.assertIsInstance(args, str)
+                self.assertTrue(args.endswith("/D=" + str(target)))
+                self.assertIn(" /S /D=", args)
+                self.assertNotIn('"/D=', args)
+                self.assertFalse(kwargs["shell"])
                 self.assertEqual(kwargs["cwd"], str(root))
                 exe.write_bytes(b"MZ" + b"x" * 15000)
                 return mock.Mock(returncode=0)
