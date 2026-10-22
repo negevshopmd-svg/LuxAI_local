@@ -524,7 +524,9 @@ class SettingsPanel(QWidget):
             self.weather_city,
         )
         self.tesseract_path = QLineEdit(self.cfg.get("tesseract_path", ""))
-        self.tesseract_path.setPlaceholderText("C:\\Program Files\\Tesseract-OCR\\tesseract.exe")
+        self.tesseract_path.setPlaceholderText(
+            "Автоматически: встроенный Tesseract-OCR (путь необязателен)"
+        )
         ocr_picker = QWidget()
         ocr_row = QHBoxLayout(ocr_picker)
         ocr_row.setContentsMargins(0, 0, 0, 0)
@@ -534,15 +536,24 @@ class SettingsPanel(QWidget):
         select_ocr.clicked.connect(self._select_tesseract)
         ocr_row.addWidget(select_ocr)
         self._row(
-            panel, "Tesseract OCR",
-            "Читать текст на экране локально. Укажите tesseract.exe; "
-            "для русского языка нужен пакет rus.traineddata.",
+            panel, "Встроенный Tesseract OCR",
+            "Устанавливается автоматически с Jarvis и Update.bat; "
+            "русский и английский пакеты загружаются сами. "
+            "Выбор внешнего tesseract.exe необязателен.",
             ocr_picker,
         )
+        self.ocr_status = QLabel("OCR проверяется и устанавливается автоматически…")
+        self.ocr_status.setObjectName("Muted")
+        self.ocr_status.setWordWrap(True)
+        panel.addWidget(self.ocr_status)
         info = QLabel("Параметры сохраняются в config.json. Для смены микрофона перезапускается распознавание.")
         info.setObjectName("Muted")
         info.setWordWrap(True)
         panel.addWidget(info)
+
+    def set_ocr_status(self, success, message):
+        label = "Готово: " if success else "Недоступно: "
+        self.ocr_status.setText(label + str(message))
 
     def _select_tesseract(self):
         path, _ = QFileDialog.getOpenFileName(
