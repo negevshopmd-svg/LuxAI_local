@@ -55,11 +55,16 @@ class VoiceListener:
                     continue
                 if self.prefix_enabled:
                     # Require the wake word at the beginning of the recognized chunk.
-                    norm = text.lower().strip(" ,.!?:;")
-                    prefix = self.prefix
-                    if not norm.startswith(prefix.lower()):
+                    # Prefix mode is a hard gate: discard any transcript without the wake word.
+                    # Normalize punctuation/whitespace and allow a short punctuation separator.
+                    norm = re.sub(r"^[\\W_]+|[\\W_]+$", "", text.lower(), flags=re.UNICODE).strip()
+                    prefix = re.escape(self.prefix)
+                    match = re.match(r"^" + prefix + r"(?=$|[\\s,.:;!?-])", norm, flags=re.IGNORECASE)
+                    if not match:
                         continue
-                    text = norm[len(prefix):].lstrip(" ,.!?:;")
+                    text = norm[match.end():].lstrip(" ,.!?:;-")
+                    if not text:
+                        continue
                     if not text:
                         continue
                 yield text
