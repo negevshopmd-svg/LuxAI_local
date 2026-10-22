@@ -34,7 +34,7 @@ class GeminiModelsTests(unittest.TestCase):
         result = parse_model_ids(data)
         self.assertEqual(
             result,
-            ["gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-nano-banana-2"],
+            ["gemini-3.5-flash-lite", "gemini-3.8-flash"],
         )
         self.assertEqual(
             choose_gemini_model(result, "Antigravity"),
