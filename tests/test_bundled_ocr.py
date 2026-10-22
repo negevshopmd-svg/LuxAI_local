@@ -4,6 +4,8 @@ All network calls, installers, process invocations and disk paths are mocked.
 No real OCR executable is downloaded or executed by these tests.
 """
 from pathlib import Path
+import hashlib
+import importlib.util
 import sys
 import tempfile
 import unittest
@@ -14,6 +16,21 @@ from luxai import screen
 
 
 class BundledOCRTests(unittest.TestCase):
+    def test_pinned_git_blob_hash_validates_exact_model_bytes(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "eng.traineddata"
+            content = b"sample-ocr-model-binary"
+            path.write_bytes(content)
+            header = b"blob " + str(len(content)).encode("ascii") + b"\\0"
+            expected = hashlib.sha1(header + content).hexdigest()
+            with mock.patch.dict(
+                ocr_setup.MODEL_BLOBS,
+                {"eng": (expected, len(content))},
+            ):
+                self.assertTrue(ocr_setup._model_is_verified(path, "eng"))
+                path.write_bytes(content + b"corrupt")
+                self.assertFalse(ocr_setup._model_is_verified(path, "eng"))
+
     def test_release_source_and_hash_are_pinned(self):
         self.assertIn("github.com/UB-Mannheim/tesseract/releases/download/", ocr_setup.INSTALLER_URL)
         self.assertEqual(ocr_setup.RELEASE, "5.4.0.20240606")
@@ -111,6 +128,9 @@ class BundledOCRTests(unittest.TestCase):
                 return "abc"
 
             with mock.patch.object(ocr_setup, "DATA_DIR", data), mock.patch(
+                "luxai.ocr_setup._model_is_verified",
+                side_effect=lambda path, lang: path.is_file() and path.stat().st_size >= 100000
+            ), mock.patch(
                 "luxai.ocr_setup._download_bounded", side_effect=supply_model
             ) as downloader:
                 ocr_setup._install_languages()
@@ -130,6 +150,8 @@ class BundledOCRTests(unittest.TestCase):
             exe.parent.mkdir()
             exe.write_bytes(b"MZ" + b"x" * 15000)
             with mock.patch.object(ocr_setup, "DATA_DIR", data), mock.patch(
+                "luxai.ocr_setup.language_data_ready", return_value=True
+            ), mock.patch(
                 "luxai.ocr_setup.find_tesseract", return_value=exe
             ), mock.patch(
                 "luxai.ocr_setup.subprocess.run", return_value=mock.Mock(
@@ -148,6 +170,10 @@ class BundledOCRTests(unittest.TestCase):
                 self.assertIn("--tessdata-dir", cmd)
                 self.assertIn(str(data), cmd)
 
+    @unittest.skipUnless(
+        importlib.util.find_spec("PIL") is not None,
+        "Pillow is installed in the user's .venv, but not in minimal CI",
+    )
     def test_first_ocr_includes_both_languages_without_manual_configuration(self):
         from PIL import Image
 
