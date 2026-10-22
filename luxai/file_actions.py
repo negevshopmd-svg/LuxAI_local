@@ -121,6 +121,11 @@ def parse_file_intent(text: str) -> dict | None:
         return None
     kind = "create_folder" if matched.group(0) in ("папку", "папка", "folder", "директорию") else "create_file"
     tail = text[matched.end():].strip()
+    # A missing name with only a placement clause uses a harmless default.
+    tail = re.sub(
+        r"^(?:на\s+рабоч(?:ем|ий)\s+стол(?:е|а)|в\s+(?:папке\s+)?(?:документах|загрузках)|on\s+(?:the\s+)?desktop)\s*$",
+        "", tail, flags=re.IGNORECASE,
+    )
     # Remove common placement suffix. A name can contain spaces, e.g. Мой отчёт.
     tail = re.split(
         r"\s+(?:на\s+рабоч(?:ем|ий)\s+стол(?:е|а)|в\s+(?:папке\s+)?(?:документ[а-я]*|загрузк[а-я]*)|on\s+(?:the\s+)?desktop)\b",
