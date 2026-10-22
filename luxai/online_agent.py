@@ -18,29 +18,40 @@ from pathlib import Path
 from luxai.secure_keys import get_api_key
 from luxai.api_providers import PROVIDERS, endpoint_for, model_for
 from luxai.steam_games import lookup_steam_game
+from luxai.file_actions import safe_name, ALLOWED_LOCATIONS
 
 ALLOWED_ACTIONS = {
     "open_app", "launch_game", "steam_game", "minimize_windows",
     "search_web", "time", "reply", "none",
+    "create_file", "create_folder", "list_files",
 }
 CACHE_ACTIONS = {"open_app", "launch_game", "minimize_windows"}
 LOG_FILE = Path(__file__).resolve().parents[1] / "online_agent.log"
 
 _SYSTEM = """You are the ONLINE PLANNER for a Windows voice assistant Jarvis.
 Interpret the user's command and respond with EXACTLY ONE JSON object:
-{"action": "open_app|launch_game|steam_game|minimize_windows|search_web|time|reply|none",
- "target": "string", "reply": "string"}
+{"action": "open_app|launch_game|steam_game|minimize_windows|search_web|time|create_file|create_folder|list_files|reply|none",
+ "target": "string", "reply": "string", "location": "desktop|documents|downloads"}
 Rules:
 - You NEVER execute anything. The LOCAL agent validates your proposal.
 - Do not generate code, a terminal command, a CMD line, PowerShell, registry
   operation, file path, URL, script, or executable as a target.
 - open_app target MUST be exactly one of telegram, discord, chrome, firefox,
   edge, spotify, steam, notepad, calculator, explorer.
-- launch_game target MUST be dota2 or cs2. Dota/Dota 2 = dota2.
+- launch_game target MUST be dota2, cs2 or warthunder.
+  Dota/Dota 2 = dota2, Counter-Strike 2 = cs2, War Thunder = warthunder.
 - steam_game target is ONLY the official game title (no appid or URL). The
   local agent can verify it with the Steam store before launching.
 - minimize_windows target must be empty.
 - time target empty.
+- create_file target is a SINGLE BASENAME (e.g. "Отчёт.txt"), not a path.
+  If no name was requested use "Новый файл.txt"; only .txt/.md/.csv/.json/.log.
+  Set location to desktop, documents or downloads. Never overwrite.
+- create_folder target is a SINGLE folder name; default "Новая папка".
+- list_files target empty and location is desktop, documents or downloads.
+- Do not propose reading, deleting, overwriting or moving private files.
+  No arbitrary shell commands; the local executor always asks confirmation
+  before creating files and folders.
 - search_web target is a short search phrase if user explicitly asks to search
   the web, not a URL.
 - reply action: concise natural-language answer to conversation/questions,
@@ -114,13 +125,31 @@ class OnlinePlanner:
             "spotify", "steam", "notepad", "calculator", "explorer",
         }:
             return None
-        if action == "launch_game" and target not in {"dota2", "cs2"}:
+        if action == "launch_game" and target not in {"dota2", "cs2", "warthunder"}:
             return None
-        if action in {"time", "minimize_windows", "reply", "none"}:
+        if action in {"time", "minimize_windows", "reply", "none", "list_files"}:
             target = ""
         if action in {"steam_game", "search_web"}:
             if not target or not re.fullmatch(r"[^\x00-\x1f<>\r\n]{1,100}", target):
                 return None
+        location = result.get("location", "desktop")
+        if action in {"create_file", "create_folder", "list_files"}:
+            if location not in ALLOWED_LOCATIONS:
+                return None
+            if action in {"create_file", "create_folder"}:
+                try:
+                    target = safe_name(
+                        target, is_folder=action == "create_folder",
+                    )
+                except ValueError:
+                    return None
+            content = result.get("content", "")
+            if not isinstance(content, str) or len(content) > 4096:
+                return None
+            return {
+                "action": action, "target": target, "reply": reply.strip(),
+                "location": location, "content": content,
+            }
         return {"action": action, "target": target, "reply": reply.strip()}
 
     @staticmethod
