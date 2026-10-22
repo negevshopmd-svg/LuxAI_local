@@ -305,8 +305,9 @@ class SettingsPanel(QWidget):
         key_buttons.addWidget(clear)
         panel.addLayout(key_buttons)
         self.online_status = QLabel(
-            "API OpenAI оплачивается отдельно от ChatGPT; бесплатный доступ не гарантирован. "
-            "Никогда не отправляйте API-ключ в чат или на GitHub."
+            "Когда облачный агент включён, ваша команда и до четырёх последних реплик "
+            "отправляются в OpenAI. API оплачивается отдельно от ChatGPT, бесплатный "
+            "доступ не гарантирован. Никогда не отправляйте ключ в чат или на GitHub."
         )
         self.online_status.setObjectName("Muted")
         self.online_status.setWordWrap(True)
