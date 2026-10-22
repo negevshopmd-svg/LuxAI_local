@@ -79,7 +79,7 @@ class VerificationTests(unittest.TestCase):
         with mock.patch.object(OnlinePlanner, "_request", return_value=invalid):
             ok, message = check_api_key(self.settings, "fake-secret")
         self.assertFalse(ok)
-        self.assertIn("формату", message)
+        self.assertIn("формат", message)
 
 
 if __name__ == "__main__":
