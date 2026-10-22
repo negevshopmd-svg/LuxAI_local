@@ -50,7 +50,7 @@ class FastIntentsTests(unittest.TestCase):
         with mock.patch.object(self.agent, "_open_application", return_value=True) as open_app:
             for phrase in phrases:
                 response = self.agent.handle_fast(phrase, confirm_callback=lambda _: True)
-                self.assertEqual(response, "Открыл Telegram.")
+                self.assertIn("Передал Windows запрос на запуск Telegram", response)
         self.assertEqual(open_app.call_count, len(phrases))
 
     def test_actions_still_require_confirmation(self):
