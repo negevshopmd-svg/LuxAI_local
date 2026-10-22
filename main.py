@@ -1,3 +1,4 @@
+import re
 import sys, json, html
 from pathlib import Path
 from PySide6.QtCore import Qt, QThread, Signal
@@ -97,6 +98,8 @@ class MainWindow(QMainWindow):
         self.worker = None
         self.history = []
         self.nav_buttons = []
+        self.pending_confirmation_dialog = None
+        self.pending_confirmation_result = None
 
         root = QWidget()
         self.setCentralWidget(root)
@@ -334,7 +337,7 @@ class MainWindow(QMainWindow):
         box.addWidget(self.mic)
         self.prefix = QCheckBox("Necesită prefix pentru activare")
         self.prefix.setChecked(self.cfg.get("prefix_enabled", False))
-        self.prefix.toggled.connect(self.save_settings)
+        self.prefix.toggled.connect(self.sync_prefix)
         box.addWidget(self.prefix)
         self.tts = QCheckBox("Răspuns vocal")
         self.tts.setChecked(self.cfg.get("tts_enabled", True))
@@ -382,7 +385,7 @@ class MainWindow(QMainWindow):
             return
         self.cfg.update({
             "microphone_enabled": self.mic.isChecked(),
-            "prefix_enabled": self.prefix.isChecked() or self.home_prefix.isChecked(),
+            "prefix_enabled": self.prefix.isChecked(),
             "wake_prefix": self.prefix_text.text().strip() or "Jarvis",
             "language": self.language.currentData(),
             "tts_enabled": self.tts.isChecked(),
@@ -392,15 +395,20 @@ class MainWindow(QMainWindow):
             self.agent.update_config(self.cfg)
 
     def sync_prefix(self, enabled):
-        if hasattr(self, "prefix"):
+        # Keep both controls synchronized without restarting/blocking the audio thread.
+        if hasattr(self, "prefix") and self.prefix.isChecked() != enabled:
+            self.prefix.blockSignals(True)
             self.prefix.setChecked(enabled)
+            self.prefix.blockSignals(False)
+        if hasattr(self, "home_prefix") and self.home_prefix.isChecked() != enabled:
+            self.home_prefix.blockSignals(True)
+            self.home_prefix.setChecked(enabled)
+            self.home_prefix.blockSignals(False)
         if hasattr(self, "mic"):
             self.save_settings()
-        # Restart the listener so prefix changes apply immediately.
-        if self.worker and self.worker.isRunning():
-            self.stop_listener()
-            if self.cfg.get("microphone_enabled", True):
-                self.start_listener()
+        if self.worker and self.worker.listener:
+            self.worker.listener.prefix_enabled = bool(enabled)
+            self.worker.listener.prefix = (self.cfg.get("wake_prefix", "Jarvis") or "Jarvis").strip().lower()
 
     def sync_quiet(self, enabled):
         if hasattr(self, "tts"):
@@ -449,8 +457,30 @@ class MainWindow(QMainWindow):
             self.mic_status.setText("Model selectat — se va încărca la prima comandă.")
 
     def handle_voice(self, text):
+        # Voice answers can approve/deny an action while its confirmation dialog is open.
+        if self.pending_confirmation_dialog is not None:
+            answer = self._parse_confirmation(text)
+            if answer is not None:
+                self.pending_confirmation_result = answer
+                self.pending_confirmation_dialog.done(1 if answer else 0)
+                return
         self.append_message("Tu (voce)", text, "#79a6ff")
         self.run_command(text)
+
+    @staticmethod
+    def _parse_confirmation(text):
+        t = text.lower().strip()
+        t = html.unescape(t)
+        yes = ["yes", "yeah", "yep", "да", "ага", "конечно", "подтверждаю",
+               "давай", "так", "так, да", "так пожалуйста", "da", "да", "sigur", "confirm", "confirmă", "permite", "desigur", "ok", "okay"]
+        no = ["no", "nope", "нет", "не надо", "отмена", "отмени", "не разрешаю",
+              "nu", "nu permite", "anulează", "anuleaza", "refuz", "stop"]
+        normalized = re.sub(r"[.!?,;:]+", "", t).strip()
+        if normalized in yes:
+            return True
+        if normalized in no:
+            return False
+        return None
 
     def submit_command(self):
         text = self.command.text().strip()
@@ -479,12 +509,24 @@ class MainWindow(QMainWindow):
             speak(result, enabled=True)
 
     def confirm_action(self, description):
-        answer = QMessageBox.question(
-            self, "Confirmă acțiunea",
-            f"Lux AI dorește să execute:\n\n{description}\n\nPermiți această acțiune?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No)
-        return answer == QMessageBox.StandardButton.Yes
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("Confirmă acțiunea")
+        dialog.setText(f"Nexora AI dorește să execute:\\n\\n{description}\\n\\nSpune „da” sau „nu” ori alege un buton.")
+        dialog.setInformativeText("Răspuns vocal disponibil cât timp microfonul este activ.")
+        dialog.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        dialog.setButtonText(QMessageBox.StandardButton.Yes, "Da")
+        dialog.setButtonText(QMessageBox.StandardButton.No, "Nu")
+        dialog.setDefaultButton(QMessageBox.StandardButton.No)
+        self.pending_confirmation_dialog = dialog
+        self.pending_confirmation_result = None
+        try:
+            clicked = dialog.exec()
+            if self.pending_confirmation_result is not None:
+                return self.pending_confirmation_result
+            return clicked == QMessageBox.StandardButton.Yes
+        finally:
+            self.pending_confirmation_dialog = None
+            self.pending_confirmation_result = None
 
     def screen_action(self):
         try:
