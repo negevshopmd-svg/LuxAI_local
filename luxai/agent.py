@@ -5,6 +5,8 @@ from luxai.screen import capture_screen, read_screen_text
 from luxai.steam_games import GAMES, local_game_intent, launch_steam_game
 from luxai.fast_intents import strip_wake_name, quick_reply, has_launch_verb
 from luxai.file_actions import create_user_item, list_user_items, parse_file_intent, safe_name, ALLOWED_LOCATIONS
+from luxai.desktop_actions import execute_desktop_step
+from luxai.action_catalog import CATALOG, validate_step
 
 class LocalAgent:
     def __init__(self, config):
@@ -362,9 +364,48 @@ class LocalAgent:
             if result:
                 self.remember(text, result)
             return result
+        desktop_features = {
+            "noop", "open_website", "type_text", "hotkey", "press_enter",
+            "save_document", "mouse_double_click", "mouse_click", "mouse_scroll",
+            "mouse_move", "speak_text", "speak_ready", "speak_done",
+            "volume_up", "volume_down", "lock_screen",
+        }
+        if action in desktop_features:
+            try:
+                validated = validate_step(plan)
+            except (TypeError, ValueError):
+                return "Некорректные параметры действия."
+            mandatory_approval = action in {
+                "type_text", "hotkey", "press_enter", "save_document",
+                "mouse_double_click", "mouse_click", "mouse_scroll",
+                "mouse_move", "lock_screen",
+            }
+            title = CATALOG[action]["title"]
+            if mandatory_approval and not confirm_callback(
+                "⚠ Подтвердите действие: " + title +
+                (f" — {validated['target'][:100]}" if validated["target"] else "")
+            ):
+                return self._say("Действие отменено.", "Acțiune anulată.", "Action cancelled.", text)
+            if action == "open_website" and not confirm_callback(
+                f"Открыть сайт: {validated['target']}"
+            ):
+                return self._say("Действие отменено.", "Acțiune anulată.", "Action cancelled.", text)
+            try:
+                answer = execute_desktop_step(validated)
+                self.last_execution_success = True
+                if answer:
+                    self.remember(text, answer)
+                return answer
+            except Exception as exc:
+                return self._say(
+                    f"Не удалось выполнить «{title}»: {exc}",
+                    f"Nu am putut executa «{title}»: {exc}",
+                    f"Could not execute «{title}»: {exc}", text,
+                )
         if action == "reply" and isinstance(plan.get("reply"), str):
             answer = plan["reply"][:700].strip() or None
         elif action == "time":
+            self.last_execution_success = True
             answer = self._say("Сейчас ", "Ora este ", "It's ", text) + datetime.datetime.now().strftime("%H:%M")
         elif action == "open_app" and target in {
             "telegram", "discord", "chrome", "firefox", "edge",
@@ -418,6 +459,7 @@ class LocalAgent:
         elif action == "minimize_windows":
             # Reuse the same local execution path and confirmation rules.
             answer = self._simple_action("сверни все окна", confirm_callback)
+            self.last_execution_success = bool(answer and ("Свернул окон" in answer or "Minimized" in answer))
         elif action == "search_web" and isinstance(target, str) and 0 < len(target) <= 100:
             query = target.strip()
             if query:
