@@ -1,0 +1,18 @@
+# Local configuration, credentials and generated files
+.env
+.luxai_secrets/
+config.local.json
+voice_error.log
+online_agent.log
+logs/
+backups/
+downloads/
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+models/
+voices/*.onnx
+voices/*.onnx.json
+.luxai_update_state.json
