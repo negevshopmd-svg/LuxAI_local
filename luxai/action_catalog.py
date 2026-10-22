@@ -28,6 +28,7 @@ _ACTIONS = [
     ("open_app", "Запуск", "Запустить программу", "Открывает выбранное установленное приложение", True),
     ("launch_game", "Запуск", "Запустить игру Steam", "Dota 2, Counter-Strike 2, War Thunder", True),
     ("run_file", "Запуск", "Запустить файл или программу", "Открывает файл, вручную выбранный на вашем компьютере", True),
+    ("open_user_file", "Файлы", "Открыть файл по имени", "Ищет на рабочем столе, в Документах или Загрузках и открывает через Windows", True),
     ("open_website", "Запуск", "Открыть сайт", "Открывает указанный HTTPS-сайт в браузере", True),
     ("run_cmd", "Запуск", "Выполнить команду CMD", "Только сохранённый пользователем скрипт; подтверждение при каждом запуске", True),
     ("run_powershell", "Запуск", "Выполнить команду PowerShell", "Только сохранённая вручную команда; обязательное подтверждение", True),
@@ -147,6 +148,19 @@ def validate_step(raw):
         result["target"] = target
     elif action in ("create_file", "create_folder"):
         result["target"] = safe_name(str(target or ""), is_folder=action == "create_folder")
+        result["location"] = raw.get("location", "desktop")
+    elif action == "open_user_file":
+        # Explicit basename only. The actual file must be resolved only
+        # when the command runs, so user-created shortcuts survive renames.
+        from luxai.voice_files import parse_open_user_file
+        value = str(target or "").strip(" \\"'«»“”")
+        if (
+            not 1 <= len(value) <= 180 or value in (".", "..")
+            or ".." in value
+            or any(ord(c) < 32 or c in '\\/:*?"<>|' for c in value)
+        ):
+            raise ValueError("Укажите только имя файла без пути, например Отчёт.docx")
+        result["target"] = value
         result["location"] = raw.get("location", "desktop")
     elif action == "list_files":
         result["location"] = raw.get("location", "desktop")
