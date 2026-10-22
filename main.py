@@ -25,6 +25,7 @@ from luxai.api_providers import PROVIDERS
 from luxai.command_registry import CommandRegistry
 from luxai.ui_commands import CommandsPage
 from luxai.command_wizard import CommandWizard, is_create_command_request
+from luxai.intent_routing import is_operational_request, routine_reply, suspicious_completion_reply
 
 BASE = Path(__file__).resolve().parent
 CONFIG = BASE / "config.json"
@@ -781,64 +782,94 @@ class MainWindow(QMainWindow):
         self._active_text = text
         self._processing = True
         try:
-            # Exact named shortcuts are checked before any model. Defaults and
-            # custom/learned commands share the same validated local executor.
-            if self.command_registry.disabled_match(text, self.cfg.get("wake_prefix", "Jarvis")):
+            prefix = self.cfg.get("wake_prefix", "Jarvis")
+            if self.command_registry.disabled_match(text, prefix):
                 self._current_route = "выключенная команда"
                 self._resolved_command(text, "Эта команда отключена в библиотеке команд.")
                 return
-            saved = self.command_registry.match(text, self.cfg.get("wake_prefix", "Jarvis"))
-            if saved is not None:
-                if saved.get("steps"):
-                    self._run_saved_steps(text, saved["steps"])
-                    return
-                plan = {
-                    "action": saved["action"],
-                    "target": saved.get("target", ""),
-                    "location": saved.get("location", "desktop"),
-                    "appid": saved.get("appid"),
-                }
-                answer = self.agent.execute_plan(
-                    text, plan, confirm_callback=self.confirm_action,
-                )
-                if answer is not None:
-                    self._current_route = "готовая команда"
-                    self._resolved_command(text, answer)
-                    return
-            # Fast deterministic actions still handle natural language
-            # variants that aren't exact registered trigger phrases.
-            answer = self.agent.handle_fast(text, confirm_callback=self.confirm_action)
-            if answer is not None:
-                self._current_route = "быстро"
-                # Learn a new variation only after a supported action succeeds.
-                learned = self.command_registry.learn(
-                    text, getattr(self.agent, "last_executed_plan", None),
-                    success=getattr(self.agent, "last_execution_success", False),
-                )
-                if learned:
-                    self.commands_page.refresh()
-                self._resolved_command(text, answer)
+
+            saved = self.command_registry.match(text, prefix)
+            # Explicitly authored/learned personal commands are intentionally
+            # instant, even if Gemini is enabled. Every unknown spoken action
+            # is handed to Gemini first when the cloud key works.
+            if saved is not None and not saved.get("builtin", True):
+                self._execute_registered(text, saved)
                 return
+
+            quick = routine_reply(text, self.cfg.get("language", "ru"))
+            if quick is not None:
+                self.agent.remember(text, quick)
+                self._current_route = "быстрый ответ"
+                self._resolved_command(text, quick)
+                return
+
+            if self.online_planner.enabled():
+                provider = self.cfg.get("online_provider", "gemini")
+                label = PROVIDERS.get(provider, {}).get("label", provider)
+                self.mic_status.setText(
+                    f"Шаг 1/2: онлайн-планировщик {label} анализирует запрос…"
+                )
+                history = tuple(dict(msg) for msg in self.agent.history[-4:])
+                threading.Thread(
+                    target=self._online_thread, args=(text, history),
+                    daemon=True, name="JarvisCloudFirst",
+                ).start()
+                return
+
+            # No API key / offline: only safe deterministic actions are allowed
+            # to report execution. Local GGUF never acts as a CMD terminal.
+            self._safe_local_fallback(
+                text, "Gemini не подключён или отсутствует API-ключ",
+                saved=saved,
+            )
         except Exception as exc:
             self._resolved_command(text, self._error_message(exc))
-            return
 
-        if self.online_planner.enabled():
-            provider = self.cfg.get("online_provider", "openai")
-            label = PROVIDERS.get(provider, {}).get("label", provider)
-            self.mic_status.setText(f"Онлайн-агент {label} обрабатывает команду…")
-            history = tuple(dict(msg) for msg in self.agent.history[-4:])
-            threading.Thread(
-                target=self._online_thread, args=(text, history),
-                daemon=True, name="JarvisOnlinePlanner",
-            ).start()
-        else:
-            reason = (
-                "нет сохранённого ключа онлайн-агента"
-                if self.cfg.get("online_agent_enabled", False)
-                else "облачный помощник выключен"
+    def _execute_registered(self, text, saved):
+        if saved.get("steps"):
+            self._run_saved_steps(text, saved["steps"])
+            return
+        plan = {
+            "action": saved["action"],
+            "target": saved.get("target", ""),
+            "location": saved.get("location", "desktop"),
+            "appid": saved.get("appid"),
+        }
+        answer = self.agent.execute_plan(
+            text, plan, confirm_callback=self.confirm_action,
+        )
+        self._current_route = "сохранённая команда"
+        self._resolved_command(text, answer or "Команда не выполнена.")
+
+    def _safe_local_fallback(self, text, reason="", saved=None):
+        """Safe non-AI execution fallback; never synthesize fake file actions."""
+        try:
+            if saved is None:
+                saved = self.command_registry.match(
+                    text, self.cfg.get("wake_prefix", "Jarvis"),
+                )
+            if saved:
+                self._execute_registered(text, saved)
+                return
+            answer = self.agent.handle_fast(
+                text, confirm_callback=self.confirm_action,
             )
-            self._start_local_chat(text, reason=reason)
+        except Exception as exc:
+            answer = f"Локальная команда завершилась ошибкой: {exc}"
+        if answer is not None:
+            self._current_route = "локальный исполнитель (без Gemini)"
+            self._resolved_command(text, answer)
+            return
+        if is_operational_request(text):
+            self._current_route = "операция не выполнена"
+            diagnostic = (": " + reason) if reason else ""
+            self._resolved_command(
+                text,
+                "Системное действие НЕ выполнено" + diagnostic +
+                ". Проверьте Gemini/API или создайте пользовательскую команду.",
+            )
+            return
+        self._start_local_chat(text, reason=reason)
 
     def _run_saved_steps(self, text, steps):
         """Run a verified command's actions in order, with async QTimer pauses."""
@@ -985,24 +1016,48 @@ class MainWindow(QMainWindow):
     def _on_online_plan(self, text, proposal):
         if self._closed or not self._processing or text != self._active_text:
             return
-        answer = None
-        if proposal:
-            try:
-                answer = self.agent.execute_plan(
-                    text, proposal, confirm_callback=self.confirm_action,
-                )
-            except Exception:
-                answer = None
+        provider = self.cfg.get("online_provider", "openai")
+        label = PROVIDERS.get(provider, {}).get("label", provider)
+        if not proposal:
+            error = self.online_planner.last_error or "не удалось получить план"
+            self.mic_status.setText("Ошибка онлайн-планировщика: " + error)
+            self._safe_local_fallback(text, f"{label}: {error}")
+            return
+
+        if (
+            proposal.get("action") == "reply"
+            and is_operational_request(text)
+            and suspicious_completion_reply(proposal.get("reply", ""))
+        ):
+            # An LLM claiming an action succeeded is NOT an execution trace.
+            self._safe_local_fallback(
+                text,
+                f"{label} прислал текст вместо исполняемого плана",
+            )
+            return
+
+        self.mic_status.setText(
+            f"Шаг 2/2: локальный исполнитель выполняет план {label}…"
+        )
+        try:
+            answer = self.agent.execute_plan(
+                text, proposal, confirm_callback=self.confirm_action,
+            )
+        except Exception as exc:
+            answer = f"Локальный исполнитель завершился ошибкой: {exc}"
         if answer is not None:
-            if proposal and getattr(self.agent, "last_execution_success", False):
-                learned = self.command_registry.learn(text, proposal, success=True)
+            if getattr(self.agent, "last_execution_success", False):
+                learned = self.command_registry.learn(
+                    text, proposal, success=True,
+                )
                 if learned:
                     self.commands_page.refresh()
-            provider = self.cfg.get("online_provider", "openai")
-            self._current_route = "онлайн: " + PROVIDERS.get(provider, {}).get("label", provider)
+            self._current_route = "Gemini → Windows" if provider == "gemini" else (label + " → Windows")
             self._resolved_command(text, answer)
         else:
-            self._start_local_chat(text, reason="облачный ответ недоступен")
+            self._safe_local_fallback(
+                text, f"план {label} не поддержан локальным исполнителем",
+            )
 
     def _start_local_chat(self, text, reason=""):
         if not self.cfg.get("local_llm_fallback_enabled", True):
