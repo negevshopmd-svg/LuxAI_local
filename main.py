@@ -1,7 +1,8 @@
 import re
-import sys, json, html
+import sys, json, html, urllib.request
 from pathlib import Path
 from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtGui import QFontDatabase, QFont
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QCheckBox, QLineEdit, QTextEdit, QFileDialog, QMessageBox,
@@ -16,7 +17,7 @@ BASE = Path(__file__).resolve().parent
 CONFIG = BASE / "config.json"
 
 STYLE = """
-QWidget { background:#101319; color:#e9edf5; font-family:'Segoe UI'; font-size:13px; }
+QWidget { background:#101319; color:#e9edf5; font-family:'Fuzzy Bubbles','Segoe UI'; font-size:13px; }
 QMainWindow { background:#101319; }
 QFrame#Sidebar { background:#151a23; border-right:1px solid #252c39; }
 QFrame#Card { background:#1b2029; border:1px solid #303744; border-radius:15px; }
@@ -576,9 +577,36 @@ class MainWindow(QMainWindow):
         self.stop_listener()
         event.accept()
 
+def load_project_font():
+    """Download Fuzzy Bubbles into the project on first launch and register it in Qt."""
+    font_dir = BASE / "assets" / "fonts"
+    font_dir.mkdir(parents=True, exist_ok=True)
+    fonts = {
+        "FuzzyBubbles-Regular.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/fuzzybubbles/FuzzyBubbles-Regular.ttf",
+        "FuzzyBubbles-Bold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/fuzzybubbles/FuzzyBubbles-Bold.ttf",
+    }
+    loaded = False
+    for filename, url in fonts.items():
+        path = font_dir / filename
+        try:
+            if not path.exists() or path.stat().st_size < 1000:
+                request = urllib.request.Request(url, headers={"User-Agent": "NexoraAI/1.0"})
+                with urllib.request.urlopen(request, timeout=12) as response:
+                    data = response.read()
+                if len(data) < 1000:
+                    raise ValueError("Fișierul fontului descărcat pare invalid.")
+                path.write_bytes(data)
+            if QFontDatabase.addApplicationFont(str(path)) >= 0:
+                loaded = True
+        except Exception as exc:
+            print(f"Nu am putut încărca fontul {filename}: {exc}")
+    return loaded
+
 app = QApplication(sys.argv)
 app.setStyle("Fusion")
+load_project_font()
 app.setStyleSheet(STYLE)
+app.setFont(QFont("Fuzzy Bubbles" if QFontDatabase.hasFamily("Fuzzy Bubbles") else "Segoe UI", 10))
 w = MainWindow()
 w.show()
 sys.exit(app.exec())
