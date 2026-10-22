@@ -5,7 +5,7 @@ Each action is a separate two-line widget, never a multi-line QPushButton.
 """
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QSize
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QFileDialog, QFormLayout, QFrame, QHBoxLayout,
     QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox,
@@ -248,10 +248,10 @@ class ActionOptionsDialog(QDialog):
             self.target.setPlaceholderText(prompts[action])
             self.target.setMaxLength(500)
             form.addRow("Значение", self.target)
-        elif action in {"play_mp3", "play_wav"}:
+        elif action in {"play_mp3", "play_wav", "run_file"}:
             self.target = QLineEdit(str(self.current_step.get("target", "")))
             self.target.setReadOnly(True)
-            self.target.setPlaceholderText("Выберите файл…")
+            self.target.setPlaceholderText("Выберите файл или программу…")
             row = QHBoxLayout()
             row.addWidget(self.target, 1)
             self.browse = QPushButton("Обзор…")
@@ -406,9 +406,7 @@ class ActionPicker(QDialog):
         for name, icon_name in CATEGORIES:
             entry = QListWidgetItem(f"{icon_name}   {name}")
             entry.setData(Qt.ItemDataRole.UserRole, name)
-            entry.setSizeHint(entry.sizeHint().expandedTo(
-                entry.sizeHint().__class__(170, 42)
-            ))
+            entry.setSizeHint(QSize(170, 43))
             self.category_list.addItem(entry)
         self.category_list.currentRowChanged.connect(self._refresh_items)
         body.addWidget(self.category_list)
