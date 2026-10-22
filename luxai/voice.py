@@ -1,25 +1,10 @@
-import queue, re, time
+import queue
 from collections import deque
 
 import numpy as np
 import sounddevice as sd
-import pyttsx3
 
-
-def speak(text, enabled=True):
-    if not enabled or not text:
-        return
-    # Keep spoken output short; avoid speaking stack traces/long OCR.
-    text = re.sub(r"\s+", " ", str(text)).strip()
-    if len(text) > 700:
-        text = text[:700] + "…"
-    try:
-        engine = pyttsx3.init()
-        engine.say(text)
-        engine.runAndWait()
-        engine.stop()
-    except Exception:
-        pass
+from .voices import speak
 
 
 class VoiceListener:
@@ -58,7 +43,7 @@ class VoiceListener:
         # retain a simple RMS detector so microphone capture still works.
         try:
             import webrtcvad
-            vad = webrtcvad.Vad(2)  # 0=least aggressive, 3=most aggressive
+            vad = webrtcvad.Vad(2)
             use_vad = True
         except ImportError:
             vad = None
@@ -73,7 +58,6 @@ class VoiceListener:
             try:
                 q.put_nowait(indata.copy().reshape(-1))
             except queue.Full:
-                # Drop the oldest frame rather than let audio latency grow.
                 try:
                     q.get_nowait()
                     q.put_nowait(indata.copy().reshape(-1))
@@ -108,7 +92,6 @@ class VoiceListener:
                     except Exception:
                         is_speech = False
                 else:
-                    # Fallback threshold can be tuned for a quiet/noisy microphone.
                     try:
                         threshold = float(__import__("os").environ.get("NEXORA_VOICE_THRESHOLD", "0.004"))
                     except (TypeError, ValueError):
@@ -130,8 +113,6 @@ class VoiceListener:
                     else:
                         silence_frames += 1
 
-                # End the utterance after a short silence, or cap its length to
-                # avoid unbounded memory use if background noise keeps VAD active.
                 if speech_started and (
                     silence_frames >= silence_frames_needed or utterance_frames >= max_frames
                 ):
