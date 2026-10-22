@@ -122,7 +122,7 @@ def checked_command(raw, builtin=False):
     location = raw.get("location", "desktop")
     raw_steps = raw.get("steps")
     validated_steps = []
-    if raw_steps is not None:
+    if raw_steps:
         if not isinstance(raw_steps, list) or not 1 <= len(raw_steps) <= 8:
             raise ValueError("A command must contain 1 to 8 actions")
         validated_steps = [validate_step(step) for step in raw_steps]
