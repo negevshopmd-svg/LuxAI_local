@@ -11,6 +11,7 @@ import json
 import re
 import subprocess
 import sys
+import threading
 import tempfile
 import urllib.request
 import wave
@@ -23,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 VOICES_DIR = ROOT / "voices"
 CONFIG_PATH = ROOT / "config.json"
 ERROR_LOG = ROOT / "voice_error.log"
+playback_active = threading.Event()
 
 DEFAULT_RUSSIAN = "ru_RU-dmitri-medium"
 PIPER_BASE_URL = (
@@ -248,7 +250,11 @@ _manager = VoiceManager()
 def speak(text: str, enabled: bool = True, language: str | None = None) -> bool:
     if not enabled:
         return False
-    return _manager.speak(text, language=language)
+    playback_active.set()
+    try:
+        return _manager.speak(text, language=language)
+    finally:
+        playback_active.clear()
 
 
 def available_voices() -> list[dict]:
