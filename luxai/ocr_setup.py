@@ -104,7 +104,7 @@ def _model_is_verified(file: Path, language: str) -> bool:
             return False
         # Git stores blobs as SHA-1(b"blob <length>\\0" + bytes).
         sha1 = hashlib.sha1(
-            b"blob " + str(expected_size).encode("ascii") + b"\\0"
+            b"blob " + str(expected_size).encode("ascii") + b"\0"
         )
         with file.open("rb") as model:
             for chunk in iter(lambda: model.read(1024 * 1024), b""):
