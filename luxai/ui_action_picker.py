@@ -234,11 +234,13 @@ class ActionOptionsDialog(QDialog):
             self.percent.setSuffix(" %")
             self.percent.setValue(int(percent) if percent.isdigit() else 80)
             form.addRow("Громкость", self.percent)
-        elif action in {"create_file", "create_folder", "list_files"}:
+        elif action in {"create_file", "create_folder", "list_files", "open_user_file"}:
             if action != "list_files":
                 self.target = QLineEdit(str(self.current_step.get("target", "")))
                 self.target.setPlaceholderText(
-                    "Новый файл.txt" if action == "create_file" else "Новая папка"
+                    "Отчёт.docx" if action == "open_user_file" else (
+                        "Новый файл.txt" if action == "create_file" else "Новая папка"
+                    )
                 )
                 form.addRow("Название", self.target)
             self.location = QComboBox()
