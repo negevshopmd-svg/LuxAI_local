@@ -1,0 +1,12 @@
+{
+  "microphone_enabled": true,
+  "prefix_enabled": false,
+  "wake_prefix": "Jarvis",
+  "language": "ru",
+  "tts_enabled": true,
+  "whisper_model": "small",
+  "whisper_model_path": "",
+  "llm_model_path": "C:/Users/vlad/Desktop/LuxAI_Local/models/Qwen3-8B-Q4_K_M.gguf",
+  "tesseract_path": "",
+  "confirm_desktop_actions": true
+}

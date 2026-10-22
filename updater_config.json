@@ -1,0 +1,10 @@
+{
+  "manifest_url": "https://PUNE_AICI_ADRESA_SERVERULUI/manifest.json",
+  "preserve": [
+    "updater_config.json",
+    "version.txt",
+    "models",
+    "config.json",
+    ".venv"
+  ]
+}
