@@ -67,7 +67,15 @@ def normalized_name(name: str) -> str:
         raise ValueError("Недопустимые символы в названии приложения")
     if "/" in value or "\\" in value or value in {".", ".."} or value.endswith((".exe", ".bat", ".cmd", ".ps1")):
         raise ValueError("Нужно название приложения, не путь к файлу и не команда")
-    return ALIASES.get(value, value)
+    value = ALIASES.get(value, value)
+    # AI must not be able to relabel a terminal or script host as an app.
+    if value in {
+        "cmd", "powershell", "pwsh", "terminal", "wt", "bash", "sh",
+        "wscript", "cscript", "mshta", "regedit", "rundll32",
+        "taskkill", "schtasks", "msiexec", "python", "pythonw",
+    }:
+        raise ValueError("Командные интерпретаторы не запускаются по онлайн-плану")
+    return value
 
 
 def _match_name(query: str, candidate: str) -> bool:
