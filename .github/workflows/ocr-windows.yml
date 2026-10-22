@@ -5,6 +5,7 @@ on:
     paths:
       - ".github/workflows/ocr-windows.yml"
       - "luxai/ocr_setup.py"
+      - "luxai/screen.py"
       - "tests/test_bundled_ocr.py"
       - "tests/smoke_windows_ocr.py"
   workflow_dispatch:
