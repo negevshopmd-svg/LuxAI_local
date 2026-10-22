@@ -26,6 +26,13 @@ from luxai.command_registry import CommandRegistry
 from luxai.ui_commands import CommandsPage
 from luxai.command_wizard import CommandWizard, is_create_command_request
 from luxai.intent_routing import is_operational_request, routine_reply, suspicious_completion_reply
+from luxai.websites import website_plan
+from luxai.screen_interact import (
+    _foreground_hwnd, _valid_external_window,
+    is_screen_inspection_request, button_choice,
+    inspect_screen_buttons, click_inspected_button,
+)
+from luxai.ui_screen_assist import ScreenAssistDialog
 from luxai.weather_service import is_weather_question, get_weather_report
 from luxai.voice_desktop import (
     is_dictation_start, is_dictation_stop, dictation_text,
@@ -93,6 +100,7 @@ class MainWindow(QMainWindow):
     wizard_plan_ready = Signal(str, object)
     macro_step_ready = Signal(int, bool, str)
     direct_task_ready = Signal(str, str, str)
+    screen_inspection_ready = Signal(str, object, str)
 
     def __init__(self):
         super().__init__()
@@ -108,6 +116,7 @@ class MainWindow(QMainWindow):
         self.online_planner = OnlinePlanner(self.cfg)
         self.online_plan_ready.connect(self._on_online_plan)
         self.direct_task_ready.connect(self._on_direct_task_ready)
+        self.screen_inspection_ready.connect(self._on_screen_inspection_ready)
         self.macro_step_ready.connect(self._on_macro_step_ready)
         self.wizard_plan_ready.connect(self._on_wizard_plan)
         self.local_reply_ready.connect(self._on_local_reply)
@@ -117,6 +126,9 @@ class MainWindow(QMainWindow):
         self._active_text = None
         self._processing = False
         self.dictation_active = False
+        self._screen_snapshot = None
+        self._screen_dialog = None
+        self._last_external_hwnd = 0
         self._current_route = ""
         self._closed = False
         self._api_test_running = False
@@ -181,6 +193,12 @@ class MainWindow(QMainWindow):
         self.apply_appearance()
         self.show_page(0)
         self.mic_status.setText(self._provider_status_text())
+        # Remember the last other foreground window while Jarvis is out of
+        # focus; the screen panel itself must not become the click target.
+        self._foreground_observer = QTimer(self)
+        self._foreground_observer.setInterval(450)
+        self._foreground_observer.timeout.connect(self._remember_external_window)
+        self._foreground_observer.start()
 
         if self.cfg.get("microphone_enabled", True):
             self.start_listener()
@@ -201,6 +219,7 @@ class MainWindow(QMainWindow):
         self.home_quiet.toggled.connect(self.sync_quiet)
         self.home_avatar.toggled.connect(self.sync_animation)
         self.home_top.toggled.connect(self.set_always_on_top)
+        self.home_page.screen_assist_button.clicked.connect(self.request_screen_inspection)
         self.volume.valueChanged.connect(self.sync_volume)
         self.pages.addWidget(self.home_page)
 
@@ -870,6 +889,146 @@ class MainWindow(QMainWindow):
         self._current_route = "Open-Meteo" if mode == "weather" else "локальный OCR"
         self._resolved_command(text, answer)
 
+    def _remember_external_window(self):
+        if sys.platform != "win32" or self._closed:
+            return
+        try:
+            hwnd = _foreground_hwnd()
+            _valid_external_window(hwnd)
+        except (OSError, ValueError):
+            return
+        self._last_external_hwnd = hwnd
+
+    def request_screen_inspection(self, checked=False):
+        """Home panel button: inspect the most recently focused other app."""
+        self._start_screen_inspection("__GUI_SCREEN__")
+
+    def _start_screen_inspection(self, original_text):
+        if sys.platform != "win32":
+            if original_text != "__GUI_SCREEN__":
+                self._current_route = "Windows UI Automation"
+                self._resolved_command(original_text, "Просмотр кнопок доступен только в Windows.")
+            else:
+                self.mic_status.setText("Просмотр кнопок доступен только в Windows.")
+            return
+        hwnd = _foreground_hwnd()
+        try:
+            _valid_external_window(hwnd)
+        except (OSError, ValueError):
+            hwnd = getattr(self, "_last_external_hwnd", 0)
+        try:
+            _valid_external_window(hwnd)
+        except (OSError, ValueError):
+            message = (
+                "Не нашёл другое активное окно. Откройте нужную программу, "
+                "переключитесь в неё и скажите «Жарвис, покажи кнопки на экране»."
+            )
+            if original_text == "__GUI_SCREEN__":
+                self.mic_status.setText(message)
+            else:
+                self._current_route = "Windows UI Automation"
+                self._resolved_command(original_text, message)
+            return
+
+        self._last_external_hwnd = hwnd
+        self.mic_status.setText("Сканирую видимые кнопки Windows UI Automation…")
+        try:
+            from ctypes import wintypes
+            import ctypes
+            ctypes.windll.user32.SetForegroundWindow(wintypes.HWND(hwnd))
+        except (AttributeError, OSError):
+            pass
+
+        def begin():
+            if self._closed:
+                return
+            threading.Thread(
+                target=self._screen_inspection_worker,
+                args=(original_text, hwnd),
+                daemon=True,
+                name="JarvisScreenInspector",
+            ).start()
+        QTimer.singleShot(240, begin)
+
+    def _screen_inspection_worker(self, text, hwnd):
+        try:
+            inspected = inspect_screen_buttons(hwnd)
+            error = ""
+        except Exception as exc:
+            inspected = None
+            error = f"{type(exc).__name__}: {str(exc)[:230]}"
+        if not self._closed:
+            try:
+                self.screen_inspection_ready.emit(text, inspected, error)
+            except RuntimeError:
+                pass
+
+    def _on_screen_inspection_ready(self, text, snapshot, error):
+        if self._closed:
+            return
+        gui_request = text == "__GUI_SCREEN__"
+        if not gui_request and (
+            not self._processing or text != self._active_text
+        ):
+            return
+        if error or snapshot is None:
+            answer = (
+                "Не удалось проверить кнопки: " + (error or "нет доступного окна")
+            )
+            if gui_request:
+                self.mic_status.setText(answer)
+            else:
+                self._current_route = "Windows UI Automation"
+                self._resolved_command(text, answer)
+            return
+
+        self._screen_snapshot = snapshot
+        if self._screen_dialog is None:
+            panel = ScreenAssistDialog(snapshot, self)
+            panel.click_requested.connect(
+                lambda kind: self.run_command(
+                    "Нажми да" if kind == "yes" else "Нажми нет"
+                )
+            )
+            panel.refresh_requested.connect(self.request_screen_inspection)
+            self._screen_dialog = panel
+        else:
+            self._screen_dialog.set_snapshot(snapshot)
+        self._screen_dialog.show()
+        self._screen_dialog.raise_()
+        self._screen_dialog.activateWindow()
+        count = len(snapshot.buttons)
+        message = (
+            f"Снимок экрана готов: {snapshot.title}. "
+            f"Распознано доступных кнопок Да/Нет: {count}. "
+            "Скажите «нажми да» или «нажми нет»."
+        )
+        self.mic_status.setText(message)
+        if not gui_request:
+            self._current_route = "Windows UI Automation"
+            self._resolved_command(text, message)
+
+    def _click_screen_choice(self, choice):
+        snapshot = getattr(self, "_screen_snapshot", None)
+        if snapshot is None:
+            return (
+                "Сначала скажите «Покажи кнопки на экране», "
+                "чтобы выбрать окно и кнопку."
+            )
+        panel = getattr(self, "_screen_dialog", None)
+        if panel is not None:
+            panel.hide()
+        result = click_inspected_button(
+            snapshot, choice, confirm=self.confirm_action,
+        )
+        if result.startswith("Нажал"):
+            self._screen_snapshot = None
+            if panel is not None:
+                panel.close()
+        elif panel is not None:
+            panel.show()
+        return result
+
     def _dispatch_command(self):
         if self._processing or self._closed or not self._command_queue:
             return
@@ -916,6 +1075,23 @@ class MainWindow(QMainWindow):
             # is handed to Gemini first when the cloud key works.
             if saved is not None and not saved.get("builtin", True):
                 self._execute_registered(text, saved)
+                return
+
+            choice = button_choice(text)
+            if choice:
+                self._current_route = "Windows UI Automation"
+                self._resolved_command(text, self._click_screen_choice(choice))
+                return
+            if is_screen_inspection_request(text):
+                self._start_screen_inspection(text)
+                return
+            site = website_plan(text)
+            if site is not None:
+                answer = self.agent.execute_plan(
+                    text, site, confirm_callback=self.confirm_action,
+                )
+                self._current_route = "браузер HTTPS"
+                self._resolved_command(text, answer or "Не удалось открыть сайт.")
                 return
 
             quick = routine_reply(text, self.cfg.get("language", "ru"))
