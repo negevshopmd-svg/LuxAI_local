@@ -171,6 +171,11 @@ class KeyboardAndWizardTests(unittest.TestCase):
             self.assertIn("рабочего стола", answer)
             self.assertIn("Новая команда", answer)
         self.assertIsNone(command_capabilities_reply("привет"))
+        answer = command_capabilities_reply(
+            "У тебя есть команда чтобы нажать Enter?"
+        )
+        self.assertIsNotNone(answer)
+        self.assertIn("Нажать Enter", answer)
 
     def test_voice_wizard_can_save_new_enter_shortcut_and_open_file(self):
         with tempfile.TemporaryDirectory() as temp:
