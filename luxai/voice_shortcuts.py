@@ -87,6 +87,19 @@ def keyboard_action_plan(text: str) -> dict | None:
 def command_capabilities_reply(text: str) -> str | None:
     """Tell the user about REAL executable commands, not unsupported skills."""
     phrase = strip_wake_name(text).strip()
+    if re.search(
+        r"(?:есть\s+(?:у\s+тебя\s+)?команда|умеешь|можешь|"
+        r"можно\s+ли|способен|знаешь\s+как).{0,110}"
+        r"(?:enter|энтер|ентер|нажимать\s+клавиш|симулиров\w*\s+нажатие)",
+        phrase, flags=re.I,
+    ):
+        return (
+            "Да, я умею нажимать Enter и сочетания клавиш без Gemini. "
+            "Скажите «нажми Enter» в другой активной программе. "
+            "В редакторе «Команды → Новая команда → Действия → Клавиши» "
+            "есть действия «Нажать Enter» и «Нажать клавишу или сочетание». "
+            "Их можно сохранить в своей голосовой команде."
+        )
     if not HELP.fullmatch(phrase):
         return None
     categories = ", ".join(name for name, _ in CATEGORIES if name != "Все действия")
