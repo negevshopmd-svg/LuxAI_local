@@ -6,11 +6,14 @@ feature. Cloud-only Luxify subscriptions and voice identities are not copied.
 from __future__ import annotations
 
 from pathlib import Path
+import webbrowser
+
+from luxai.secure_keys import has_api_key, clear_api_key
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QScrollArea, QSlider, QSpinBox, QVBoxLayout, QWidget,
+    QPushButton, QScrollArea, QSlider, QSpinBox, QVBoxLayout, QWidget, QMessageBox,
 )
 
 from luxai.voices import available_voices
@@ -257,16 +260,89 @@ class SettingsPanel(QWidget):
         panel.addWidget(hint)
 
     def _build_ai(self):
-        panel = self._section("ИИ-провайдер", "Полностью локальная нейросеть без подписок и VPN.")
-        provider = self._combo([("Локальный GGUF (llama.cpp)", "local")], "local")
-        self._row(panel, "Провайдер", "Используется модель на вашем компьютере.", provider)
-        self.model_label = QLabel(Path(self.cfg.get("llm_model_path", "")).name or "Модель не выбрана")
+        panel = self._section(
+            "ИИ-провайдер",
+            "Два агента: облачный ИИ разбирает команды, локальный выполняет разрешённые действия.",
+        )
+        self.online_agent_enabled = self._toggle(self.cfg.get("online_agent_enabled", False))
+        self._row(
+            panel, "Облачный помощник",
+            "Работает только с интернетом и вашим OpenAI API-ключом. Без связи остаётся локальный режим.",
+            self.online_agent_enabled,
+        )
+        self.online_model = self._combo(
+            [
+                ("GPT-4.1 nano — быстро и экономно", "gpt-4.1-nano"),
+                ("GPT-4o mini", "gpt-4o-mini"),
+                ("GPT-4.1 mini", "gpt-4.1-mini"),
+            ],
+            self.cfg.get("online_model", "gpt-4.1-nano"),
+        )
+        self._row(panel, "Модель облачного агента", "Только разбор намерения и короткие ответы.", self.online_model)
+
+        self.api_key_entry = QLineEdit()
+        self.api_key_entry.setEchoMode(QLineEdit.EchoMode.Password)
+        self.api_key_entry.setMaxLength(512)
+        self.api_key_entry.setPlaceholderText(
+            "Ключ сохранён в Windows" if has_api_key() else "Вставьте собственный OpenAI API-ключ"
+        )
+        self._row(
+            panel, "OpenAI API-ключ",
+            "После сохранения шифруется Windows DPAPI и не записывается в config.json.",
+            self.api_key_entry,
+        )
+        self.online_timeout = QSpinBox()
+        self.online_timeout.setRange(3, 10)
+        self.online_timeout.setSuffix(" сек")
+        self.online_timeout.setValue(int(self.cfg.get("online_timeout", 5)))
+        self._row(panel, "Таймаут облака", "Если сеть не отвечает, продолжить локально.", self.online_timeout)
+        key_buttons = QHBoxLayout()
+        get_key = QPushButton("Открыть страницу API-ключей")
+        get_key.clicked.connect(lambda: webbrowser.open("https://platform.openai.com/api-keys"))
+        key_buttons.addWidget(get_key)
+        clear = QPushButton("Удалить сохранённый ключ")
+        clear.clicked.connect(self._clear_key)
+        key_buttons.addWidget(clear)
+        panel.addLayout(key_buttons)
+        self.online_status = QLabel(
+            "API OpenAI оплачивается отдельно от ChatGPT; бесплатный доступ не гарантирован. "
+            "Никогда не отправляйте API-ключ в чат или на GitHub."
+        )
+        self.online_status.setObjectName("Muted")
+        self.online_status.setWordWrap(True)
+        panel.addWidget(self.online_status)
+
+        self.model_label = QLabel(
+            Path(self.cfg.get("llm_model_path", "")).name or "Модель не выбрана"
+        )
         self.model_label.setObjectName("Muted")
         self.model_label.setWordWrap(True)
-        self._row(panel, "Модель ИИ", "Файл .gguf на диске.", self.model_label)
-        choose = QPushButton("Выбрать модель .gguf")
+        self._row(
+            panel, "Локальная модель ИИ",
+            "Отвечает без интернета, когда облако выключено или недоступно.",
+            self.model_label,
+        )
+        choose = QPushButton("Выбрать локальную модель .gguf")
         choose.clicked.connect(self.on_pick_model)
         panel.addWidget(choose)
+
+    def _clear_key(self):
+        answer = QMessageBox.question(
+            self, "OpenAI API", "Удалить сохранённый на этом компьютере API-ключ?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            clear_api_key()
+            self.api_key_entry.clear()
+            self.api_key_entry.setPlaceholderText("Вставьте собственный OpenAI API-ключ")
+            self.online_agent_enabled.setChecked(False)
+
+    def refresh_key_status(self):
+        self.api_key_entry.setPlaceholderText(
+            "Ключ сохранён в Windows" if has_api_key()
+            else "Вставьте собственный OpenAI API-ключ"
+        )
 
     def _build_synthesis(self):
         panel = self._section("Синтез речи", "Локальный Piper или голос Windows (если установлен нужный язык).")
@@ -336,4 +412,7 @@ class SettingsPanel(QWidget):
             "always_on_top": self.on_top.isChecked(),
             "autostart_windows": self.autostart.isChecked(),
             "minimize_to_tray": self.tray_on_close.isChecked(),
+            "online_agent_enabled": self.online_agent_enabled.isChecked(),
+            "online_model": self.online_model.currentData(),
+            "online_timeout": self.online_timeout.value(),
         }
