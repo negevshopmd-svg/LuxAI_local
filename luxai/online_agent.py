@@ -373,7 +373,8 @@ class OnlinePlanner:
 
         # 60s by default; old 3-10s settings are migrated so existing
         # installations are not stuck with spurious timeouts.
-        timeout = max(35, min(120, int(self.config.get("online_timeout", 60))))
+        requested_timeout = int(self.config.get("online_timeout", 60))
+        timeout = 60 if requested_timeout < 35 else min(requested_timeout, 120)
         messages = [{"role": "system", "content": _SYSTEM}]
         for m in list(history)[-4:]:
             if isinstance(m, dict) and m.get("role") in ("user", "assistant"):
