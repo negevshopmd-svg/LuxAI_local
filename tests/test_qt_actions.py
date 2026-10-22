@@ -213,6 +213,55 @@ class QtActionTests(unittest.TestCase):
         self.assertEqual(selected, ["yes"])
         dialog.close()
 
+    def test_desktop_filename_dispatches_to_local_file_opener_not_explorer(self):
+        import types
+        from unittest import mock
+        MainWindow = _load_main_class_for_mock_tests()
+        fake = types.SimpleNamespace(
+            _processing=False, _closed=False,
+            _command_queue=[{"parts": ["Открой файл Отчёт.docx на рабочем столе"]}],
+            cfg={"language": "ru", "wake_prefix": "Jarvis"},
+            command_registry=types.SimpleNamespace(
+                disabled_match=lambda *_: False,
+                match=lambda *_: None,
+            ),
+            agent=types.SimpleNamespace(
+                execute_plan=mock.Mock(
+                    return_value="Передал Windows запрос открыть «Отчёт.docx»."
+                ),
+                history=[],
+            ),
+            online_planner=types.SimpleNamespace(
+                enabled=mock.Mock(side_effect=RuntimeError("Gemini not needed")),
+            ),
+            confirm_action=lambda _: True,
+            _resolved_command=mock.Mock(),
+        )
+        MainWindow._dispatch_command(fake)
+        fake.online_planner.enabled.assert_not_called()
+        fake.agent.execute_plan.assert_called_once()
+        plan = fake.agent.execute_plan.call_args.args[1]
+        self.assertEqual(plan["action"], "open_user_file")
+        self.assertEqual(plan["target"], "Отчёт.docx")
+        fake._resolved_command.assert_called_once()
+
+    def test_old_config_true_does_not_trigger_prompts_for_normal_actions(self):
+        import types
+        from unittest import mock
+        MainWindow = _load_main_class_for_mock_tests()
+        fake = types.SimpleNamespace(
+            cfg={"confirm_desktop_actions": True},
+        )
+        # ConfirmAction should return before constructing any modal Qt dialog
+        # for ordinary requests. A legacy True must not enable prompt spam.
+        with mock.patch.dict(
+            MainWindow.confirm_action.__globals__,
+            {"QMessageBox": mock.Mock(side_effect=AssertionError("Dialog spam"))},
+        ):
+            self.assertTrue(MainWindow.confirm_action(fake, "Запустить Word?"))
+            self.assertTrue(MainWindow.confirm_action(fake, "Открыть YouTube?"))
+            self.assertTrue(MainWindow.confirm_action(fake, "Создать файл Отчёт.txt"))
+
     def test_spoken_website_is_opened_without_gemini(self):
         import types
         from unittest import mock
