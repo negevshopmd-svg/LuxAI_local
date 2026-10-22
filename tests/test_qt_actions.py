@@ -8,12 +8,15 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
     from PySide6.QtWidgets import QApplication, QDialog
+except ImportError:
+    QApplication = None
+else:
+    # Missing application dependencies must FAIL tests rather than be silently
+    # misreported as "PySide6 not installed".
     from luxai.ui_action_picker import ActionOptionsDialog, ActionPicker
     from luxai.ui_command_editor import CommandEditor
     from luxai.ui_commands import CommandsPage
     from luxai.command_registry import CommandRegistry
-except ImportError:
-    QApplication = None
 
 
 @unittest.skipIf(QApplication is None, "PySide6 not installed")
