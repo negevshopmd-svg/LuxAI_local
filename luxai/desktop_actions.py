@@ -96,7 +96,7 @@ def _launch_user_script(action: str, command: str) -> str:
         if action == "run_cmd"
         else ["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command]
     )
-    subprocess.Popen(
+    completed = subprocess.run(
         args,
         cwd=str(Path.home()),
         shell=False,
@@ -104,8 +104,13 @@ def _launch_user_script(action: str, command: str) -> str:
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        timeout=25,
+        check=False,
     )
-    return "Команда передана Windows для выполнения с правами текущего пользователя."
+    if completed.returncode != 0:
+        raise OSError(f"Команда завершилась с ошибкой (код {completed.returncode}).")
+    return "Команда выполнена в Windows."
+
 
 
 def _mouse_hold(button: str, seconds: int):
