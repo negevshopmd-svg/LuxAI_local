@@ -28,6 +28,7 @@ PRESERVE_NAMES = {
 }
 SKIP_SUFFIXES = {".pyc", ".pyo"}
 
+
 def request_json(url: str) -> dict:
     req = urllib.request.Request(url, headers={
         "Accept": "application/vnd.github+json",
@@ -36,6 +37,7 @@ def request_json(url: str) -> dict:
     })
     with urllib.request.urlopen(req, timeout=30) as response:
         return json.loads(response.read().decode("utf-8"))
+
 
 def download(url: str, target: Path) -> None:
     req = urllib.request.Request(url, headers={"User-Agent": "LuxAI-Updater"})
@@ -50,8 +52,10 @@ def download(url: str, target: Path) -> None:
                 raise RuntimeError("Arhiva depășește limita de siguranță de 500 MB.")
             out.write(chunk)
 
+
 def is_preserved(rel: Path) -> bool:
     return any(part in PRESERVE_NAMES for part in rel.parts) or rel.suffix.lower() in SKIP_SUFFIXES
+
 
 def safe_extract(zip_path: Path, destination: Path) -> None:
     base = destination.resolve()
@@ -69,8 +73,9 @@ def safe_extract(zip_path: Path, destination: Path) -> None:
                 raise RuntimeError(f"Cale în afara directorului temporar: {name}")
         zf.extractall(destination)
 
+
 def main() -> int:
-    print("=== Lux AI | Actualizare directă din GitHub ===")
+    print("=== Lux AI | Actualizare automată din GitHub ===")
     print(f"Repository: https://github.com/{OWNER}/{REPO}")
     try:
         commit = request_json(f"{API}/commits/{BRANCH}")
@@ -93,10 +98,8 @@ def main() -> int:
         print(f"Nu pot verifica GitHub: {e}")
         return 1
 
-    answer = input("Descarc actualizarea? Fișierele înlocuite vor avea backup. [d/N]: ").strip().lower()
-    if answer not in ("d", "da", "y", "yes"):
-        print("Anulat.")
-        return 0
+    # Update proceeds automatically without an interactive confirmation.
+    print("Actualizarea pornește automat. Fișierele suprascrise vor avea backup.")
 
     with tempfile.TemporaryDirectory(prefix="luxai_update_") as temp:
         tempdir = Path(temp)
@@ -158,6 +161,7 @@ def main() -> int:
             print(f"Actualizarea a eșuat: {e}")
             print("Nu au fost șterse fișiere. Verifică folderul backups dacă s-au copiat deja fișiere.")
             return 1
+
 
 if __name__ == "__main__":
     try:
