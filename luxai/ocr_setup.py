@@ -205,6 +205,24 @@ def _install_binary() -> Path:
     # discover the ACTUAL executable before reporting false failure.
     discovered = find_tesseract()
     if discovered is not None:
+        # Mannheim's installer may ignore /D and install to Program Files.
+        # Copy that verified install into LuxAI's PRIVATE dedicated folder
+        # so OCR remains usable without reliance on a system PATH entry or
+        # an external Tesseract installation after setup finishes.
+        if (
+            discovered != WINDOWS_EXECUTABLE
+            and discovered.parent.name.casefold() == "tesseract-ocr"
+        ):
+            try:
+                shutil.copytree(
+                    discovered.parent, INSTALL_DIR, dirs_exist_ok=True,
+                )
+                if _valid_binary(WINDOWS_EXECUTABLE):
+                    return WINDOWS_EXECUTABLE
+            except OSError:
+                # Running OCR from the detected installed path still works,
+                # even when Windows filesystem permissions block the copy.
+                pass
         return discovered
     raise OCRInstallError(
         "Установщик завершился, но tesseract.exe не обнаружен "
