@@ -1,0 +1,33 @@
+name: OCR Windows smoke test
+
+on:
+  push:
+    paths:
+      - ".github/workflows/ocr-windows.yml"
+      - "luxai/ocr_setup.py"
+      - "tests/test_bundled_ocr.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tesseract-install:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install SHA-pinned bundled OCR engine and Russian/English data
+        run: python -m luxai.ocr_setup
+      - name: Verify installed OCR works without internet
+        run: |
+          python -m luxai.ocr_setup --check
+          python -c "from luxai.ocr_setup import ensure_tesseract, verify_tesseract; exe, _ = ensure_tesseract(allow_download=False); ready, msg = verify_tesseract(exe); print(msg); assert ready"
+      - name: Verify language OCR on an actual generated image
+        run: |
+          python -m pip install --disable-pip-version-check Pillow pytesseract
+          python -c "from PIL import Image, ImageDraw; from pathlib import Path; p=Path('ocr_test.png'); i=Image.new('RGB',(550,140),'white'); ImageDraw.Draw(i).text((16,38),'TEST OCR 123',fill='black',stroke_width=1); i.save(p)"
+          python -c "from pathlib import Path; from PIL import Image; import pytesseract; from luxai.ocr_setup import ensure_tesseract; exe, data=ensure_tesseract(allow_download=False); pytesseract.pytesseract.tesseract_cmd=str(exe); result=pytesseract.image_to_string(Image.open('ocr_test.png'),lang='eng',config=f'--tessdata-dir \"{data}\"'); print('OCR image output:',repr(result)); assert 'OCR' in result.upper()"
