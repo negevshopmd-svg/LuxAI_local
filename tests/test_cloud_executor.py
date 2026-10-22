@@ -158,6 +158,29 @@ class CloudExecutionTests(unittest.TestCase):
             self.assertEqual(payload["tools"], [{"google_search": {}}])
             self.assertEqual(request.get_header("X-goog-api-key"), "test-key")
 
+    def test_gemini_429_reports_quota_instead_of_false_connection_error(self):
+        import urllib.error
+        planner = OnlinePlanner({
+            "online_provider": "gemini",
+            "online_agent_enabled": True,
+            "online_model": "gemini-3.5-flash-lite",
+        })
+        rate_error = urllib.error.HTTPError(
+            "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+            429, "RESOURCE_EXHAUSTED",
+            {"Retry-After": "120"}, None,
+        )
+        with mock.patch.object(planner, "enabled", return_value=True), mock.patch(
+            "luxai.online_agent.get_api_key", return_value="test-fake-key"
+        ), mock.patch.object(planner, "_request", side_effect=rate_error) as call:
+            self.assertIsNone(planner.plan("Открой Firefox"))
+            self.assertIn("429", planner.last_error)
+            self.assertIn("квота", planner.last_error)
+            self.assertIsNone(planner.plan("Открой Firefox"))
+            self.assertIn("повтор через", planner.last_error)
+            self.assertIn("квота", planner.last_error)
+            self.assertEqual(call.call_count, 1)
+
     def test_actions_not_conversation_text_for_offline_llm(self):
         self.assertTrue(is_operational_request("Жарвис, переименуй его"))
         self.assertTrue(is_operational_request("Запусти Undertale"))
