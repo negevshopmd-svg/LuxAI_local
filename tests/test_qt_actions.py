@@ -113,6 +113,73 @@ class QtActionTests(unittest.TestCase):
         fake._resolved_command.assert_called_once()
         self.assertIn("Системное действие НЕ выполнено", fake._resolved_command.call_args.args[1])
 
+    def test_weather_is_routed_to_direct_forecast_before_gemini(self):
+        import types
+        from unittest import mock
+        MainWindow = _load_main_class_for_mock_tests()
+        fake = types.SimpleNamespace(
+            _processing=False, _closed=False,
+            _command_queue=[{"parts": ["Какая погода завтра в Кишневе?"]}],
+            cfg={"language": "ru", "wake_prefix": "Jarvis"},
+            command_registry=types.SimpleNamespace(
+                disabled_match=lambda *_: False,
+                match=lambda *_: None,
+            ),
+            online_planner=types.SimpleNamespace(enabled=mock.Mock(side_effect=RuntimeError("Gemini must not be called"))),
+            mic_status=types.SimpleNamespace(setText=mock.Mock()),
+            _direct_task_worker=mock.Mock(),
+            _resolved_command=mock.Mock(),
+        )
+        with mock.patch.object(__import__("threading"), "Thread") as thread:
+            MainWindow._dispatch_command(fake)
+        thread.assert_called_once()
+        self.assertIn("JarvisWeather", str(thread.call_args))
+        self.assertEqual(fake._active_text, "Какая погода завтра в Кишневе?")
+        fake.online_planner.enabled.assert_not_called()
+        fake._resolved_command.assert_not_called()
+
+    def test_screen_read_routed_to_real_local_ocr_not_chat(self):
+        import types
+        from unittest import mock
+        MainWindow = _load_main_class_for_mock_tests()
+        fake = types.SimpleNamespace(
+            _processing=False, _closed=False,
+            _command_queue=[{"parts": ["Прочитай что написано на экране."]}],
+            cfg={"language": "ru", "wake_prefix": "Jarvis"},
+            command_registry=types.SimpleNamespace(
+                disabled_match=lambda *_: False,
+                match=lambda *_: None,
+            ),
+            online_planner=types.SimpleNamespace(enabled=mock.Mock(side_effect=RuntimeError("No Gemini"))),
+            mic_status=types.SimpleNamespace(setText=mock.Mock()),
+            _direct_task_worker=mock.Mock(),
+            _resolved_command=mock.Mock(),
+        )
+        with mock.patch.object(__import__("threading"), "Thread") as thread:
+            MainWindow._dispatch_command(fake)
+        self.assertIn("JarvisScreenOCR", str(thread.call_args))
+        fake.online_planner.enabled.assert_not_called()
+
+    def test_dictation_switches_on_and_types_without_llm(self):
+        import types
+        from unittest import mock
+        MainWindow = _load_main_class_for_mock_tests()
+        fake = types.SimpleNamespace(
+            dictation_active=False,
+            command_wizard=types.SimpleNamespace(active=False),
+            append_message=mock.Mock(),
+            mic_status=types.SimpleNamespace(setText=mock.Mock()),
+            isActiveWindow=lambda: False,
+        )
+        MainWindow.run_command(fake, "Теперь я тебе могу диктовать и ты будешь писать.")
+        self.assertTrue(fake.dictation_active)
+        with mock.patch("main._type_unicode_windows") as send:
+            MainWindow._type_voice_chunk(fake, "Привет друзья")
+            send.assert_called_once_with("Привет друзья ")
+            MainWindow._type_voice_chunk(fake, "Стоп.")
+            self.assertFalse(fake.dictation_active)
+            send.assert_called_once()
+
     def test_picker_opens_and_filters_categories(self):
         picker = ActionPicker()
         self.assertEqual(picker.windowTitle(), "Добавить действие")
