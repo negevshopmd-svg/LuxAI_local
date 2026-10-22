@@ -256,6 +256,7 @@ class LocalAgent:
             "edge": ["microsoft edge", "edge", "эдж"],
             "spotify": ["spotify", "спотифай"],
             "steam": ["steam", "стим"],
+            "word": ["microsoft word", "word", "ворд", "ворде"],
         }
         if has_launch_verb(t):
             for app, aliases in app_aliases.items():
