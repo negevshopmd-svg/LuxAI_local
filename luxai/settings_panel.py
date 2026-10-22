@@ -14,7 +14,7 @@ from luxai.api_providers import PROVIDERS
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QScrollArea, QSlider, QSpinBox, QVBoxLayout, QWidget, QMessageBox,
+    QPushButton, QScrollArea, QSlider, QSpinBox, QVBoxLayout, QWidget, QMessageBox, QFileDialog,
 )
 
 from luxai.voices import available_voices
@@ -508,10 +508,41 @@ class SettingsPanel(QWidget):
         self._row(panel, "Автозапуск программы", "Запускать Jarvis при входе в Windows.", self.autostart)
         self.tray_on_close = self._toggle(self.cfg.get("minimize_to_tray", False))
         self._row(panel, "Сворачивать в трей при закрытии", "Не завершать Jarvis при закрытии главного окна.", self.tray_on_close)
+        self.weather_city = QLineEdit(self.cfg.get("weather_city", "Кишинёв"))
+        self.weather_city.setPlaceholderText("Кишинёв")
+        self._row(
+            panel, "Город для прогноза погоды",
+            "Open-Meteo работает без ключа Gemini. Этот город по умолчанию.",
+            self.weather_city,
+        )
+        self.tesseract_path = QLineEdit(self.cfg.get("tesseract_path", ""))
+        self.tesseract_path.setPlaceholderText("C:\\Program Files\\Tesseract-OCR\\tesseract.exe")
+        ocr_picker = QWidget()
+        ocr_row = QHBoxLayout(ocr_picker)
+        ocr_row.setContentsMargins(0, 0, 0, 0)
+        ocr_row.setSpacing(5)
+        ocr_row.addWidget(self.tesseract_path, 1)
+        select_ocr = QPushButton("Обзор")
+        select_ocr.clicked.connect(self._select_tesseract)
+        ocr_row.addWidget(select_ocr)
+        self._row(
+            panel, "Tesseract OCR",
+            "Читать текст на экране локально. Укажите tesseract.exe; "
+            "для русского языка нужен пакет rus.traineddata.",
+            ocr_picker,
+        )
         info = QLabel("Параметры сохраняются в config.json. Для смены микрофона перезапускается распознавание.")
         info.setObjectName("Muted")
         info.setWordWrap(True)
         panel.addWidget(info)
+
+    def _select_tesseract(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Выберите tesseract.exe", "",
+            "Tesseract (tesseract.exe);;Исполняемые файлы (*.exe)",
+        )
+        if path:
+            self.tesseract_path.setText(path)
 
     def _jump(self, index):
         section = self.sections[index]
@@ -553,6 +584,8 @@ class SettingsPanel(QWidget):
             "always_on_top": self.on_top.isChecked(),
             "autostart_windows": self.autostart.isChecked(),
             "minimize_to_tray": self.tray_on_close.isChecked(),
+            "weather_city": self.weather_city.text().strip()[:70] or "Кишинёв",
+            "tesseract_path": self.tesseract_path.text().strip(),
             "local_llm_fallback_enabled": self.local_llm_fallback.isChecked(),
             "online_agent_enabled": self.online_agent_enabled.isChecked(),
             "online_provider": self.online_provider.currentData(),
