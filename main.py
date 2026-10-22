@@ -19,7 +19,8 @@ from luxai.ui_home import HomePage
 from luxai.ui_sidebar import NavigationSidebar
 from luxai.styles import build_styles
 from luxai.online_agent import OnlinePlanner
-from luxai.secure_keys import store_api_key, has_api_key
+from luxai.secure_keys import store_api_key, get_api_key
+from luxai.api_verification import check_api_key
 from luxai.api_providers import PROVIDERS
 
 BASE = Path(__file__).resolve().parent
@@ -76,7 +77,7 @@ class VoiceWorker(QThread):
 class MainWindow(QMainWindow):
     online_plan_ready = Signal(str, object)
     local_reply_ready = Signal(str, str)
-    api_test_result = Signal(str)
+    api_test_result = Signal(str, bool, str)
     tts_played = Signal(bool)
 
     def __init__(self):
@@ -95,6 +96,7 @@ class MainWindow(QMainWindow):
         self._active_text = None
         self._processing = False
         self._closed = False
+        self._api_test_running = False
         self._speech_queue = queue.Queue(maxsize=8)
         self._speech_thread = threading.Thread(target=self._speech_loop, daemon=True, name="JarvisSpeech")
         self._speech_thread.start()
@@ -354,44 +356,53 @@ class MainWindow(QMainWindow):
         self.mic_status.setText("Настройки сохранены.")
 
     def test_online_api(self):
-        """Test the selected provider with a tiny request in a worker thread."""
-        self.save_settings()
-        provider = self.cfg.get("online_provider", "openai")
-        if provider not in PROVIDERS or not has_api_key(provider):
-            self.mic_status.setText("Сначала сохраните API-ключ выбранного сервиса.")
+        """Test the text currently in the key field (or stored key), without saving."""
+        if self._api_test_running or self._closed:
             return
-        self.mic_status.setText("Проверяю API (потребуется небольшой запрос)…")
-        chosen = dict(self.cfg)
-        chosen["online_agent_enabled"] = True
+        settings = self.settings_panel.collect()
+        provider = settings.get("online_provider", "openai")
+        if provider not in PROVIDERS:
+            self.settings_panel.show_test_result("Выберите поставщика API.", False)
+            return
+        # Do not save the field or update any persisted settings during a test.
+        key = self.settings_panel.api_key_entry.text().strip() or get_api_key(provider)
+        if not key:
+            message = "Введите новый API-ключ или сохраните его перед проверкой."
+            self.settings_panel.show_test_result(message, False)
+            self.mic_status.setText(message)
+            return
+        self._api_test_running = True
+        self.settings_panel.set_test_busy(True)
+        self.mic_status.setText("Проверяю подключение к API…")
         threading.Thread(
             target=self._test_online_thread,
-            args=(provider, chosen),
+            args=(provider, settings, key),
             name="JarvisApiTest",
             daemon=True,
         ).start()
 
-    def _test_online_thread(self, provider, chosen_config):
+    def _test_online_thread(self, provider, settings, key):
         try:
-            planner = OnlinePlanner(chosen_config)
-            proposal = planner.plan(
-                "This is an API connectivity test. Respond with a JSON reply action "
-                "with 'OK' as reply. Do not execute anything.",
-            )
-            ok = isinstance(proposal, dict) and proposal.get("action") == "reply"
+            valid, result = check_api_key(settings, key)
         except Exception:
-            ok = False
+            valid, result = False, "Ошибка проверки API. Проверьте настройки и подключение."
         if not self._closed:
-            self.api_test_result.emit(
-                f"Подключение к {PROVIDERS[provider]['label']} успешно."
-                if ok else
-                f"Не удалось проверить {PROVIDERS[provider]['label']}. "
-                "Проверьте ключ, модель, лимит и online_agent.log."
-            )
+            try:
+                self.api_test_result.emit(provider, valid, result)
+            except RuntimeError:
+                pass
 
-    def _on_api_test_result(self, message):
+    def _on_api_test_result(self, provider, valid, message):
+        self._api_test_running = False
+        if self._closed or not hasattr(self, "settings_panel"):
+            return
+        # The user may have switched to another provider during the request.
+        if self.settings_panel.online_provider.currentData() != provider:
+            self.settings_panel.set_test_busy(False)
+            self.settings_panel.refresh_key_status()
+            return
+        self.settings_panel.show_test_result(message, valid)
         self.mic_status.setText(message)
-        if hasattr(self, "settings_panel"):
-            self.settings_panel.online_status.setText(message)
 
     def preview_voice(self):
         self.save_settings()
