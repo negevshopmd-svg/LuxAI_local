@@ -4,7 +4,11 @@ from pathlib import Path
 from luxai.screen import capture_screen, read_screen_text
 from luxai.steam_games import GAMES, local_game_intent, launch_steam_game
 from luxai.fast_intents import strip_wake_name, quick_reply, has_launch_verb
-from luxai.file_actions import create_user_item, list_user_items, parse_file_intent, safe_name, ALLOWED_LOCATIONS
+from luxai.file_actions import (
+    create_user_item, list_user_items, parse_file_intent, safe_name,
+    rename_user_item, trash_user_item, ALLOWED_LOCATIONS,
+)
+from luxai.windows_apps import launch_installed_app, normalized_name
 from luxai.desktop_actions import execute_desktop_step
 from luxai.action_catalog import CATALOG, validate_step
 
@@ -17,6 +21,7 @@ class LocalAgent:
         self.max_history_messages = 10
         self.last_execution_success = False
         self.last_executed_plan = None
+        self.last_file = None
 
     def update_config(self, config):
         self.config = dict(config)
@@ -271,66 +276,87 @@ class LocalAgent:
         return None
 
     def _perform_file_action(self, text, plan, confirm_callback):
-        """Perform a constrained file operation only after user confirmation."""
+        """Confirm, execute and verify bounded filesystem actions."""
         action = plan.get("action")
         location = plan.get("location", "desktop")
         if location not in ALLOWED_LOCATIONS:
             return self._say(
-                "Можно работать только с рабочим столом, документами и загрузками.",
-                "Pot lucra doar pe Desktop, în Documents și Downloads.",
-                "I can work only on Desktop, Documents and Downloads.", text,
+                "Доступны только Desktop, Documents и Downloads.",
+                "Sunt permise doar Desktop, Documents și Downloads.",
+                "Only Desktop, Documents and Downloads are permitted.", text,
             )
         if action == "list_files":
             try:
                 names = list_user_items(location)
                 self.last_execution_success = True
-                names = names[:20]
-                return self._say(
-                    "Файлы: " + (", ".join(names) if names else "папка пуста"),
-                    "Fișiere: " + (", ".join(names) if names else "folderul este gol"),
-                    "Files: " + (", ".join(names) if names else "folder is empty"),
-                    text,
-                )
+                return "Файлы: " + (", ".join(names[:20]) if names else "папка пуста")
             except (OSError, ValueError) as exc:
-                return self._say(
-                    f"Не могу прочитать папку: {exc}",
-                    f"Nu pot citi folderul: {exc}",
-                    f"Cannot list folder: {exc}", text,
-                )
+                return f"Не удалось прочитать папку: {exc}"
+
+        source = plan.get("source", "")
+        if action in ("rename_file", "trash_file"):
+            if source == "@last" or not source:
+                # Pronouns "его", "этот файл": only the last real item in
+                # this process can be referenced; never fabricate a filename.
+                if not self.last_file or self.last_file.get("location") != location:
+                    return (
+                        "Не знаю, какой файл вы имеете в виду. "
+                        "Назовите его точно."
+                    )
+                source = self.last_file["name"]
+            try:
+                source = safe_name(source, is_folder=True)
+            except ValueError:
+                return "Недопустимое имя исходного файла."
+            if action == "rename_file":
+                try:
+                    destination = safe_name(plan.get("target", ""))
+                except ValueError:
+                    return "Недопустимое новое имя."
+                prompt = f"Переименовать «{source}» в «{destination}» ({location})?"
+            else:
+                prompt = f"Переместить файл «{source}» в корзину Windows ({location})?"
+            if not confirm_callback("⚠ " + prompt):
+                return "Действие отменено."
+            try:
+                if action == "rename_file":
+                    changed = rename_user_item(source, destination, location)
+                    self.last_file = {"name": changed.name, "location": location}
+                    answer = f"Проверено: «{source}» переименован в «{changed.name}»."
+                else:
+                    removed = trash_user_item(source, location)
+                    self.last_file = None
+                    answer = f"Проверено: файл «{removed}» перемещён в корзину."
+                self.last_execution_success = True
+                return answer
+            except (OSError, ValueError, ImportError) as exc:
+                return f"Операция не выполнена: {exc}"
+
         if action not in ("create_file", "create_folder"):
             return None
         try:
-            valid_name = safe_name(plan.get("target", ""), is_folder=action == "create_folder")
-        except ValueError:
-            return self._say(
-                "Недопустимое имя файла или папки.",
-                "Nume de fișier sau folder nepermis.",
-                "Invalid file or folder name.", text,
+            valid_name = safe_name(
+                plan.get("target", ""), is_folder=action == "create_folder"
             )
-        label = "папку" if action == "create_folder" else "файл"
-        if not confirm_callback(self._say(
-            f"Создать {label} «{valid_name}» ({location})?",
-            f"Creez {valid_name} ({location})?",
-            f"Create {valid_name} ({location})?", text,
-        )):
-            return self._say("Действие отменено.", "Acțiune anulată.", "Action cancelled.", text)
+        except ValueError:
+            return "Недопустимое имя файла или папки."
+        prompt = (
+            f"Создать {'папку' if action == 'create_folder' else 'файл'} "
+            f"«{valid_name}» ({location})?"
+        )
+        if not confirm_callback("⚠ " + prompt):
+            return "Действие отменено."
         try:
             path = create_user_item(
-                action, valid_name, location,
-                content=plan.get("content", ""),
+                action, valid_name, location, content=plan.get("content", ""),
             )
+            if not path.exists():
+                raise OSError("Windows не подтвердил создание")
+            self.last_file = {"name": path.name, "location": location}
             self.last_execution_success = True
-            return self._say(
-                f"Создано: {path.name} ({location}).",
-                f"Creat: {path.name} ({location}).",
-                f"Created: {path.name} ({location}).", text,
-            )
+            return f"Проверено: создано «{path.name}» ({location})."
         except (OSError, ValueError) as exc:
-            return self._say(
-                f"Не удалось создать: {exc}",
-                f"Nu am putut crea: {exc}",
-                f"Could not create: {exc}", text,
-            )
+            return f"Не удалось создать: {exc}"
 
     def remember(self, text, answer):
         self.history.extend([
@@ -359,7 +385,7 @@ class LocalAgent:
         action = plan.get("action")
         target = plan.get("target", "")
         answer = None
-        if action in ("create_file", "create_folder", "list_files"):
+        if action in ("create_file", "create_folder", "rename_file", "trash_file", "list_files"):
             result = self._perform_file_action(text, plan, confirm_callback)
             if result:
                 self.remember(text, result)
@@ -415,37 +441,20 @@ class LocalAgent:
                     f"Could not execute «{title}»: {exc}", text,
                 )
         if action == "reply" and isinstance(plan.get("reply"), str):
-            answer = plan["reply"][:700].strip() or None
+            answer = plan["reply"][:1100].strip() or None
         elif action == "time":
             self.last_execution_success = True
             answer = self._say("Сейчас ", "Ora este ", "It's ", text) + datetime.datetime.now().strftime("%H:%M")
-        elif action == "open_app" and target in {
-            "telegram", "discord", "chrome", "firefox", "edge",
-            "spotify", "steam", "notepad", "calculator", "explorer",
-        }:
-            if not confirm_callback(self._say(f"Открыть {target}", f"Deschide {target}", f"Open {target}", text)):
-                answer = self._say("Действие отменено.", "Acțiune anulată.", "Action cancelled.", text)
-            else:
-                builtins = {
-                    "notepad": "notepad.exe",
-                    "calculator": "calc.exe",
-                    "explorer": "explorer.exe",
-                }
-                if target in builtins:
-                    try:
-                        subprocess.Popen([builtins[target]])
-                        success = True
-                    except OSError:
-                        success = False
-                else:
-                    success = self._open_application(target)
-                self.last_execution_success = bool(success)
-                answer = self._say(
-                    f"Открыл {target}." if success else f"Не удалось открыть {target}.",
-                    f"Am deschis {target}." if success else f"Nu am putut deschide {target}.",
-                    f"Opened {target}." if success else f"Could not open {target}.",
-                    text,
-                )
+        elif action == "open_app" and isinstance(target, str):
+            try:
+                normalized_name(target)
+            except ValueError:
+                return "Некорректное название приложения."
+            success, result = launch_installed_app(
+                target, confirmed=confirm_callback,
+            )
+            self.last_execution_success = bool(success)
+            answer = result
         elif action in {"launch_game", "steam_verified"}:
             if action == "launch_game" and target in GAMES:
                 app_id, title = GAMES[target]
@@ -463,9 +472,9 @@ class LocalAgent:
                 success = launch_steam_game(app_id)
                 self.last_execution_success = bool(success)
                 answer = self._say(
-                    f"Запускаю {title} через Steam." if success else f"Не удалось запустить {title}.",
-                    f"Pornesc {title} prin Steam." if success else f"Nu am putut porni {title}.",
-                    f"Launching {title} through Steam." if success else f"Could not launch {title}.",
+                    f"Отправил Steam команду запуска {title} (AppID {app_id}). Проверьте, открылся ли Steam." if success else f"Не удалось передать Steam запрос на запуск {title}.",
+                    f"Am trimis către Steam cererea de pornire pentru {title} (AppID {app_id})." if success else f"Nu am putut trimite cererea către Steam.",
+                    f"Sent Steam the launch request for {title} (AppID {app_id})." if success else f"Could not send Steam a launch request.",
                     text,
                 )
         elif action == "minimize_windows":
