@@ -24,7 +24,7 @@ MAX_DOWNLOAD_BYTES = 500 * 1024 * 1024
 PRESERVE_NAMES = {
     "models", "model", ".venv", "venv", ".git", "__pycache__",
     "backups", "downloads", "logs", "config.json", "settings.json",
-    ".env", "updater_config.json",
+    ".env", "updater_config.json", ".luxai_secrets", "online_agent.log", "voice_error.log",
 }
 SKIP_SUFFIXES = {".pyc", ".pyo"}
 
