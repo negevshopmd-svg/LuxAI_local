@@ -27,7 +27,7 @@ ALLOWED_ACTIONS = {
     "open_app", "launch_game", "steam_game", "minimize_windows",
     "search_web", "time", "reply", "none",
     "create_file", "create_folder", "list_files", "rename_file", "trash_file",
-    "web_answer", "open_site", "close_app", "set_system_volume", "get_system_volume",
+    "web_answer", "open_site", "open_user_file", "close_app", "set_system_volume", "get_system_volume",
 }
 CACHE_ACTIONS = {"open_app", "launch_game", "minimize_windows"}
 LOG_FILE = Path(__file__).resolve().parents[1] / "online_agent.log"
@@ -36,7 +36,7 @@ _SYSTEM = """You are GEMINI (or another CLOUD PLANNER) for a Windows assistant c
 Your role is to understand each user's task and send a JSON plan to a LOCAL
 WINDOWS EXECUTOR. The local executor, not you, performs actions with Windows.
 Respond with ONLY ONE compact JSON object, not markdown or thoughts:
-{"action":"open_app|open_site|close_app|set_system_volume|get_system_volume|steam_game|launch_game|minimize_windows|create_file|create_folder|rename_file|trash_file|list_files|search_web|web_answer|time|reply|none",
+{"action":"open_app|open_site|open_user_file|close_app|set_system_volume|get_system_volume|steam_game|launch_game|minimize_windows|create_file|create_folder|rename_file|trash_file|list_files|search_web|web_answer|time|reply|none",
  "target":"string","reply":"string","source":"string","location":"desktop|documents|downloads","content":"string"}
 Examples:
 - "Открой фаерфокс" -> {"action":"open_app","target":"firefox","reply":""}
@@ -45,6 +45,9 @@ Examples:
 - "Открой сайт wikipedia.org" -> {"action":"open_site","target":"https://www.wikipedia.org/","reply":""}
 - "Deschide YouTube în browser" -> {"action":"open_site","target":"youtube","reply":""}
 - "Открой Visual Studio Code" -> {"action":"open_app","target":"vscode","reply":""}
+- "Открой файл Отчёт.docx на рабочем столе" -> {"action":"open_user_file","target":"Отчёт.docx","location":"desktop","reply":""}
+- "Открой документ Мой план в папке Документы" -> {"action":"open_user_file","target":"Мой план","location":"documents","reply":""}
+- "Открой Порнхаб" -> {"action":"open_site","target":"pornhub","reply":""}
 - "Закрой Visual Studio Code" -> {"action":"close_app","target":"vscode","reply":""}
 - "Закрой его" -> {"action":"close_app","target":"@last","reply":""}
 - "Поставь звук Windows на 100%" -> {"action":"set_system_volume","target":"100","reply":""}
@@ -63,6 +66,12 @@ Rules:
   Always use this tool when the user requests a Windows speaker volume.
   NEVER claim the audio level changed unless the local executor checked it.
 - get_system_volume target is empty; executor reads real Windows endpoint.
+- open_user_file target is a FILE BASENAME (or unique stem) only, no paths,
+  no shell operators, location is desktop/documents/downloads. Let LOCAL
+  Windows find the exact file and open with its registered application.
+- Ordinary navigation to age-restricted HTTPS sites requested by an adult
+  should be handled neutrally like other site links. Do not falsely claim
+  a blanket website block or that the browser loaded it successfully.
 - open_site target is a known site NAME ("youtube", "google", "github",
   "wikipedia", "twitch" etc) or a public HTTPS domain without any query
   parameters. This opens the website in the default browser, NOT a desktop
@@ -168,6 +177,16 @@ class OnlinePlanner:
                 target = normalize_public_website(target)
             except (ValueError, TypeError):
                 return None
+        if action == "open_user_file":
+            from luxai.action_catalog import validate_step
+            try:
+                valid_file = validate_step({
+                    "action": "open_user_file", "target": target,
+                    "location": result.get("location", "desktop"),
+                })
+            except (TypeError, ValueError):
+                return None
+            target = valid_file["target"]
         if action == "set_system_volume":
             if not target.isdecimal() or not 0 <= int(target) <= 100:
                 return None
