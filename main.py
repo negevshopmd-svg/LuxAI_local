@@ -514,8 +514,8 @@ class MainWindow(QMainWindow):
         dialog.setText(f"Nexora AI dorește să execute:\\n\\n{description}\\n\\nSpune „da” sau „nu” ori alege un buton.")
         dialog.setInformativeText("Răspuns vocal disponibil cât timp microfonul este activ.")
         dialog.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        dialog.setButtonText(QMessageBox.StandardButton.Yes, "Da")
-        dialog.setButtonText(QMessageBox.StandardButton.No, "Nu")
+        dialog.button(QMessageBox.StandardButton.Yes).setText("Da")
+        dialog.button(QMessageBox.StandardButton.No).setText("Nu")
         dialog.setDefaultButton(QMessageBox.StandardButton.No)
         self.pending_confirmation_dialog = dialog
         self.pending_confirmation_result = None
