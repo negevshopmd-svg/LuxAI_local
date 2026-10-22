@@ -78,7 +78,7 @@ SITE_MARKER = re.compile(
     re.I,
 )
 LAUNCH_START = re.compile(
-    r"^\s*(?:открой|открыть|откройте|открой-ка|"
+    r"^\s*(?:открой|откроет|откроешь|открывай|открыть|откройте|открой-ка|"
     r"запусти|запустить|open|launch|deschide|porneste|pornește)\b",
     re.I,
 )
