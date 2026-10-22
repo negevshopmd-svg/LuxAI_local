@@ -39,9 +39,16 @@ INSTALLER_URL = (
 # 5.4.0.20240606/UB-Mannheim.TesseractOCR.installer.yaml
 INSTALLER_SHA256 = "c885fff6998e0608ba4bb8ab51436e1c6775c2bafc2559a19b423e18678b60c9"
 
+# Fixed official tessdata_fast revision, instead of a mutable /main/ URL.
+# Git blob hashes and sizes read from GitHub's tree for this commit.
+MODEL_REVISION = "87416418657359cb625c412a48b6e1d6d41c29bd"
 MODELS = {
-    "rus": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/rus.traineddata",
-    "eng": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/eng.traineddata",
+    "rus": f"https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/{MODEL_REVISION}/rus.traineddata",
+    "eng": f"https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/{MODEL_REVISION}/eng.traineddata",
+}
+MODEL_BLOBS = {
+    "rus": ("b146cb2263acbc6383f8e92ea0ce759537687bb8", 3861738),
+    "eng": ("bbef4675053b5b468cdb477053e28b1c698ba08e", 4113088),
 }
 _DOWNLOAD_CAP_BYTES = 75 * 1024 * 1024
 _LANG_CAP_BYTES = 20 * 1024 * 1024
@@ -89,10 +96,27 @@ def find_tesseract(configured_path: str = "") -> Path | None:
     return None
 
 
+def _model_is_verified(file: Path, language: str) -> bool:
+    """Check exact official model bytes using pinned Git blob content hash."""
+    expected_sha, expected_size = MODEL_BLOBS[language]
+    try:
+        if file.stat().st_size != expected_size:
+            return False
+        # Git stores blobs as SHA-1(b"blob <length>\\0" + bytes).
+        sha1 = hashlib.sha1(
+            b"blob " + str(expected_size).encode("ascii") + b"\\0"
+        )
+        with file.open("rb") as model:
+            for chunk in iter(lambda: model.read(1024 * 1024), b""):
+                sha1.update(chunk)
+        return sha1.hexdigest() == expected_sha
+    except OSError:
+        return False
+
+
 def language_data_ready() -> bool:
     return all(
-        (DATA_DIR / (lang + ".traineddata")).is_file()
-        and (DATA_DIR / (lang + ".traineddata")).stat().st_size >= 100_000
+        _model_is_verified(DATA_DIR / (lang + ".traineddata"), lang)
         for lang in MODELS
     )
 
@@ -183,7 +207,7 @@ def _install_languages() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     for language, url in MODELS.items():
         path = DATA_DIR / f"{language}.traineddata"
-        if path.is_file() and path.stat().st_size >= 100_000:
+        if _model_is_verified(path, language):
             continue
         # Download to a temp file and atomically move only after it
         # succeeds; failed requests cannot corrupt an existing model.
@@ -194,6 +218,11 @@ def _install_languages() -> None:
             temporary = Path(file.name)
         try:
             _download_bounded(url, temporary, limit=_LANG_CAP_BYTES)
+            if not _model_is_verified(temporary, language):
+                raise OCRInstallError(
+                    f"Файл модели OCR {language} не совпадает с официальным "
+                    "хешем GitHub. Файл не будет использоваться."
+                )
             temporary.replace(path)
         finally:
             temporary.unlink(missing_ok=True)
