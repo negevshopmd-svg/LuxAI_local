@@ -26,6 +26,25 @@ class LocalAgent:
         t = text.lower().strip()
         if any(x in t for x in ["what time", "time is it", "cat e ceasul", "cât e ceasul", "который час", "сколько времени"]):
             return datetime.datetime.now().strftime("Ora locală: %H:%M")
+        # App-launch intents in Romanian, Russian and English.
+        app_aliases = {
+            "telegram": ["telegram", "телеграм", "телеграмм"],
+            "discord": ["discord", "дискорд"],
+            "chrome": ["chrome", "google chrome", "гугл хром"],
+            "firefox": ["firefox", "файрфокс"],
+            "edge": ["microsoft edge", "edge", "эдж"],
+            "spotify": ["spotify", "спотифай"],
+        }
+        open_verbs = ["open", "launch", "start", "run", "deschide", "pornește", "porneste",
+                      "открой", "запусти", "включи", "abrir"]
+        if any(v in t for v in open_verbs):
+            for app, aliases in app_aliases.items():
+                if any(alias in t for alias in aliases):
+                    if not confirm_callback(f"Deschide {app.capitalize()}"):
+                        return "Acțiune anulată."
+                    if self._open_application(app):
+                        return f"Am deschis {app.capitalize()}."
+                    return f"Nu am găsit {app.capitalize()} instalat. Verifică meniul Start sau instalarea aplicației."
         if any(x in t for x in ["open notepad", "deschide notepad", "открой блокнот"]):
             if confirm_callback("Deschide Notepad"):
                 subprocess.Popen(["notepad.exe"])
@@ -64,12 +83,12 @@ class LocalAgent:
             return ("Nu este selectat niciun model AI local. Apasă «Alege model AI (.gguf)» și selectează un model. "
                     "Comenzile de bază pentru aplicații pot funcționa și fără model.")
         prompt = (
-            "Ești Nexora AI, un asistent desktop local. Instrucțiuni obligatorii: "
+            "Ești Nexora AI, un AGENT desktop local care trebuie să încerce să execute cererile prin instrumentele disponibile, nu doar să ofere sfaturi. Pentru acțiuni pe care le poate efectua aplicația, folosește instrumentele și codul agentului. Instrucțiuni obligatorii: "
             "Răspunde direct, clar și concis, de regulă în 1-4 propoziții. "
             "Răspunde numai în limba în care ți-a scris utilizatorul. "
             "Nu adăuga traduceri în engleză, nu pune traduceri sau explicații între paranteze "
             "și nu repeta întrebarea. Tradu sau explică un termen doar dacă utilizatorul cere asta. "
-            "Nu inventa fapte și nu pretinde că ai făcut acțiuni pe care nu le-ai executat. "
+            "Nu inventa fapte și nu pretinde că ai făcut acțiuni pe care nu le-ai executat. Dacă nu există instrument pentru o acțiune, spune clar limita. "
             "Nu genera comenzi shell. Dacă nu știi ceva, spune asta simplu.\\n"
             f"Utilizator: {text}\\nNexora AI:"
         )
