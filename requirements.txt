@@ -8,6 +8,7 @@ piper-tts>=1.2.0
 mss>=9.0
 Pillow>=10.0
 pytesseract>=0.3.10
-pyautogui>=0.9.54pycaw>=20230407
+pyautogui>=0.9.54
+pycaw>=20230407
 comtypes>=1.2
 Send2Trash>=1.8.3
