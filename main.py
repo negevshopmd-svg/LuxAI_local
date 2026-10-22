@@ -30,6 +30,10 @@ from luxai.ocr_setup import ensure_tesseract, find_tesseract, language_data_read
 from luxai.websites import website_plan
 from luxai.voice_files import parse_open_user_file
 from luxai.voice_shortcuts import keyboard_action_plan, command_capabilities_reply
+from luxai.selection import (
+    selected_text_intent, copy_selected_text, finish_selected_copy,
+    extractive_fallback,
+)
 from luxai.screen_interact import (
     _foreground_hwnd, _valid_external_window,
     is_screen_inspection_request, button_choice,
@@ -105,6 +109,7 @@ class MainWindow(QMainWindow):
     direct_task_ready = Signal(str, str, str)
     screen_inspection_ready = Signal(str, object, str)
     ocr_setup_ready = Signal(bool, str)
+    selected_summary_ready = Signal(str, str, str)
 
     def __init__(self):
         super().__init__()
@@ -122,6 +127,7 @@ class MainWindow(QMainWindow):
         self.direct_task_ready.connect(self._on_direct_task_ready)
         self.screen_inspection_ready.connect(self._on_screen_inspection_ready)
         self.ocr_setup_ready.connect(self._on_ocr_setup_ready)
+        self.selected_summary_ready.connect(self._on_selected_summary_ready)
         self.macro_step_ready.connect(self._on_macro_step_ready)
         self.wizard_plan_ready.connect(self._on_wizard_plan)
         self.local_reply_ready.connect(self._on_local_reply)
@@ -934,6 +940,123 @@ class MainWindow(QMainWindow):
         self._current_route = "Open-Meteo" if mode == "weather" else "локальный OCR"
         self._resolved_command(text, answer)
 
+    def _start_selection_request(self, spoken, mode):
+        """Copy a deliberate browser/editor selection, preserving clipboard.
+
+        The clipboard and GUI focus are touched only on the Qt main thread.
+        Selected text is sent to the configured cloud AI only when the user
+        has explicitly requested a summary and cloud AI is enabled.
+        """
+        if sys.platform != "win32":
+            self._current_route = "Windows: выделенный текст"
+            self._resolved_command(
+                spoken, "Чтение выделенного текста доступно только в Windows."
+            )
+            return
+        from ctypes import wintypes
+        import ctypes
+        target = _foreground_hwnd()
+        try:
+            _valid_external_window(target)
+        except (OSError, ValueError):
+            target = getattr(self, "_last_external_hwnd", 0)
+        try:
+            _valid_external_window(target)
+        except (OSError, ValueError):
+            self._current_route = "Windows: выделенный текст"
+            self._resolved_command(
+                spoken,
+                "Не вижу внешнее окно с выделением. "
+                "Выделите текст в браузере или редакторе, переключитесь "
+                "в него и повторите команду.",
+            )
+            return
+        self._last_external_hwnd = target
+        try:
+            ctypes.windll.user32.SetForegroundWindow(wintypes.HWND(target))
+        except (AttributeError, OSError):
+            pass
+        self.mic_status.setText("Читаю выделенный текст из активного окна…")
+        QTimer.singleShot(
+            150,
+            lambda: self._copy_selection_start(spoken, mode, target),
+        )
+
+    def _copy_selection_start(self, spoken, mode, hwnd):
+        if self._closed or not self._processing or spoken != self._active_text:
+            return
+        from PySide6.QtWidgets import QApplication
+        clipboard = QApplication.clipboard()
+        try:
+            _, before, saved = copy_selected_text(clipboard, hwnd)
+        except Exception as exc:
+            self._current_route = "Windows: выделенный текст"
+            self._resolved_command(spoken, str(exc))
+            return
+        QTimer.singleShot(
+            300,
+            lambda: self._copy_selection_finish(
+                spoken, mode, hwnd, before, saved,
+            ),
+        )
+
+    def _copy_selection_finish(self, spoken, mode, hwnd, before, saved):
+        if self._closed or not self._processing or spoken != self._active_text:
+            return
+        from PySide6.QtWidgets import QApplication
+        clipboard = QApplication.clipboard()
+        try:
+            selected = finish_selected_copy(
+                clipboard, hwnd, before, saved,
+            )
+        except Exception as exc:
+            self._current_route = "Windows: выделенный текст"
+            self._resolved_command(spoken, str(exc))
+            return
+        if mode == "read":
+            answer = "Выделено: " + selected[:1500]
+            if len(selected) > 1500:
+                answer += "… (показано только начало)"
+            self._current_route = "Windows: выделенный текст"
+            self._resolved_command(spoken, answer)
+            return
+        self.mic_status.setText("Составляю краткий пересказ выделения…")
+        threading.Thread(
+            target=self._selected_summary_worker,
+            args=(spoken, selected),
+            daemon=True, name="JarvisSelectedTextSummary",
+        ).start()
+
+    def _selected_summary_worker(self, spoken, selected):
+        """Cloud first when connected, then offline GGUF, then extractive."""
+        answer = None
+        route = "выделение: исходный текст"
+        try:
+            if self.online_planner.enabled():
+                answer = self.online_planner.summarize_selection(selected)
+                if answer:
+                    route = "выделение → облачный AI"
+            if not answer and self.cfg.get("local_llm_fallback_enabled", True):
+                answer = self.agent.summarize_selection(selected)
+                if answer:
+                    route = "выделение → локальный GGUF"
+        except Exception:
+            # Neither the selected text nor credentials enter error messages.
+            answer = None
+        if not answer:
+            answer = extractive_fallback(selected)
+        if not self._closed:
+            try:
+                self.selected_summary_ready.emit(spoken, route, answer)
+            except RuntimeError:
+                pass
+
+    def _on_selected_summary_ready(self, spoken, route, answer):
+        if self._closed or not self._processing or spoken != self._active_text:
+            return
+        self._current_route = route
+        self._resolved_command(spoken, answer)
+
     def _remember_external_window(self):
         if sys.platform != "win32" or self._closed:
             return
@@ -1102,6 +1225,13 @@ class MainWindow(QMainWindow):
                 return
 
             saved = self.command_registry.match(text, prefix)
+
+            # Real text highlighting lives in the active application's
+            # selection, not in a screenshot. Copy it before model routing.
+            selected_mode = selected_text_intent(text)
+            if selected_mode is not None:
+                self._start_selection_request(text, selected_mode)
+                return
 
             # Live weather and local screen OCR use dedicated, verifiable
             # services. They work even if Gemini is quota-blocked (HTTP 429).
