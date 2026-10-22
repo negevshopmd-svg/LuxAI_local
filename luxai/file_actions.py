@@ -141,3 +141,47 @@ def parse_file_intent(text: str) -> dict | None:
     except ValueError:
         return None
     return {"action": kind, "target": name, "location": place, "content": ""}
+
+
+def resolve_user_item(name: str, location="desktop", home=None) -> Path:
+    """Resolve an existing top-level file using a basename, never a path."""
+    directory = user_folder(location, home=home)
+    if not directory.is_dir():
+        raise FileNotFoundError(f"Папка {location} отсутствует")
+    # safe_name() may add .txt to an extensionless file; this is appropriate
+    # for new files, not existing folders. Check both exact names safely.
+    checked = safe_name(name, is_folder=True)
+    path = directory / checked
+    if not path.exists():
+        raise FileNotFoundError(f"Не найдено: {checked}")
+    if path.is_symlink():
+        raise ValueError("Ссылки и ярлыки файлов не изменяются")
+    return path
+
+
+def rename_user_item(source: str, destination: str, location="desktop", home=None) -> Path:
+    """Rename only within the same allowed user directory; never overwrite."""
+    original = resolve_user_item(source, location, home)
+    new_name = safe_name(destination, is_folder=original.is_dir())
+    target = original.parent / new_name
+    if target == original:
+        raise ValueError("Новое имя совпадает с текущим")
+    if target.exists() or target.is_symlink():
+        raise FileExistsError(f"Файл «{target.name}» уже существует")
+    original.rename(target)
+    if not target.exists() or original.exists():
+        raise OSError("Переименование не подтверждено")
+    return target
+
+
+def trash_user_item(name: str, location="desktop", home=None) -> str:
+    """Move one user-visible file to Recycle Bin, never permanently delete."""
+    original = resolve_user_item(name, location, home)
+    if original.is_dir():
+        raise ValueError("Удаление папок голосом отключено")
+    from send2trash import send2trash
+    saved_name = original.name
+    send2trash(str(original))
+    if original.exists():
+        raise OSError("Windows не подтвердил перемещение в корзину")
+    return saved_name
