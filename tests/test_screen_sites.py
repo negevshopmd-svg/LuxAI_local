@@ -157,6 +157,68 @@ class ScreenButtonTests(unittest.TestCase):
             result = click_inspected_button(snap, "yes", confirm=lambda _: False)
         self.assertIn("отменено", result)
 
+    def test_positive_mouse_click_after_same_window_revalidation(self):
+        import ctypes
+        import sys
+        import types
+
+        snap = self._snapshot([VisibleButton("Да", (10, 10, 60, 40))])
+        user32 = types.SimpleNamespace(
+            SetForegroundWindow=mock.Mock(return_value=True)
+        )
+        fake_mouse = types.SimpleNamespace(
+            moveTo=mock.Mock(), click=mock.Mock()
+        )
+        with mock.patch.object(ctypes, "windll",
+                               types.SimpleNamespace(user32=user32), create=True), mock.patch(
+            "luxai.screen_interact._valid_external_window",
+            return_value=(8765, "Some Desktop Program")
+        ), mock.patch(
+            "luxai.screen_interact._foreground_hwnd", return_value=142
+        ), mock.patch(
+            "luxai.screen_interact.inspect_screen_buttons",
+            return_value=snap
+        ), mock.patch(
+            "luxai.screen_interact.time.sleep"
+        ), mock.patch.dict(sys.modules, {"pyautogui": fake_mouse}):
+            result = click_inspected_button(
+                snap, "yes", confirm=lambda _: True,
+            )
+        self.assertIn("Нажал кнопку", result)
+        fake_mouse.moveTo.assert_called_once_with(35, 25, duration=0.12)
+        fake_mouse.click.assert_called_once_with(35, 25)
+
+    def test_button_moved_after_confirmation_prevents_click(self):
+        import ctypes
+        import sys
+        import types
+
+        snap = self._snapshot([VisibleButton("Да", (10, 10, 60, 40))])
+        moved = self._snapshot([VisibleButton("Да", (300, 300, 360, 340))])
+        fake_mouse = types.SimpleNamespace(click=mock.Mock())
+        with mock.patch.object(
+            ctypes, "windll",
+            types.SimpleNamespace(user32=types.SimpleNamespace(
+                SetForegroundWindow=mock.Mock(return_value=True)
+            )),
+            create=True,
+        ), mock.patch(
+            "luxai.screen_interact._valid_external_window",
+            return_value=(8765, "Some Desktop Program")
+        ), mock.patch(
+            "luxai.screen_interact._foreground_hwnd", return_value=142
+        ), mock.patch(
+            "luxai.screen_interact.inspect_screen_buttons",
+            return_value=moved
+        ), mock.patch(
+            "luxai.screen_interact.time.sleep"
+        ), mock.patch.dict(sys.modules, {"pyautogui": fake_mouse}):
+            result = click_inspected_button(
+                snap, "yes", confirm=lambda _: True,
+            )
+        self.assertIn("сместилась", result)
+        fake_mouse.click.assert_not_called()
+
     def test_changed_window_rejected_before_click(self):
         snap = self._snapshot([VisibleButton("Да", (10, 10, 60, 40))])
         with mock.patch("luxai.screen_interact._valid_external_window",
