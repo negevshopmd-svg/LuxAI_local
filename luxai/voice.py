@@ -19,12 +19,19 @@ def speak(text, enabled=True):
         pass
 
 class VoiceListener:
-    """Local chunk-based listener. Prefix is checked on recognized text."""
-    def __init__(self, model_path="small", prefix_enabled=True, prefix="Jarvis", language="auto"):
+    """Fast local speech capture: collect speech until 5 seconds of silence, then transcribe once."""
+    def __init__(self, model_path="tiny", prefix_enabled=True, prefix="Jarvis", language="auto"):
         from faster_whisper import WhisperModel
-        self.model = WhisperModel(model_path, device="cpu", compute_type="int8")
+        import os
+        self.model = WhisperModel(
+            model_path or "tiny",
+            device="cpu",
+            compute_type="int8",
+            cpu_threads=max(2, min(8, os.cpu_count() or 4)),
+            num_workers=1,
+        )
         self.prefix_enabled = prefix_enabled
-        self.prefix = (prefix or "Jarvis").strip().lower()
+        self.prefix = (prefix or "Jarvis").strip()
         self.language = None if language == "auto" else language
         self._stop = False
 
@@ -33,38 +40,55 @@ class VoiceListener:
 
     def listen(self):
         sample_rate = 16000
-        seconds = 4
-        block = int(sample_rate * seconds)
+        chunk_seconds = 1
+        silence_seconds = 5
+        block = int(sample_rate * chunk_seconds)
         q = queue.Queue()
+
         def callback(indata, frames, time_info, status):
             if not self._stop:
-                q.put(indata.copy())
-        with sd.InputStream(samplerate=sample_rate, channels=1, dtype="float32",
-                            blocksize=block, callback=callback):
+                q.put(indata.copy().reshape(-1))
+
+        with sd.InputStream(
+            samplerate=sample_rate, channels=1, dtype="float32",
+            blocksize=block, callback=callback
+        ):
+            audio_parts = []
+            silence_chunks = 0
+            speech_started = False
             while not self._stop:
                 try:
-                    audio = q.get(timeout=0.5).reshape(-1)
+                    chunk = q.get(timeout=0.5)
                 except queue.Empty:
                     continue
-                if float(np.max(np.abs(audio))) < 0.012:
-                    continue
-                segments, info = self.model.transcribe(audio, language=self.language,
-                    beam_size=1, vad_filter=True, condition_on_previous_text=False)
-                text = " ".join(s.text.strip() for s in segments).strip()
-                if not text:
-                    continue
-                if self.prefix_enabled:
-                    # Require the wake word at the beginning of the recognized chunk.
-                    # Prefix mode is a hard gate: discard any transcript without the wake word.
-                    # Normalize punctuation/whitespace and allow a short punctuation separator.
-                    norm = re.sub(r"^[\\W_]+|[\\W_]+$", "", text.lower(), flags=re.UNICODE).strip()
-                    prefix = re.escape(self.prefix)
-                    match = re.match(r"^" + prefix + r"(?=$|[\\s,.:;!?-])", norm, flags=re.IGNORECASE)
-                    if not match:
+                level = float(np.sqrt(np.mean(np.square(chunk)))) if len(chunk) else 0.0
+                if level >= 0.009:
+                    speech_started = True
+                    silence_chunks = 0
+                    audio_parts.append(chunk)
+                elif speech_started:
+                    audio_parts.append(chunk)
+                    silence_chunks += 1
+
+                if speech_started and silence_chunks >= silence_seconds:
+                    audio = np.concatenate(audio_parts)
+                    audio_parts = []
+                    silence_chunks = 0
+                    speech_started = False
+                    if len(audio) < sample_rate // 2:
                         continue
-                    text = norm[match.end():].lstrip(" ,.!?:;-")
-                    if not text:
+                    try:
+                        segments, info = self.model.transcribe(
+                            audio,
+                            language=self.language,
+                            beam_size=1,
+                            best_of=1,
+                            vad_filter=True,
+                            condition_on_previous_text=False,
+                        )
+                        text = " ".join(segment.text.strip() for segment in segments).strip()
+                        if text:
+                            yield text
+                    except Exception:
+                        # Keep listening after a failed transcription rather than crash the mic loop.
                         continue
-                    if not text:
-                        continue
-                yield text
