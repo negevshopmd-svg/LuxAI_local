@@ -48,6 +48,59 @@ class QtActionTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
+    def test_selected_text_summary_routes_before_cloud_and_screen_ocr(self):
+        import types
+        from unittest import mock
+
+        MainWindow = _load_main_class_for_mock_tests()
+        spoken = "Сделай краткий пересказ текста, который я выделил"
+        fake = types.SimpleNamespace(
+            _processing=False,
+            _closed=False,
+            _command_queue=[{"parts": [spoken]}],
+            cfg={"language": "ru", "wake_prefix": "Jarvis"},
+            command_registry=types.SimpleNamespace(
+                disabled_match=lambda *_: False,
+                match=lambda *_: None,
+            ),
+            online_planner=types.SimpleNamespace(
+                enabled=mock.Mock(
+                    side_effect=AssertionError(
+                        "Selection must be copied before using Gemini",
+                    ),
+                ),
+            ),
+            _start_selection_request=mock.Mock(),
+            agent=types.SimpleNamespace(history=[]),
+        )
+        MainWindow._dispatch_command(fake)
+        fake._start_selection_request.assert_called_once_with(spoken, "summarize")
+        fake.online_planner.enabled.assert_not_called()
+
+    def test_selected_text_read_routes_without_ai(self):
+        import types
+        from unittest import mock
+
+        MainWindow = _load_main_class_for_mock_tests()
+        spoken = "Жарвис, прочитай выделенный текст"
+        fake = types.SimpleNamespace(
+            _processing=False,
+            _closed=False,
+            _command_queue=[{"parts": [spoken]}],
+            cfg={"language": "ru", "wake_prefix": "Jarvis"},
+            command_registry=types.SimpleNamespace(
+                disabled_match=lambda *_: False,
+                match=lambda *_: None,
+            ),
+            online_planner=types.SimpleNamespace(
+                enabled=mock.Mock(side_effect=AssertionError("No AI needed")),
+            ),
+            _start_selection_request=mock.Mock(),
+        )
+        MainWindow._dispatch_command(fake)
+        fake._start_selection_request.assert_called_once_with(spoken, "read")
+        fake.online_planner.enabled.assert_not_called()
+
     def test_main_dispatch_routes_unknown_voice_action_to_gemini_before_local(self):
         import types
         from unittest import mock
