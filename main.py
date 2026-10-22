@@ -22,6 +22,8 @@ from luxai.online_agent import OnlinePlanner
 from luxai.secure_keys import store_api_key, get_api_key
 from luxai.api_verification import check_api_key_detailed
 from luxai.api_providers import PROVIDERS
+from luxai.command_registry import CommandRegistry
+from luxai.ui_commands import CommandsPage
 
 BASE = Path(__file__).resolve().parent
 CONFIG = BASE / "config.json"
@@ -87,6 +89,7 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(900, 600)
         self.cfg = load_config()
         self.agent = LocalAgent(self.cfg)
+        self.command_registry = CommandRegistry()
         self.online_planner = OnlinePlanner(self.cfg)
         self.online_plan_ready.connect(self._on_online_plan)
         self.local_reply_ready.connect(self._on_local_reply)
@@ -182,21 +185,19 @@ class MainWindow(QMainWindow):
         self.pages.addWidget(self.home_page)
 
     def build_commands(self):
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        title = QLabel("Команды")
-        title.setObjectName("PageTitle")
-        layout.addWidget(title)
-        desc = QLabel("История распознанных и введённых команд.")
-        desc.setObjectName("Muted")
-        layout.addWidget(desc)
-        frame, box = card()
-        self.command_history = QTextEdit()
-        self.command_history.setReadOnly(True)
-        self.command_history.setPlaceholderText("Здесь появятся выполненные команды и ответы.")
-        box.addWidget(self.command_history)
-        layout.addWidget(frame, 1)
-        self.pages.addWidget(page)
+        """Show editable built-in and learned commands instead of only history."""
+        self.commands_page = CommandsPage(self.command_registry)
+        self.commands_page.run_requested.connect(self.run_saved_command)
+        self.pages.addWidget(self.commands_page)
+
+    def run_saved_command(self, entry):
+        if not isinstance(entry, dict) or not entry.get("enabled"):
+            return
+        self.show_page(3)  # command result is visible in the chat log
+        phrase = entry.get("phrases", [""])
+        if phrase:
+            self.append_message("Tu", phrase[0], "#79a6ff")
+            self.run_command(phrase[0])
 
     def build_addons(self):
         page = QWidget()
@@ -661,7 +662,6 @@ class MainWindow(QMainWindow):
         safe = html.escape(str(text)).replace("\n", "<br>")
         entry = f'<p style="margin:8px 0"><b style="color:{color}">{html.escape(who)}:</b><br>{safe}</p>'
         self.log.append(entry)
-        self.command_history.append(entry)
         color_line = "#4388f9" if who.startswith("Tu") else "#868d98"
         self.home_history.append(
             f'<p style="margin:5px 0; padding-left:10px; border-left:2px solid {color_line};">'
@@ -707,10 +707,39 @@ class MainWindow(QMainWindow):
         self._active_text = text
         self._processing = True
         try:
-            # Fast deterministic commands never need a cloud round trip or LLM.
+            # Exact named shortcuts are checked before any model. Defaults and
+            # custom/learned commands share the same validated local executor.
+            if self.command_registry.disabled_match(text, self.cfg.get("wake_prefix", "Jarvis")):
+                self._current_route = "выключенная команда"
+                self._resolved_command(text, "Эта команда отключена в библиотеке команд.")
+                return
+            saved = self.command_registry.match(text, self.cfg.get("wake_prefix", "Jarvis"))
+            if saved is not None:
+                plan = {
+                    "action": saved["action"],
+                    "target": saved.get("target", ""),
+                    "location": saved.get("location", "desktop"),
+                    "appid": saved.get("appid"),
+                }
+                answer = self.agent.execute_plan(
+                    text, plan, confirm_callback=self.confirm_action,
+                )
+                if answer is not None:
+                    self._current_route = "готовая команда"
+                    self._resolved_command(text, answer)
+                    return
+            # Fast deterministic actions still handle natural language
+            # variants that aren't exact registered trigger phrases.
             answer = self.agent.handle_fast(text, confirm_callback=self.confirm_action)
             if answer is not None:
                 self._current_route = "быстро"
+                # Learn a new variation only after a supported action succeeds.
+                learned = self.command_registry.learn(
+                    text, getattr(self.agent, "last_executed_plan", None),
+                    success=getattr(self.agent, "last_execution_success", False),
+                )
+                if learned:
+                    self.commands_page.refresh()
                 self._resolved_command(text, answer)
                 return
         except Exception as exc:
@@ -757,6 +786,10 @@ class MainWindow(QMainWindow):
             except Exception:
                 answer = None
         if answer is not None:
+            if proposal and getattr(self.agent, "last_execution_success", False):
+                learned = self.command_registry.learn(text, proposal, success=True)
+                if learned:
+                    self.commands_page.refresh()
             provider = self.cfg.get("online_provider", "openai")
             self._current_route = "онлайн: " + PROVIDERS.get(provider, {}).get("label", provider)
             self._resolved_command(text, answer)
@@ -862,7 +895,13 @@ class MainWindow(QMainWindow):
             self.mic_status.setText("Нет подходящего голоса. Проверьте voice_error.log.")
 
     def confirm_action(self, description):
-        if not self.cfg.get("confirm_desktop_actions", True):
+        # File/folder writes are always confirmed, even when the optional
+        # confirmation for ordinary app launches has been disabled.
+        file_write = any(
+            token in str(description).casefold()
+            for token in ("создать файл", "создать папку", "create ", "creez ")
+        )
+        if not file_write and not self.cfg.get("confirm_desktop_actions", True):
             return True
         dialog = QMessageBox(self)
         russian = self.cfg.get("language") == "ru"
