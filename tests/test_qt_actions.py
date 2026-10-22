@@ -69,10 +69,11 @@ class QtActionTests(unittest.TestCase):
                 enabled=lambda: True,
             ),
             mic_status=types.SimpleNamespace(setText=mock.Mock()),
+            confirm_action=lambda _message: False,
             _online_thread=lambda *_: None,
             _resolved_command=mock.Mock(),
         )
-        with mock.patch("main.threading.Thread") as thread:
+        with mock.patch.object(__import__("threading"), "Thread") as thread:
             MainWindow._dispatch_command(fake)
         self.assertEqual(fake._active_text, "Открой Firefox")
         self.assertEqual(fake._processing, True)
@@ -101,6 +102,7 @@ class QtActionTests(unittest.TestCase):
             ),
             online_planner=types.SimpleNamespace(enabled=lambda: False),
             mic_status=types.SimpleNamespace(setText=mock.Mock()),
+            confirm_action=lambda _message: False,
             _resolved_command=mock.Mock(),
             _start_local_chat=mock.Mock(),
         )
