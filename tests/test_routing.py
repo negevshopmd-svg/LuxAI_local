@@ -51,7 +51,12 @@ class RoutingTests(unittest.TestCase):
         ]
         for proposal in invalid:
             self.assertIsNone(OnlinePlanner._validate(proposal))
-            self.assertIsNone(self.agent.execute_plan("Открой программу", proposal, lambda _: True))
+            result = self.agent.execute_plan("Открой программу", proposal, lambda _: True)
+            self.assertFalse(self.agent.last_execution_success)
+            self.assertTrue(
+                result is None or "Некорректное" in result,
+                f"Rejected proposal incorrectly marked executable: {proposal}",
+            )
 
     def test_cloud_reply_safe(self):
         plan = {"action": "reply", "target": "", "reply": "Слушаю."}
