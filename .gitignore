@@ -1,6 +1,7 @@
 # Local configuration, credentials and generated files
 .env
 .luxai_secrets/
+.luxai_data/
 config.local.json
 voice_error.log
 online_agent.log
