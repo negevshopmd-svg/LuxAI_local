@@ -286,6 +286,13 @@ def click_inspected_button(
             return "Кнопка сместилась. Не нажимаю без нового снимка."
         if _foreground_hwnd() != snapshot.hwnd:
             return "Активное окно изменилось. Клик не выполнен."
+        # Windows hit-testing ensures an always-on-top Jarvis panel, toast,
+        # browser overlay or any other process is not covering the button.
+        user32.WindowFromPoint.argtypes = (wintypes.POINT,)
+        user32.WindowFromPoint.restype = wintypes.HWND
+        hovered = user32.WindowFromPoint(wintypes.POINT(*candidate.center))
+        if not hovered or _window_pid(int(hovered)) != snapshot.pid:
+            return "Кнопка закрыта другим окном. Клик не выполнен."
         import pyautogui
         pyautogui.moveTo(*candidate.center, duration=0.12)
         if _foreground_hwnd() != snapshot.hwnd:
