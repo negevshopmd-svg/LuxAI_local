@@ -31,6 +31,10 @@ QPushButton#Primary:hover { background:#4d88ff; }
 QPushButton#Nav { text-align:left; padding:12px 14px; background:transparent; border:0; border-radius:9px; color:#b7bfcc; }
 QPushButton#Nav:hover { background:#222936; color:white; }
 QPushButton#Nav[active="true"] { background:#252d3a; color:white; border-left:3px solid #4b83ff; }
+QFrame#SettingsSidebar { background:#1b2029; border:1px solid #303744; border-radius:15px; }
+QPushButton#SettingsNav { background:transparent; border:0; text-align:left; padding:10px 12px; color:#b7bfcc; }
+QPushButton#SettingsNav:hover { background:#252c38; }
+QPushButton#SettingsNav[selected="true"] { background:#30394a; color:white; border-left:3px solid #4b83ff; }
 QLineEdit, QTextEdit, QComboBox { background:#131820; border:1px solid #343c4a; border-radius:9px; padding:10px; selection-background-color:#3978f6; }
 QLineEdit:focus, QTextEdit:focus, QComboBox:focus { border-color:#4b83ff; }
 QCheckBox { spacing:10px; color:#cbd2dd; }
@@ -125,7 +129,7 @@ class MainWindow(QMainWindow):
         logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         logo.setFixedSize(42, 42)
         logo.setStyleSheet("background:#2f70e8;color:white;border-radius:21px;font-size:25px;font-weight:700;")
-        brand_name = QLabel("NEXORA")
+        brand_name = QLabel("JARVIS")
         brand_name.setStyleSheet("font-size:17px;font-weight:800;letter-spacing:1px;")
         brand.addWidget(logo)
         brand.addWidget(brand_name)
@@ -224,7 +228,7 @@ class MainWindow(QMainWindow):
         control_layout.addWidget(self.home_quiet)
         self.home_avatar = QCheckBox("Анимация аватара")
         self.home_avatar.setChecked(True)
-        self.home_avatar.toggled.connect(lambda on: self.avatar.setVisible(on))
+        self.home_avatar.toggled.connect(self.sync_animation)
         control_layout.addWidget(self.home_avatar)
         self.home_top = QCheckBox("Окно поверх остальных")
         self.home_top.setChecked(False)
@@ -234,10 +238,10 @@ class MainWindow(QMainWindow):
         volume_row.addWidget(QLabel("Громкость"))
         self.volume = QSlider(Qt.Orientation.Horizontal)
         self.volume.setRange(0, 100)
-        self.volume.setValue(80)
+        self.volume.setValue(int(self.cfg.get("voice_volume", 80)))
         volume_row.addWidget(self.volume, 1)
-        self.volume_label = QLabel("80%")
-        self.volume.valueChanged.connect(lambda v: self.volume_label.setText(f"{v}%"))
+        self.volume_label = QLabel(f"{self.volume.value()}%")
+        self.volume.valueChanged.connect(self.sync_volume)
         volume_row.addWidget(self.volume_label)
         control_layout.addLayout(volume_row)
         row.addWidget(control_frame, 2)
@@ -384,6 +388,11 @@ class MainWindow(QMainWindow):
             self.home_avatar.blockSignals(True)
             self.home_avatar.setChecked(self.cfg.get("ui_animations", True))
             self.home_avatar.blockSignals(False)
+        if hasattr(self, "volume"):
+            self.volume.blockSignals(True)
+            self.volume.setValue(int(self.cfg.get("voice_volume", 80)))
+            self.volume.blockSignals(False)
+            self.volume_label.setText(f"{self.volume.value()}%")
         if self.tray_icon:
             if self.cfg.get("minimize_to_tray", False) and QSystemTrayIcon.isSystemTrayAvailable():
                 self.tray_icon.show()
@@ -534,6 +543,19 @@ class MainWindow(QMainWindow):
         if self.worker and self.worker.listener:
             self.worker.listener.prefix_enabled = bool(enabled)
             self.worker.listener.prefix = (self.cfg.get("wake_prefix", "Jarvis") or "Jarvis").strip().lower()
+
+    def sync_volume(self, value):
+        if hasattr(self, "volume_label"):
+            self.volume_label.setText(f"{value}%")
+        if hasattr(self, "settings_panel"):
+            self.settings_panel.voice_volume.setValue(value)
+            self.save_settings()
+
+    def sync_animation(self, enabled):
+        self.avatar.setVisible(enabled)
+        if hasattr(self, "settings_panel"):
+            self.settings_panel.animations.setChecked(enabled)
+            self.save_settings()
 
     def sync_quiet(self, enabled):
         if hasattr(self, "tts"):
