@@ -1,7 +1,8 @@
 """Trusted actions selected in Jarvis's graphical command editor.
 
-No shell command execution, no arbitrary model-supplied scripts. All Windows
-keyboard/mouse operations are explicit user-created, prevalidated macro steps.
+Only manually saved terminal commands can be executed, after displaying the
+full command and explicit approval. Online AI never supplies executable shell
+scripts. Keyboard/mouse operations are prevalidated GUI-created macro steps.
 """
 from __future__ import annotations
 
