@@ -218,7 +218,6 @@ class ActionPicker(QDialog):
             item.setData(Qt.ItemDataRole.UserRole, title)
             self.category_list.addItem(item)
         self.category_list.currentRowChanged.connect(self._refresh_items)
-        self.category_list.setCurrentRow(0)
         main.addWidget(self.category_list)
 
         self.action_scroll = QScrollArea()
@@ -289,6 +288,7 @@ class ActionPicker(QDialog):
             }
             QPushButton#PickerItem:disabled {color:#8995ab;}
         """)
+        self.category_list.setCurrentRow(0)
         self._refresh_items()
 
     def _refresh_items(self, *_):
