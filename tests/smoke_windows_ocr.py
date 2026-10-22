@@ -8,6 +8,10 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+# Running as "python tests/smoke_windows_ocr.py" sets sys.path[0] to
+# tests/, not the repository root.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from PIL import Image, ImageDraw, ImageFont
 
 from luxai.ocr_setup import (
