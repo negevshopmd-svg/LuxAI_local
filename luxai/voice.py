@@ -4,7 +4,7 @@ from collections import deque
 import numpy as np
 import sounddevice as sd
 
-from .voices import speak
+from .voices import speak, playback_active
 
 
 class VoiceListener:
@@ -86,6 +86,15 @@ class VoiceListener:
                 except queue.Empty:
                     continue
                 if len(chunk) != frame_samples:
+                    continue
+
+                # Prevent the assistant from transcribing its own speaker output.
+                if playback_active.is_set():
+                    pre_roll.clear()
+                    audio_parts = []
+                    silence_frames = 0
+                    speech_started = False
+                    utterance_frames = 0
                     continue
 
                 if use_vad:
