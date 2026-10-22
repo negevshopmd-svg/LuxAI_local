@@ -232,7 +232,7 @@ class CommandsPage(QWidget):
         side_col.addWidget(add)
         add_voice = QPushButton("🎙  Создать голосом")
         add_voice.setToolTip("Jarvis спросит фразу и действие, затем сохранит команду.")
-        add_voice.clicked.connect(self.voice_create_requested.emit)
+        add_voice.clicked.connect(lambda _checked=False: self.voice_create_requested.emit())
         side_col.addWidget(add_voice)
         self.edit = QPushButton("Изменить выбранную")
         self.edit.clicked.connect(self.edit_selected)
