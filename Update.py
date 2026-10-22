@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import sys
 import tempfile
 import urllib.error
 import urllib.request
@@ -75,6 +76,49 @@ def safe_extract(zip_path: Path, destination: Path) -> None:
         zf.extractall(destination)
 
 
+def validate_staged_requirements(source: Path) -> None:
+    """Reject malformed dependencies before touching installed project files.
+
+    Use the existing virtual environment's pip parser, fully offline. This
+    prevents a malformed requirements.txt from overwriting the working file
+    and only then causing pip install to fail.
+    """
+    requirements = source / "requirements.txt"
+    if not requirements.is_file():
+        raise RuntimeError("Arhiva nu conține requirements.txt.")
+    win_python = ROOT / ".venv" / "Scripts" / "python.exe"
+    unix_python = ROOT / ".venv" / "bin" / "python"
+    python = (
+        win_python if win_python.is_file() else
+        unix_python if unix_python.is_file() else
+        Path(sys.executable)
+    )
+    checker = (
+        "from pathlib import Path\n"
+        "from pip._vendor.packaging.requirements import Requirement\n"
+        "import sys\n"
+        "rows = Path(sys.argv[1]).read_text(encoding='utf-8').splitlines()\n"
+        "for n, row in enumerate(rows, 1):\n"
+        "    row = row.split('#', 1)[0].strip()\n"
+        "    if row:\n"
+        "        try: Requirement(row)\n"
+        "        except Exception as exc:\n"
+        "            raise ValueError(f'Linia {n}: {row}: {exc}') from exc\n"
+    )
+    check = subprocess.run(
+        [str(python), "-c", checker, str(requirements)],
+        cwd=str(source), timeout=20, capture_output=True, text=True,
+        errors="replace", check=False,
+    )
+    if check.returncode:
+        details = (check.stderr or check.stdout).strip()
+        raise RuntimeError(
+            "requirements.txt din actualizare conține dependențe invalide. "
+            "Niciun fișier nu a fost suprascris. "
+            + details[-900:]
+        )
+
+
 def main() -> int:
     print("=== Lux AI | Actualizare automată din GitHub ===")
     print(f"Repository: https://github.com/{OWNER}/{REPO}")
@@ -118,6 +162,9 @@ def main() -> int:
             source = roots[0]
             if not (source / "main.py").is_file():
                 raise RuntimeError("Arhiva nu conține main.py; nu modific nimic.")
+            # Validate requirements from the downloaded copy, BEFORE backup
+            # and BEFORE replacing anything in the user's installation.
+            validate_staged_requirements(source)
 
             files = []
             for src in source.rglob("*"):
