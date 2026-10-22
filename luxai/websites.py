@@ -87,13 +87,20 @@ def website_name_from_speech(text: str) -> str | None:
         return None
     tagged = bool(SITE_MARKER.search(spoken))
     site = SEPARATORS.sub(" ", spoken)
-    site = re.sub(r"[,!?:]+", " ", site)
+    # Colons are significant in a spoken HTTPS URL. Only strip punctuation
+    # from regular site names, not from an explicit https:// domain.
+    if "https://" not in site:
+        site = re.sub(r"[,!?:]+", " ", site)
     site = " ".join(site.strip(" \t.,!?").split())
+    if site in {"discord", "дискорд", "telegram", "телеграм", "spotify", "спотифай"} and not tagged:
+        return None  # desktop app by default; website only with browser/site
     if site in SITES:
         return site
     # Any public FQDN can be opened when specifically dictated. Bare names
     # not in SITES require explicit website context to avoid hijacking an
     # "open [installed desktop app]" command.
+    if site.startswith("https://") and len(site) <= 225:
+        return site
     if "." in site and re.fullmatch(r"[\w.-]{4,140}", site):
         return site
     if tagged and re.fullmatch(r"[\w \-]{2,55}", site):
