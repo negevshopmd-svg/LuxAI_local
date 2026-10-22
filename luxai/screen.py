@@ -1,13 +1,23 @@
-"""Local screenshots and OCR; screenshots are NEVER automatically uploaded."""
+"""LuxAI local screenshots and automatically provisioned Tesseract OCR.
+
+The engine and Russian/English models live inside the private LuxAI data
+folder; no manual system-wide Tesseract installation, PATH change, or cloud
+upload is required. The first OCR request can install the engine if
+install_windows.bat / Update.bat has not already prepared it.
+"""
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from datetime import datetime
 
 import mss
 from PIL import Image
 import pytesseract
+
+from luxai.ocr_setup import (
+    ensure_tesseract, find_tesseract, language_data_ready,
+    OCRInstallError,
+)
 
 
 def capture_screen():
@@ -23,44 +33,39 @@ def capture_screen():
 
 
 def locate_tesseract(path="") -> str:
-    """Find tesseract.exe in settings, PATH, or standard Windows directories."""
-    if path:
-        selected = Path(os.path.expandvars(str(path))).expanduser()
-        if not selected.is_file():
-            raise FileNotFoundError(
-                f"Tesseract не найден по указанному пути: {selected}"
-            )
-        return str(selected)
+    """Look for the integrated OCR engine before any system installation.
 
-    from shutil import which
-    discovered = which("tesseract.exe") or which("tesseract")
-    if discovered:
-        return discovered
-    for base in (
-        os.getenv("PROGRAMFILES", ""),
-        os.getenv("PROGRAMFILES(X86)", ""),
-        str(Path.home() / "AppData" / "Local" / "Programs"),
-    ):
-        if base:
-            candidate = Path(base) / "Tesseract-OCR" / "tesseract.exe"
-            if candidate.is_file():
-                return str(candidate)
-    raise FileNotFoundError(
-        "Tesseract OCR не установлен. "
-        "Установите Tesseract-OCR (английский и русский языки) "
-        "и выберите tesseract.exe в Настройки → Система."
-    )
+    Does not download; code that wants OCR should use ensure_tesseract.
+    """
+    binary = find_tesseract(path)
+    if binary is None:
+        raise FileNotFoundError(
+            "Встроенный Tesseract OCR отсутствует. "
+            "Запустите Update.bat или дождитесь автоматической установки."
+        )
+    return str(binary)
 
 
 def read_screen_text(image_path, tesseract_path=""):
-    pytesseract.pytesseract.tesseract_cmd = locate_tesseract(tesseract_path)
-    picture = Image.open(image_path)
-    try:
-        return pytesseract.image_to_string(picture, lang="rus+eng")
-    except pytesseract.TesseractError as exc:
-        # English text still matters if the Windows installation lacks the
-        # optional Russian traineddata package. Report this in the output.
-        if "rus.traineddata" not in str(exc):
-            raise
-        text = pytesseract.image_to_string(picture, lang="eng")
-        return text + "\n[Русский пакет OCR rus.traineddata не установлен.]"
+    """Read screen text offline using bundled OCR and language data.
+
+    First use may download the pinned executable and traineddata. Caller
+    should invoke this in a worker thread to avoid freezing the GUI.
+    """
+    binary, models = ensure_tesseract(tesseract_path)
+    pytesseract.pytesseract.tesseract_cmd = str(binary)
+    # Restrict models to the bundled private tessdata directory. This works
+    # even if a previously system-installed Tesseract has no Russian model.
+    config = f'--tessdata-dir "{models}"'
+    with Image.open(image_path) as picture:
+        try:
+            return pytesseract.image_to_string(
+                picture, lang="rus+eng", config=config
+            )
+        except pytesseract.TesseractError as exc:
+            if "rus.traineddata" not in str(exc):
+                raise
+            english = pytesseract.image_to_string(
+                picture, lang="eng", config=config
+            )
+            return english + "\n[Русский пакет OCR не загрузился.]"
