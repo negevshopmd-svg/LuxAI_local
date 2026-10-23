@@ -27,3 +27,9 @@ LuxAI supports 64-bit Windows 10 and 11 with a functional Python 3.11–3.14 env
 If double-clicking `run_windows.bat` appears to do nothing, run `diagnose_windows.bat` from the same folder. This starts Jarvis with a visible console and preserves errors in `logs/startup_error.log`. If an import, Qt startup, or configuration error prevents launch, a Windows error dialog points to that file. For dependency or virtual environment problems, run `install_windows.bat` and check `logs/install_windows.log`.
 
 On another computer, always extract a fresh ZIP without a copied `.venv`. Avoid sharing the original `config.json`, which can contain machine-specific model paths and personal settings. Never share API keys, secrets, or complete diagnostic logs without checking for private file paths or credentials.
+
+## Interface languages
+
+Open **Settings → Interface → Interface language** and choose **Русский**, **English**, or **Română**, then press **Save settings**. Menu labels, settings, home controls, command editor and tool panels switch immediately without restarting the program. The preference is saved as `ui_language` in the local `config.json` and restored on next launch.
+
+Interface language is separate from **Voice input → Recognition language** (the existing `language` setting). Changing interface text does **not** change Whisper transcription, spoken answers, custom command phrases, API keys, or user-entered fields. Free-form agent responses, user-provided command names and third-party error messages remain in their original language.

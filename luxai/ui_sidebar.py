@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
+from luxai.ui_i18n import tr, normalize_language
 from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
 )
@@ -51,6 +52,7 @@ class NavigationSidebar(QFrame):
         self.setObjectName("Sidebar")
         self.setFixedWidth(177)
         self._collapsed = False
+        self._language = "ru"
 
         column = QVBoxLayout(self)
         column.setContentsMargins(14, 18, 14, 18)
@@ -98,6 +100,12 @@ class NavigationSidebar(QFrame):
         self._collapsed = not self._collapsed
         self.setFixedWidth(76 if self._collapsed else 177)
         self.brand_text.setVisible(not self._collapsed)
-        for (icon, label), button in zip(self.PAGES, self.nav_buttons):
+        self.set_language(self._language)
+
+    def set_language(self, language):
+        self._language = normalize_language(language)
+        for (icon, title), button in zip(self.PAGES, self.nav_buttons):
+            label = tr(title, self._language)
+            button.setToolTip(label)
             button.setText(icon if self._collapsed else f"{icon}    {label}")
-        self.collapse.setText("▷" if self._collapsed else "◁   Свернуть")
+        self.collapse.setText("▷" if self._collapsed else f"◁   {tr('Свернуть', self._language)}")

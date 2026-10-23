@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from luxai.voices import available_voices
+from luxai.ui_i18n import LANGUAGES, get_ui_language, tr, translate_widgets
 
 
 class SettingsPanel(QWidget):
@@ -104,6 +105,7 @@ class SettingsPanel(QWidget):
         reset.clicked.connect(lambda: self.search.clear())
         side.addWidget(reset)
         root.addWidget(sidebar)
+        translate_widgets(self, get_ui_language())
 
     def _section(self, title, subtitle):
         frame = QFrame()
@@ -268,10 +270,15 @@ class SettingsPanel(QWidget):
         self._row(panel, "Анимации", "Отображение анимированного аватара.", self.animations)
         self.on_top = self._toggle(self.cfg.get("always_on_top", False))
         self._row(panel, "Поверх остальных окон", "Оставлять Jarvis видимым поверх приложений.", self.on_top)
-        hint = QLabel("Язык интерфейса: Русский. Румынский и английский доступны для распознавания и ответов.")
-        hint.setObjectName("Muted")
-        hint.setWordWrap(True)
-        panel.addWidget(hint)
+        self.ui_language = self._combo(
+            LANGUAGES, self.cfg.get("ui_language", "ru")
+        )
+        self.ui_language.setObjectName("UiLanguageCombo")
+        self._row(
+            panel, "Язык интерфейса",
+            "Меняет только интерфейс. Язык распознавания и озвучивания настраивается отдельно.",
+            self.ui_language,
+        )
 
     def _build_ai(self):
         panel = self._section(
@@ -449,21 +456,21 @@ class SettingsPanel(QWidget):
         if text.strip():
             if text.strip().startswith("sk-orca-") and self.online_provider.currentData() != "orcarouter":
                 self.key_status.setText(
-                    "Похоже, это ключ OrcaRouter. Выберите «OrcaRouter (orcarouter.ai)» "
-                    "в списке провайдеров, иначе проверка может вернуть 401."
+                    tr("Похоже, это ключ OrcaRouter. Выберите «OrcaRouter (orcarouter.ai)» "
+                    "в списке провайдеров, иначе проверка может вернуть 401.")
                 )
             else:
                 self.key_status.setText(
-                    "Новый ключ введён. Нажмите «Проверить ключ», затем «Сохранить настройки»."
+                    tr("Новый ключ введён. Нажмите «Проверить ключ», затем «Сохранить настройки».")
                 )
         else:
             self.refresh_key_status()
 
     def set_test_busy(self, busy):
         self.api_test_button.setEnabled(not busy)
-        self.api_test_button.setText("Проверка…" if busy else "Проверить ключ")
+        self.api_test_button.setText(tr("Проверка…" if busy else "Проверить ключ"))
         if busy:
-            self.key_status.setText("Проверка ключа и выбранной модели через API…")
+            self.key_status.setText(tr("Проверка ключа и выбранной модели через API…"))
 
     def show_test_result(self, message, valid):
         self.set_test_busy(False)
@@ -483,8 +490,10 @@ class SettingsPanel(QWidget):
         provider = self.online_provider.currentData()
         name = PROVIDERS[provider]["label"]
         answer = QMessageBox.question(
-            self, "API-ключ",
-            f"Удалить локально сохранённый ключ для {name}?",
+            self, tr("API-ключ"),
+            {"ru": f"Удалить локально сохранённый ключ для {name}?",
+             "en": f"Delete the locally stored API key for {name}?",
+             "ro": f"Ștergi cheia API salvată local pentru {name}?"}[get_ui_language()],
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -497,13 +506,19 @@ class SettingsPanel(QWidget):
         provider = self.online_provider.currentData()
         name = PROVIDERS[provider]["label"]
         stored = has_api_key(provider)
-        self.api_key_entry.setPlaceholderText(
-            f"Ключ {name} уже сохранён" if stored else f"Введите свой ключ {name}"
-        )
-        self.key_status.setText(
-            f"✓ Ключ {name} найден на этом компьютере." if stored
-            else f"Ключ {name} пока не установлен."
-        )
+        language = get_ui_language()
+        placeholders = {
+            "ru": (f"Ключ {name} уже сохранён", f"Введите свой ключ {name}"),
+            "en": (f"{name} key already saved", f"Enter your {name} key"),
+            "ro": (f"Cheia {name} este salvată", f"Introdu cheia {name}"),
+        }
+        statuses = {
+            "ru": (f"✓ Ключ {name} найден на этом компьютере.", f"Ключ {name} пока не установлен."),
+            "en": (f"✓ {name} key found on this computer.", f"{name} key not configured yet."),
+            "ro": (f"✓ Cheia {name} a fost găsită pe calculator.", f"Cheia {name} nu este configurată."),
+        }
+        self.api_key_entry.setPlaceholderText(placeholders[language][0 if stored else 1])
+        self.key_status.setText(statuses[language][0 if stored else 1])
 
     def _build_synthesis(self):
         panel = self._section("Синтез речи", "Локальный Piper или голос Windows (если установлен нужный язык).")
@@ -564,8 +579,11 @@ class SettingsPanel(QWidget):
         panel.addWidget(info)
 
     def set_ocr_status(self, success, message):
-        label = "Готово: " if success else "Недоступно: "
-        self.ocr_status.setText(label + str(message))
+        language = get_ui_language()
+        titles = {"ru": ("Готово: ", "Недоступно: "),
+                  "en": ("Ready: ", "Unavailable: "),
+                  "ro": ("Gata: ", "Indisponibil: ")}
+        self.ocr_status.setText(titles[language][0 if success else 1] + str(message))
 
     def _select_tesseract(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -574,6 +592,9 @@ class SettingsPanel(QWidget):
         )
         if path:
             self.tesseract_path.setText(path)
+
+    def retranslate(self, language):
+        translate_widgets(self, language)
 
     def _jump(self, index):
         section = self.sections[index]
@@ -584,9 +605,9 @@ class SettingsPanel(QWidget):
             button.style().polish(button)
 
     def _filter(self, text):
-        query = text.strip().lower()
-        for (name, _), section, button in zip(self.SECTIONS, self.sections, self.section_buttons):
-            match = not query or query in name.lower()
+        query = text.strip().casefold()
+        for (_name, _), section, button in zip(self.SECTIONS, self.sections, self.section_buttons):
+            match = not query or query in button.text().casefold()
             section.setVisible(match)
             button.setVisible(match)
 
@@ -609,6 +630,7 @@ class SettingsPanel(QWidget):
             "confirm_no_words": self.confirm_no.text().strip(),
             "confirmation_timeout": self.confirm_timeout.value(),
             "command_chain_words": self.chain_words.text().strip(),
+            "ui_language": self.ui_language.currentData(),
             "ui_theme": self.theme.currentData(),
             "ui_accent": self.accent.currentData(),
             "ui_transparency": self.transparency.value(),
