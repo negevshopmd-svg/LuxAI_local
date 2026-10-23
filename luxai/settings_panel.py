@@ -456,12 +456,12 @@ class SettingsPanel(QWidget):
         if text.strip():
             if text.strip().startswith("sk-orca-") and self.online_provider.currentData() != "orcarouter":
                 self.key_status.setText(
-                    "Похоже, это ключ OrcaRouter. Выберите «OrcaRouter (orcarouter.ai)» "
-                    "в списке провайдеров, иначе проверка может вернуть 401."
+                    tr("Похоже, это ключ OrcaRouter. Выберите «OrcaRouter (orcarouter.ai)» "
+                    "в списке провайдеров, иначе проверка может вернуть 401.")
                 )
             else:
                 self.key_status.setText(
-                    "Новый ключ введён. Нажмите «Проверить ключ», затем «Сохранить настройки»."
+                    tr("Новый ключ введён. Нажмите «Проверить ключ», затем «Сохранить настройки».")
                 )
         else:
             self.refresh_key_status()
@@ -490,8 +490,10 @@ class SettingsPanel(QWidget):
         provider = self.online_provider.currentData()
         name = PROVIDERS[provider]["label"]
         answer = QMessageBox.question(
-            self, "API-ключ",
-            f"Удалить локально сохранённый ключ для {name}?",
+            self, tr("API-ключ"),
+            {"ru": f"Удалить локально сохранённый ключ для {name}?",
+             "en": f"Delete the locally stored API key for {name}?",
+             "ro": f"Ștergi cheia API salvată local pentru {name}?"}[get_ui_language()],
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -504,13 +506,19 @@ class SettingsPanel(QWidget):
         provider = self.online_provider.currentData()
         name = PROVIDERS[provider]["label"]
         stored = has_api_key(provider)
-        self.api_key_entry.setPlaceholderText(
-            f"Ключ {name} уже сохранён" if stored else f"Введите свой ключ {name}"
-        )
-        self.key_status.setText(
-            f"✓ Ключ {name} найден на этом компьютере." if stored
-            else f"Ключ {name} пока не установлен."
-        )
+        language = get_ui_language()
+        placeholders = {
+            "ru": (f"Ключ {name} уже сохранён", f"Введите свой ключ {name}"),
+            "en": (f"{name} key already saved", f"Enter your {name} key"),
+            "ro": (f"Cheia {name} este salvată", f"Introdu cheia {name}"),
+        }
+        statuses = {
+            "ru": (f"✓ Ключ {name} найден на этом компьютере.", f"Ключ {name} пока не установлен."),
+            "en": (f"✓ {name} key found on this computer.", f"{name} key not configured yet."),
+            "ro": (f"✓ Cheia {name} a fost găsită pe calculator.", f"Cheia {name} nu este configurată."),
+        }
+        self.api_key_entry.setPlaceholderText(placeholders[language][0 if stored else 1])
+        self.key_status.setText(statuses[language][0 if stored else 1])
 
     def _build_synthesis(self):
         panel = self._section("Синтез речи", "Локальный Piper или голос Windows (если установлен нужный язык).")
@@ -571,8 +579,11 @@ class SettingsPanel(QWidget):
         panel.addWidget(info)
 
     def set_ocr_status(self, success, message):
-        label = "Готово: " if success else "Недоступно: "
-        self.ocr_status.setText(label + str(message))
+        language = get_ui_language()
+        titles = {"ru": ("Готово: ", "Недоступно: "),
+                  "en": ("Ready: ", "Unavailable: "),
+                  "ro": ("Gata: ", "Indisponibil: ")}
+        self.ocr_status.setText(titles[language][0 if success else 1] + str(message))
 
     def _select_tesseract(self):
         path, _ = QFileDialog.getOpenFileName(
