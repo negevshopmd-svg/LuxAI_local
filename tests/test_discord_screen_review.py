@@ -10,7 +10,8 @@ from unittest import mock
 
 from luxai.action_catalog import validate_step
 from luxai.discord_screen_review import (
-    detect_discord_screen_review, validate_discord_review_user,
+    detect_discord_screen_review, looks_like_discord_screen_review,
+    validate_discord_review_user,
     run_discord_screen_review, summarize_discord_capture,
 )
 from luxai.macro_planner import needs_live_macro_planning, validate_generated_macro
@@ -20,6 +21,12 @@ VOICE = (
     "после этого найди пользователя октавиан после этого сделай "
     "снимок экрана после сделай краткий пересказ этого снимок экрана"
 )
+VOICE_MISHEARD = (
+    "Откроете Скопт, потом сделайте снимок экрана, найдите "
+    "пользователя Старый Бог, после этого в переписке сделайте "
+    "снимок экрана и сделайте краткое содержимое."
+)
+VOICE_UNCERTAIN_APP = VOICE_MISHEARD.replace("Скопт", "Сквар")
 
 
 class ReviewRoutingTests(unittest.TestCase):
@@ -36,6 +43,33 @@ class ReviewRoutingTests(unittest.TestCase):
         self.assertEqual(validate_step({
             "action": "discord_screen_review", "target": "октавиан"
         })["target"], "октавиан")
+
+    def test_latest_whisper_transcript_preserves_display_name_and_all_steps(self):
+        self.assertEqual(detect_discord_screen_review(VOICE_MISHEARD), "Старый Бог")
+        self.assertTrue(looks_like_discord_screen_review(VOICE_MISHEARD))
+        self.assertTrue(needs_live_macro_planning(VOICE_MISHEARD))
+        self.assertEqual(validate_discord_review_user("Старый Бог"), "Старый Бог")
+        planned = validate_generated_macro({
+            "steps": [{"action": "discord_screen_review", "target": "Старый Бог"}],
+        }, VOICE_MISHEARD)
+        self.assertEqual(planned["steps"][0]["target"], "Старый Бог")
+        self.assertIsNone(validate_generated_macro({
+            "steps": [{"action": "open_app", "target": "discord"}],
+        }, VOICE_MISHEARD))
+        self.assertIsNone(validate_generated_macro({
+            "steps": [{"action": "discord_screen_review", "target": "Старый"}],
+        }, VOICE_MISHEARD))
+
+    def test_unknown_app_keeps_request_together_and_requires_clarification(self):
+        self.assertTrue(looks_like_discord_screen_review(VOICE_UNCERTAIN_APP))
+        self.assertTrue(needs_live_macro_planning(VOICE_UNCERTAIN_APP))
+        self.assertIsNone(detect_discord_screen_review(VOICE_UNCERTAIN_APP))
+        self.assertIsNone(validate_generated_macro({
+            "steps": [{"action": "open_app", "target": "discord"}],
+        }, VOICE_UNCERTAIN_APP))
+        self.assertIsNone(detect_discord_screen_review(
+            VOICE_MISHEARD + " и отправь сообщение"
+        ))
 
     def test_no_standalone_inspection_and_no_partial_cloud_plan(self):
         from luxai.screen_interact import is_screen_inspection_request
@@ -57,7 +91,7 @@ class ReviewRoutingTests(unittest.TestCase):
             VOICE + " и отправь сообщение",
         ):
             self.assertIsNone(detect_discord_screen_review(phrase))
-        for username in ("x", "../bad", "one two", "a\nb", ""):
+        for username in ("x", "../bad", "more than four words user label", "a\nb", ""):
             with self.subTest(username=username), self.assertRaises(ValueError):
                 validate_discord_review_user(username)
 
@@ -96,13 +130,39 @@ class ReviewWorkflowTests(unittest.TestCase):
         gui.hotkey.assert_called_once_with("ctrl", "k", interval=0.07)
         write.assert_called_once_with("@октавиан")
         self.assertEqual(locate.call_count, 2)
-        self.assertIn("exact username @октавиан", locate.call_args_list[0].args[1])
-        self.assertIn("exact user @октавиан", locate.call_args_list[1].args[1])
+        self.assertIn("exact Discord username OR display name 'октавиан'", locate.call_args_list[0].args[1])
+        self.assertIn("searched user 'октавиан'", locate.call_args_list[1].args[1])
         click.assert_called_once_with(search, (210, 100), 1)
         summary.assert_called_once_with(planner, last)
         gui.press.assert_not_called()
         self.assertIn("first.jpg", answer)
         self.assertIn("second.jpg", answer)
+
+    def test_multiword_display_name_sent_only_to_discord_search_not_to_chat(self):
+        planner = mock.Mock()
+        capture = mock.Mock(hwnd=55)
+        gui = types.SimpleNamespace(hotkey=mock.Mock(), press=mock.Mock())
+        with (
+            mock.patch.dict(sys.modules, {"pyautogui": gui}),
+            mock.patch("luxai.discord_screen_review._ensure_discord_visible", return_value=55),
+            mock.patch("luxai.discord_screen_review.focus_discord"),
+            mock.patch("luxai.visual_click.capture_window", return_value=capture),
+            mock.patch("luxai.discord_screen_review._save_capture", return_value=Path("file.jpg")),
+            mock.patch("luxai.desktop_actions._type_unicode_windows") as write,
+            mock.patch("luxai.visual_click.find_visual_target", return_value=(300, 120)) as find,
+            mock.patch("luxai.visual_click.click_visual_target") as click,
+            mock.patch("luxai.discord_screen_review.summarize_discord_capture",
+                       return_value="Виден чат.") as summarize,
+            mock.patch("luxai.discord_screen_review.time.sleep"),
+        ):
+            result = run_discord_screen_review(planner, "Старый Бог")
+        write.assert_called_once_with("@Старый Бог")
+        self.assertIn("Старый Бог", find.call_args_list[0].args[1])
+        self.assertIn("Старый Бог", find.call_args_list[1].args[1])
+        click.assert_called_once()
+        gui.press.assert_not_called()
+        summarize.assert_called_once()
+        self.assertIn("Старый Бог", result)
 
     def test_ambiguous_user_never_generates_fake_summary_or_types_message(self):
         planner = mock.Mock()
@@ -219,6 +279,24 @@ class ScreenRoutingUITests(unittest.TestCase):
             thread.call_args.kwargs["target"], window._direct_macro_worker,
         )
         self.assertEqual(thread.call_args.kwargs["args"], (VOICE,))
+
+    def test_misheard_app_still_routes_to_macro_not_chatbot(self):
+        import main
+        window = self.build_window()
+        window.online_planner.enabled = mock.Mock(return_value=True)
+        with (
+            mock.patch.object(window, "_start_screen_inspection") as screen,
+            mock.patch.object(main.threading, "Thread") as thread,
+            mock.patch.object(window, "_online_thread") as chatbot,
+        ):
+            window.run_command(VOICE_MISHEARD)
+        screen.assert_not_called()
+        chatbot.assert_not_called()
+        thread.assert_called_once()
+        self.assertEqual(
+            thread.call_args.kwargs["target"], window._direct_macro_worker,
+        )
+        self.assertEqual(thread.call_args.kwargs["args"], (VOICE_MISHEARD,))
 
     def test_no_cloud_does_not_start_wrong_screen_inspection(self):
         window = self.build_window()
