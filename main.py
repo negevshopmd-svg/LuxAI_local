@@ -2332,12 +2332,19 @@ class MainWindow(QMainWindow):
             ).start()
             return
         try:
+            # A browser search steals the foreground. An "open Notepad,
+            # then type" macro must explicitly verify and focus Notepad.
+            if step["action"] == "type_text" and ctx.get("last_opened_app") == "notepad":
+                from luxai.research_notepad import _focus_notepad_window
+                _focus_notepad_window()
             self.agent.last_execution_success = False
             answer = self.agent.execute_plan(
                 ctx["text"], step, confirm_callback=self.confirm_action,
             )
             if answer:
                 ctx["messages"].append(str(answer))
+            if self.agent.last_execution_success and step["action"] == "open_app":
+                ctx["last_opened_app"] = step["target"]
             if not self.agent.last_execution_success:
                 ctx["messages"].append(
                     f"Последующие действия не выполнены (шаг {ctx['index']})."
