@@ -461,20 +461,47 @@ class OnlinePlanner:
         timeout = 60 if requested < 35 else min(120, requested)
         try:
             model = model_for(provider, model_name)
-            response = self._request(
-                provider, model, key,
-                [{"role": "system", "content": MACRO_SYSTEM},
-                 {"role": "user", "content": phrase}],
-                timeout, max_tokens=1400,
-            )
-            parsed = self._read_json_content(self._extract_text(response, provider))
-            proposal = validate_generated_macro(parsed, phrase)
+            # Propose -> validate -> revise, without executing unsafe or
+            # partial proposals. Unknown phrasing can be resolved by the
+            # selected AI using available tools rather than brittle patterns.
+            messages = [
+                {"role": "system", "content": MACRO_SYSTEM},
+                {"role": "user", "content": phrase},
+            ]
+            proposal = None
+            for attempt in range(2):
+                response = self._request(
+                    provider, model, key, messages, timeout, max_tokens=1400,
+                )
+                raw = self._extract_text(response, provider)
+                parsed = self._read_json_content(raw)
+                proposal = validate_generated_macro(parsed, phrase)
+                if proposal is not None:
+                    break
+                if attempt == 0:
+                    # This text is instructional feedback, not permission to
+                    # invent tools or silently skip essential requested steps.
+                    messages.extend([
+                        {"role": "assistant", "content": str(raw)[:1900]},
+                        {"role": "user", "content": (
+                            "The local safety validator rejected that plan "
+                            "as incomplete or unsupported. Re-examine ALL "
+                            "parts of my original request. Replan using ONLY "
+                            "the documented action IDs. Prefer an atomic "
+                            "verified Discord tool over open_app/type_text/"
+                            "press_enter for DM actions. If my request cannot "
+                            "be safely completed with the available tools, "
+                            "return {\"steps\":[]}. Do not claim success, "
+                            "do not invent a recipient or silently omit steps."
+                        )},
+                    ])
             if proposal is None:
                 self.last_error = (
-                    "Cloud AI did not provide a complete supported sequence. "
-                    "Try describing exact keys, coordinates, delays and order."
+                    "AI не смог составить полный безопасный план даже после "
+                    "повторной проверки доступных действий. "
+                    "Ни один неподтверждённый шаг не запускался."
                 )
-                self._log(f"{provider} rejected unsupported cloud macro JSON")
+                self._log(f"{provider} rejected unsupported cloud macro after revision")
             else:
                 self.last_error = ""
             return proposal

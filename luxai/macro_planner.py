@@ -21,6 +21,7 @@ CLOUD_MACRO_ACTIONS = frozenset({
     "create_file", "create_folder", "list_files",
     "visual_click", "display_info", "empty_recycle_bin", "open_recycle_bin", "close_window",
     "discord_research_dm", "discord_screen_review", "discord_open_dm",
+    "discord_send_text",
     "research_notepad_facts",
 })
 
@@ -36,7 +37,7 @@ mouse_right_click, mouse_double_click, mouse_middle_click, mouse_move,
 mouse_scroll, wait_seconds, wait_minutes, noop, minimize_windows,
 search_web, speak_text, speak_ready, speak_done, create_file, create_folder,
 list_files, visual_click, display_info, open_recycle_bin,
-empty_recycle_bin, close_window, discord_research_dm, discord_screen_review, discord_open_dm, research_notepad_facts.
+empty_recycle_bin, close_window, discord_research_dm, discord_screen_review, discord_open_dm, discord_send_text, research_notepad_facts.
 At most 8 steps. For MANY sequential keyboard letters use ONE key_sequence
 step with comma-delimited characters. Each sequence supports 2-24 English
 letters/digits. Example: "нажми qwerd" / "press Q W E R D" /
@@ -65,6 +66,22 @@ and separately asks permission to send it. NEVER use search_web followed by
 visual_click to find a person in another app; search_web only opens a browser,
 it does NOT retrieve factual content. NEVER invent Wikipedia facts yourself.
 If Discord recipient is ambiguous, the action fails without sending.
+For commands like "нажми в Дискорде на пользователя Ханзу и потом
+напиши ему привет и нажми Enter" or "пользователю Romsi отправь привет"
+choose exactly ONE verified action:
+{"steps":[{"action":"discord_send_text","target":"Ханзу||привет"}]}.
+The first component must be the SPOKEN user's name, not a hallucinated
+English account name. The second component must be the user's intended EXACT
+literal message (not your own generated text); at most 350 characters.
+The app searches the visible DM list before verified Ctrl+K search, checks the
+active chat header, displays an exact recipient/message preview and REQUIRES
+final human confirmation before sending. Never use type_text+press_enter,
+hotkeys or visual_click to send a Discord message.
+For a request to ONLY open a Discord user, choose discord_open_dm. Do
+not infer permission to type/send when none was requested.
+For an explicit button click in an application, use visual_click; do not
+assume user must mention a screenshot. After a visual action the UI may
+change; do not pretend the next click succeeded without new observation.
 For "open recycle bin", ALWAYS use open_recycle_bin, never guess at the
 Windows desktop icon position. Some desktops have no such icon.
 visual_click target MUST be the visible GUI control description followed by
@@ -225,6 +242,14 @@ def validate_generated_macro(proposal: object, description: str = "") -> dict | 
         return None
     from luxai.discord_research import detect_research_dm_request
     requested_dm = detect_research_dm_request(description)
+    # A Discord send must be carried out through the verified message
+    # workflow, never by blindly typing into an unverified active window.
+    is_discord_message = bool(
+        re.search(r"(?:discord|дискорд\w*|дискор\w*)", description, re.I)
+        and re.search(r"(?:отправ\w*|напиши|пиши|сообщени\w*|enter|send)", description, re.I)
+        and re.search(r"(?:пользовател\w*|юзер\w*|контакт\w*|@)", description, re.I)
+    )
+
     from luxai.discord_screen_review import (
         detect_discord_screen_review, looks_like_discord_screen_review,
     )
@@ -252,6 +277,10 @@ def validate_generated_macro(proposal: object, description: str = "") -> dict | 
     if requested_dm is not None:
         if len(steps) != 1 or steps[0].get("action") != "discord_research_dm":
             return None
+    if is_discord_message and requested_dm is None:
+        if len(steps) != 1 or steps[0].get("action") != "discord_send_text":
+            return None
+
     validated = []
     for raw in steps:
         if not isinstance(raw, dict) or raw.get("action") not in CLOUD_MACRO_ACTIONS:
@@ -271,6 +300,20 @@ def validate_generated_macro(proposal: object, description: str = "") -> dict | 
             if requested_review is None or (
                 valid["target"].casefold() != requested_review.casefold()
             ):
+                return None
+        if valid["action"] == "discord_send_text":
+            if not is_discord_message or requested_dm is not None:
+                return None
+            from luxai.discord_research import validate_discord_text_target
+            try:
+                who, msg = validate_discord_text_target(valid["target"])
+            except ValueError:
+                return None
+            # Both the recipient *as dictated*, and the content must be
+            # supported by the original voice text. No AI-invented recipient
+            # and no paraphrased or injected message.
+            source = description.casefold()
+            if who.casefold() not in source or msg.casefold() not in source:
                 return None
         if valid["action"] == "discord_research_dm":
             if requested_dm is None:

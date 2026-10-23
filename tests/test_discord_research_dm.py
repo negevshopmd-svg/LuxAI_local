@@ -122,6 +122,8 @@ class DiscordDraftTests(unittest.TestCase):
             mock.patch("luxai.discord_research.find_discord_window",
                        return_value=42),
             mock.patch("luxai.discord_research.focus_discord"),
+            mock.patch("luxai.discord_search_guard.verified_discord_search",
+                       return_value=cap) as search,
             mock.patch("luxai.desktop_actions._type_unicode_windows") as type_unicode,
             mock.patch("luxai.visual_click.capture_window",
                        return_value=cap) as capture,
@@ -135,11 +137,10 @@ class DiscordDraftTests(unittest.TestCase):
             mock.patch("luxai.discord_research.time.sleep"),
         ):
             draft = prepare_discord_draft(planner, "Adolf Hitler||ронси")
-        pyauto.hotkey.assert_called_once_with("ctrl", "k", interval=0.07)
-        self.assertEqual(type_unicode.call_args_list[0].args, ("@ронси",))
-        self.assertEqual(type_unicode.call_args_list[1].args[0],
-                         "verified text  Источник: url")
-        self.assertEqual(capture.call_count, 2)
+        search.assert_called_once()
+        self.assertEqual(search.call_args.args[:3], (planner, 42, "@ронси"))
+        type_unicode.assert_called_once_with("verified text  Источник: url")
+        self.assertEqual(capture.call_count, 1)
         self.assertEqual(locate.call_count, 2)
         self.assertFalse(locate.call_args_list[0].kwargs.get("quick_switcher", False))
         self.assertTrue(locate.call_args_list[1].kwargs["quick_switcher"])
@@ -218,6 +219,8 @@ class DiscordDraftTests(unittest.TestCase):
                        return_value=("text", "url")),
             mock.patch("luxai.discord_research.find_discord_window", return_value=42),
             mock.patch("luxai.discord_research.focus_discord"),
+            mock.patch("luxai.discord_search_guard.verified_discord_search",
+                       return_value=mock.Mock(hwnd=42)) as search,
             mock.patch("luxai.desktop_actions._type_unicode_windows") as typing,
             mock.patch("luxai.visual_click.capture_window"),
             mock.patch("luxai.discord_contact_vision.locate_visible_contact",
@@ -235,11 +238,14 @@ class DiscordDraftTests(unittest.TestCase):
                 planner, "Nikola Tesla||ронси",
                 confirm_candidate=lambda _s, name: name == "RONfsy"
             )
-        self.assertEqual(typing.call_args_list[0].args, ("@ронси",))
-        self.assertEqual(typing.call_args_list[1].args, ("@ron",))
+        self.assertEqual(search.call_count, 2)
+        self.assertEqual(search.call_args_list[0].args[2], "@ронси")
+        self.assertEqual(search.call_args_list[1].args[2], "@ron")
+        self.assertTrue(search.call_args_list[1].kwargs["replace"])
+        typing.assert_called_once_with("text")
         self.assertEqual(draft.username, "RONfsy")
         self.assertEqual(locate.call_count, 3)
-        self.assertEqual(pyauto.hotkey.call_count, 2)
+        pyauto.hotkey.assert_not_called()
 
     def test_no_visible_recipient_never_drafts_or_clicks(self):
         planner = mock.Mock()
@@ -250,6 +256,8 @@ class DiscordDraftTests(unittest.TestCase):
                        return_value=("text", "url")),
             mock.patch("luxai.discord_research.find_discord_window", return_value=42),
             mock.patch("luxai.discord_research.focus_discord"),
+            mock.patch("luxai.discord_search_guard.verified_discord_search",
+                       return_value=mock.Mock(hwnd=42)) as search,
             mock.patch("luxai.desktop_actions._type_unicode_windows") as typing,
             mock.patch("luxai.visual_click.capture_window"),
             mock.patch("luxai.discord_contact_vision.locate_visible_contact",
@@ -259,7 +267,8 @@ class DiscordDraftTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(ValueError, "не найден визуально"):
                 prepare_discord_draft(planner, "Nikola Tesla||ронси")
-        self.assertEqual(typing.call_count, 2)  # only search queries
+        typing.assert_not_called()  # search only via verified overlay
+        self.assertEqual(search.call_count, 2)
         click.assert_not_called()
 
     def test_send_replaces_approved_draft_without_ocr_of_long_wikipedia_url(self):

@@ -104,7 +104,23 @@ def discord_mic_visual_mode(text: str) -> str | None:
         r"щелк\w*|click|apasă|apasa)",
         phrase,
     )
-    if not button or not pressing:
+    direct_mic = re.search(
+        r"(?:на\s+микрофон\w*|по\s+микрофон\w*|"
+        r"на\s+микроф\w*)", phrase,
+    )
+    explicit_shortcut = re.search(
+        r"(?:ctrl\s*\+\s*shift\s*\+\s*m|"
+        r"контр[о]?л\w*\s+шифт\w*\s+м)", phrase,
+    )
+    if explicit_shortcut:
+        return None
+    if (button or direct_mic) and pressing:
+        pass
+    elif not pressing and DISCORD_MUTE.search(phrase):
+        # "Выключи микрофон" describes a desired STATE; a shortcut
+        # alone is a toggle and can accidentally enable it.
+        return "mute"
+    else:
         return None
     if re.search(
         r"\b(?:чтобы|для\s+того\s+чтобы)\s+"

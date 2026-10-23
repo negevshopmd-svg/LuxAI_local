@@ -52,7 +52,9 @@ class RealSpeechRegressionTests(unittest.TestCase):
             MUTE, "Жарвис выключи микрофон в Discord",
             "Отключу микрофон в дискорде",
         ):
-            self.assertTrue(wants_discord_mic_mute(phrase), phrase)
+            from luxai.voice_desktop import discord_mic_visual_mode
+            self.assertEqual(discord_mic_visual_mode(phrase), "mute", phrase)
+            self.assertFalse(wants_discord_mic_mute(phrase))
         self.assertFalse(wants_discord_mic_mute(
             "Сделай снимок и нажми на кнопку микрофона в дискорде"
         ))
@@ -105,15 +107,14 @@ class RealSpeechRegressionTests(unittest.TestCase):
                     "action": "open_app", "target": "discord", "steps": [],
                 })
                 with (
-                    mock.patch.object(main, "toggle_discord_microphone",
-                                      return_value="Discord toggle pressed") as mute,
+                    mock.patch.object(window, "_start_discord_mic_visual") as visual,
                     mock.patch.object(window, "_execute_registered") as registered,
-                    mock.patch.object(window, "_resolved_command") as resolved,
+                    mock.patch.object(main, "toggle_discord_microphone") as shortcut,
                 ):
                     window.run_command(MUTE)
-                mute.assert_called_once()
+                visual.assert_called_once_with(MUTE)
                 registered.assert_not_called()
-                self.assertIn("toggle", resolved.call_args.args[1])
+                shortcut.assert_not_called()
             finally:
                 window.close()
 
@@ -168,6 +169,8 @@ class DiscordNavigationTests(unittest.TestCase):
             mock.patch("luxai.discord_navigation._ensure_discord_visible",
                        return_value=42),
             mock.patch("luxai.discord_navigation.focus_discord"),
+            mock.patch("luxai.discord_search_guard.verified_discord_search",
+                       return_value=capture) as search,
             mock.patch("luxai.visual_click.capture_window", return_value=capture) as shot,
             mock.patch("luxai.desktop_actions._type_unicode_windows") as write,
             mock.patch("luxai.discord_navigation.locate_visible_contact",
@@ -185,9 +188,11 @@ class DiscordNavigationTests(unittest.TestCase):
         self.assertEqual(click.call_count, 2)
         self.assertEqual(verify.call_count, 2)
         self.assertEqual(locate.call_count, 3)
-        self.assertGreaterEqual(shot.call_count, 3)
-        pyauto.hotkey.assert_called_once_with("ctrl", "k", interval=0.07)
-        write.assert_called_once_with("@Старый Бог")
+        self.assertGreaterEqual(shot.call_count, 2)
+        search.assert_called_once()
+        self.assertEqual(search.call_args.args[:3],
+                         (planner, 42, "@Старый Бог"))
+        write.assert_not_called()
 
     def test_declined_mismatching_contact_is_never_clicked(self):
         pyauto = types.SimpleNamespace(hotkey=mock.Mock())

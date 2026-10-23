@@ -97,3 +97,10 @@ See the microphone troubleshooting steps in README.md or README_RO.md after upda
 - Read the button's current visual `muted`/`unmuted`/`unknown` state before acting. Already-muted requests require zero clicks; uncertain state blocks the click. After at most one click, take a fresh screenshot and report the final state only if visibly verified.
 - Preserve plain shortcut and explicit toggle workflows, one-session permission for cloud image uploads and the safety stop for window changes.
 - Add mocked tests for the exact voice transcript, routing priority, no click for already-muted/unknown states, and no false success after uncertain post-click verification.
+
+### 0.2.0 — Cloud plan revision and verified Discord search field
+
+- Support an adaptable cloud planner: propose a full task, validate against local supported actions, and if incomplete let the provider revise it ONCE using the validator's feedback. No unsafe/partial plan executes; never claim unexecuted actions succeeded.
+- Add atomic `discord_send_text` tool for unknown phrasing that requests a Discord DM. Validate that both spoken recipient and literal message originate in the user's request. Reuse screenshot-verified recipient, draft and explicit send confirmation; no blind `type_text` + `Enter`.
+- Before any Discord Ctrl+K search typing, require a fresh screenshot and unique visual match for the QUICK SWITCHER popup input, with a conservative positional check to prohibit the bottom conversation composer. Abort without typing if missing/ambiguous.
+- Apply the screenshot gate to both opening contacts and Wikipedia→Discord messages. Add offline tests reproducing the @Octavian wrong-composer issue, AI revision and safe message drafting.

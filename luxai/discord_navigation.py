@@ -48,7 +48,7 @@ def _chat_header_ok(planner, hwnd: int, displayed: str):
     """Check the CURRENT open DM, not a username in the side bar."""
     from luxai.visual_click import capture_window, find_visual_target
     capture = capture_window(hwnd)
-    find_visual_target(
+    point = find_visual_target(
         planner,
         "Only return found:true for the HEADER of the currently OPEN individual "
         f"Discord DIRECT MESSAGE chat if it unmistakably identifies {displayed!r}. "
@@ -57,6 +57,12 @@ def _chat_header_ok(planner, hwnd: int, displayed: str):
         "NOT prove an open chat. Return found:false otherwise.",
         capture,
     )
+    # Model text matching in a sidebar or search popup is NOT evidence
+    # that we entered a chat. A valid active-chat header must be in the
+    # actual top strip of the center conversation pane.
+    if (point[1] > capture.top + max(58, int(capture.height * 0.20))
+            or point[0] < capture.left + int(capture.width * 0.18)):
+        raise ValueError("Discord: header of intended active chat not verified")
     return capture
 
 
@@ -64,8 +70,7 @@ def open_discord_contact(planner, spoken: str, *,
                          confirm_candidate=None, cancelled=None) -> str:
     """Locate, open and recheck an individual DM without composing or sending."""
     from luxai.visual_click import capture_window, click_visual_target
-    from luxai.desktop_actions import _type_unicode_windows
-    import pyautogui
+    from luxai.discord_search_guard import verified_discord_search
 
     username = validate_discord_review_user(spoken)
 
@@ -80,23 +85,19 @@ def open_discord_contact(planner, spoken: str, *,
     capture = capture_window(hwnd)
     candidate = locate_visible_contact(planner, capture, username)
     if candidate is None:
-        pyautogui.hotkey("ctrl", "k", interval=0.07)
-        time.sleep(0.20)
-        _type_unicode_windows("@" + username)
-        time.sleep(0.65)
-        check()
-        capture = capture_window(hwnd)
+        capture = verified_discord_search(
+            planner, hwnd, "@" + username, cancelled=cancelled,
+        )
         candidate = locate_visible_contact(
             planner, capture, username, quick_switcher=True,
         )
         if candidate is None:
             alias = search_alias(username)
             if alias:
-                pyautogui.hotkey("ctrl", "a", interval=0.07)
-                _type_unicode_windows("@" + alias)
-                time.sleep(0.55)
-                check()
-                capture = capture_window(hwnd)
+                capture = verified_discord_search(
+                    planner, hwnd, "@" + alias, replace=True,
+                    cancelled=cancelled,
+                )
                 candidate = locate_visible_contact(
                     planner, capture, username, quick_switcher=True,
                 )

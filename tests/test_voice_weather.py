@@ -129,8 +129,10 @@ class VoiceToolsTests(unittest.TestCase):
         self.assertIn("Tesseract", response)
 
     def test_discord_microphone_command_and_truthful_toggle(self):
-        self.assertTrue(wants_discord_mic_mute("Выключи микрофон в дискорде."))
-        self.assertTrue(wants_discord_mic_mute("Жарвис, отключи микрофон Discord"))
+        from luxai.voice_desktop import discord_mic_visual_mode
+        self.assertEqual(discord_mic_visual_mode("Выключи микрофон в дискорде."), "mute")
+        self.assertEqual(discord_mic_visual_mode("Жарвис, отключи микрофон Discord"), "mute")
+        self.assertFalse(wants_discord_mic_mute("Выключи микрофон в дискорде."))
         self.assertFalse(wants_discord_mic_mute("Открой Discord"))
         with mock.patch("sys.platform", "win32"), mock.patch(
             "luxai.windows_control.running_pids", return_value={42}
