@@ -452,8 +452,8 @@ class LocalAgent:
                 self.remember(text, result)
             return result
         desktop_features = {
-            "noop", "open_website", "type_text", "hotkey", "press_enter",
-            "save_document", "mouse_double_click", "mouse_click", "mouse_scroll",
+            "noop", "open_website", "type_text", "hotkey", "press_key", "press_enter",
+            "save_document", "mouse_double_click", "mouse_click", "mouse_right_click", "mouse_scroll",
             "mouse_middle_click", "mouse_hold", "mouse_right_hold",
             "mouse_move", "speak_text", "speak_ready", "speak_done",
             "voice_male", "voice_female", "play_mp3", "play_wav",
