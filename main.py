@@ -35,7 +35,8 @@ from luxai.discord_research import (
     detect_research_dm_request, prepare_discord_draft, submit_discord_draft,
 )
 from luxai.discord_screen_review import (
-    detect_discord_screen_review, run_discord_screen_review,
+    detect_discord_screen_review, looks_like_discord_screen_review,
+    run_discord_screen_review,
 )
 from luxai.macro_planner import needs_live_macro_planning
 from luxai.action_catalog import describe_step
@@ -2099,7 +2100,8 @@ class MainWindow(QMainWindow):
                 self._finish_visual_macro()
                 return
             approval = (
-                f"Открыть Discord, сделать снимок, найти @{username}, "
+                f"Открыть именно Discord, сделать снимок, найти пользователя "
+                f"«{username}», "
                 "сделать второй снимок и кратко пересказать его?\n\n"
                 "Два снимка будут сохранены локально в Pictures/LuxAI. "
                 "До ТРЁХ изображений Discord (поиск, проверка чата и анализ "
@@ -2542,6 +2544,13 @@ class MainWindow(QMainWindow):
                                  "target": review_user}]}, text,
                 )
                 error = "" if proposal else "Не удалось определить пользователя Discord."
+            elif looks_like_discord_screen_review(text):
+                proposal = None
+                error = (
+                    "Я понял, что это команда для поиска пользователя в переписке, "
+                    "но не могу уверенно определить название приложения или имя. "
+                    "Повторите запрос, чётко произнеся Discord и имя пользователя."
+                )
             elif parsed:
                 topic, username = parsed
                 proposal = validate_generated_macro(
