@@ -93,6 +93,8 @@ class ResearchContentTests(unittest.TestCase):
         self.assertIn("ru.wikipedia.org/w/api.php", requested.full_url)
         self.assertIn("gsrsearch=Adolf+Hitler", requested.full_url)
         self.assertLessEqual(len(text.encode("utf-16-le")) // 2, 350)
+        self.assertNotIn("\n", text)
+        self.assertNotIn("\r", text)
 
     def test_empty_article_is_not_fabricated(self):
         response = mock.MagicMock()
