@@ -195,6 +195,7 @@ class MainWindow(QMainWindow):
     discord_draft_ready = Signal(int, object, str)
     discord_contact_prompt = Signal(object)
     discord_open_ready = Signal(int, object, str)
+    research_notepad_ready = Signal(int, object, str)
     discord_send_ready = Signal(int, object, str)
     discord_review_ready = Signal(int, object, str)
     discord_mic_visual_ready = Signal(str, str)
@@ -227,6 +228,7 @@ class MainWindow(QMainWindow):
         self.discord_draft_ready.connect(self._on_discord_draft_ready)
         self.discord_contact_prompt.connect(self._on_discord_contact_prompt)
         self.discord_open_ready.connect(self._on_discord_open_ready)
+        self.research_notepad_ready.connect(self._on_research_notepad_ready)
         self.discord_send_ready.connect(self._on_discord_send_ready)
         self.discord_review_ready.connect(self._on_discord_review_ready)
         self.discord_mic_visual_ready.connect(self._on_discord_mic_visual_ready)
@@ -2103,6 +2105,14 @@ class MainWindow(QMainWindow):
             self.mic_status.setText(f"Пауза {count} {unit} (шаг {ctx['index']})")
             QTimer.singleShot(milliseconds, self._next_macro_step)
             return
+        if step["action"] == "research_notepad_facts":
+            self.mic_status.setText("Получаю три факта из Википедии и проверяю Блокнот…")
+            threading.Thread(
+                target=self._research_notepad_worker,
+                args=(step["target"], ctx["index"], ctx),
+                daemon=True, name="JarvisResearchNotepad",
+            ).start()
+            return
         if step["action"] == "discord_open_dm":
             username = step["target"]
             if not self.online_planner.enabled():
@@ -2352,6 +2362,37 @@ class MainWindow(QMainWindow):
         output = " ".join(ctx["messages"]) or "Действие не выполнено."
         self._macro_context = None
         self._resolved_command(ctx["text"], output)
+
+    def _research_notepad_worker(self, topic, index, context):
+        try:
+            from luxai.research_notepad import write_researched_facts_to_notepad
+            result = write_researched_facts_to_notepad(
+                topic, cancelled=lambda: self._closed or self._macro_context is not context
+            )
+            error = ""
+        except (ValueError, RuntimeError, OSError) as exc:
+            result, error = None, f"{type(exc).__name__}: {str(exc)[:170]}"
+        except Exception:
+            result, error = None, "Не получилось подтвердить факты или окно Блокнота."
+        if not self._closed:
+            try:
+                self.research_notepad_ready.emit(index, result, error)
+            except RuntimeError:
+                pass
+
+    def _on_research_notepad_ready(self, index, result, error):
+        ctx = getattr(self, "_macro_context", None)
+        if (self._closed or ctx is None or not self._processing
+                or ctx["index"] != index):
+            return
+        if error or result is None:
+            ctx["messages"].append(
+                "Запись фактов в Блокнот не выполнена: " + (error or "")
+            )
+            self._finish_visual_macro()
+            return
+        ctx["messages"].append(result)
+        QTimer.singleShot(0, self._next_macro_step)
 
     def _discord_open_worker(self, username, index, context):
         try:
@@ -2737,12 +2778,20 @@ class MainWindow(QMainWindow):
             )
             review_user = detect_discord_screen_review(text)
             from luxai.discord_navigation import detect_discord_open_dm
+            from luxai.research_notepad import detect_research_notepad
             open_user = detect_discord_open_dm(text)
+            facts_topic = detect_research_notepad(text)
             parsed = detect_research_dm_request(text)
             known = None
-            if not review_user and not parsed and not open_user:
+            if not review_user and not parsed and not open_user and not facts_topic:
                 known = plan_known_visual_sequence(text)
-            if open_user:
+            if facts_topic:
+                proposal = validate_generated_macro(
+                    {"steps": [{"action": "research_notepad_facts", "target": facts_topic}]},
+                    text,
+                )
+                error = "" if proposal else "Не удалось определить тему исследования."
+            elif open_user:
                 proposal = validate_generated_macro(
                     {"steps": [{"action": "discord_open_dm", "target": open_user}]},
                     text,
