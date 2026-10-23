@@ -24,6 +24,7 @@ from luxai.response_language import reply_language
 from luxai.online_agent import OnlinePlanner
 from luxai.secure_keys import store_api_key, get_api_key, key_storage_status
 from luxai.api_verification import check_api_key_detailed
+from luxai.cloud_status import cloud_status_text
 from luxai.api_providers import PROVIDERS
 from luxai.command_registry import CommandRegistry
 from luxai.ui_commands import CommandsPage
@@ -482,6 +483,7 @@ class MainWindow(QMainWindow):
         self.commands_page.interface_language = language
         self.commands_page.refresh()
         translate_widgets(self, language)
+        self._update_cloud_indicator()
         self.show_page(self.pages.currentIndex())
 
     def show_page(self, index):
@@ -523,30 +525,30 @@ class MainWindow(QMainWindow):
         signature = self._cloud_signature()
         storage = key_storage_status(provider) if provider in PROVIDERS else "missing"
         if not self.cfg.get("online_agent_enabled", False):
-            title, detail, color = (
-                "●  Облачный AI выключен",
-                "Включите облачный помощник в настройках.", "#c6a35f"
-            )
+            state = "disabled"
         elif not signature:
-            title = "●  Облачный AI: ключ отсутствует"
-            detail = ("Сохранённый ключ недоступен для текущего пользователя Windows."
-                      if storage == "unreadable" else "Добавьте и сохраните API-ключ в настройках.")
-            color = "#d36f6f"
+            state = "missing"
         elif self._cloud_probe_running and signature == self._cloud_probe_signature:
-            title, detail, color = "●  Облачный AI: проверка…", f"Подключаюсь к {name}…", "#c6a35f"
+            state = "checking"
         elif self._cloud_verified_signature == signature:
-            title, detail, color = "●  Облачный AI работает", f"{name}: API успешно ответил на тест.", "#3dbb77"
+            state = "online"
         elif self._cloud_probe_failed and signature == self._cloud_probe_signature:
-            title, detail, color = "●  Облачный AI недоступен", self._cloud_probe_message, "#d36f6f"
+            state = "offline"
         else:
-            title, detail, color = (
-                "●  Облачный AI: не проверен",
-                f"{name}: ключ найден, но соединение ещё не проверено.",
-                "#c6a35f"
-            )
+            state = "unchecked"
+        detail = ""
+        if state == "missing" and storage == "unreadable":
+            detail = {
+                "ru": "Сохранённый ключ не читается в текущей учётной записи Windows.",
+                "en": "The saved key cannot be decrypted by this Windows user.",
+                "ro": "Cheia salvată nu poate fi decriptată de acest utilizator Windows.",
+            }.get(get_ui_language(), "Saved key unreadable.")
+        if state == "offline":
+            detail = self._cloud_probe_message
+        title, body, color = cloud_status_text(state, name, get_ui_language(), detail)
         self.cloud_indicator.setText(title)
         self.cloud_indicator.setStyleSheet(f"color:{color};font-size:15px;font-weight:650;")
-        self.cloud_details.setText(detail)
+        self.cloud_details.setText(body)
 
     def _start_cloud_check(self, force=False):
         if self._closed or self._cloud_probe_running:
@@ -602,6 +604,8 @@ class MainWindow(QMainWindow):
     def save_settings(self, *_):
         if not hasattr(self, "settings_panel"):
             return
+        old_signature = self._cloud_signature()
+        old_configuration = dict(self.cfg)
         self.cfg.update(self.settings_panel.collect())
         key_field = self.settings_panel.api_key_entry
         new_key = key_field.text().strip()
@@ -618,6 +622,7 @@ class MainWindow(QMainWindow):
                     "Не удалось сохранить API-ключ. Поле не очищено; повторите сохранение."
                 )
                 self._cloud_verified_signature = None
+                self.cfg = old_configuration
                 self._update_cloud_indicator()
                 return False
             key_field.clear()
@@ -627,6 +632,10 @@ class MainWindow(QMainWindow):
         except OSError:
             self.mic_status.setText("Ошибка сохранения config.json.")
             return False
+        if self._cloud_signature() != old_signature:
+            self._cloud_verified_signature = None
+            self._cloud_probe_failed = False
+            self._cloud_first_check_done = False
         self._update_cloud_indicator()
         if self.agent:
             self.agent.update_config(self.cfg)
