@@ -89,24 +89,27 @@ jobs:
         run: python -c "import main; from luxai.voice import VoiceListener; print('LuxAI imports OK')"
 
   python-316-preview-windows:
-    # Python 3.16 is an alpha release. It must not block stable deployments.
+    # Experimental: official Python 3.16 alpha ZIP is not yet packaged by
+    # actions/setup-python. Missing native wheels must not block stable releases.
     runs-on: windows-latest
     timeout-minutes: 15
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python 3.16 alpha
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.16.0-alpha.1'
-          architecture: x64
-          allow-prereleases: true
-      - name: Detect Python 3.16
+      - name: Download official Python 3.16 alpha (Windows x64)
         shell: powershell
         run: |
-          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\install_windows.ps1 -SelfTest
-          if ($LASTEXITCODE -ne 0) { throw 'Python 3.16 preview detection failed' }
-      - name: Try third-party packages and imports on Python 3.16
+          $url = 'https://www.python.org/ftp/python/3.16.0/python-3.16.0a1-amd64.zip'
+          Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\python316.zip"
+          Expand-Archive -LiteralPath "$env:RUNNER_TEMP\python316.zip" -DestinationPath "$env:RUNNER_TEMP\python316" -Force
+          & "$env:RUNNER_TEMP\python316\python.exe" -c "import sys; print(sys.version)"
+      - name: Probe alpha interpreter and dependencies
+        shell: powershell
         run: |
-          python -m pip install --prefer-binary -r requirements.txt
-          python -c "import main; from luxai.voice import VoiceListener; print('LuxAI imports OK')"
+          $python = "$env:RUNNER_TEMP\python316\python.exe"
+          & $python -m ensurepip --upgrade
+          if ($LASTEXITCODE -ne 0) { throw 'Python 3.16 does not include working ensurepip' }
+          & $python -m pip install --prefer-binary --disable-pip-version-check -r requirements.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Third-party Windows Python 3.16 wheels unavailable' }
+          & $python -c "import main; from luxai.voice import VoiceListener; print('LuxAI imports OK')"
+          if ($LASTEXITCODE -ne 0) { throw 'Python 3.16 application import failed' }
