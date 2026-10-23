@@ -42,13 +42,14 @@ def _log_startup_error(exc: BaseException) -> None:
             return
         except (AttributeError, OSError):
             pass
-    print(message, file=sys.stderr)
-    print(detail, file=sys.stderr)
+    if sys.stderr is not None:
+        print(message, file=sys.stderr)
+        print(detail, file=sys.stderr)
 
 
 def main() -> int:
-    os.chdir(ROOT)
     try:
+        os.chdir(ROOT)
         import main as application
         return int(application.main() or 0)
     except Exception as exc:
