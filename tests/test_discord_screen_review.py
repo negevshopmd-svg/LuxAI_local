@@ -24,6 +24,8 @@ VOICE = (
 
 class ReviewRoutingTests(unittest.TestCase):
     def test_actual_whisper_transcript_is_one_ordered_macro(self):
+        from luxai.fast_intents import strip_wake_name
+        self.assertTrue(strip_wake_name(VOICE).startswith("открой дискорд"))
         self.assertEqual(detect_discord_screen_review(VOICE), "октавиан")
         self.assertTrue(needs_live_macro_planning(VOICE))
         self.assertEqual(
