@@ -115,3 +115,7 @@ Consent describes up to three image transmissions (Quick Switcher search, DM hea
 ### Whisper variations and Discord multiword display names
 
 Long Russian requests can now retain multiword contact display names (for example, `Старый Бог`) and recognize the specific mishearing `Скопт` as a possible Discord reference only when a full screenshot-and-chat workflow is present. An explicit preview confirms Discord and the complete person name; a different unrecognized application name causes a clear error rather than launching a guessed app or answering as a generic chatbot. Users must authorize visual analysis, and an ambiguous match never triggers blind clicks or sends a message.
+
+### Restore native Discord microphone controls before generic macro planning
+
+Known local commands retain priority over the live macro generator. `Выключи микрофон в Discord` continues to use the existing confirmed Discord Ctrl+Shift+M toggle. `Сделай снимок экрана и нажми на кнопку микрофона в дискорде` now uses a dedicated opt-in visual operation: verify the real Discord process and focused window, save one screenshot under Pictures/LuxAI, ask the selected image-capable cloud AI to locate the unique Discord mic control, then click that control once after revalidating foreground/window and coordinates. A missing/ambiguous target is not clicked. No messages are sent, and a toggle is not claimed to have produced a known mic state.
