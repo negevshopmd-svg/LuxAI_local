@@ -120,6 +120,21 @@ class ScreenshotGateTests(unittest.TestCase):
             mocks[4].assert_not_called()  # no click
             mocks[5].assert_not_called()  # no typing
 
+    def test_overlay_disappearing_after_click_never_types_recipient(self):
+        stack, shot, pyauto = self._common((650, 270))
+        from contextlib import ExitStack
+        with ExitStack() as x:
+            mocks = [x.enter_context(p) for p in stack]
+            with mock.patch(
+                "luxai.visual_click.find_visual_target",
+                side_effect=[(650, 270),
+                             ValueError("Control not found unambiguously")],
+            ):
+                with self.assertRaises(ValueError):
+                    verified_discord_search(mock.Mock(), 77, "@Octavian")
+            mocks[4].assert_called_once()
+            mocks[5].assert_not_called()
+
     def test_only_verified_modal_input_receives_the_search_text(self):
         stack, shot, pyauto = self._common((650, 270))
         from contextlib import ExitStack
@@ -127,7 +142,8 @@ class ScreenshotGateTests(unittest.TestCase):
             mocks = [x.enter_context(p) for p in stack]
             result = verified_discord_search(mock.Mock(), 77, "@Octavian")
             self.assertIs(result, shot)
-            self.assertEqual(mocks[2].call_count, 2)
+            self.assertEqual(mocks[2].call_count, 3)
+            self.assertEqual(mocks[3].call_count, 2)
             mocks[4].assert_called_once_with(shot, (650, 270), 1)
             mocks[5].assert_called_once_with("@Octavian")
             pyauto.hotkey.assert_called_once_with("ctrl", "k", interval=0.07)
