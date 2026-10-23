@@ -88,6 +88,29 @@ jobs:
       - name: Verify imports
         run: python -c "import main; from luxai.voice import VoiceListener; print('LuxAI imports OK')"
 
+  python-fallback-windows:
+    # Verify the real installer remains functional on a PC that has Python
+    # 3.15 (missing CTranslate2 Windows wheels) alongside Python 3.14.
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          architecture: x64
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.15'
+          architecture: x64
+      - name: Install LuxAI with fallback from 3.15
+        shell: powershell
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\install_windows.ps1 -SkipOcr
+          if ($LASTEXITCODE -ne 0) { throw 'Installer did not recover from unsupported Python 3.15 dependencies' }
+          & '.venv\Scripts\python.exe' -c "import sys; import main; assert sys.version_info[:2] == (3, 14), sys.version; print('Python 3.15 to 3.14 fallback passed')"
+          if ($LASTEXITCODE -ne 0) { throw 'Fallback interpreter or import test failed' }
+
   python-315-compatibility-probe:
     runs-on: windows-latest
     timeout-minutes: 15
