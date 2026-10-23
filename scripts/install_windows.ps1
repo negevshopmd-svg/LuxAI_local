@@ -112,6 +112,16 @@ function Find-CompatiblePython([int]$MaxMinor = 99) {
     return $bestPath
 }
 
+function Find-PreferredPython {
+    # Prefer released versions over newer alpha/beta runtimes.
+    # Python 3.16 is still a developer preview in October 2026.
+    $released = Find-CompatiblePython -MaxMinor 15
+    if ($released) {
+        return $released
+    }
+    return (Find-CompatiblePython)
+}
+
 function Test-ExistingFile([string]$Path) {
     try {
         return (Test-Path -LiteralPath $Path -PathType Leaf -ErrorAction Stop)
@@ -265,16 +275,16 @@ try {
         exit 0
     }
 
-    $basePython = Find-CompatiblePython
+    $basePython = Find-PreferredPython
     if (-not $basePython -and -not (Test-UsableVenv)) {
         Install-OfficialPython
-        $basePython = Find-CompatiblePython
+        $basePython = Find-PreferredPython
     }
 
     $venvUsable = Test-UsableVenv
     if (-not $venvUsable) {
         if (-not $basePython) {
-            $basePython = Find-CompatiblePython
+            $basePython = Find-PreferredPython
         }
         if (-not $basePython) {
             throw 'A compatible 64-bit Python >=3.11 was not found. Run install_windows.bat again or install Python from python.org.'
@@ -293,32 +303,40 @@ try {
         Write-Status 'Existing .venv is valid; no reinstall of Python required.'
     }
 
-    try {
-        Install-ApplicationDependencies
-    } catch {
-        $version = Get-CompatiblePythonVersion $script:VenvPython
-        if ($null -eq $version -or $version.Minor -le 11) {
-            throw
+    # Attempt newer runtimes first, automatically stepping down to an
+    # installed, older interpreter if third-party native wheels are unavailable.
+    # Never claim success unless dependencies and application import work.
+    while ($true) {
+        try {
+            Install-ApplicationDependencies
+            break
+        } catch {
+            $setupError = $_.Exception.Message
+            $version = Get-CompatiblePythonVersion $script:VenvPython
+            if ($null -eq $version -or $version.Minor -le 11) {
+                throw
+            }
+            Write-Status "WARNING: Python $version could not run LuxAI: $setupError"
+            $olderMinor = [int]$version.Minor - 1
+            $fallback = Find-CompatiblePython -MaxMinor $olderMinor
+            if (-not $fallback) {
+                # Official, signed stable interpreter downloaded only if the
+                # user has no lower compatible interpreter already installed.
+                Install-OfficialPython
+                $fallback = Find-CompatiblePython -MaxMinor 11
+            }
+            if (-not $fallback) {
+                throw "No usable fallback after Python $version failed. Check $script:LogFile."
+            }
+            $oldName = '.venv.old-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [Guid]::NewGuid().ToString('N').Substring(0, 6)
+            Write-Status "Preserving failed Python $version environment as $oldName."
+            Move-Item -LiteralPath $script:Venv -Destination (Join-Path $script:Root $oldName) -ErrorAction Stop
+            Invoke-PythonStep $fallback @('-m', 'venv', $script:Venv) 'Creating fallback virtual environment'
+            if (-not (Test-UsableVenv)) {
+                throw 'Fallback virtual environment failed verification.'
+            }
         }
-        Write-Status "WARNING: Python $version dependency setup failed: $($_.Exception.Message)"
-        Write-Status 'Trying the Python 3.11 fallback for unsupported third-party packages.'
-        $fallback = Find-CompatiblePython -MaxMinor 11
-        if (-not $fallback) {
-            Install-OfficialPython
-            $fallback = Find-CompatiblePython -MaxMinor 11
-        }
-        if (-not $fallback) {
-            throw 'Python 3.11 fallback installation was unsuccessful.'
-        }
-        $oldName = '.venv.old-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [Guid]::NewGuid().ToString('N').Substring(0, 6)
-        Move-Item -LiteralPath $script:Venv -Destination (Join-Path $script:Root $oldName) -ErrorAction Stop
-        Invoke-PythonStep $fallback @('-m', 'venv', $script:Venv) 'Creating Python 3.11 fallback virtual environment'
-        if (-not (Test-UsableVenv)) {
-            throw 'Python 3.11 fallback virtual environment failed verification.'
-        }
-        Install-ApplicationDependencies
     }
-
     try {
         Invoke-PythonStep $script:VenvPython @('-m', 'luxai.ocr_setup') 'Installing optional Tesseract OCR (Russian and English)'
     } catch {
