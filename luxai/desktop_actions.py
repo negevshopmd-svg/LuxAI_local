@@ -327,12 +327,18 @@ def execute_desktop_step(raw: dict) -> str:
     if action == "hotkey":
         gui.hotkey(*HOTKEYS[target], interval=0.07)
         return f"Нажато: {target.upper()}."
+    if action == "press_key":
+        gui.press(target)
+        return f"Нажата клавиша {target.upper()}."
     if action == "press_enter":
         gui.press("enter")
         return "Нажат Enter."
     if action == "save_document":
         gui.hotkey("ctrl", "s", interval=0.08)
         return "Нажато Ctrl+S."
+    if action == "mouse_right_click":
+        gui.click(button="right")
+        return "Правый клик выполнен."
     if action == "mouse_click":
         gui.click()
         return "Левый клик выполнен."
