@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 from luxai.command_registry import APP_TARGETS, CommandRegistry
 from luxai.file_actions import ALLOWED_LOCATIONS
 from luxai.steam_games import GAMES
+from luxai.ui_i18n import tr, get_ui_language, translate_widgets
 
 
 ACTION_CHOICES = [
@@ -54,6 +55,7 @@ class CommandsPage(QWidget):
     def __init__(self, registry: CommandRegistry, parent=None):
         super().__init__(parent)
         self.registry = registry
+        self.interface_language = get_ui_language()
         self.setObjectName("CommandsPage")
 
         root = QHBoxLayout(self)
@@ -122,6 +124,7 @@ class CommandsPage(QWidget):
         side_col.addWidget(self.summary)
         root.addWidget(side, 2)
         self.refresh()
+        translate_widgets(self, self.interface_language)
 
     def refresh(self):
         self.tree.clear()
@@ -137,7 +140,7 @@ class CommandsPage(QWidget):
             group_items = categories.get(category)
             if not group_items:
                 continue
-            header = QTreeWidgetItem([f"{category}  ({len(group_items)})", ""])
+            header = QTreeWidgetItem([f"{tr(category, self.interface_language)}  ({len(group_items)})", ""])
             header.setFlags(header.flags() & ~Qt.ItemFlag.ItemIsSelectable)
             self.tree.addTopLevelItem(header)
             for entry in group_items:
@@ -149,10 +152,17 @@ class CommandsPage(QWidget):
                 header.addChild(item)
             header.setExpanded(True)
         custom_count = len(self.registry.custom)
+        language = self.interface_language
+        summary_labels = {
+            "ru": ("Готовые команды", "Мои/выученные"),
+            "en": ("Built-in commands", "Custom/learned"),
+            "ro": ("Comenzi predefinite", "Personale/învățate"),
+        }
+        built_in, custom = summary_labels.get(language, summary_labels["ru"])
         self.summary.setText(
-            f"Готовые команды: {len(records) - custom_count}\n"
-            f"Мои/выученные: {custom_count}\n"
-            "Изменения сохраняются между обновлениями."
+            f"{built_in}: {len(records) - custom_count}\n"
+            f"{custom}: {custom_count}\n"
+            + tr("Изменения сохраняются между обновлениями.", language)
         )
         self._filter(self.search.text())
         self._selection_changed()
@@ -172,7 +182,7 @@ class CommandsPage(QWidget):
         self.toggle.setEnabled(entry is not None)
         self.run_button.setEnabled(bool(entry and entry["enabled"]))
         self.toggle.setText(
-            "Включить команду" if entry and not entry["enabled"] else "Выключить команду"
+            tr("Включить команду" if entry and not entry["enabled"] else "Выключить команду", self.interface_language)
         )
 
     def _filter(self, keyword):
