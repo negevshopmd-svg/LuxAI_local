@@ -355,14 +355,15 @@ class ScreenRoutingUITests(unittest.TestCase):
 
         # Verify actual worker processing bypasses open-ended cloud proposal
         # and produces the dedicated, locally validated action.
-        with (
-            mock.patch.object(window.online_planner, "plan_macro") as cloud,
-            mock.patch.object(window.direct_macro_ready, "emit") as emitted,
-        ):
-            window._direct_macro_worker(VOICE_FROM_NEW_SCREENSHOT)
-        cloud.assert_not_called()
+        surrogate = types.SimpleNamespace(
+            online_planner=mock.Mock(),
+            direct_macro_ready=types.SimpleNamespace(emit=mock.Mock()),
+            _closed=False,
+        )
+        main.MainWindow._direct_macro_worker(surrogate, VOICE_FROM_NEW_SCREENSHOT)
+        surrogate.online_planner.plan_macro.assert_not_called()
         self.assertEqual(
-            emitted.call_args.args[1]["steps"][0]["action"],
+            surrogate.direct_macro_ready.emit.call_args.args[1]["steps"][0]["action"],
             "discord_screen_review",
         )
 
