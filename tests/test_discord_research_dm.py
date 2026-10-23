@@ -139,7 +139,7 @@ class DiscordDraftTests(unittest.TestCase):
         self.assertEqual(type_unicode.call_args_list[0].args, ("@ронси",))
         self.assertEqual(type_unicode.call_args_list[1].args[0],
                          "verified text  Источник: url")
-        self.assertEqual(capture.call_count, 3)
+        self.assertEqual(capture.call_count, 2)
         self.assertEqual(locate.call_count, 2)
         self.assertFalse(locate.call_args_list[0].kwargs.get("quick_switcher", False))
         self.assertTrue(locate.call_args_list[1].kwargs["quick_switcher"])
@@ -182,7 +182,7 @@ class DiscordDraftTests(unittest.TestCase):
         self.assertEqual(draft.username, "RONfsy")
         self.assertIn("RONfsy", header.call_args.args[1])
         self.assertEqual(click.call_count, 2)
-        self.assertEqual(capture.call_count, 3)
+        self.assertEqual(capture.call_count, 2)
         pyauto.hotkey.assert_not_called()
         typing.assert_called_once_with("verified text")
 
