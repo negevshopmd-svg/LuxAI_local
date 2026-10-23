@@ -1391,7 +1391,7 @@ class MainWindow(QMainWindow):
             configured = str(self.cfg.get("wake_prefix", "Jarvis") or "Jarvis")
             # Accept multiple names separated by commas, plus common Whisper variants.
             aliases = [name.strip() for name in configured.split(",") if name.strip()]
-            aliases += ["Jarvis", "Джарвис", "Жарвис", "Джервис", "Жервис"]
+            aliases += ["Jarvis", "Джарвис", "Жарвис", "Джервис", "Жервис", "Жарис", "Джарис"]
             prefix = aliases[0]
             variants = "|".join(
                 re.escape(name) for name in sorted(set(aliases), key=len, reverse=True)
