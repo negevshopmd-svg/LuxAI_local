@@ -18,6 +18,7 @@ from luxai.settings_panel import SettingsPanel
 from luxai.ui_home import HomePage
 from luxai.ui_sidebar import NavigationSidebar
 from luxai.styles import build_styles
+from luxai.ui_i18n import get_ui_language, set_ui_language, translate_widgets, tr, normalize_language
 from luxai.online_agent import OnlinePlanner
 from luxai.secure_keys import store_api_key, get_api_key
 from luxai.api_verification import check_api_key_detailed
@@ -118,6 +119,7 @@ class MainWindow(QMainWindow):
         self.resize(1120, 720)
         self.setMinimumSize(900, 600)
         self.cfg = load_config()
+        set_ui_language(self.cfg.get("ui_language", "ru"))
         self.agent = LocalAgent(self.cfg)
         self.command_registry = CommandRegistry()
         self.command_wizard = CommandWizard(
@@ -204,6 +206,7 @@ class MainWindow(QMainWindow):
         self.build_settings()
         self._setup_tray()
         self.apply_appearance()
+        self.apply_ui_language()
         self.show_page(0)
         self.mic_status.setText(self._provider_status_text())
         # Remember the last other foreground window while Jarvis is out of
@@ -424,10 +427,20 @@ class MainWindow(QMainWindow):
         self.model_label = self.settings_panel.model_label
         self.pages.addWidget(self.settings_panel)
 
+    def apply_ui_language(self):
+        """Change UI language in-place without touching the voice/Whisper language."""
+        language = normalize_language(self.cfg.get("ui_language", "ru"))
+        set_ui_language(language)
+        self.sidebar.set_language(language)
+        self.commands_page.interface_language = language
+        self.commands_page.refresh()
+        translate_widgets(self, language)
+        self.show_page(self.pages.currentIndex())
+
     def show_page(self, index):
         self.pages.setCurrentIndex(index)
         titles = ["Главная", "Команды", "Дополнения", "Jarvis AI", "Настройки"]
-        self.header_title.setText("Jarvis   |   " + titles[index])
+        self.header_title.setText("Jarvis   |   " + tr(titles[index]))
         self.sidebar.set_active(index)
 
     def toggle_microphone_from_header(self, enabled):
@@ -460,16 +473,20 @@ class MainWindow(QMainWindow):
         if self.online_planner.enabled():
             provider = self.cfg.get("online_provider", "openai")
             name = PROVIDERS.get(provider, {}).get("label", provider)
-            return f"Онлайн-ИИ настроен: {name} → Windows (проверить ключ)"
+            lang = get_ui_language()
+            return (f"Online AI configured: {name} → Windows (test key)" if lang == "en"
+                    else f"AI online configurat: {name} → Windows (verifică cheia)" if lang == "ro"
+                    else f"Онлайн-ИИ настроен: {name} → Windows (проверить ключ)")
         if self.cfg.get("online_agent_enabled", False):
-            return "Онлайн-ИИ включён, но ключ выбранного провайдера не сохранён"
-        return "Облачный ИИ выключен — локальный режим"
+            return tr("Онлайн-ИИ включён, но ключ выбранного провайдера не сохранён")
+        return tr("Облачный ИИ выключен — локальный режим")
 
     def apply_settings(self, *_):
         """Save settings and apply them to running services where supported."""
         old = dict(self.cfg)
         self.save_settings()
         self.apply_appearance()
+        self.apply_ui_language()
         if old.get("autostart_windows", False) != self.cfg.get("autostart_windows", False):
             self._set_autostart(self.cfg.get("autostart_windows", False))
         if hasattr(self, "home_prefix"):
@@ -516,7 +533,7 @@ class MainWindow(QMainWindow):
         elif self.worker and self.worker.listener:
             self.worker.listener.prefix_enabled = self.cfg.get("prefix_enabled", False)
             self.worker.listener.prefix = self.cfg.get("wake_prefix", "Jarvis")
-        self.mic_status.setText("Настройки сохранены. " + self._provider_status_text())
+        self.mic_status.setText(tr("Настройки сохранены.") + " " + self._provider_status_text())
 
     def test_online_api(self):
         """Test the text currently in the key field (or stored key), without saving."""
