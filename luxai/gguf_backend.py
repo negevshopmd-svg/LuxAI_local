@@ -6,6 +6,7 @@ away from Jarvis's Qt UI/microphone process. A model will take longer to load.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -28,15 +29,20 @@ class IsolatedGGUF:
                    "prompt": prompt, "max_tokens": min(400, max(1, int(max_tokens))),
                    "temperature": min(1.0, max(0.0, float(temperature)))}
         try:
+            # Explicit UTF-8 on BOTH pipe ends. Windows cp1251/cp1252 default
+            # codecs cannot encode Romanian ș/ț or arbitrary GGUF prompts.
+            environment = os.environ.copy()
+            environment["PYTHONIOENCODING"] = "utf-8"
             completed = subprocess.run(
                 [sys.executable, "-m", "luxai.gguf_worker"],
                 input=json.dumps(request, ensure_ascii=False),
-                text=True, cwd=ROOT, capture_output=True,
+                text=True, encoding="utf-8", errors="replace",
+                env=environment, cwd=ROOT, capture_output=True,
                 timeout=TIMEOUT_SECONDS, check=False,
             )
         except subprocess.TimeoutExpired as error:
             raise GGUFWorkerError("Local GGUF model timed out; try a smaller model or more RAM.") from error
-        except OSError as error:
+        except (OSError, UnicodeError) as error:
             raise GGUFWorkerError("Could not start the isolated GGUF process.") from error
         if completed.returncode != 0:
             raise GGUFWorkerError(
