@@ -55,8 +55,9 @@ letters/digits. Example: "нажми qwerd" / "press Q W E R D" /
 {"action":"empty_recycle_bin"},{"action":"close_window"}]}.
 For "open recycle bin", ALWAYS use open_recycle_bin, never guess at the
 Windows desktop icon position. Some desktops have no such icon.
-visual_click target MUST be the visible GUI control description followed by ||1, ||2
-or ||3 (number of clicks); no coordinate guesses at planning time.
+visual_click target MUST be the visible GUI control description followed by
+||1 through ||10 (number of clicks); no coordinate guesses at planning time.
+Use exactly the number of clicks explicitly requested. If not specified, ||1.
 At RUN TIME Jarvis asks permission to capture the currently active external
 window and transmit one screenshot to the configured vision-capable API;
 only the current screenshot determines the coordinates. If the wrong window
