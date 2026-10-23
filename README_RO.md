@@ -58,3 +58,9 @@ Comutatorul indică setarea cerută; mesajul și nivelul indică starea reală. 
 O comandă salvată poate avea până la **8 pași**, cu până la **24 de apăsări individuale** într-o singură acțiune „secvență de taste”. Comenzile disponibile includ tastatură, combinații aprobate, mouse, pauze, programe și site-uri. Secvența „qwerd” apasă Q, W, E, R, D *pe rând*, nu introduce un text în câmp. Poți edita și secvența în interfața Comenzi.
 
 Agentul cloud oferă doar propuneri; fiecare pas este validat local și nu se execută la creare. Cererile distructive (de exemplu golirea Coșului de reciclare), scripturile shell, operațiile pe parole și alte acțiuni în afara listei nu sunt generate automat. AI-ul cloud trebuie activat și cheia sa API trebuie să funcționeze. Comenzile locale simple și comenzile deja salvate funcționează fără cloud.
+
+## Dacă Jarvis întrerupe propozițiile sau vorbește prea mult
+
+În **Setări → Intrare vocală → Pauză înainte de încheierea frazei** poți ajusta cât așteaptă Whisper după ultima parte vorbită. Valoarea implicită este **2,3 secunde**; încearcă **3–3,5 secunde** dacă faci pauze când descrii o comandă mai lungă. Setarea nu face aplicația să asculte la nesfârșit: limitele de durată și regulile de securitate rămân active.
+
+Dacă Whisper inventează un mesaj scurt precum „Спасибо за внимание”, LuxAI îl ignoră în loc să îl trateze ca instrucțiune. Când Jarvis **vorbește**, spune clar **„стоп” / „stop” / „oprește-te”** în microfon și redarea Piper sau Windows SAPI va fi oprită; răspunsurile vocale încă neîncepute sunt eliminate din coadă. Monitorizarea acestei comenzi funcționează în timpul redării audio, nu în timpul descărcării sau generării vocii. Folosește căști pentru a reduce ecoul; performanța depinde de microfon și zgomotul de fundal.
