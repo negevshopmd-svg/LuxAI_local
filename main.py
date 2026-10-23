@@ -79,8 +79,14 @@ class VoiceWorker(QThread):
         super().__init__()
         self.cfg = cfg
         self.listener = None
+    def stop_capture(self):
+        if self.listener is not None:
+            self.listener.stop()
+
     def run(self):
         try:
+            if self.isInterruptionRequested():
+                return
             self.listener = VoiceListener(
                 model_path=self.cfg.get("whisper_model_path") or self.cfg.get("whisper_model") or "small",
                 prefix_enabled=self.cfg.get("prefix_enabled", False),
@@ -89,6 +95,9 @@ class VoiceWorker(QThread):
                 microphone_device=self.cfg.get("microphone_device", -1),
                 beam_size=self.cfg.get("whisper_beam_size", 1),
             )
+            if self.isInterruptionRequested():
+                self.listener.stop()
+                return
             self.status.emit("Микрофон включён — локальное распознавание")
             for text in self.listener.listen():
                 if self.isInterruptionRequested():
@@ -792,6 +801,10 @@ class MainWindow(QMainWindow):
         if worker is not self.worker:
             return
         self.worker = None
+        if getattr(self, "_pending_close", False):
+            self._pending_close = False
+            QTimer.singleShot(0, self.close)
+            return
         if getattr(self, "_listener_restart_pending", False) and not self._closed:
             self._listener_restart_pending = False
             QTimer.singleShot(0, self.start_listener)
@@ -1849,7 +1862,14 @@ class MainWindow(QMainWindow):
             self._speech_queue.put_nowait(None)
         except queue.Full:
             pass
+        self._listener_restart_pending = False
         self.stop_listener()
+        if self.worker is not None and self.worker.isRunning():
+            # Do not destroy a running Qt thread when closing the window.
+            self._pending_close = True
+            self.hide()
+            event.ignore()
+            return
         event.accept()
 
 def load_project_font():
