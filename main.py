@@ -2104,6 +2104,20 @@ class MainWindow(QMainWindow):
                 ).start()
             )
             return
+        if step["action"] == "close_window":
+            if not self.confirm_action(
+                "⚠ Закрыть активное окно другой программы? "
+                "Несохранённые изменения могут быть потеряны."
+            ):
+                ctx["messages"].append("Закрытие окна отменено.")
+                self._finish_visual_macro()
+                return
+            threading.Thread(
+                target=self._macro_worker,
+                args=(dict(step), ctx["index"]),
+                daemon=True, name="JarvisCloseWindow",
+            ).start()
+            return
         if step["action"] == "empty_recycle_bin":
             if not self.confirm_action(
                 "⚠ БЕЗВОЗВРАТНО удалить ВСЕ файлы из корзины Windows? "
