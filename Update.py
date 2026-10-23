@@ -120,6 +120,41 @@ def validate_staged_requirements(source: Path) -> None:
 
 
 
+def upgrade_dependencies() -> bool:
+    """Upgrade direct requirements in the existing venv to the latest compatible releases.
+
+    Do not touch globally installed Python packages. If a network update fails,
+    the operator gets an actionable message rather than a false success.
+    """
+    windows_python = ROOT / ".venv" / "Scripts" / "python.exe"
+    unix_python = ROOT / ".venv" / "bin" / "python"
+    python = windows_python if windows_python.is_file() else unix_python
+    requirements = ROOT / "requirements.txt"
+    if not python.is_file() or not requirements.is_file():
+        print("Dependențe: mediul .venv lipsește. Rulează install_windows.bat.")
+        return False
+    print("Verific ultimele versiuni compatibile ale bibliotecilor LuxAI...")
+    commands = [
+        [str(python), "-m", "pip", "install", "--disable-pip-version-check",
+         "--upgrade", "pip"],
+        [str(python), "-m", "pip", "install", "--disable-pip-version-check",
+         "--upgrade", "--upgrade-strategy", "only-if-needed", "--prefer-binary",
+         "--retries", "2", "--timeout", "30", "-r", str(requirements)],
+        [str(python), "-m", "pip", "check"],
+    ]
+    for command in commands:
+        try:
+            result = subprocess.run(command, cwd=str(ROOT), timeout=480, check=False)
+            if result.returncode != 0:
+                print("Dependențe: actualizarea/verificarea a eșuat. Rulează install_windows.bat.")
+                return False
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            print(f"Dependențe: verificarea a eșuat ({type(exc).__name__}).")
+            return False
+    print("Bibliotecile LuxAI sunt actualizate la ultimele versiuni compatibile.")
+    return True
+
+
 def ensure_local_ai_backend() -> bool:
     """Update the optional GGUF backend even when the code is already up-to-date."""
     if sys.platform != "win32":
@@ -163,7 +198,9 @@ def main() -> int:
         print(f"Commit instalat: {current_sha[:12] if current_sha else 'necunoscut'}")
         print(f"Commit GitHub:   {latest_sha[:12]}")
         if current_sha == latest_sha:
-            print("Lux AI este deja la zi. Verific si motorul GGUF optional...")
+            print("Lux AI este deja la zi. Verific si bibliotecile instalate...")
+            if not upgrade_dependencies():
+                return 1
             ensure_local_ai_backend()
             return 0
     except Exception as e:
@@ -219,33 +256,12 @@ def main() -> int:
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src, dest)
 
-            # Update the existing virtual environment after refreshing
-            # requirements. Without this, adding new Windows action libraries
-            # such as pycaw leaves controls visible but nonfunctional.
-            win_python = ROOT / ".venv" / "Scripts" / "python.exe"
-            unix_python = ROOT / ".venv" / "bin" / "python"
-            venv_python = win_python if win_python.is_file() else unix_python
-            requirements = ROOT / "requirements.txt"
-            if venv_python.is_file() and requirements.is_file():
-                print("Verific și instalez dependențele noi în .venv...")
-                process = subprocess.run(
-                    [
-                        str(venv_python), "-m", "pip", "install",
-                        "--disable-pip-version-check",
-                        "-r", str(requirements),
-                    ],
-                    cwd=str(ROOT), timeout=300, check=False,
-                )
-                if process.returncode != 0:
-                    raise RuntimeError(
-                        "Fișierele au fost actualizate, dar pip nu a instalat "
-                        "toate dependențele. Rulează install_windows.bat "
-                        "sau încearcă din nou Update.bat."
-                    )
-            else:
-                print(
-                    "AVERTISMENT: .venv nu există; rulează "
-                    "install_windows.bat înainte să pornești aplicația."
+            # Direct dependencies are rechecked against the index, even when
+            # already installed. Stay within requirements and Python markers.
+            if not upgrade_dependencies():
+                raise RuntimeError(
+                    "Fișierele au fost actualizate, dar bibliotecile nu au putut "
+                    "fi aduse la cele mai noi versiuni compatibile. Rulează install_windows.bat."
                 )
 
             # Refresh the optional llama.cpp backend automatically as well.
@@ -257,8 +273,9 @@ def main() -> int:
             # language models live in .luxai_data/ocr, a preserved local
             # folder. Failure does not corrupt the already-updated app.
             ocr_ready = True
-            if sys.platform == "win32" and venv_python.is_file():
+            if sys.platform == "win32" and (ROOT / ".venv" / "Scripts" / "python.exe").is_file():
                 print("Pregatesc OCR integrat: Tesseract + rusa/engleza...")
+                venv_python = ROOT / ".venv" / "Scripts" / "python.exe"
                 try:
                     ocr_result = subprocess.run(
                         [str(venv_python), "-m", "luxai.ocr_setup"],

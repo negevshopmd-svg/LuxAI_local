@@ -1,4 +1,4 @@
-param([switch]$SelfTest, [switch]$CheckVenv, [switch]$SkipOcr, [switch]$SkipLocalAI)
+param([switch]$SelfTest, [switch]$CheckVenv, [switch]$SkipOcr, [switch]$SkipLocalAI, [switch]$InventoryOnly)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -51,7 +51,7 @@ function Test-CompatiblePython([string]$Path) {
     return ($null -ne (Get-CompatiblePythonVersion $Path))
 }
 
-function Find-CompatiblePython([int]$MaxMinor = 99, [switch]$StableOnly) {
+function Get-InstalledPythonCandidates {
     $candidates = New-Object 'System.Collections.Generic.List[string]'
     $launcher = Get-Command -Name 'py.exe' -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($null -ne $launcher) {
@@ -109,24 +109,62 @@ function Find-CompatiblePython([int]$MaxMinor = 99, [switch]$StableOnly) {
         }
     }
 
+    # Dedupe paths returned by py, PATH, registry and standard directories.
+    return @($candidates | Select-Object -Unique)
+}
+
+function Get-InstalledPythonInventory {
+    $inventory = @()
+    foreach ($candidate in @(Get-InstalledPythonCandidates)) {
+        $version = Get-CompatiblePythonVersion $candidate
+        if ($null -ne $version) {
+            $inventory += [pscustomobject]@{
+                Path = $candidate
+                Version = $version
+                Stable = (Test-StablePython $candidate)
+            }
+        }
+    }
+    return $inventory
+}
+
+function Show-PythonCompatibility {
+    $inventory = @(Get-InstalledPythonInventory)
+    Write-Status 'Checking installed Python 3.11, 3.12, 3.13, 3.14 (64-bit):'
+    foreach ($minor in @(11, 12, 13, 14)) {
+        $matched = @($inventory | Where-Object { $_.Version.Minor -eq $minor -and $_.Stable })
+        if ($matched.Count -gt 0) {
+            $selected = $matched | Sort-Object Version -Descending | Select-Object -First 1
+            Write-Status ("  Python 3.{0}: FOUND {1} - {2}" -f $minor, $selected.Version, $selected.Path)
+        } else {
+            Write-Status ("  Python 3.{0}: not installed (or not stable x64)" -f $minor)
+        }
+    }
+}
+
+function Find-CompatiblePython([int]$MaxMinor = 99, [switch]$StableOnly) {
     $bestPath = $null
     $bestVersion = [version]'0.0.0'
-    foreach ($candidate in ($candidates | Select-Object -Unique)) {
-        $version = Get-CompatiblePythonVersion $candidate
-        if ($null -ne $version -and $version.Minor -le $MaxMinor -and $version -gt $bestVersion -and ((-not $StableOnly) -or (Test-StablePython $candidate))) {
-            $bestPath = $candidate
-            $bestVersion = $version
+    foreach ($entry in @(Get-InstalledPythonInventory)) {
+        if ($entry.Version.Minor -le $MaxMinor -and $entry.Version -gt $bestVersion -and
+            ((-not $StableOnly) -or $entry.Stable)) {
+            $bestPath = $entry.Path
+            $bestVersion = $entry.Version
         }
     }
     if ($bestPath) {
-        Write-Status "Found Python $bestVersion (64-bit): $bestPath"
+        Write-Status "Selected Python $bestVersion (64-bit): $bestPath"
     }
     return $bestPath
 }
 
 function Find-PreferredPython {
-    # Prefer stable versions across all future releases, not merely the
-    # currently newest version. Preview runtimes can lack native wheels.
+    # Prefer verified stable 3.11-3.14 runtimes over a newer interpreter
+    # whose native audio/GGUF dependencies may not yet support Windows.
+    $supported = Find-CompatiblePython -MaxMinor 14 -StableOnly
+    if ($supported) {
+        return $supported
+    }
     $released = Find-CompatiblePython -StableOnly
     if ($released) {
         return $released
@@ -208,7 +246,12 @@ function Invoke-PythonStep([string]$Executable, [string[]]$Arguments, [string]$T
 
 function Install-ApplicationDependencies {
     Invoke-PythonStep $script:VenvPython @('-m', 'ensurepip', '--upgrade') 'Checking pip'
-    Invoke-PythonStep $script:VenvPython @('-m', 'pip', 'install', '--disable-pip-version-check', '--prefer-binary', '--retries', '2', '--timeout', '30', '-r', 'requirements.txt') 'Installing LuxAI dependencies'
+    Invoke-PythonStep $script:VenvPython @('-m', 'pip', 'install', '--disable-pip-version-check', '--upgrade', 'pip') 'Updating pip to latest compatible stable version'
+    # -U rechecks the index even for packages that are already installed.
+    # The requirements constraints and Python-version markers still apply.
+    # only-if-needed prevents needless upgrading of transitive dependencies.
+    Invoke-PythonStep $script:VenvPython @('-m', 'pip', 'install', '--disable-pip-version-check', '--upgrade', '--upgrade-strategy', 'only-if-needed', '--prefer-binary', '--retries', '2', '--timeout', '30', '-r', 'requirements.txt') 'Updating all direct LuxAI dependencies to newest compatible stable versions'
+    Invoke-PythonStep $script:VenvPython @('-m', 'pip', 'check') 'Checking installed package compatibility'
     Invoke-PythonStep $script:VenvPython @('-m', 'compileall', '-q', 'main.py', 'luxai') 'Checking Python source'
     Invoke-PythonStep $script:VenvPython @('-c', "import main; print('LuxAI imports OK')") 'Checking application imports'
 }
@@ -260,6 +303,10 @@ function Assert-ProjectFiles {
 try {
     Write-Status '=== LuxAI Local | Windows setup ==='
     Assert-ProjectFiles
+    if ($InventoryOnly) {
+        Show-PythonCompatibility
+        exit 0
+    }
 
     if ($SelfTest) {
         $python = Get-Command -Name 'python.exe' -CommandType Application -ErrorAction Stop | Where-Object { $_.Source -notmatch '\\WindowsApps\\' } | Select-Object -First 1
@@ -287,6 +334,7 @@ try {
         exit 0
     }
 
+    Show-PythonCompatibility
     $basePython = Find-PreferredPython
     if (-not $basePython -and -not (Test-UsableVenv)) {
         Install-OfficialPython

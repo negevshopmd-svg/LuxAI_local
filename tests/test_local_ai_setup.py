@@ -9,15 +9,28 @@ from luxai import local_ai_setup
 
 
 class LocalAISetupTests(unittest.TestCase):
-    def test_skips_pip_if_native_import_already_works(self):
+    def test_existing_backend_is_checked_for_newer_compatible_wheel(self):
         with tempfile.TemporaryDirectory() as tmp:
             with (
                 mock.patch.object(local_ai_setup, "LOG_FILE", Path(tmp) / "install.log"),
                 mock.patch.object(local_ai_setup, "check_backend", return_value=True),
-                mock.patch("luxai.local_ai_setup.subprocess.run") as runner,
+                mock.patch("luxai.local_ai_setup.subprocess.run",
+                           return_value=subprocess.CompletedProcess([], 0)) as runner,
             ):
                 self.assertTrue(local_ai_setup.install_backend("some-python.exe"))
-                runner.assert_not_called()
+                command = runner.call_args.args[0]
+                self.assertIn("--upgrade", command)
+                self.assertIn("--only-binary=:all:", command)
+
+    def test_old_working_backend_survives_temporary_index_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                mock.patch.object(local_ai_setup, "LOG_FILE", Path(tmp) / "install.log"),
+                mock.patch.object(local_ai_setup, "check_backend", return_value=True),
+                mock.patch("luxai.local_ai_setup.subprocess.run",
+                           return_value=subprocess.CompletedProcess([], 1)),
+            ):
+                self.assertTrue(local_ai_setup.install_backend("some-python.exe"))
 
     def test_binary_wheels_only_and_real_import_verification(self):
         with tempfile.TemporaryDirectory() as tmp:
