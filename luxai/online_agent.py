@@ -23,6 +23,7 @@ from luxai.windows_apps import normalized_name
 from luxai.websites import normalize_public_website
 from luxai.steam_games import GAMES
 from luxai.response_language import reply_language, language_instruction, LANGUAGE_NAMES
+from luxai.macro_planner import MACRO_SYSTEM, validate_generated_macro
 
 ALLOWED_ACTIONS = {
     "open_app", "launch_game", "steam_game", "minimize_windows",
@@ -257,7 +258,7 @@ class OnlinePlanner:
             )
         return response["choices"][0]["message"]["content"]
 
-    def _request(self, provider, model, api_key, messages, timeout):
+    def _request(self, provider, model, api_key, messages, timeout, max_tokens=300):
         """Send to one explicitly selected provider, without cross-host redirects."""
         endpoint = endpoint_for(provider, self.config.get("online_custom_url", ""))
         if provider == "anthropic":
@@ -269,7 +270,7 @@ class OnlinePlanner:
                 "model": model,
                 "system": str(system_message),
                 "messages": [m for m in messages if m["role"] != "system"],
-                "max_tokens": 300,
+                "max_tokens": max_tokens,
             }
             headers = {
                 "x-api-key": api_key,
@@ -279,7 +280,7 @@ class OnlinePlanner:
             payload = {
                 "model": model,
                 "messages": messages,
-                "max_tokens": 300,
+                "max_tokens": max_tokens,
                 "temperature": 0,
             }
             if provider in {"openai", "deepseek"}:
@@ -428,6 +429,70 @@ class OnlinePlanner:
                 f"{provider}: краткий пересказ недоступен: {type(exc).__name__}"
             )
             self._log(f"{provider} selection summary failed: {type(exc).__name__}")
+        return None
+
+    def plan_macro(self, description: str) -> dict | None:
+        """Separate cloud macro generation from the single-action chat planner.
+
+        No execution happens here. The entire output is revalidated by the
+        local action catalog and MUST be confirmed by the user before saving.
+        """
+        provider = self._provider()
+        if not self.enabled():
+            self.last_error = "Cloud AI is disabled or no API key was saved."
+            return None
+        if time.monotonic() < self._blocked_until:
+            self.last_error = "Cloud provider is temporarily rate-limited."
+            return None
+        phrase = str(description or "").strip()
+        if not phrase or len(phrase) > 850:
+            self.last_error = "Macro description is missing or too long."
+            return None
+        key = get_api_key(provider)
+        if not key:
+            self.last_error = "API key missing."
+            return None
+        model_name = self.config.get("online_model") or None
+        if provider != "openai" and model_name in {
+            "gpt-4.1-nano", "gpt-4.1-mini", "gpt-4o-mini",
+        }:
+            model_name = None
+        requested = int(self.config.get("online_timeout", 60))
+        timeout = 60 if requested < 35 else min(120, requested)
+        try:
+            model = model_for(provider, model_name)
+            response = self._request(
+                provider, model, key,
+                [{"role": "system", "content": MACRO_SYSTEM},
+                 {"role": "user", "content": phrase}],
+                timeout, max_tokens=1400,
+            )
+            parsed = self._read_json_content(self._extract_text(response, provider))
+            proposal = validate_generated_macro(parsed)
+            if proposal is None:
+                self.last_error = (
+                    "Cloud AI did not provide a complete supported sequence. "
+                    "Try describing exact keys, coordinates, delays and order."
+                )
+                self._log(f"{provider} rejected unsupported cloud macro JSON")
+            else:
+                self.last_error = ""
+            return proposal
+        except urllib.error.HTTPError as exc:
+            if exc.code == 429:
+                self.last_error = "Cloud AI quota or request limit exceeded (HTTP 429)."
+                self._blocked_until = time.monotonic() + 60
+            elif exc.code in (401, 403):
+                self.last_error = "Cloud API key is invalid or lacks access."
+            else:
+                self.last_error = f"Cloud API returned HTTP {exc.code}."
+            self._log(f"{provider} macro planner HTTP {exc.code}")
+        except (urllib.error.URLError, TimeoutError, OSError):
+            self.last_error = "Cloud AI connection timed out or is unavailable."
+            self._log(f"{provider} macro planner network error")
+        except (ValueError, KeyError, TypeError, IndexError) as exc:
+            self.last_error = "Cloud AI returned an invalid JSON macro."
+            self._log(f"{provider} macro planner invalid response: {type(exc).__name__}")
         return None
 
     def plan(self, text, history=()):
