@@ -782,6 +782,12 @@ class MainWindow(QMainWindow):
             # The UI might have changed while the network request was running.
             # Persist only the exact key that actually passed validation.
             current = panel.api_key_entry.text().strip() or get_api_key(provider)
+            if current != self._api_test_requested_key:
+                panel.show_test_result(
+                    "Ключ изменился во время проверки. Проверьте новый ключ повторно.", False
+                )
+                self._api_test_requested_key = None
+                return
             if current == self._api_test_requested_key:
                 if self.save_settings() is False:
                     panel.show_test_result(
@@ -790,6 +796,10 @@ class MainWindow(QMainWindow):
                     )
                     self._api_test_requested_key = None
                     return
+                self._cloud_verified_signature = self._cloud_signature()
+                self._cloud_probe_failed = False
+                self._cloud_first_check_done = True
+                self._update_cloud_indicator()
                 message += {
                     "ru": " Ключ и настройки сохранены.",
                     "en": " Key and settings saved.",
