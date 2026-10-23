@@ -382,6 +382,9 @@ API-ключ|||API key|||Cheie API
 Обновить список моделей|||Refresh model list|||Actualizează lista modelelor
 Установить локальный AI-движок (llama-cpp-python)|||Install local AI engine (llama-cpp-python)|||Instalează motorul AI local (llama-cpp-python)
 Модель распознавания|||Speech recognition model|||Model de recunoaștere vocală
+Успешная проверка автоматически сохраняет ключ и модель. Запрос может расходовать квоту.|||Successful testing saves the key and model automatically. The request may use API quota.|||Verificarea reușită salvează automat cheia și modelul. Cererea poate consuma din cota API.
+Проверить облачный AI|||Check cloud AI|||Verifică AI cloud
+Ключ и связь с API будут проверены через выбранный провайдер.|||The key and API connection will be tested with the selected provider.|||Cheia și conexiunea API vor fi verificate la furnizorul ales.
 """
 
 # Every entry is a Russian source string and an English/Romanian translation.
