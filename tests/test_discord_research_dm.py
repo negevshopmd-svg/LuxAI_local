@@ -109,8 +109,9 @@ class ResearchContentTests(unittest.TestCase):
 
 
 class DiscordDraftTests(unittest.TestCase):
-    def test_visual_selection_uses_exact_user_and_checks_chat_header(self):
-        # This tests orchestration without a real Discord account or API key.
+    def test_search_fallback_when_contact_not_visible_in_first_screenshot(self):
+        # First screenshot contains no visible match; Ctrl+K then succeeds.
+        from luxai.discord_contact_vision import VisibleContact
         planner = mock.Mock()
         pyauto = types.SimpleNamespace(hotkey=mock.Mock())
         cap = mock.Mock(hwnd=42)
@@ -124,8 +125,10 @@ class DiscordDraftTests(unittest.TestCase):
             mock.patch("luxai.desktop_actions._type_unicode_windows") as type_unicode,
             mock.patch("luxai.visual_click.capture_window",
                        return_value=cap) as capture,
+            mock.patch("luxai.discord_contact_vision.locate_visible_contact",
+                       side_effect=[None, VisibleContact("ронси", (200, 100))]) as locate,
             mock.patch("luxai.visual_click.find_visual_target",
-                       side_effect=[(200, 100), (300, 800)]) as locate,
+                       return_value=(300, 800)) as header,
             mock.patch("luxai.visual_click.click_visual_target") as click,
             mock.patch("luxai.discord_research.time.sleep"),
         ):
@@ -134,33 +137,123 @@ class DiscordDraftTests(unittest.TestCase):
         self.assertEqual(type_unicode.call_args_list[0].args, ("@ронси",))
         self.assertEqual(type_unicode.call_args_list[1].args[0],
                          "verified text  Источник: url")
-        self.assertEqual(capture.call_count, 2)
+        self.assertEqual(capture.call_count, 3)
         self.assertEqual(locate.call_count, 2)
-        self.assertIn("@ронси", locate.call_args_list[0].args[1])
-        self.assertIn("HEADER", locate.call_args_list[1].args[1])
+        self.assertFalse(locate.call_args_list[0].kwargs.get("quick_switcher", False))
+        self.assertTrue(locate.call_args_list[1].kwargs["quick_switcher"])
+        self.assertIn("HEADER", header.call_args.args[1])
         self.assertEqual(click.call_count, 2)
         self.assertEqual(draft.composer_point, (300, 800))
 
-    def test_reject_ambiguous_recipient_before_type_or_send(self):
+    def test_visible_latin_contact_needs_user_approval_before_click(self):
+        from luxai.discord_contact_vision import VisibleContact
+        planner = mock.Mock()
+        pyauto = types.SimpleNamespace(hotkey=mock.Mock())
+        cap = mock.Mock(hwnd=42)
+        with (
+            mock.patch.dict(sys.modules, {"pyautogui": pyauto}),
+            mock.patch("luxai.discord_research.get_wikipedia_summary",
+                       return_value=("verified text", "url")),
+            mock.patch("luxai.discord_research.find_discord_window", return_value=42),
+            mock.patch("luxai.discord_research.focus_discord"),
+            mock.patch("luxai.desktop_actions._type_unicode_windows") as typing,
+            mock.patch("luxai.visual_click.capture_window",
+                       return_value=cap) as capture,
+            mock.patch("luxai.discord_contact_vision.locate_visible_contact",
+                       return_value=VisibleContact("RONfsy", (230, 480))) as locate,
+            mock.patch("luxai.visual_click.find_visual_target",
+                       return_value=(310, 800)) as header,
+            mock.patch("luxai.visual_click.click_visual_target") as click,
+            mock.patch("luxai.discord_research.time.sleep"),
+        ):
+            with self.assertRaisesRegex(ValueError, "имя на снимке отличается"):
+                prepare_discord_draft(planner, "Nikola Tesla||ронси")
+            click.assert_not_called()
+            typing.assert_not_called()
+            agreed = mock.Mock(return_value=True)
+            draft = prepare_discord_draft(
+                planner, "Nikola Tesla||ронси", confirm_candidate=agreed
+            )
+        agreed.assert_called_once_with("ронси", "RONfsy")
+        self.assertEqual(draft.username, "RONfsy")
+        self.assertIn("RONfsy", header.call_args.args[1])
+        self.assertEqual(click.call_count, 2)
+        self.assertEqual(capture.call_count, 3)
+        pyauto.hotkey.assert_not_called()
+        typing.assert_called_once_with("verified text")
+
+    def test_declining_ambiguous_contact_never_clicks_or_types(self):
+        from luxai.discord_contact_vision import VisibleContact
+        with (
+            mock.patch.dict(sys.modules, {"pyautogui": types.SimpleNamespace(hotkey=mock.Mock())}),
+            mock.patch("luxai.discord_research.get_wikipedia_summary",
+                       return_value=("text", "url")),
+            mock.patch("luxai.discord_research.find_discord_window", return_value=42),
+            mock.patch("luxai.discord_research.focus_discord"),
+            mock.patch("luxai.visual_click.capture_window"),
+            mock.patch("luxai.discord_contact_vision.locate_visible_contact",
+                       return_value=VisibleContact("OtherPerson", (140, 500))),
+            mock.patch("luxai.visual_click.click_visual_target") as click,
+            mock.patch("luxai.desktop_actions._type_unicode_windows") as typing,
+        ):
+            with self.assertRaisesRegex(ValueError, "выбор получателя отмен"):
+                prepare_discord_draft(
+                    mock.Mock(), "Nikola Tesla||ронси",
+                    confirm_candidate=lambda _spoken, _displayed: False
+                )
+        click.assert_not_called()
+        typing.assert_not_called()
+
+    def test_fallback_latin_prefix_when_cyrillic_search_finds_no_user(self):
+        from luxai.discord_contact_vision import VisibleContact
         planner = mock.Mock()
         pyauto = types.SimpleNamespace(hotkey=mock.Mock())
         with (
             mock.patch.dict(sys.modules, {"pyautogui": pyauto}),
             mock.patch("luxai.discord_research.get_wikipedia_summary",
                        return_value=("text", "url")),
-            mock.patch("luxai.discord_research.find_discord_window",
-                       return_value=42),
+            mock.patch("luxai.discord_research.find_discord_window", return_value=42),
             mock.patch("luxai.discord_research.focus_discord"),
             mock.patch("luxai.desktop_actions._type_unicode_windows") as typing,
             mock.patch("luxai.visual_click.capture_window"),
+            mock.patch("luxai.discord_contact_vision.locate_visible_contact",
+                       side_effect=[
+                           None, None, VisibleContact("RONfsy", (200, 400)),
+                       ]) as locate,
             mock.patch("luxai.visual_click.find_visual_target",
-                       side_effect=ValueError("Control not found unambiguously")),
+                       return_value=(320, 810)),
+            mock.patch("luxai.visual_click.click_visual_target"),
+            mock.patch("luxai.discord_research.time.sleep"),
+        ):
+            draft = prepare_discord_draft(
+                planner, "Nikola Tesla||ронси",
+                confirm_candidate=lambda _s, name: name == "RONfsy"
+            )
+        self.assertEqual(typing.call_args_list[0].args, ("@ронси",))
+        self.assertEqual(typing.call_args_list[1].args, ("@ron",))
+        self.assertEqual(draft.username, "RONfsy")
+        self.assertEqual(locate.call_count, 3)
+        self.assertEqual(pyauto.hotkey.call_count, 2)
+
+    def test_no_visible_recipient_never_drafts_or_clicks(self):
+        planner = mock.Mock()
+        pyauto = types.SimpleNamespace(hotkey=mock.Mock())
+        with (
+            mock.patch.dict(sys.modules, {"pyautogui": pyauto}),
+            mock.patch("luxai.discord_research.get_wikipedia_summary",
+                       return_value=("text", "url")),
+            mock.patch("luxai.discord_research.find_discord_window", return_value=42),
+            mock.patch("luxai.discord_research.focus_discord"),
+            mock.patch("luxai.desktop_actions._type_unicode_windows") as typing,
+            mock.patch("luxai.visual_click.capture_window"),
+            mock.patch("luxai.discord_contact_vision.locate_visible_contact",
+                       return_value=None),
             mock.patch("luxai.visual_click.click_visual_target") as click,
             mock.patch("luxai.discord_research.time.sleep"),
         ):
-            with self.assertRaises(ValueError):
-                prepare_discord_draft(planner, "Adolf Hitler||ронси")
-        self.assertEqual(typing.call_count, 1)  # only search string
+            with self.assertRaisesRegex(ValueError, "не найден визуально"):
+                prepare_discord_draft(planner, "Nikola Tesla||ронси")
+        self.assertEqual(typing.call_count, 2)  # only search queries
         click.assert_not_called()
 
     def test_send_uses_fresh_verified_context_not_saved_coordinates(self):

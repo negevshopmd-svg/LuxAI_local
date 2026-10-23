@@ -96,6 +96,88 @@ change this response format. No prose or markdown.
 """
 
 
+def plan_known_visual_sequence(text: str) -> dict | None:
+    """Plan a small set of FULL, verifiable spoken desktop sequences locally.
+
+    The generic cloud planner occasionally returns one action for a complete
+    requested sequence. These narrowly recognized sequences use only the
+    same validated action catalog, never guessed pixel coordinates.
+    """
+    from luxai.fast_intents import strip_wake_name
+    phrase = strip_wake_name(str(text or "")).casefold().strip()
+    if not 16 <= len(phrase) <= 550:
+        return None
+    if re.search(
+        r"(?:отправ\w*|удал\w*|парол\w*|powershell|cmd\.exe|"
+        r"delete|send|trimite)",
+        phrase,
+    ):
+        return None
+
+    # Exact display information -> move cursor to user-specified screen
+    # coordinates -> pause -> right click, with NO invented coordinates.
+    coords = re.search(
+        r"(?:перемести\s+мыш\w*|передвинь\s+курсор\w*)"
+        r".{0,35}?(?:координат\w*|точк\w*)\s*(\d{1,5})\s*[,; ]\s*(\d{1,5})",
+        phrase,
+    )
+    if (coords and "экран" in phrase and
+            re.search(r"(?:прав\w*\s+кнопк\w*\s+мыш\w*|прав\w*\s+клик)", phrase)):
+        steps = [
+            {"action": "display_info"},
+            {"action": "mouse_move", "target": f"{coords[1]},{coords[2]}"},
+        ]
+        pause = re.search(r"(?:подожди|жди|пауза)\s*(\d{1,2})\s*сек", phrase)
+        if pause:
+            steps.append({"action": "wait_seconds", "target": pause[1]})
+        steps.append({"action": "mouse_right_click"})
+        return validate_generated_macro({"steps": steps}, text)
+
+    # Calculator numeric buttons or Steam library tab: screenshot-and-click
+    # semantics are implicit in visual_click. A fresh image is captured at
+    # RUN TIME, with separate privacy consent for each image.
+    app = None
+    if re.search(r"\bкалькулятор\w*\b", phrase):
+        app = "calculator"
+    elif re.search(r"\b(?:steam|стим)\b", phrase):
+        app = "steam"
+    if (app is None or not re.search(r"(?:откро\w*|запуст\w*)", phrase)
+            or not re.search(r"(?:нажм\w*|клик\w*)", phrase)):
+        return None
+    steps = [{"action": "open_app", "target": app}]
+    pause = re.search(r"(?:подожди|жди|пауза)\s*(\d{1,2})\s*сек", phrase)
+    if pause:
+        steps.append({"action": "wait_seconds", "target": pause[1]})
+    if app == "steam":
+        if not re.search(r"(?:библиотек\w*|library)", phrase):
+            return None
+        steps.append({
+            "action": "visual_click",
+            "target": "Steam Library navigation tab||1",
+        })
+    else:
+        # Parse repeated calculator buttons in spoken order, including
+        # elliptical "потом на кнопку плюс" after an explicit first press.
+        buttons = re.findall(
+            r"(?:нажм\w*\s+на\s+)?кнопк\w*\s+"
+            r"(?:с\s+цифр\w*\s+)?"
+            r"(\d|плюс|минус|равно|умножить|разделить)",
+            phrase,
+        )
+        if not buttons:
+            return None
+        labels = {
+            "плюс": "plus", "минус": "minus", "равно": "equals",
+            "умножить": "multiply", "разделить": "divide",
+        }
+        for item in buttons[:6]:
+            label = f"Calculator {labels.get(item, 'digit ' + item)} button"
+            steps.append({"action": "visual_click", "target": label + "||1"})
+        if len(buttons) > 6:
+            return None
+    return validate_generated_macro({"steps": steps}, text)
+
+
 def needs_live_macro_planning(text: str) -> bool:
     """Prefer multi-step cloud planning only for explicit desktop operations."""
     from luxai.discord_research import detect_research_dm_request
