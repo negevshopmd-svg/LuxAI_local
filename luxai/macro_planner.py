@@ -21,6 +21,7 @@ CLOUD_MACRO_ACTIONS = frozenset({
     "create_file", "create_folder", "list_files",
     "visual_click", "display_info", "empty_recycle_bin", "open_recycle_bin", "close_window",
     "discord_research_dm", "discord_screen_review", "discord_open_dm",
+    "research_notepad_facts",
 })
 
 MACRO_SYSTEM = """You are the MULTI-STEP MACRO DESIGNER for LuxAI Jarvis on Windows.
@@ -35,7 +36,7 @@ mouse_right_click, mouse_double_click, mouse_middle_click, mouse_move,
 mouse_scroll, wait_seconds, wait_minutes, noop, minimize_windows,
 search_web, speak_text, speak_ready, speak_done, create_file, create_folder,
 list_files, visual_click, display_info, open_recycle_bin,
-empty_recycle_bin, close_window, discord_research_dm, discord_screen_review, discord_open_dm.
+empty_recycle_bin, close_window, discord_research_dm, discord_screen_review, discord_open_dm, research_notepad_facts.
 At most 8 steps. For MANY sequential keyboard letters use ONE key_sequence
 step with comma-delimited characters. Each sequence supports 2-24 English
 letters/digits. Example: "нажми qwerd" / "press Q W E R D" /
@@ -181,12 +182,14 @@ def plan_known_visual_sequence(text: str) -> dict | None:
 def needs_live_macro_planning(text: str) -> bool:
     """Prefer multi-step cloud planning only for explicit desktop operations."""
     from luxai.discord_research import detect_research_dm_request
+    from luxai.research_notepad import detect_research_notepad
     from luxai.discord_navigation import detect_discord_open_dm
     from luxai.discord_screen_review import (
         detect_discord_screen_review, looks_like_discord_screen_review,
     )
     if (detect_research_dm_request(text) or detect_discord_screen_review(text)
-            or looks_like_discord_screen_review(text) or detect_discord_open_dm(text)):
+            or looks_like_discord_screen_review(text) or detect_discord_open_dm(text)
+            or detect_research_notepad(text)):
         return True
         return True
     phrase = str(text or "").casefold()
@@ -228,6 +231,11 @@ def validate_generated_macro(proposal: object, description: str = "") -> dict | 
     requested_review = detect_discord_screen_review(description)
     from luxai.discord_navigation import detect_discord_open_dm
     requested_open = detect_discord_open_dm(description)
+    from luxai.research_notepad import detect_research_notepad
+    requested_facts = detect_research_notepad(description)
+    if requested_facts is not None:
+        if len(steps) != 1 or steps[0].get("action") != "research_notepad_facts":
+            return None
     if requested_open is not None:
         if len(steps) != 1 or steps[0].get("action") != "discord_open_dm":
             return None
@@ -253,6 +261,9 @@ def validate_generated_macro(proposal: object, description: str = "") -> dict | 
             valid = validate_step(raw)
         except (ValueError, TypeError, OverflowError):
             return None
+        if valid["action"] == "research_notepad_facts":
+            if requested_facts is None or valid["target"].casefold() != requested_facts.casefold():
+                return None
         if valid["action"] == "discord_open_dm":
             if requested_open is None or valid["target"].casefold() != requested_open.casefold():
                 return None
