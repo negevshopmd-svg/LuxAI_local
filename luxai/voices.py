@@ -167,6 +167,10 @@ class VoiceManager:
                 if (voice["ready"] and voice["id"].lower() == selected
                         and self._model_matches_language(Path(voice["model"]), language)):
                     return Path(voice["model"])
+            # When the user explicitly chooses Mihai or Lessac, install that
+            # exact voice instead of silently playing another available one.
+            if selected == VOICE_PRESETS[language]["id"].lower():
+                return self._download_voice(language)
 
         # Search existing voices by actual metadata instead of guessing from
         # filename. Only download the default when no compatible one exists.
