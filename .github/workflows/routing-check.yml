@@ -140,7 +140,6 @@ jobs:
     # actions/setup-python. Missing native wheels must not block stable releases.
     runs-on: windows-latest
     timeout-minutes: 15
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - name: Download official Python 3.16 alpha (Windows x64)
@@ -151,6 +150,8 @@ jobs:
           Expand-Archive -LiteralPath "$env:RUNNER_TEMP\python316.zip" -DestinationPath "$env:RUNNER_TEMP\python316" -Force
           & "$env:RUNNER_TEMP\python316\python.exe" -c "import sys; print(sys.version)"
       - name: Probe alpha interpreter and dependencies
+        id: alpha-dependencies
+        continue-on-error: true
         shell: powershell
         run: |
           $python = "$env:RUNNER_TEMP\python316\python.exe"
@@ -160,3 +161,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Third-party Windows Python 3.16 wheels unavailable' }
           & $python -c "import main; from luxai.voice import VoiceListener; print('LuxAI imports OK')"
           if ($LASTEXITCODE -ne 0) { throw 'Python 3.16 application import failed' }
+      - name: Report preview package limitations
+        if: steps.alpha-dependencies.outcome == 'failure'
+        run: echo "::warning::Python 3.16 alpha has no compatible PySide6/Faster Whisper Windows wheels yet; stable Python fallback is required."
