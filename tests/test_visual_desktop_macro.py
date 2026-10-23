@@ -125,5 +125,51 @@ class MacroPlanningTests(unittest.TestCase):
         ):
             self.assertIsNone(validate_generated_macro({"steps": [step]}, "click"))
 
+class VisualConsentUITests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        try:
+            from PySide6.QtWidgets import QApplication
+            cls.app = QApplication.instance() or QApplication([])
+        except ImportError:
+            raise unittest.SkipTest("PySide6 not installed")
+
+    def test_declined_window_screenshot_does_not_start_ai_or_click(self):
+        import tempfile
+        from pathlib import Path
+        import main
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "config.json"
+            config.write_text('{"microphone_enabled": false, "tts_enabled": false}',
+                              encoding="utf-8")
+            with mock.patch.object(main, "CONFIG", config), \
+                 mock.patch("sounddevice.query_devices", return_value=[]):
+                window = main.MainWindow()
+            try:
+                window._processing = True
+                window._active_text = "click save"
+                window._macro_context = {
+                    "index": 0, "text": "click save", "messages": [],
+                    "steps": [validate_step({
+                        "action": "visual_click", "target": "Save button||2",
+                    })],
+                }
+                window.online_planner.enabled = mock.Mock(return_value=True)
+                with mock.patch.object(main, "_foreground_hwnd", return_value=222), \
+                     mock.patch.object(main, "_valid_external_window",
+                                       return_value=(123, "Editor")), \
+                     mock.patch.object(window, "confirm_action", return_value=False), \
+                     mock.patch.object(window, "_visual_worker") as worker, \
+                     mock.patch.object(window, "_resolved_command") as resolved:
+                    window._next_macro_step()
+                    worker.assert_not_called()
+                    resolved.assert_called_once()
+                    self.assertIn("отменена", resolved.call_args.args[1])
+            finally:
+                window._processing = False
+                window._macro_context = None
+                window.close()
+
+
 if __name__ == "__main__":
     unittest.main()
