@@ -82,6 +82,25 @@ def wants_discord_mic_mute(text: str) -> bool:
     return bool(DISCORD_MIC.search(t) and DISCORD_MUTE.search(t))
 
 
+def wants_discord_mic_visual_click(text: str) -> bool:
+    """Screenshot then click the Discord microphone button, not a cloud macro.
+
+    Match the full user-requested visual operation, not a generic "Discord"
+    mention. More complex commands must still pass through the usual planner.
+    """
+    phrase = strip_wake_name(text).casefold().strip()
+    if not 14 <= len(phrase) <= 260:
+        return False
+    if re.search(r"\b(?:отправ\w*|напиши|send|trimite|удали|delete)\b", phrase):
+        return False
+    return bool(
+        DISCORD_MIC.search(phrase)
+        and re.search(r"(?:скрин|снимок\s+экрана|screenshot|captur)", phrase)
+        and re.search(r"(?:\bкнопк\w*|\bзначок\w*|\bicon\b|\bbutton\b)", phrase)
+        and re.search(r"(?:нажм\w*|клик\w*|щёлк\w*|щелк\w*|click|apasă|apasa)", phrase)
+    )
+
+
 def read_screen_locally(tesseract_path="") -> str:
     """Take a real screenshot, run local Tesseract OCR, never upload it."""
     from luxai.screen import capture_screen, read_screen_text
