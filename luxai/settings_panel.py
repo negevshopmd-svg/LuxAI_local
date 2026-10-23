@@ -17,7 +17,8 @@ from PySide6.QtWidgets import (
     QPushButton, QScrollArea, QSlider, QSpinBox, QVBoxLayout, QWidget, QMessageBox, QFileDialog,
 )
 
-from luxai.voices import available_voices, VOICE_PRESETS
+from luxai.voices import available_voices
+from luxai.voice_presets import VOICE_PRESETS
 from luxai.ui_i18n import LANGUAGES, get_ui_language, tr, translate_widgets
 
 
