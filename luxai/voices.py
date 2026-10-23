@@ -25,6 +25,44 @@ VOICES_DIR = ROOT / "voices"
 CONFIG_PATH = ROOT / "config.json"
 ERROR_LOG = ROOT / "voice_error.log"
 playback_active = threading.Event()
+# Available only while the actual voice output is playing, not while Piper
+# downloads or synthesizes speech. The microphone may listen for "stop" then.
+barge_in_ready = threading.Event()
+_cancel_lock = threading.Lock()
+_cancel_generation = 0
+_sapi_process = None
+
+
+def _cancel_token() -> int:
+    with _cancel_lock:
+        return _cancel_generation
+
+
+def _was_cancelled(token: int) -> bool:
+    with _cancel_lock:
+        return token != _cancel_generation
+
+
+def stop_speaking() -> None:
+    """Interrupt current Piper or SAPI playback immediately (no thread kill)."""
+    global _cancel_generation
+    with _cancel_lock:
+        _cancel_generation += 1
+        process = _sapi_process
+        barge_in_ready.clear()
+    if process is not None and process.poll() is None:
+        try:
+            process.terminate()
+        except OSError:
+            pass
+    # sd.stop releases sd.wait() without terminating the audio thread.
+    try:
+        import sounddevice as sd
+        sd.stop()
+    except (ImportError, RuntimeError, OSError):
+        pass
+
+
 
 from luxai.voice_presets import (
     DEFAULT_RUSSIAN, DEFAULT_ROMANIAN, DEFAULT_ENGLISH,
@@ -185,7 +223,7 @@ class VoiceManager:
             return matching[0]
         return self._download_voice(language)
 
-    def _windows_speak(self, text: str, language: str) -> bool:
+    def _windows_speak(self, text: str, language: str, cancel_token: int) -> bool:
         """Fallback to SAPI, but only if Windows has a voice for the language."""
         if sys.platform != "win32":
             return False
@@ -209,27 +247,49 @@ class VoiceManager:
             "$t=[Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('" + encoded + "')); "
             "$s.Speak($t); $s.Dispose()"
         )
+        global _sapi_process
+        if _was_cancelled(cancel_token):
+            return False
         try:
-            result = subprocess.run(
+            process = subprocess.Popen(
                 ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
-                timeout=90,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
-            if result.returncode == 0:
+            with _cancel_lock:
+                _sapi_process = process
+                if cancel_token == _cancel_generation:
+                    barge_in_ready.set()
+                else:
+                    process.terminate()
+            try:
+                _out, error = process.communicate(timeout=90)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.communicate()
+                raise
+            if _was_cancelled(cancel_token):
+                return False
+            if process.returncode == 0:
                 return True
             self._log(
                 "Windows SAPI unavailable for " + language + ": "
-                + result.stderr.decode("utf-8", errors="replace")[:500]
+                + (error or b"").decode("utf-8", errors="replace")[:500]
             )
         except Exception as exc:
-            self._log(f"Windows SAPI playback failed: {exc}")
+            if not _was_cancelled(cancel_token):
+                self._log(f"Windows SAPI playback failed: {exc}")
+        finally:
+            with _cancel_lock:
+                if 'process' in locals() and _sapi_process is process:
+                    _sapi_process = None
+                barge_in_ready.clear()
         return False
 
-    def speak(self, text: str, language: str | None = None) -> bool:
+    def speak(self, text: str, language: str | None = None, cancel_token: int = 0) -> bool:
         text = re.sub(r"\s+", " ", str(text or "")).strip()[:700]
-        if not text:
+        if not text or _was_cancelled(cancel_token):
             return False
         # Settings can change while the application is running.
         self.config = self._load_config()
@@ -239,12 +299,14 @@ class VoiceManager:
 
         voice_engine = str(self.config.get("voice_engine", "piper") or "piper").lower()
         if voice_engine == "windows":
-            if self._windows_speak(text, language):
+            if self._windows_speak(text, language, cancel_token):
                 return True
             self._log(f"Windows voice unavailable for {language}; choose Piper in settings.")
             return False
 
         model_path = self._select_model(language)
+        if _was_cancelled(cancel_token):
+            return False
         if model_path is not None:
             try:
                 if self._voice is None or self._loaded_path != str(model_path):
@@ -267,10 +329,19 @@ class VoiceManager:
                             self._voice.synthesize_wav(text, wav_file)
                     import soundfile as sf
                     audio, sample_rate = sf.read(str(wav_path), dtype="float32")
+                    if _was_cancelled(cancel_token):
+                        return False
                     import sounddevice as sd
-                    sd.play(audio * volume, sample_rate)
-                    sd.wait()
-                    return True
+                    with _cancel_lock:
+                        if cancel_token != _cancel_generation:
+                            return False
+                        sd.play(audio * volume, sample_rate)
+                        barge_in_ready.set()
+                    try:
+                        sd.wait()
+                    finally:
+                        barge_in_ready.clear()
+                    return not _was_cancelled(cancel_token)
                 finally:
                     wav_path.unlink(missing_ok=True)
             except Exception as exc:
@@ -292,10 +363,14 @@ _manager = VoiceManager()
 def speak(text: str, enabled: bool = True, language: str | None = None) -> bool:
     if not enabled:
         return False
+    token = _cancel_token()
     playback_active.set()
     try:
-        return _manager.speak(text, language=language)
+        if _was_cancelled(token):
+            return False
+        return _manager.speak(text, language=language, cancel_token=token)
     finally:
+        barge_in_ready.clear()
         playback_active.clear()
 
 
