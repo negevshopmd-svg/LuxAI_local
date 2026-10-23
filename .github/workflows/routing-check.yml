@@ -47,10 +47,34 @@ jobs:
 
   windows-installer:
     runs-on: windows-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          architecture: x64
+      - name: Test real Windows DPAPI encryption and reopening saved key
+        shell: powershell
+        run: |
+          @'
+          from pathlib import Path
+          import os
+          import tempfile
+          from luxai import secure_keys
+          with tempfile.TemporaryDirectory() as tmp:
+              secure_keys.SECRET_DIR = Path(tmp) / "account-secrets"
+              secure_keys.LEGACY_SECRET_DIR = Path(tmp) / "legacy-secrets"
+              os.environ["OPENAI_API_KEY"] = ""
+              secure_keys.store_api_key("ci-fake-key-do-not-use", "openai")
+              assert secure_keys.get_api_key("openai") == "ci-fake-key-do-not-use"
+              assert secure_keys.key_storage_status("openai") == "saved"
+              secure_keys.clear_api_key("openai")
+              assert secure_keys.get_api_key("openai") == ""
+          print("Windows DPAPI persisted key test passed.")
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'Windows DPAPI key round-trip failed' }
       - name: Check installer PowerShell and copied-venv detection
         shell: powershell
         run: |
