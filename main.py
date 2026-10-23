@@ -527,10 +527,11 @@ class MainWindow(QMainWindow):
                 self.tray_icon.hide()
         changed_audio = any(
             old.get(k) != self.cfg.get(k)
-            for k in ("language", "microphone_device", "whisper_beam_size")
+            for k in ("language", "microphone_device", "whisper_beam_size", "whisper_model", "whisper_model_path")
         )
         enabled = self.cfg.get("microphone_enabled", True)
         if changed_audio or old.get("microphone_enabled", True) != enabled:
+            self._listener_restart_pending = bool(enabled)
             self.stop_listener()
             if enabled:
                 self.start_listener()
@@ -764,31 +765,49 @@ class MainWindow(QMainWindow):
 
     def start_listener(self):
         if self.worker and self.worker.isRunning():
+            self._listener_restart_pending = True
             return
         self.save_settings()
         # Always pass the latest saved prefix settings to a newly started listener.
+        self._listener_restart_pending = False
         self.worker = VoiceWorker(dict(self.cfg))
+        self.worker.finished.connect(self._on_listener_finished)
         self.worker.transcript.connect(self.handle_voice)
         self.worker.status.connect(self.mic_status.setText)
         self.worker.start()
 
     def stop_listener(self):
-        if self.worker and self.worker.isRunning():
-            self.worker.requestInterruption()
-            self.worker.wait(2500)
-            if self.worker.isRunning():
-                self.worker.terminate()
-                self.worker.wait(1000)
+        """Request safe stop; never terminate a thread inside PortAudio / CTranslate2."""
+        worker = self.worker
+        if worker and worker.isRunning():
+            worker.requestInterruption()
+            worker.stop_capture()
+            # Keep the QThread alive until it actually finishes.
+            # Qt terminate() can crash native microphone/Whisper runtimes.
+            if not worker.wait(250):
+                self.mic_status.setText("Микрофон завершает текущую обработку…")
+
+    def _on_listener_finished(self):
+        worker = self.sender()
+        if worker is not self.worker:
+            return
+        self.worker = None
+        if getattr(self, "_listener_restart_pending", False) and not self._closed:
+            self._listener_restart_pending = False
+            QTimer.singleShot(0, self.start_listener)
 
     def pick_model(self):
         path, _ = QFileDialog.getOpenFileName(self, "Alege model GGUF", "", "Modele GGUF (*.gguf)")
         if path:
-            self.cfg["llm_model_path"] = path
-            save_config(self.cfg)
-            self.agent.update_config(self.cfg)
-            if hasattr(self, "model_label"):
-                self.model_label.setText(Path(path).name)
-            self.mic_status.setText("Model selectat — se va încărca la prima comandă.")
+            self.cfg["llm_model_path"] = str(Path(path).resolve())
+            panel = self.settings_panel
+            index = panel.model_select.findData(self.cfg["llm_model_path"])
+            if index < 0:
+                panel.model_select.addItem(Path(path).name + " (external)", self.cfg["llm_model_path"])
+                index = panel.model_select.count() - 1
+            panel.model_select.setCurrentIndex(index)
+            self.save_settings()
+            self.mic_status.setText("Model selectat. Pentru chat GGUF este necesar llama-cpp-python.")
 
     def handle_voice(self, text):
         # Voice answers can approve/deny an action while its confirmation dialog is open.
