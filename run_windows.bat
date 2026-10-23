@@ -31,5 +31,11 @@ if not exist ".venv\Scripts\pythonw.exe" (
     pause
     exit /b 1
 )
-start "" ".venv\Scripts\pythonw.exe" "%~dp0main.py"
+if not exist "launch_windows.py" (
+    echo EROARE: Lipseste launch_windows.py.
+    echo Ruleaza Update.bat sau descarca arhiva completa.
+    pause
+    exit /b 1
+)
+start "" ".venv\Scripts\pythonw.exe" "%~dp0launch_windows.py"
 exit /b 0
