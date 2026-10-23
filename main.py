@@ -1911,6 +1911,17 @@ class MainWindow(QMainWindow):
             if saved is not None:
                 self._execute_registered(text, saved)
                 return
+            # Keep known HTTPS-site opening local and OFFLINE. A browser
+            # launch is not a reason to upload screenshots or run the
+            # adaptive visual navigator.
+            site = website_plan(text)
+            if site is not None:
+                answer = self.agent.execute_plan(
+                    text, site, confirm_callback=self.confirm_action,
+                )
+                self._current_route = "браузер HTTPS"
+                self._resolved_command(text, answer or "Не удалось открыть сайт.")
+                return
             # Novel visual goals are solved by repeated real observations,
             # not by a one-shot macro which cannot see whether a click worked.
             # Dedicated Discord message/contact and sourced-research tools
