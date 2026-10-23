@@ -23,7 +23,7 @@ function Get-CompatiblePythonVersion([string]$Path) {
         return $null
     }
     try {
-        $result = & $Path -I -c 'import sys; print("LuxAI_PY=" + ".".join(map(str, sys.version_info[:3])) if sys.version_info.major == 3 and sys.version_info.minor >= 11 and sys.maxsize > 2**32 else "UNSUPPORTED")' 2>$null
+        $result = & $Path -I -c "import sys; v=sys.version_info; print('LuxAI_PY=%d.%d.%d' % v[:3] if v.major == 3 and v.minor >= 11 and sys.maxsize > 2**32 else 'UNSUPPORTED')" 2>$null
         if ($LASTEXITCODE -ne 0) {
             return $null
         }
@@ -188,7 +188,7 @@ function Install-ApplicationDependencies {
     Invoke-PythonStep $script:VenvPython @('-m', 'ensurepip', '--upgrade') 'Checking pip'
     Invoke-PythonStep $script:VenvPython @('-m', 'pip', 'install', '--disable-pip-version-check', '--prefer-binary', '--retries', '2', '--timeout', '30', '-r', 'requirements.txt') 'Installing LuxAI dependencies'
     Invoke-PythonStep $script:VenvPython @('-m', 'compileall', '-q', 'main.py', 'luxai') 'Checking Python source'
-    Invoke-PythonStep $script:VenvPython @('-c', 'import main; print("LuxAI imports OK")') 'Checking application imports'
+    Invoke-PythonStep $script:VenvPython @('-c', "import main; print('LuxAI imports OK')") 'Checking application imports'
 }
 
 function Install-OfficialPython {
@@ -243,7 +243,7 @@ try {
         $python = Get-Command -Name 'python.exe' -CommandType Application -ErrorAction Stop | Where-Object { $_.Source -notmatch '\\WindowsApps\\' } | Select-Object -First 1
         if ($null -eq $python) { throw 'Python executable not found on PATH.' }
         Write-Status "Self-test Python path: $($python.Source)"
-        $rawProbe = & $python.Source -I -c 'import sys; print("LuxAI_PY=" + ".".join(map(str, sys.version_info[:3])) if sys.version_info.major == 3 and sys.version_info.minor >= 11 and sys.maxsize > 2**32 else "UNSUPPORTED")' 2>&1
+        $rawProbe = & $python.Source -I -c "import sys; v=sys.version_info; print('LuxAI_PY=%d.%d.%d' % v[:3] if v.major == 3 and v.minor >= 11 and sys.maxsize > 2**32 else 'UNSUPPORTED')" 2>&1
         Write-Status "Self-test direct probe: $(($rawProbe | Out-String).Trim()) (exit=$LASTEXITCODE)"
         $version = Get-CompatiblePythonVersion $python.Source
         Write-Status "Self-test parsed result: $version"
