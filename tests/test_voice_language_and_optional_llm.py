@@ -39,7 +39,7 @@ class VoiceLanguageAndOptionalLLMTests(unittest.TestCase):
             model = Path(root) / "fake.gguf"
             # Valid-looking local file: import availability is checked after
             # GGUF signature/incomplete-file detection.
-            model.write_bytes(b"GGUF" + b"\\x00" * 1_048_576)
+            model.write_bytes(b"GGUF" + b"\x00" * 1_048_576)
             for code, expected in (
                 ("ru", "llama-cpp-python"),
                 ("en", "llama-cpp-python"),
