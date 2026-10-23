@@ -278,42 +278,84 @@ def prepare_discord_draft(planner, target: str, *,
     return DiscordDraft(hwnd, displayed, message, source_url, composer)
 
 def submit_discord_draft(draft: DiscordDraft, planner, *, cancelled=None) -> str:
-    """Reinspect the CURRENT recipient and unsent text after final approval.
+    """Approve recipient visually; restore the EXACT approved draft, then send.
 
-    A saved composer coordinate is not enough: the Discord chat or draft may
-    have changed while the user was reading the confirmation dialog. The
-    original screenshot consent covers this third and final visual check.
-    If anything cannot be verified, do not click or send.
+    The previous vision request expected an AI to OCR every character of a
+    long, percent-encoded Wikipedia link in a downscaled screenshot. This
+    often reported ambiguity even when the Discord composer was correct.
+    Instead we verify the specific DM header and the real editor using a
+    FRESH screenshot, then replace its text with the already approved draft
+    using native Unicode keyboard input. The replacement is intentional
+    and disclosed in the separate send-confirmation dialog.
+
+    Never send if the actual recipient, composer, Windows focus or native
+    keyboard operation cannot be verified. No clipboard access is needed.
     """
     if not isinstance(draft, DiscordDraft):
         raise ValueError("No prepared Discord draft")
     if planner is None:
-        raise ValueError("A vision-capable AI is required to verify the draft")
+        raise ValueError("A vision-capable AI is required to verify the recipient")
+    if not isinstance(draft.message, str) or not draft.message.strip():
+        raise ValueError("Prepared Discord draft is empty")
+    if "\n" in draft.message or "\r" in draft.message:
+        raise ValueError("Prepared Discord message has unsafe line breaks")
     if cancelled is not None and cancelled():
         raise RuntimeError("Discord send cancelled")
-    from luxai.visual_click import capture_window, find_visual_target, click_visual_target
+
+    from luxai.visual_click import (
+        capture_window, find_visual_target, click_visual_target,
+    )
+    from luxai.desktop_actions import _type_unicode_windows
+    from luxai.screen_interact import _valid_external_window, _foreground_hwnd
     import pyautogui
 
     focus_discord(draft.hwnd)
     current = capture_window(draft.hwnd)
+    # Do not require visual OCR of the long full draft and escaped URL.
+    # The recipient must match exactly and the clickable control must be the
+    # editor of THIS chat, not a sidebar, search field or a message bubble.
     point = find_visual_target(
         planner,
-        "Discord DIRECT MESSAGE: verify the visible chat HEADER is exactly "
-        f"the intended recipient @{draft.username}, AND the message composer "
-        "contains the COMPLETE UNSENT draft, not a different message. "
-        f"Expected exact draft: {draft.message!r}. "
-        "Only if BOTH checks are unambiguous, return the center of that "
-        "composer. If the chat, message or text is different, unreadable, "
-        "partially hidden or absent, return found:false.",
+        "Discord INDIVIDUAL DIRECT MESSAGE: first verify that the visible "
+        f"CURRENT CHAT HEADER unambiguously names the recipient {draft.username!r}. "
+        "Find the CENTER of this same DM's BOTTOM MESSAGE COMPOSER (editable "
+        "textbox), NOT any sent message, channel, group chat, search box, "
+        "profile field or attachment. The composer may currently hold a "
+        "long multiline-looking DRAFT and a percent-encoded Wikipedia URL. "
+        "Do NOT try to OCR or match every character of the draft: Jarvis "
+        "will replace the textbox contents with the exact text separately "
+        "approved by its user. If the actual header is not the intended "
+        "individual or the composer cannot be identified unambiguously, "
+        "return found:false.",
         current,
     )
     if cancelled is not None and cancelled():
         raise RuntimeError("Discord send cancelled")
-    # Clicking through the capture validator rejects a switched window,
-    # overlay or out-of-bounds location; never reuse the old coordinates.
+    # Never use the previously stored composer coordinate.
     click_visual_target(current, point, 1)
     if cancelled is not None and cancelled():
         raise RuntimeError("Discord send cancelled")
+
+    # The user approved the exact contents in the separate Qt preview. The
+    # current editable draft is replaced rather than trusting blurry OCR or
+    # sending something potentially changed after that approval.
+    pyautogui.hotkey("ctrl", "a", interval=0.07)
+    if cancelled is not None and cancelled():
+        raise RuntimeError("Discord send cancelled")
+    _type_unicode_windows(draft.message)
+    if cancelled is not None and cancelled():
+        raise RuntimeError("Discord send cancelled")
+
+    # The captured window must STILL be the same foreground process/title.
+    if _foreground_hwnd() != current.hwnd:
+        raise RuntimeError("Discord focus changed while preparing the approved text")
+    pid, title = _valid_external_window(current.hwnd)
+    if pid != current.pid or title != current.title:
+        raise RuntimeError("Discord window changed while preparing the approved text")
+
     pyautogui.press("enter")
-    return ("Enter отправлен в проверенный диалог Discord. Доставку сообщения "
-            "подтвердить не могу — проверьте историю переписки.")
+    return (
+        "Enter отправлен в визуально проверенный Discord DM после "
+        "повторного ввода одобренного текста. Доставку сообщения "
+        "подтвердить не могу — проверьте историю переписки."
+    )
