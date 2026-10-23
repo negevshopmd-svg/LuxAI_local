@@ -432,6 +432,9 @@ class MainWindow(QMainWindow):
         language = normalize_language(self.cfg.get("ui_language", "ru"))
         set_ui_language(language)
         self.sidebar.set_language(language)
+        if getattr(self, "_tray_show_action", None) is not None:
+            self._tray_show_action.setText(tr("Открыть Jarvis", language))
+            self._tray_quit_action.setText(tr("Выход", language))
         self.commands_page.interface_language = language
         self.commands_page.refresh()
         translate_widgets(self, language)
@@ -675,6 +678,8 @@ class MainWindow(QMainWindow):
         quit_action = QAction("Выход", self)
         quit_action.triggered.connect(self.quit_from_tray)
         menu.addAction(quit_action)
+        self._tray_show_action = show_action
+        self._tray_quit_action = quit_action
         self.tray_icon.setContextMenu(menu)
         self.tray_icon.activated.connect(
             lambda reason: self.show_from_tray()
