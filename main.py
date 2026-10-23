@@ -1915,8 +1915,15 @@ class MainWindow(QMainWindow):
             # not by a one-shot macro which cannot see whether a click worked.
             # Dedicated Discord message/contact and sourced-research tools
             # retain their stronger safeguards, including send confirmation.
+            # DMs and other external-effect instructions must use the
+            # atomic/confirmed tools, not general screenshot mouse clicks.
+            discord_message = bool(
+                re.search(r"(?:дискорд|discord)", text, re.I)
+                and re.search(r"(?:отправ|напиши|пиши|сообщени|send|enter)", text, re.I)
+            )
             if is_visual_goal(text) and not (
-                detect_research_dm_request(text)
+                discord_message
+                or detect_research_dm_request(text)
                 or detect_discord_screen_review(text)
                 or looks_like_discord_screen_review(text)
             ):
