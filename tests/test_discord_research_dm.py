@@ -163,17 +163,80 @@ class DiscordDraftTests(unittest.TestCase):
         self.assertEqual(typing.call_count, 1)  # only search string
         click.assert_not_called()
 
-    def test_send_is_a_distinct_function_after_draft(self):
-        pyauto = types.SimpleNamespace(onScreen=mock.Mock(return_value=True),
-                                       click=mock.Mock(), press=mock.Mock())
-        draft = DiscordDraft(44, "ронси", "text", "url", (300, 800))
-        with mock.patch.dict(sys.modules, {"pyautogui": pyauto}), \
-             mock.patch("luxai.discord_research.focus_discord") as focused:
-            answer = submit_discord_draft(draft)
+    def test_send_uses_fresh_verified_context_not_saved_coordinates(self):
+        pyauto = types.SimpleNamespace(press=mock.Mock())
+        draft = DiscordDraft(44, "ронси", "verified text", "url", (300, 800))
+        current = mock.Mock(hwnd=44)
+        planner = mock.Mock()
+        with (
+            mock.patch.dict(sys.modules, {"pyautogui": pyauto}),
+            mock.patch("luxai.discord_research.focus_discord") as focused,
+            mock.patch("luxai.visual_click.capture_window", return_value=current) as capture,
+            mock.patch("luxai.visual_click.find_visual_target",
+                       return_value=(350, 790)) as locate,
+            mock.patch("luxai.visual_click.click_visual_target") as click,
+        ):
+            answer = submit_discord_draft(draft, planner)
         focused.assert_called_once_with(44)
-        pyauto.click.assert_called_once_with(300, 800)
+        capture.assert_called_once_with(44)
+        self.assertIn("@ронси", locate.call_args.args[1])
+        self.assertIn("verified text", locate.call_args.args[1])
+        self.assertIn("COMPLETE UNSENT draft", locate.call_args.args[1])
+        self.assertEqual(locate.call_args.args[2], current)
+        click.assert_called_once_with(current, (350, 790), 1)
         pyauto.press.assert_called_once_with("enter")
         self.assertIn("проверьте историю", answer)
+
+    def test_send_refuses_ambiguous_recipient_or_different_draft(self):
+        draft = DiscordDraft(44, "ронси", "correct text", "url", (300, 800))
+        pyauto = types.SimpleNamespace(press=mock.Mock())
+        with (
+            mock.patch.dict(sys.modules, {"pyautogui": pyauto}),
+            mock.patch("luxai.discord_research.focus_discord"),
+            mock.patch("luxai.visual_click.capture_window"),
+            mock.patch("luxai.visual_click.find_visual_target",
+                       side_effect=ValueError("Control not found unambiguously")),
+            mock.patch("luxai.visual_click.click_visual_target") as click,
+        ):
+            with self.assertRaisesRegex(ValueError, "unambiguously"):
+                submit_discord_draft(draft, mock.Mock())
+        click.assert_not_called()
+        pyauto.press.assert_not_called()
+
+    def test_send_refuses_changed_window_and_no_cloud_verification(self):
+        draft = DiscordDraft(44, "ронси", "correct text", "url", (300, 800))
+        pyauto = types.SimpleNamespace(press=mock.Mock())
+        with (
+            mock.patch.dict(sys.modules, {"pyautogui": pyauto}),
+            mock.patch("luxai.discord_research.focus_discord"),
+            mock.patch("luxai.visual_click.capture_window",
+                       side_effect=RuntimeError("Wrong foreground window")),
+            mock.patch("luxai.visual_click.find_visual_target") as locate,
+            mock.patch("luxai.visual_click.click_visual_target") as click,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "Wrong foreground"):
+                submit_discord_draft(draft, mock.Mock())
+        locate.assert_not_called()
+        click.assert_not_called()
+        pyauto.press.assert_not_called()
+        with self.assertRaisesRegex(ValueError, "vision-capable"):
+            submit_discord_draft(draft, None)
+
+    def test_send_cancellation_during_cloud_analysis_prevents_enter(self):
+        draft = DiscordDraft(44, "ронси", "correct text", "url", (300, 800))
+        pyauto = types.SimpleNamespace(press=mock.Mock())
+        cancellation = mock.Mock(side_effect=[False, True])
+        with (
+            mock.patch.dict(sys.modules, {"pyautogui": pyauto}),
+            mock.patch("luxai.discord_research.focus_discord"),
+            mock.patch("luxai.visual_click.capture_window"),
+            mock.patch("luxai.visual_click.find_visual_target", return_value=(300, 800)),
+            mock.patch("luxai.visual_click.click_visual_target") as click,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "cancelled"):
+                submit_discord_draft(draft, mock.Mock(), cancelled=cancellation)
+        click.assert_not_called()
+        pyauto.press.assert_not_called()
 
 
 if __name__ == "__main__":

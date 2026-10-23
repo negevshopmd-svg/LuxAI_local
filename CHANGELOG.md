@@ -1,4 +1,9 @@
 
+### 0.2.0 — Post-confirmation Discord send verification
+
+- A saved Discord composer coordinate is no longer trusted after the user reviews the send confirmation. A fresh, explicitly approved third screenshot verifies the current recipient and exact unsent draft immediately before clicking and pressing Enter; changed chats, modified drafts or ambiguous screenshots stop the send.
+- Final visual verification runs on a worker thread so the Jarvis window remains responsive; cancellation of a stale macro aborts sending. Offline tests cover wrong recipients, stale windows, and mid-flight cancellation.
+
 ### 0.2.0 — Discord research / cross-app voice workflow repair
 
 - Prevent cross-app hallucinations: a `search_web` side effect is no longer mistaken for extracted source content, and an unrelated browser screenshot cannot be treated as a Discord contact.
