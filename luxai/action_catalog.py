@@ -28,6 +28,7 @@ _ACTIONS = [
     ("open_app", "Запуск", "Запустить программу", "Открывает выбранное установленное приложение", True),
     ("launch_game", "Запуск", "Запустить игру Steam", "Dota 2, Counter-Strike 2, War Thunder", True),
     ("run_file", "Запуск", "Запустить файл или программу", "Открывает файл, вручную выбранный на вашем компьютере", True),
+    ("discord_research_dm", "Программа", "Найти факты и написать в Discord", "Wikipedia → поиск @пользователя в Discord → черновик → подтверждение отправки", True),
     ("open_user_file", "Файлы", "Открыть файл по имени", "Ищет на рабочем столе, в Документах или Загрузках и открывает через Windows", True),
     ("open_website", "Запуск", "Открыть сайт", "Открывает указанный HTTPS-сайт в браузере", True),
     ("run_cmd", "Запуск", "Выполнить команду CMD", "Только сохранённый пользователем скрипт; подтверждение при каждом запуске", True),
@@ -271,6 +272,10 @@ def validate_step(raw):
         if not -10 <= clicks <= 10 or clicks == 0:
             raise ValueError("Прокрутка должна быть от -10 до 10 (не 0)")
         result["target"] = str(clicks)
+    elif action == "discord_research_dm":
+        from luxai.discord_research import validate_research_dm_target
+        topic, username = validate_research_dm_target(target)
+        result["target"] = topic + "||" + username
     elif action == "visual_click":
         from luxai.visual_click import parse_click_target
         label, count = parse_click_target(target)
