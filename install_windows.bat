@@ -9,7 +9,7 @@ echo ================================================
 echo     LuxAI Local - Instalare / Reparare Windows
 echo ================================================
 echo.
-echo Accepta Python 3.11 sau mai nou (64-bit) si instaleaza bibliotecile LuxAI.
+echo Verifica Python 3.11, 3.12, 3.13 si 3.14 (64-bit).\necho Selecteaza o versiune compatibila sau instaleaza Python daca lipseste.\necho Actualizeaza pachetele existente la ultimele versiuni compatibile.
 echo Repara automat un .venv copiat de pe alt calculator.
 echo Nu sterge modelele sau configuratia personala.
 echo.
