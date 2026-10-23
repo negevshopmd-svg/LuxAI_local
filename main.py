@@ -2161,6 +2161,24 @@ class MainWindow(QMainWindow):
                 daemon=True, name="JarvisDiscordVisualReview",
             ).start()
             return
+        if step["action"] == "discord_send_text":
+            if not self.online_planner.enabled():
+                ctx["messages"].append(
+                    "Для поиска и проверки Discord нужен AI с поддержкой изображений."
+                )
+                self._finish_visual_macro()
+                return
+            if not self._allow_cloud_screenshots():
+                ctx["messages"].append("Передача снимков отменена.")
+                self._finish_visual_macro()
+                return
+            self.mic_status.setText("Discord: проверяю пользователя и готовлю черновик…")
+            threading.Thread(
+                target=self._discord_draft_worker,
+                args=(dict(step), ctx["index"]),
+                daemon=True, name="JarvisDiscordUserTextDraft",
+            ).start()
+            return
         if step["action"] == "discord_research_dm":
             topic, username = step["target"].rsplit("||", 1)
             if not self.online_planner.enabled():
@@ -2516,8 +2534,14 @@ class MainWindow(QMainWindow):
     def _discord_draft_worker(self, step, index):
         try:
             context = getattr(self, "_macro_context", None)
+            if step["action"] == "discord_send_text":
+                from luxai.discord_research import validate_discord_text_target
+                person, message = validate_discord_text_target(step["target"])
+                target = "Direct user message||" + person
+            else:
+                target, message = step["target"], None
             draft = prepare_discord_draft(
-                self.online_planner, step["target"],
+                self.online_planner, target, message_override=message,
                 confirm_candidate=lambda spoken, displayed: (
                     self._confirm_discord_contact_in_ui(
                         spoken, displayed, context
