@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from luxai.voices import available_voices
+from luxai.voice_presets import VOICE_PRESETS
 from luxai.ui_i18n import LANGUAGES, get_ui_language, tr, translate_widgets
 
 
@@ -211,18 +212,46 @@ class SettingsPanel(QWidget):
         panel = self._section("Озвучка", "Голос, которым звучат ответы Jarvis.")
         self.tts = self._toggle(self.cfg.get("tts_enabled", True))
         self._row(panel, "Голосовой ответ", "Озвучивать текст ответа.", self.tts)
-        voices = [("Дмитрий — русский (по умолчанию)", "")]
-        installed = available_voices()
-        for voice in installed:
-            if voice["ready"]:
+        installed = {voice["id"]: voice for voice in available_voices() if voice["ready"]}
+        voices = [("Автоматически — по языку ответа", "")]
+        labels = {
+            "ru": "Dmitri — Русский",
+            "ro": "Mihai — Română",
+            "en": "Lessac — English",
+        }
+        for lang, preset in VOICE_PRESETS.items():
+            voice_id = preset["id"]
+            state = "✓" if voice_id in installed else "↓"
+            voices.append((f"{state}  {labels[lang]}", voice_id))
+        preset_ids = {item["id"] for item in VOICE_PRESETS.values()}
+        for voice in installed.values():
+            if voice["id"] not in preset_ids:
                 voices.append((voice["name"], voice["id"]))
         self.voice_id = self._combo(voices, self.cfg.get("voice_id", ""))
-        self._row(panel, "Голос ассистента", "Список локально установленных моделей Piper.", self.voice_id)
+        self._row(
+            panel, "Голос ассистента",
+            "✓ установлен, ↓ загрузится при первом использовании. "
+            "Голос выбирается по языку ответа, а не по языку интерфейса.",
+            self.voice_id,
+        )
         self.voice_volume = self._slider(self.cfg.get("voice_volume", 80), 0, 100)
         self._row(panel, "Громкость", "0–100%, применяется к озвучке.", self.voice_volume)
         preview = QPushButton("▶  Прослушать пример")
         preview.clicked.connect(self.on_test_voice)
         panel.addWidget(preview)
+
+    def refresh_voice_status(self):
+        """Refresh installed/download icon without resetting the user's choice."""
+        installed = {voice["id"] for voice in available_voices() if voice["ready"]}
+        known = {preset["id"] for preset in VOICE_PRESETS.values()}
+        for index in range(self.voice_id.count()):
+            voice_id = self.voice_id.itemData(index)
+            if voice_id not in known:
+                continue
+            label = self.voice_id.itemText(index)
+            name = label.split("  ", 1)[-1]
+            status = "✓" if voice_id in installed else "↓"
+            self.voice_id.setItemText(index, f"{status}  {name}")
 
     def _build_commands(self):
         panel = self._section(

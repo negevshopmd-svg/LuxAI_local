@@ -7,6 +7,7 @@ Voice failures are written to voice_error.log because the app uses pythonw.exe.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import re
 import subprocess
@@ -18,7 +19,6 @@ import wave
 from datetime import datetime
 from pathlib import Path
 
-import sounddevice as sd
 
 ROOT = Path(__file__).resolve().parents[1]
 VOICES_DIR = ROOT / "voices"
@@ -26,11 +26,13 @@ CONFIG_PATH = ROOT / "config.json"
 ERROR_LOG = ROOT / "voice_error.log"
 playback_active = threading.Event()
 
-DEFAULT_RUSSIAN = "ru_RU-dmitri-medium"
-PIPER_BASE_URL = (
-    "https://huggingface.co/rhasspy/piper-voices/resolve/main/"
-    "ru/ru_RU/dmitri/medium/"
+from luxai.voice_presets import (
+    DEFAULT_RUSSIAN, DEFAULT_ROMANIAN, DEFAULT_ENGLISH,
+    PIPER_REPOSITORY, VOICE_PRESETS,
 )
+MAX_VOICE_DOWNLOAD_BYTES = 80_000_000
+MIN_MODEL_BYTES = 10_000_000
+
 
 
 class VoiceManager:
@@ -71,79 +73,117 @@ class VoiceManager:
             })
         return found
 
-    def _download_russian_voice(self) -> Path | None:
-        """Download Dmitri's local Russian Piper model if it is missing."""
+    @staticmethod
+    def _model_matches_language(path: Path, language: str) -> bool:
+        """Never use a Russian or English phonemizer for Romanian speech."""
+        config = path.with_suffix(path.suffix + ".json")
+        try:
+            data = json.loads(config.read_text(encoding="utf-8"))
+            code = str(data.get("language", {}).get("code", "")).lower()
+            return code.split("_", 1)[0] == language
+        except (OSError, ValueError, TypeError, AttributeError):
+            return False
+
+    @staticmethod
+    def _download_file(url: str, destination: Path, *, sha256: str | None,
+                       minimum_size: int, maximum_size: int) -> None:
+        """Bound and atomically verify a voice download before installing it."""
+        temporary = destination.with_name(destination.name + ".download")
+        temporary.unlink(missing_ok=True)
+        total = 0
+        digest = hashlib.sha256()
+        try:
+            request = urllib.request.Request(
+                url, headers={"User-Agent": "LuxAI-Jarvis/1.0"}
+            )
+            with urllib.request.urlopen(request, timeout=90) as response, temporary.open("wb") as handle:
+                while True:
+                    chunk = response.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    if total > maximum_size:
+                        raise ValueError("Voice download exceeded permitted size")
+                    digest.update(chunk)
+                    handle.write(chunk)
+            if total < minimum_size:
+                raise ValueError("Voice model download incomplete")
+            if sha256 is not None and digest.hexdigest().lower() != sha256.lower():
+                raise ValueError("Voice model SHA-256 verification failed")
+            temporary.replace(destination)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    def _download_voice(self, language: str) -> Path | None:
+        """Install an official Piper voice lazily; never block startup/UI."""
+        preset = VOICE_PRESETS[language]
         VOICES_DIR.mkdir(parents=True, exist_ok=True)
-        model_path = VOICES_DIR / f"{DEFAULT_RUSSIAN}.onnx"
-        metadata_path = VOICES_DIR / f"{DEFAULT_RUSSIAN}.onnx.json"
-        files = (
-            (model_path, 10_000_000),
-            (metadata_path, 100),
-        )
-        if all(p.is_file() and p.stat().st_size >= size for p, size in files):
-            return model_path
-        for path, minimum_size in files:
-            if path.is_file() and path.stat().st_size >= minimum_size:
-                continue
-            temporary = path.with_name(path.name + ".download")
-            try:
-                request = urllib.request.Request(
-                    PIPER_BASE_URL + path.name,
-                    headers={"User-Agent": "JarvisLocalAssistant/1.0"},
+        model_path = VOICES_DIR / (preset["id"] + ".onnx")
+        metadata_path = VOICES_DIR / (preset["id"] + ".onnx.json")
+        url = PIPER_REPOSITORY + preset["directory"] + "/"
+        try:
+            model_ok = model_path.is_file() and model_path.stat().st_size >= MIN_MODEL_BYTES
+            if not model_ok:
+                self._log(f"Downloading {language} Piper voice {preset['id']} for first use...")
+                self._download_file(
+                    url + model_path.name, model_path,
+                    sha256=preset["sha256"],
+                    minimum_size=MIN_MODEL_BYTES,
+                    maximum_size=MAX_VOICE_DOWNLOAD_BYTES,
                 )
-                with urllib.request.urlopen(request, timeout=60) as response, temporary.open("wb") as dest:
-                    while True:
-                        chunk = response.read(1024 * 1024)
-                        if not chunk:
-                            break
-                        dest.write(chunk)
-                if temporary.stat().st_size < minimum_size:
-                    raise ValueError("Downloaded Russian voice model is incomplete")
-                temporary.replace(path)
-            except Exception as exc:
-                temporary.unlink(missing_ok=True)
-                self._log(f"Russian Piper download failed ({path.name}): {exc}")
-                return None
-        self._log("Russian Piper voice Dmitri installed.")
-        return model_path
+            if not self._model_matches_language(model_path, language):
+                # A partially installed configuration may be absent, but a
+                # wrong language must never be handed to the Piper engine.
+                self._download_file(
+                    url + metadata_path.name, metadata_path,
+                    sha256=None, minimum_size=100, maximum_size=50_000,
+                )
+            if not self._model_matches_language(model_path, language):
+                raise ValueError("Piper voice metadata has wrong language")
+            self._log(f"Piper voice {preset['id']} ready ({language}).")
+            return model_path
+        except Exception as exc:
+            self._log(f"Piper voice installation failed for {language}: {exc}")
+            return None
+
+    def _download_russian_voice(self) -> Path | None:
+        return self._download_voice("ru")
 
     def _select_model(self, language: str) -> Path | None:
+        if language not in VOICE_PRESETS:
+            return None
         voices = self.available_voices()
-        # An explicitly configured model remains a user choice.
         explicit = str(self.config.get("voice_model_path", "") or "").strip()
         if explicit:
             candidate = Path(explicit).expanduser()
-            if candidate.is_file() and candidate.with_suffix(candidate.suffix + ".json").is_file():
+            if candidate.is_file() and self._model_matches_language(candidate, language):
                 return candidate
-            self._log(f"Configured Piper model not found: {explicit}")
+            self._log(f"Configured Piper voice missing or wrong language: {explicit}")
 
         selected = str(self.config.get("voice_id", "") or "").strip().lower()
         if selected:
             for voice in voices:
-                if voice["ready"] and voice["id"].lower() == selected:
-                    if language != "ru" or voice["id"].lower().startswith("ru_"):
-                        return Path(voice["model"])
+                if (voice["ready"] and voice["id"].lower() == selected
+                        and self._model_matches_language(Path(voice["model"]), language)):
+                    return Path(voice["model"])
+            # When the user explicitly chooses Mihai or Lessac, install that
+            # exact voice instead of silently playing another available one.
+            if selected == VOICE_PRESETS[language]["id"].lower():
+                return self._download_voice(language)
 
-        if language == "ru":
-            # Never use an English model just because it appears first alphabetically.
-            for voice in voices:
-                if voice["ready"] and voice["id"].lower() == DEFAULT_RUSSIAN.lower():
-                    return Path(voice["model"])
-            for voice in voices:
-                if voice["ready"] and voice["id"].lower().startswith("ru_"):
-                    return Path(voice["model"])
-            return self._download_russian_voice()
-
-        prefixes = {"ro": "ro_", "en": "en_" }
-        prefix = prefixes.get(language)
-        if prefix:
-            for voice in voices:
-                if voice["ready"] and voice["id"].lower().startswith(prefix):
-                    return Path(voice["model"])
-        for voice in voices:
-            if voice["ready"]:
-                return Path(voice["model"])
-        return None
+        # Search existing voices by actual metadata instead of guessing from
+        # filename. Only download the default when no compatible one exists.
+        default_id = VOICE_PRESETS[language]["id"].lower()
+        matching = [
+            Path(v["model"]) for v in voices if v["ready"]
+            and self._model_matches_language(Path(v["model"]), language)
+        ]
+        for candidate in matching:
+            if candidate.stem.lower() == default_id:
+                return candidate
+        if matching:
+            return matching[0]
+        return self._download_voice(language)
 
     def _windows_speak(self, text: str, language: str) -> bool:
         """Fallback to SAPI, but only if Windows has a voice for the language."""
@@ -227,6 +267,7 @@ class VoiceManager:
                             self._voice.synthesize_wav(text, wav_file)
                     import soundfile as sf
                     audio, sample_rate = sf.read(str(wav_path), dtype="float32")
+                    import sounddevice as sd
                     sd.play(audio * volume, sample_rate)
                     sd.wait()
                     return True
@@ -237,9 +278,10 @@ class VoiceManager:
 
         if self._windows_speak(text, language):
             return True
+        model_name = VOICE_PRESETS.get(language, VOICE_PRESETS["ru"])["id"]
         self._log(
-            f"No working {language} voice. Check voices/{DEFAULT_RUSSIAN}.onnx, "
-            "the corresponding .onnx.json, sound output and voice_error.log."
+            f"No working {language} voice. Check voices/{model_name}.onnx, "
+            "the matching .onnx.json, sound output and voice_error.log."
         )
         return False
 
