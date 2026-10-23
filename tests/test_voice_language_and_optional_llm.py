@@ -37,7 +37,9 @@ class VoiceLanguageAndOptionalLLMTests(unittest.TestCase):
     def test_no_llama_cpp_when_path_exists_is_handled_in_each_language(self):
         with tempfile.TemporaryDirectory() as root:
             model = Path(root) / "fake.gguf"
-            model.write_bytes(b"not a model, import blocked first")
+            # Valid-looking local file: import availability is checked after
+            # GGUF signature/incomplete-file detection.
+            model.write_bytes(b"GGUF" + b"\x00" * 1_048_576)
             for code, expected in (
                 ("ru", "llama-cpp-python"),
                 ("en", "llama-cpp-python"),

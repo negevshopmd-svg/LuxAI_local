@@ -79,16 +79,34 @@ class VoiceWorker(QThread):
         super().__init__()
         self.cfg = cfg
         self.listener = None
+    def stop_capture(self):
+        if self.listener is not None:
+            self.listener.stop()
+
     def run(self):
         try:
-            self.listener = VoiceListener(
-                model_path=self.cfg.get("whisper_model_path") or self.cfg.get("whisper_model") or "small",
-                prefix_enabled=self.cfg.get("prefix_enabled", False),
-                prefix=self.cfg.get("wake_prefix", "Jarvis"),
-                language=self.cfg.get("language", "auto"),
-                microphone_device=self.cfg.get("microphone_device", -1),
-                beam_size=self.cfg.get("whisper_beam_size", 1),
-            )
+            if self.isInterruptionRequested():
+                return
+            model_choice = self.cfg.get("whisper_model_path") or self.cfg.get("whisper_model") or "small"
+            params = {
+                "prefix_enabled": self.cfg.get("prefix_enabled", False),
+                "prefix": self.cfg.get("wake_prefix", "Jarvis"),
+                "language": self.cfg.get("language", "auto"),
+                "microphone_device": self.cfg.get("microphone_device", -1),
+                "beam_size": self.cfg.get("whisper_beam_size", 1),
+            }
+            try:
+                self.listener = VoiceListener(model_path=model_choice, **params)
+            except (OSError, RuntimeError, MemoryError, ValueError) as exc:
+                if str(model_choice) == "small" or self.isInterruptionRequested():
+                    raise
+                self.status.emit(
+                    f"Whisper {model_choice} unavailable ({type(exc).__name__}); trying small..."
+                )
+                self.listener = VoiceListener(model_path="small", **params)
+            if self.isInterruptionRequested():
+                self.listener.stop()
+                return
             self.status.emit("Микрофон включён — локальное распознавание")
             for text in self.listener.listen():
                 if self.isInterruptionRequested():
@@ -419,6 +437,7 @@ class MainWindow(QMainWindow):
             on_pick_model=self.pick_model,
             on_test_voice=self.preview_voice,
             on_test_online=self.test_online_api,
+            on_install_local_ai=self.install_local_ai,
         )
         self.mic = self.settings_panel.mic
         self.prefix = self.settings_panel.prefix
@@ -527,10 +546,11 @@ class MainWindow(QMainWindow):
                 self.tray_icon.hide()
         changed_audio = any(
             old.get(k) != self.cfg.get(k)
-            for k in ("language", "microphone_device", "whisper_beam_size")
+            for k in ("language", "microphone_device", "whisper_beam_size", "whisper_model", "whisper_model_path")
         )
         enabled = self.cfg.get("microphone_enabled", True)
         if changed_audio or old.get("microphone_enabled", True) != enabled:
+            self._listener_restart_pending = bool(enabled)
             self.stop_listener()
             if enabled:
                 self.start_listener()
@@ -759,36 +779,82 @@ class MainWindow(QMainWindow):
         if enabled:
             self.start_listener()
         else:
+            self._listener_restart_pending = False
             self.stop_listener()
             self.mic_status.setText("●  Микрофон выключен")
 
     def start_listener(self):
         if self.worker and self.worker.isRunning():
+            self._listener_restart_pending = True
             return
         self.save_settings()
         # Always pass the latest saved prefix settings to a newly started listener.
+        self._listener_restart_pending = False
         self.worker = VoiceWorker(dict(self.cfg))
+        self.worker.finished.connect(self._on_listener_finished)
         self.worker.transcript.connect(self.handle_voice)
         self.worker.status.connect(self.mic_status.setText)
         self.worker.start()
 
     def stop_listener(self):
-        if self.worker and self.worker.isRunning():
-            self.worker.requestInterruption()
-            self.worker.wait(2500)
-            if self.worker.isRunning():
-                self.worker.terminate()
-                self.worker.wait(1000)
+        """Request safe stop; never terminate a thread inside PortAudio / CTranslate2."""
+        worker = self.worker
+        if worker and worker.isRunning():
+            worker.requestInterruption()
+            worker.stop_capture()
+            # Keep the QThread alive until it actually finishes.
+            # Qt terminate() can crash native microphone/Whisper runtimes.
+            if not worker.wait(250):
+                self.mic_status.setText("Микрофон завершает текущую обработку…")
+
+    def _on_listener_finished(self):
+        worker = self.sender()
+        if worker is not self.worker:
+            return
+        self.worker = None
+        if getattr(self, "_pending_close", False):
+            self._pending_close = False
+            QTimer.singleShot(0, self.close)
+            return
+        if getattr(self, "_listener_restart_pending", False) and not self._closed:
+            self._listener_restart_pending = False
+            QTimer.singleShot(0, self.start_listener)
+
+    def install_local_ai(self):
+        """Explicit opt-in: install official prebuilt CPU backend in this .venv."""
+        if sys.platform != "win32":
+            self.mic_status.setText("This installer is supported only on Windows.")
+            return
+        import subprocess
+        script = BASE / "install_local_ai.bat"
+        if not script.is_file():
+            self.mic_status.setText("install_local_ai.bat missing. Run Update.bat.")
+            return
+        try:
+            subprocess.Popen(
+                ["cmd.exe", "/c", str(script)], cwd=str(BASE),
+                creationflags=subprocess.CREATE_NEW_CONSOLE,
+            )
+            self.mic_status.setText(
+                "Installing GGUF support in a separate console. Refresh models after completion."
+            )
+        except OSError as error:
+            self.mic_status.setText(
+                f"Could not launch local AI installer: {type(error).__name__}"
+            )
 
     def pick_model(self):
         path, _ = QFileDialog.getOpenFileName(self, "Alege model GGUF", "", "Modele GGUF (*.gguf)")
         if path:
-            self.cfg["llm_model_path"] = path
-            save_config(self.cfg)
-            self.agent.update_config(self.cfg)
-            if hasattr(self, "model_label"):
-                self.model_label.setText(Path(path).name)
-            self.mic_status.setText("Model selectat — se va încărca la prima comandă.")
+            self.cfg["llm_model_path"] = str(Path(path).resolve())
+            panel = self.settings_panel
+            index = panel.model_select.findData(self.cfg["llm_model_path"])
+            if index < 0:
+                panel.model_select.addItem(Path(path).name + " (external)", self.cfg["llm_model_path"])
+                index = panel.model_select.count() - 1
+            panel.model_select.setCurrentIndex(index)
+            self.save_settings()
+            self.mic_status.setText("Model selectat. Pentru chat GGUF este necesar llama-cpp-python.")
 
     def handle_voice(self, text):
         # Voice answers can approve/deny an action while its confirmation dialog is open.
@@ -1830,7 +1896,14 @@ class MainWindow(QMainWindow):
             self._speech_queue.put_nowait(None)
         except queue.Full:
             pass
+        self._listener_restart_pending = False
         self.stop_listener()
+        if self.worker is not None and self.worker.isRunning():
+            # Do not destroy a running Qt thread when closing the window.
+            self._pending_close = True
+            self.hide()
+            event.ignore()
+            return
         event.accept()
 
 def load_project_font():

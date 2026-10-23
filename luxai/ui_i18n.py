@@ -377,6 +377,11 @@ API-ключ|||API key|||Cheie API
 Автоматически — как язык распознавания|||Automatic — match recognition language|||Automat — ca limba recunoașterii
 Язык ответов Jarvis|||Jarvis reply language|||Limba răspunsurilor Jarvis
 Определяет язык текста и озвучивания. Не меняет язык микрофона или интерфейса.|||Sets the text and speech language. Does not change microphone or interface language.|||Stabilește limba textului și a vocii. Nu schimbă limba microfonului sau interfeței.
+Модели в папке models|||Models in the models folder|||Modele din dosarul models
+Все файлы .gguf в папке LuxAI_Local/models. Недостаточно просто выбрать файл: для чата также требуется llama-cpp-python.|||All .gguf files in LuxAI_Local/models. Chat also requires llama-cpp-python.|||Toate fișierele .gguf din LuxAI_Local/models. Conversația necesită și llama-cpp-python.
+Обновить список моделей|||Refresh model list|||Actualizează lista modelelor
+Установить локальный AI-движок (llama-cpp-python)|||Install local AI engine (llama-cpp-python)|||Instalează motorul AI local (llama-cpp-python)
+Модель распознавания|||Speech recognition model|||Model de recunoaștere vocală
 """
 
 # Every entry is a Russian source string and an English/Romanian translation.

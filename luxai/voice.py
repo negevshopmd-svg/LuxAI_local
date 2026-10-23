@@ -1,5 +1,10 @@
-import queue
+"""Microphone capture with safe cancellation and language-specific Whisper prompts."""
+from __future__ import annotations
+
 from collections import deque
+import os
+import queue
+import threading
 
 import numpy as np
 import sounddevice as sd
@@ -7,16 +12,20 @@ import sounddevice as sd
 from .voices import speak, playback_active
 
 
+from .voice_rules import recognition_options, ROMANIAN_PROMPT
+
+
 class VoiceListener:
-    """Local microphone capture with lightweight WebRTC VAD and local Whisper transcription."""
-    def __init__(self, model_path="small", prefix_enabled=True, prefix="Jarvis", language="auto", microphone_device=-1, beam_size=1):
+    """Listen continuously without killing native PortAudio/CTranslate2 threads."""
+
+    def __init__(self, model_path="small", prefix_enabled=True, prefix="Jarvis",
+                 language="auto", microphone_device=-1, beam_size=1):
         from faster_whisper import WhisperModel
-        import os
         self.model = WhisperModel(
             model_path or "small",
             device="cpu",
             compute_type="int8",
-            cpu_threads=max(2, min(8, os.cpu_count() or 4)),
+            cpu_threads=max(2, min(6, os.cpu_count() or 4)),
             num_workers=1,
         )
         self.prefix_enabled = prefix_enabled
@@ -24,130 +33,138 @@ class VoiceListener:
         self.language = None if language == "auto" else language
         self.microphone_device = None if microphone_device in (-1, None, "") else int(microphone_device)
         self.beam_size = max(1, min(5, int(beam_size)))
-        self._stop = False
+        self._stop_event = threading.Event()
 
     def stop(self):
-        self._stop = True
+        self._stop_event.set()
+
+    def _sample_rate(self) -> int:
+        """Some Windows 11 drivers reject 16 kHz; try the device's native rate."""
+        try:
+            sd.check_input_settings(device=self.microphone_device, samplerate=16000,
+                                    channels=1, dtype="float32")
+            return 16000
+        except Exception:
+            device = sd.query_devices(self.microphone_device, "input")
+            rate = int(round(float(device["default_samplerate"])))
+            sd.check_input_settings(device=self.microphone_device, samplerate=rate,
+                                    channels=1, dtype="float32")
+            return rate
+
+    @staticmethod
+    def _resample_chunk(data: np.ndarray, source_rate: int, target_samples: int) -> np.ndarray:
+        if len(data) == target_samples:
+            return data
+        positions = np.linspace(0, len(data), num=target_samples, endpoint=False)
+        return np.interp(positions, np.arange(len(data)), data).astype(np.float32)
 
     def listen(self):
-        sample_rate = 16000
-        frame_ms = 30  # WebRTC accepts 10, 20 or 30 ms frames.
-        frame_samples = sample_rate * frame_ms // 1000
+        output_rate = 16000
+        input_rate = self._sample_rate()
+        frame_ms = 30
+        input_samples = max(1, int(round(input_rate * frame_ms / 1000)))
+        frame_samples = output_rate * frame_ms // 1000
         frame_seconds = frame_ms / 1000
-        silence_seconds = 1.0
-        pre_roll_seconds = 0.30
-        max_utterance_seconds = 20.0
-        silence_frames_needed = max(1, int(silence_seconds / frame_seconds))
-        pre_roll_frames = max(1, int(pre_roll_seconds / frame_seconds))
-        max_frames = int(max_utterance_seconds / frame_seconds)
+        silence_frames_needed = int(0.90 / frame_seconds)
+        pre_roll_frames = int(0.42 / frame_seconds)
+        max_frames = int(24 / frame_seconds)
+        min_speech_frames = 3
 
-        # WebRTC VAD is a small CPU-efficient speech detector. If unavailable,
-        # retain a simple RMS detector so microphone capture still works.
         try:
             import webrtcvad
-            vad = webrtcvad.Vad(2)
-            use_vad = True
-        except ImportError:
+            vad = webrtcvad.Vad(1)
+        except (ImportError, ValueError):
             vad = None
-            use_vad = False
-            print("WebRTC VAD unavailable; using RMS fallback. Install requirements.txt to enable VAD.")
 
-        q = queue.Queue(maxsize=100)
-
+        chunks = queue.Queue(maxsize=150)
         def callback(indata, frames, time_info, status):
-            if self._stop:
+            if self._stop_event.is_set():
                 return
             try:
-                q.put_nowait(indata.copy().reshape(-1))
+                chunks.put_nowait(indata.copy().reshape(-1))
             except queue.Full:
                 try:
-                    q.get_nowait()
-                    q.put_nowait(indata.copy().reshape(-1))
+                    chunks.get_nowait()
+                    chunks.put_nowait(indata.copy().reshape(-1))
                 except queue.Empty:
                     pass
 
         pre_roll = deque(maxlen=pre_roll_frames)
-        audio_parts = []
-        silence_frames = 0
+        noise_samples = deque(maxlen=80)
+        parts = []
         speech_started = False
-        utterance_frames = 0
+        active_frames = 0
+        silence_frames = 0
+        candidate_frames = 0
 
-        with sd.InputStream(
-            device=self.microphone_device,
-            samplerate=sample_rate,
-            channels=1,
-            dtype="float32",
-            blocksize=frame_samples,
-            callback=callback,
-        ):
-            while not self._stop:
+        with sd.InputStream(device=self.microphone_device, samplerate=input_rate,
+                            channels=1, dtype="float32", blocksize=input_samples,
+                            callback=callback):
+            while not self._stop_event.is_set():
                 try:
-                    chunk = q.get(timeout=0.5)
+                    chunk = chunks.get(timeout=0.25)
                 except queue.Empty:
                     continue
-                if len(chunk) != frame_samples:
+                if len(chunk) != input_samples:
                     continue
-
-                # Prevent the assistant from transcribing its own speaker output.
+                chunk = self._resample_chunk(chunk, input_rate, frame_samples)
+                # Do not transcribe Jarvis's own speech.
                 if playback_active.is_set():
                     pre_roll.clear()
-                    audio_parts = []
-                    silence_frames = 0
+                    parts = []
+                    active_frames = silence_frames = candidate_frames = 0
                     speech_started = False
-                    utterance_frames = 0
                     continue
-
-                if use_vad:
+                rms = float(np.sqrt(np.mean(np.square(chunk, dtype=np.float64))))
+                noise = float(np.median(noise_samples)) if noise_samples else 0.0005
+                threshold = max(0.0025, noise * 2.2)
+                if vad is not None:
                     pcm = np.clip(chunk * 32768.0, -32768, 32767).astype(np.int16).tobytes()
                     try:
-                        is_speech = vad.is_speech(pcm, sample_rate)
-                    except Exception:
-                        is_speech = False
+                        detected = bool(vad.is_speech(pcm, output_rate)) and rms >= max(0.0015, noise * 1.3)
+                    except (ValueError, RuntimeError):
+                        detected = rms >= threshold
                 else:
-                    try:
-                        threshold = float(__import__("os").environ.get("NEXORA_VOICE_THRESHOLD", "0.004"))
-                    except (TypeError, ValueError):
-                        threshold = 0.004
-                    is_speech = bool(np.sqrt(np.mean(np.square(chunk))) >= threshold)
+                    detected = rms >= threshold
 
                 if not speech_started:
                     pre_roll.append(chunk)
-                    if is_speech:
-                        speech_started = True
-                        audio_parts = list(pre_roll)
-                        utterance_frames = len(audio_parts)
-                        silence_frames = 0
+                    if not detected:
+                        noise_samples.append(rms)
+                        candidate_frames = 0
+                        continue
+                    candidate_frames += 1
+                    if candidate_frames < min_speech_frames:
+                        continue
+                    speech_started = True
+                    parts = list(pre_roll)
+                    active_frames = candidate_frames
+                    silence_frames = 0
                 else:
-                    audio_parts.append(chunk)
-                    utterance_frames += 1
-                    if is_speech:
+                    parts.append(chunk)
+                    if detected:
+                        active_frames += 1
                         silence_frames = 0
                     else:
                         silence_frames += 1
 
-                if speech_started and (
-                    silence_frames >= silence_frames_needed or utterance_frames >= max_frames
-                ):
-                    audio = np.concatenate(audio_parts).astype(np.float32, copy=False)
-                    audio_parts = []
+                if speech_started and (silence_frames >= silence_frames_needed or
+                                       len(parts) >= max_frames):
+                    audio = np.concatenate(parts).astype(np.float32, copy=False)
+                    enough_speech = active_frames >= min_speech_frames and len(audio) >= int(0.38 * output_rate)
+                    parts = []
                     pre_roll.clear()
-                    silence_frames = 0
                     speech_started = False
-                    utterance_frames = 0
-                    if len(audio) < sample_rate // 2:
+                    active_frames = silence_frames = candidate_frames = 0
+                    if self._stop_event.is_set() or not enough_speech:
                         continue
                     try:
                         segments, _info = self.model.transcribe(
-                            audio,
-                            language=self.language,
-                            beam_size=self.beam_size,
-                            best_of=1,
-                            vad_filter=True,
-                            condition_on_previous_text=False,
+                            audio, **recognition_options(self.language, self.beam_size)
                         )
-                        text = " ".join(segment.text.strip() for segment in segments).strip()
-                        if text:
-                            yield text
-                    except Exception as exc:
-                        print(f"Local transcription failed: {exc}")
+                        utterance = " ".join(segment.text.strip() for segment in segments).strip()
+                        if utterance and not self._stop_event.is_set():
+                            yield utterance
+                    except (OSError, RuntimeError, ValueError) as exc:
+                        print(f"Local transcription failed ({type(exc).__name__}): {exc}")
                         continue
