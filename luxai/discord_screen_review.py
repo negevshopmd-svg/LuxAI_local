@@ -47,7 +47,9 @@ _CHAT_RE = re.compile(
 
 def validate_discord_review_user(value: object) -> str:
     """Support exact usernames AND multiword display names, never free text."""
-    if not isinstance(value, str):
+    if (not isinstance(value, str) or
+            any(ord(char) < 32 or ord(char) == 127 for char in value)):
+        # Do not sanitize away newlines or other controls into plausible names.
         raise ValueError("Укажите точное имя пользователя Discord.")
     name = " ".join(value.strip().strip(" @'«»“”").strip('"').split())
     if not 2 <= len(name) <= USER_LIMIT or not re.fullmatch(
