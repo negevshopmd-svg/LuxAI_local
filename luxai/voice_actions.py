@@ -39,9 +39,9 @@ def parse_action(text: str) -> dict | None:
     # key (useful for hotkeys in games and apps such as Q,W,E,R,D).
     sequence = re.fullmatch(
         r"(?:нажми|нажимай|нажать|нажмите|жми|press|apasă|apasa)"
-        r"(?:\\s+(?:по\\s+очереди|последовательно|клавиши|кнопки|"
-        r"keys|the\\s+keys|tastele|literele))*"
-        r"\\s+([a-z0-9]{2,24}|[a-z0-9](?:\\s+[a-z0-9]){1,23})",
+        r"(?:\s+(?:по\s+очереди|последовательно|клавиши|кнопки|"
+        r"keys|the\s+keys|tastele|literele))*"
+        r"\s+([a-z0-9]{2,24}|[a-z0-9](?:\s+[a-z0-9]){1,23})",
         phrase, flags=re.I,
     )
     if sequence and sequence.group(1) not in SINGLE_KEYS:
