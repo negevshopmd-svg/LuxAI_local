@@ -31,11 +31,24 @@ READ_WORDS = re.compile(
     r"(?:прочитай|прочти|прочесть|прочитать|зачитай|озвучь|"
     r"покажи|скажи|что\s+я\s+выделил|read|citește|citeste)", re.I,
 )
+# Short explicit requests such as "Сделай краткий пересказ" commonly follow
+# highlighting a webpage. Interpret them as a selection request only when
+# there's no dictated text or other object to summarize. The GUI handler
+# still requires a verified external foreground application window.
+SHORT_SELECTION_SUMMARY = re.compile(
+    r"^\s*(?:(?:сделай|дай|подготовь|пожалуйста\s+сделай)\s+)?"
+    r"(?:краткий\s+)?(?:пересказ|резюме|суммаризацию)"
+    r"(?:\s+(?:этого\s+)?текста)?\s*[.!?]*$",
+    re.I,
+)
+
 
 
 def selected_text_intent(text: str) -> str | None:
     """Return summarize/read only for explicit selections; not whole screen."""
     phrase = strip_wake_name(text).strip()
+    if SHORT_SELECTION_SUMMARY.fullmatch(phrase):
+        return "summarize"
     if not SELECTION_WORDS.search(phrase):
         return None
     if SUMMARY_WORDS.search(phrase):
