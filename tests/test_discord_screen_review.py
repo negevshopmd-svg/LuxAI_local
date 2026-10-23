@@ -172,5 +172,64 @@ class ReviewWorkflowTests(unittest.TestCase):
                 summarize_discord_capture(planner, capture)
 
 
+class ScreenRoutingUITests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        try:
+            from PySide6.QtWidgets import QApplication
+        except ImportError:
+            raise unittest.SkipTest("PySide6 not installed")
+        cls.app = QApplication.instance() or QApplication([])
+
+    def build_window(self):
+        import main
+        import tempfile
+        from pathlib import Path
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        config = Path(temporary.name) / "config.json"
+        config.write_text(
+            '{"microphone_enabled":false,"tts_enabled":false,'
+            '"online_agent_enabled":false}', encoding="utf-8",
+        )
+        with (
+            mock.patch.object(main, "CONFIG", config),
+            mock.patch("sounddevice.query_devices", return_value=[]),
+        ):
+            window = main.MainWindow()
+        self.addCleanup(window.close)
+        return window
+
+    def test_full_command_starts_macro_instead_of_inspecting_buttons(self):
+        import main
+        window = self.build_window()
+        window.online_planner.enabled = mock.Mock(return_value=True)
+        with (
+            mock.patch.object(window, "_start_screen_inspection") as screen,
+            mock.patch.object(window, "_direct_task_worker") as ocr,
+            mock.patch.object(main.threading, "Thread") as thread,
+        ):
+            window.run_command(VOICE)
+        screen.assert_not_called()
+        ocr.assert_not_called()
+        thread.assert_called_once()
+        self.assertEqual(
+            thread.call_args.kwargs["target"], window._direct_macro_worker,
+        )
+        self.assertEqual(thread.call_args.kwargs["args"], (VOICE,))
+
+    def test_no_cloud_does_not_start_wrong_screen_inspection(self):
+        window = self.build_window()
+        window.online_planner.enabled = mock.Mock(return_value=False)
+        with (
+            mock.patch.object(window, "_start_screen_inspection") as screen,
+            mock.patch.object(window, "_resolved_command") as result,
+        ):
+            window.run_command(VOICE)
+        screen.assert_not_called()
+        result.assert_called_once()
+        self.assertIn("нескольких шагов не выполнена", result.call_args.args[1])
+
+
 if __name__ == "__main__":
     unittest.main()
