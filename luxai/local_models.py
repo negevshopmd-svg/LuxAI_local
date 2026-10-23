@@ -62,3 +62,25 @@ def format_model(item: dict) -> str:
     size = item["bytes"] / (1024**3)
     state = "" if item["valid"] else " — invalid / incomplete"
     return f'{item["name"]} ({size:.2f} GB){state}'
+
+
+def model_status(configured: str, *, directory: Path | None = None) -> tuple[bool, str]:
+    """Small diagnostic suitable for display without loading llama.cpp into Qt."""
+    import importlib.util
+    model = resolve_model_path(configured, directory=directory)
+    if model is None:
+        return False, "No model selected or model file missing. Place a .gguf in models/."
+    try:
+        with model.open("rb") as handle:
+            valid = model.stat().st_size >= MIN_GGUF_BYTES and handle.read(4) == GGUF_MAGIC
+    except OSError:
+        valid = False
+    if not valid:
+        return False, "GGUF file is invalid or incomplete. Download/copy it again."
+    try:
+        installed = importlib.util.find_spec("llama_cpp") is not None
+    except (ImportError, ValueError):
+        installed = False
+    if not installed:
+        return False, "llama-cpp-python is missing. Run install_local_ai.bat."
+    return True, "GGUF found and local backend installed. Actual load depends on available RAM."
