@@ -208,6 +208,24 @@ class SettingsPanel(QWidget):
         self._row(panel, "Чувствительность микрофона",
                   "100% — обычная; увеличьте для тихого микрофона. Это не меняет громкость Windows.",
                   self.mic_sensitivity)
+        self.speech_pause = self._slider(
+            round(float(self.cfg.get("speech_pause_seconds", 2.3)) * 10), 12, 40,
+        )
+        self.speech_pause_value = QLabel("")
+        self.speech_pause_value.setMinimumWidth(43)
+        self.speech_pause.valueChanged.connect(
+            lambda value: self.speech_pause_value.setText(f"{value / 10:.1f} s")
+        )
+        self.speech_pause_value.setText(f"{self.speech_pause.value() / 10:.1f} s")
+        pause_control = QHBoxLayout()
+        pause_control.addWidget(self.speech_pause)
+        pause_control.addWidget(self.speech_pause_value)
+        self._row(
+            panel, "Пауза перед распознаванием",
+            "Jarvis дождётся этой паузы после вашей речи (1,2–4,0 с). "
+            "Если обрывает фразы, увеличьте до 3 секунд.",
+            pause_control,
+        )
         self.audio_level = QProgressBar()
         self.audio_level.setRange(0, 100)
         self.audio_level.setValue(0)
@@ -825,6 +843,7 @@ class SettingsPanel(QWidget):
             "microphone_name": self._selected_microphone_metadata().get("name", ""),
             "microphone_hostapi": self._selected_microphone_metadata().get("hostapi", ""),
             "microphone_sensitivity": self.mic_sensitivity.value() / 100.0,
+            "speech_pause_seconds": self.speech_pause.value() / 10.0,
             "tts_enabled": self.tts.isChecked(),
             "voice_id": self.voice_id.currentData(),
             "response_language": self.response_language.currentData(),
