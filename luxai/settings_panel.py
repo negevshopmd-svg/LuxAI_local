@@ -184,6 +184,15 @@ class SettingsPanel(QWidget):
             int(self.cfg.get("whisper_beam_size", 1)),
         )
         self._row(panel, "Повышенная точность", "Более точное распознавание может работать медленнее.", self.recognition_quality)
+        self.whisper_model = self._combo(
+            [("Small — standard (about 500 MB)", "small"),
+             ("Medium — more accurate Romanian (about 1.5 GB, slower)", "medium"),
+             ("Large-v3-turbo — advanced (requires a powerful PC)", "large-v3-turbo")],
+            self.cfg.get("whisper_model", "small"),
+        )
+        self._row(panel, "Модель распознавания",
+                  "Medium is recommended for Romanian on a PC with enough RAM. Downloads on first use.",
+                  self.whisper_model)
         self.language = self._combo(
             [("Авто", "auto"), ("Русский", "ru"), ("English", "en"), ("Română", "ro")],
             self.cfg.get("language", "ru"),
@@ -470,8 +479,20 @@ class SettingsPanel(QWidget):
             "Выключите для максимальной скорости: быстрые команды работают и без неё.",
             self.local_llm_fallback,
         )
+        from luxai.local_models import available_models, resolve_model_path, format_model
+        self.model_select = QComboBox()
+        self.model_select.setObjectName("LocalGGUFCombo")
+        self.model_select.setMinimumWidth(320)
+        self._refresh_local_models()
+        self.model_select.currentIndexChanged.connect(self._selected_local_model)
+        self._row(
+            panel, "Модели в папке models",
+            "Все файлы .gguf в папке LuxAI_Local/models. Недостаточно просто выбрать файл: "
+            "для чата также требуется llama-cpp-python.",
+            self.model_select,
+        )
         self.model_label = QLabel(
-            Path(self.cfg.get("llm_model_path", "")).name or "Модель не выбрана"
+            Path(self.model_select.currentData() or "").name or "Модель не выбрана"
         )
         self.model_label.setObjectName("Muted")
         self.model_label.setWordWrap(True)
@@ -483,6 +504,48 @@ class SettingsPanel(QWidget):
         choose = QPushButton("Выбрать локальную модель .gguf")
         choose.clicked.connect(self.on_pick_model)
         panel.addWidget(choose)
+        refresh = QPushButton("Обновить список моделей")
+        refresh.clicked.connect(self.refresh_local_models)
+        panel.addWidget(refresh)
+
+    def _refresh_local_models(self):
+        from luxai.local_models import available_models, resolve_model_path, format_model
+        selected = (self.model_select.currentData() or self.cfg.get("llm_model_path", ""))
+        self.model_select.blockSignals(True)
+        self.model_select.clear()
+        self.model_select.addItem("— Модель не выбрана —", "")
+        found = available_models()
+        for item in found:
+            self.model_select.addItem(format_model(item), item["path"])
+            if not item["valid"]:
+                index = self.model_select.count() - 1
+                self.model_select.model().item(index).setEnabled(False)
+        resolved = resolve_model_path(str(selected))
+        if resolved is not None:
+            index = self.model_select.findData(str(resolved))
+            if index >= 0:
+                self.model_select.setCurrentIndex(index)
+        else:
+            # External model paths remain supported, including previously
+            # configured paths outside models/ on this computer.
+            path = Path(str(selected))
+            if path.is_file():
+                self.model_select.addItem(path.name + " (external)", str(path.resolve()))
+                self.model_select.setCurrentIndex(self.model_select.count() - 1)
+        self.model_select.blockSignals(False)
+        return len(found)
+
+    def _selected_local_model(self, *_):
+        if hasattr(self, "model_label"):
+            self.model_label.setText(
+                Path(self.model_select.currentData() or "").name or "Модель не выбрана"
+            )
+
+    def refresh_local_models(self):
+        """Rescan files after user copies a model or chooses one externally."""
+        count = self._refresh_local_models()
+        self._selected_local_model()
+        return count
 
     def _on_provider_changed(self, *_):
         provider = self.online_provider.currentData()
@@ -667,6 +730,7 @@ class SettingsPanel(QWidget):
             "wake_prefix": self.prefix_text.text().strip() or "джарвис, жарвис, jarvis",
             "language": self.language.currentData(),
             "whisper_beam_size": self.recognition_quality.currentData(),
+            "whisper_model": self.whisper_model.currentData(),
             "microphone_device": self.mic_device.currentData(),
             "tts_enabled": self.tts.isChecked(),
             "voice_id": self.voice_id.currentData(),
@@ -691,6 +755,7 @@ class SettingsPanel(QWidget):
             "weather_city": self.weather_city.text().strip()[:70] or "Кишинёв",
             "tesseract_path": self.tesseract_path.text().strip(),
             "local_llm_fallback_enabled": self.local_llm_fallback.isChecked(),
+            "llm_model_path": self.model_select.currentData() or "",
             "online_agent_enabled": self.online_agent_enabled.isChecked(),
             "online_provider": self.online_provider.currentData(),
             "online_model": self.online_model.text().strip(),
