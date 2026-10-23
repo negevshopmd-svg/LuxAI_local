@@ -118,6 +118,46 @@ class RealSpeechRegressionTests(unittest.TestCase):
                 window.close()
 
 
+class ExecutorRoutingRegressionTests(unittest.TestCase):
+    def test_mouse_display_step_uses_catalog_executor_not_agent(self):
+        import main
+        step = {"action": "display_info", "target": "", "location": "desktop"}
+        fake = types.SimpleNamespace(
+            _closed=False, _processing=True,
+            _macro_context={
+                "text": "show resolution then move and right click",
+                "steps": [step], "index": 0, "messages": [],
+            },
+            _macro_worker=mock.Mock(),
+        )
+        with mock.patch("main.threading.Thread") as thread:
+            main.MainWindow._next_macro_step(fake)
+        self.assertEqual(fake._macro_context["index"], 1)
+        self.assertEqual(
+            thread.call_args.kwargs["target"], fake._macro_worker,
+        )
+        self.assertEqual(thread.call_args.kwargs["args"], (step, 1))
+        thread.return_value.start.assert_called_once()
+
+    def test_facts_and_contact_utterances_bypass_cloud_macro_generator(self):
+        import main
+        for phrase, action in (
+            (MARS, "research_notepad_facts"),
+            (DISCORD, "discord_open_dm"),
+        ):
+            with self.subTest(phrase=phrase):
+                fake = types.SimpleNamespace(
+                    _closed=False,
+                    online_planner=mock.Mock(),
+                    direct_macro_ready=types.SimpleNamespace(emit=mock.Mock()),
+                )
+                main.MainWindow._direct_macro_worker(fake, phrase)
+                fake.online_planner.plan_macro.assert_not_called()
+                sent = fake.direct_macro_ready.emit.call_args.args
+                self.assertEqual(sent[1]["steps"][0]["action"], action)
+                self.assertEqual(sent[2], "")
+
+
 class DiscordNavigationTests(unittest.TestCase):
     def test_quick_switcher_may_close_without_opening_chat_retry_verified(self):
         pyauto = types.SimpleNamespace(hotkey=mock.Mock())
