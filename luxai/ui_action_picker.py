@@ -268,7 +268,7 @@ class ActionOptionsDialog(QDialog):
                 "open_first_result": "Что искать и открыть",
                 "type_text": "Текст для активного окна",
                 "key_sequence": "Q,W,E,R,D — от 2 до 24 клавиш",
-                "visual_click": "Название кнопки или объекта||1 (1–3 клика)",
+                "visual_click": "Название кнопки или объекта||1 (1–10 кликов)",
                 "speak_text": "Текст для Jarvis",
                 "voice_female": "Текст женским голосом",
                 "voice_male": "Текст мужским голосом",
