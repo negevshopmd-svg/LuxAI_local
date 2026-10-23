@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
 )
 
 from luxai.action_catalog import CATALOG, describe_step, validate_step
+from luxai.ui_i18n import get_ui_language, translate_widgets
 from luxai.ui_action_picker import ActionPicker, ActionOptionsDialog
 
 
@@ -154,6 +155,7 @@ class CommandEditor(QDialog):
             }
         """)
         self._refresh_steps()
+        translate_widgets(self, get_ui_language())
 
     def _refresh_steps(self, selected=None):
         self.actions_list.clear()
