@@ -19,11 +19,8 @@ class WindowsInstallPolicyTests(unittest.TestCase):
         setup = (root / "scripts" / "install_windows.ps1").read_text(encoding="utf-8")
         updater = (root / "Update.py").read_text(encoding="utf-8")
         for source in (setup, updater):
-            self.assertIn("'--upgrade'", source)
-            self.assertIn("'--upgrade-strategy'", source)
-            self.assertIn("'only-if-needed'", source)
-            self.assertIn("'pip'", source)
-            self.assertIn("'check'", source)
+            for flag in ("--upgrade", "--upgrade-strategy", "only-if-needed", "pip", "check"):
+                self.assertIn(flag, source)
             self.assertIn("requirements", source)
         self.assertIn("if current_sha == latest_sha:", updater)
         self.assertIn("if not upgrade_dependencies():", updater)
