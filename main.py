@@ -437,6 +437,7 @@ class MainWindow(QMainWindow):
             on_pick_model=self.pick_model,
             on_test_voice=self.preview_voice,
             on_test_online=self.test_online_api,
+            on_install_local_ai=self.install_local_ai,
         )
         self.mic = self.settings_panel.mic
         self.prefix = self.settings_panel.prefix
@@ -818,6 +819,29 @@ class MainWindow(QMainWindow):
         if getattr(self, "_listener_restart_pending", False) and not self._closed:
             self._listener_restart_pending = False
             QTimer.singleShot(0, self.start_listener)
+
+    def install_local_ai(self):
+        """Explicit opt-in: install official prebuilt CPU backend in this .venv."""
+        if sys.platform != "win32":
+            self.mic_status.setText("This installer is supported only on Windows.")
+            return
+        import subprocess
+        script = BASE / "install_local_ai.bat"
+        if not script.is_file():
+            self.mic_status.setText("install_local_ai.bat missing. Run Update.bat.")
+            return
+        try:
+            subprocess.Popen(
+                ["cmd.exe", "/c", str(script)], cwd=str(BASE),
+                creationflags=subprocess.CREATE_NEW_CONSOLE,
+            )
+            self.mic_status.setText(
+                "Installing GGUF support in a separate console. Refresh models after completion."
+            )
+        except OSError as error:
+            self.mic_status.setText(
+                f"Could not launch local AI installer: {type(error).__name__}"
+            )
 
     def pick_model(self):
         path, _ = QFileDialog.getOpenFileName(self, "Alege model GGUF", "", "Modele GGUF (*.gguf)")
