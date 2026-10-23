@@ -335,6 +335,10 @@ def run_visual_reasoner(planner, goal: str, *, feedback="", preferred_hwnd=0,
             pyautogui.scroll(2 if direction == "up" else -2)
             history.append(f"Scrolled {direction}; MUST observe results.")
             last_label = None
+        else:
+            # Defense in depth: do not trust even our own decision parser
+            # if it is replaced or a future provider returns a new action.
+            raise ValueError("Unsupported visual agent action")
         actions += 1
         time.sleep(0.37)
     return (
