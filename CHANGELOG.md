@@ -21,3 +21,11 @@ See the microphone troubleshooting steps in README.md or README_RO.md after upda
 - Cloud proposals are revalidated against the local safe action catalog, previewed step by step, and saved only after explicit confirmation. Unsupported destructive/system actions do not receive fabricated replacements.
 - Improved recognition of Romanian command-creation phrases; existing safe single-action online macro proposals remain supported.
 - Added regression tests for cloud planning, spoken key sequences, safe rejection, saved macro persistence and Windows keyboard execution.
+
+### 0.2.0 — Speech recognition and stop-interrupt hotfix
+
+- Wait longer before finalizing microphone input: 2.3 seconds by default, with an adjustable 1.2–4.0 second interval in Settings → Voice input. This keeps dictated instructions together across normal thinking pauses.
+- Filter known false Whisper video-outro phrases such as «Спасибо за внимание» when they appear as standalone transcripts instead of treating them as user commands.
+- Detect short, exact spoken «Стоп», «Stop», «oprește-te» and equivalent stop words during actual voice output, and interrupt local Piper / Windows SAPI audio without forcefully terminating Qt threads.
+- Discard pending spoken replies on stop, and keep unrelated sounds or speech during playback from becoming new computer commands.
+- Expand the bounded audio queue for split Windows/Bluetooth recording callbacks; add microphone/interrupt regression tests.
