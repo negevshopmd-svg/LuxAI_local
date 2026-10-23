@@ -177,6 +177,7 @@ class MainWindow(QMainWindow):
         self._closed = False
         self._api_test_running = False
         self._api_test_requested_model = None
+        self._api_test_requested_key = None
         self._cloud_probe_signature = None
         self._cloud_verified_signature = None
         self._cloud_probe_failed = False
@@ -719,7 +720,7 @@ class MainWindow(QMainWindow):
         self.mic_status.setText(tr("Настройки сохранены.") + " " + self._provider_status_text())
 
     def test_online_api(self):
-        """Test the text currently in the key field (or stored key), without saving."""
+        """Verify the API; save provider, model and key only after test success."""
         if self._api_test_running or self._closed:
             return
         settings = self.settings_panel.collect()
@@ -727,7 +728,8 @@ class MainWindow(QMainWindow):
         if provider not in PROVIDERS:
             self.settings_panel.show_test_result("Выберите поставщика API.", False)
             return
-        # Do not save the field or update any persisted settings during a test.
+        # Do not persist a failed/unverified key. A successful test may
+        # save it automatically for use in the next app session.
         key = self.settings_panel.api_key_entry.text().strip() or get_api_key(provider)
         if not key:
             message = "Введите новый API-ключ или сохраните его перед проверкой."
@@ -736,6 +738,7 @@ class MainWindow(QMainWindow):
             return
         self._api_test_running = True
         self._api_test_requested_model = settings.get("online_model")
+        self._api_test_requested_key = key
         self.settings_panel.set_test_busy(True)
         self.mic_status.setText("Проверяю подключение к API…")
         threading.Thread(
@@ -767,6 +770,7 @@ class MainWindow(QMainWindow):
         if panel.online_provider.currentData() != provider:
             panel.set_test_busy(False)
             panel.refresh_key_status()
+            self._api_test_requested_key = None
             return
         if (
             valid and suggested_model and
@@ -774,7 +778,25 @@ class MainWindow(QMainWindow):
             suggested_model != panel.online_model.text().strip()
         ):
             panel.online_model.setText(suggested_model)
+        if valid:
+            # The UI might have changed while the network request was running.
+            # Persist only the exact key that actually passed validation.
+            current = panel.api_key_entry.text().strip() or get_api_key(provider)
+            if current == self._api_test_requested_key:
+                if self.save_settings() is False:
+                    panel.show_test_result(
+                        "Проверка прошла, но ключ НЕ удалось сохранить. Повторите сохранение.",
+                        False,
+                    )
+                    self._api_test_requested_key = None
+                    return
+                message += {
+                    "ru": " Ключ и настройки сохранены.",
+                    "en": " Key and settings saved.",
+                    "ro": " Cheia și setările au fost salvate.",
+                }.get(get_ui_language(), " Key and settings saved.")
         panel.show_test_result(message, valid)
+        self._api_test_requested_key = None
         self.mic_status.setText(message)
 
     def preview_voice(self):
