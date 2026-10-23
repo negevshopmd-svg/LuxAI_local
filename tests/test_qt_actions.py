@@ -20,25 +20,12 @@ else:
 
 
 def _load_main_class_for_mock_tests():
-    """Load UI routing without heavy microphone/screenshot libraries in CI."""
-    import sys
-    import types
-    from unittest import mock
+    """Use real application imports; mock only the action exercised by a test.
 
-    voice = types.ModuleType("luxai.voice")
-    voice.VoiceListener = object
-    voice.speak = lambda *args, **kwargs: True
-    screen = types.ModuleType("luxai.screen")
-    screen.capture_screen = lambda: None
-    screen.read_screen_text = lambda *args, **kwargs: ""
-    voices = types.ModuleType("luxai.voices")
-    voices.available_voices = lambda *args, **kwargs: []
-    with mock.patch.dict(sys.modules, {
-        "luxai.voice": voice,
-        "luxai.screen": screen,
-        "luxai.voices": voices,
-    }):
-        from main import MainWindow
+    Importing MainWindow does not open a microphone or load an AI model. Global
+    sys.modules stubs hid broken imports and leaked fake modules to later tests.
+    """
+    from main import MainWindow
     return MainWindow
 
 

@@ -13,7 +13,7 @@ import re
 import sys
 
 from luxai.fast_intents import strip_wake_name
-from luxai.file_actions import user_folder
+from luxai.file_actions import user_folder, split_file_location
 
 OPEN_FILE_RE = re.compile(
     r"^\s*(?:открой|откроет|откроешь|открывай|открыть|откройте|запусти|открой-ка|"
@@ -23,21 +23,6 @@ OPEN_FILE_RE = re.compile(
     r"fișierul|fisierul|fișier|fisier|folder)\s+(.+?)\s*$",
     flags=re.IGNORECASE,
 )
-TRAILING_PLACE = re.compile(
-    r"\s+(?:на\s+рабоч(?:ем|ий)\s+стол(?:е|а)|"
-    r"с\s+рабоч(?:его|ем)\s+стол(?:а|е)|"
-    r"на\s+(?:десктопе|desktop)|с\s+(?:десктопа|desktop)|"
-    r"в\s+(?:папке\s+)?(?:документах|загрузках)|"
-    r"из\s+(?:папки\s+)?(?:документов|загрузок)|"
-    r"on\s+(?:the\s+)?desktop|from\s+(?:the\s+)?desktop|"
-    r"de\s+pe\s+desktop)\s*[.!?]*$",
-    flags=re.IGNORECASE,
-)
-WINDOWS_FOLDER = {
-    "desktop": "desktop", "рабоч": "desktop",
-    "documents": "documents", "документ": "documents",
-    "downloads": "downloads", "загруз": "downloads",
-}
 # Shell/script files and Windows shortcuts may perform arbitrary operations.
 # Such files cannot be opened silently, even if the user asks for no prompts.
 EXECUTABLE_SUFFIXES = {
@@ -62,14 +47,8 @@ def parse_open_user_file(text: str) -> dict | None:
     match = OPEN_FILE_RE.fullmatch(cleaned)
     if not match:
         return None
-    name = match.group(1).strip()
-    low = name.casefold()
-    location = "desktop"
-    if re.search(r"документах|документов|\bdocuments\b", low):
-        location = "documents"
-    elif re.search(r"загрузках|загрузок|\bdownloads\b", low):
-        location = "downloads"
-    name = TRAILING_PLACE.sub("", name).strip(" \t.,!?\"'«»“”")
+    name, location = split_file_location(match.group(1).strip())
+    name = name.strip(" \t.,!?\"'«»“”")
     # Optional "in Word": this is not part of the file name; association
     # is decided by Windows after opening the existing document.
     name = re.sub(

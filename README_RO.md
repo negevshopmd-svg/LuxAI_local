@@ -36,3 +36,16 @@ Proiectul pornește implicit cu CPU pentru compatibilitate. Accelerarea AMD depi
 
 ## Ce urmează
 Acest starter oferă fundația. Analiza vizuală semantică reală necesită și un model multimodal local compatibil; deocamdată vederea e captură + OCR, nu „înțelegere vizuală” completă.
+# Actualizarea 0.2.0: microfon și căști wireless
+
+Închide Jarvis complet, rulează `Update.bat`, apoi pornește-l cu `run_windows.bat`. Noua versiune adaugă indicator de semnal, stări reale de captură, test de microfon fără Whisper, reîmprospătarea dispozitivelor, repornirea microfonului și salvarea diagnosticului. Modificările sunt descrise în [CHANGELOG.md](CHANGELOG.md).
+
+Dacă apare pornit, dar nu te aude:
+
+1. Deschide **Setări → Intrare vocală → Actualizează dispozitivele**. Pentru căști Bluetooth alege intrarea **Headset / Hands-Free**, nu ieșirea stereo. Pentru căști wireless USB, alege microfonul pe care îl vezi și la intrările de sunet Windows.
+2. Apasă **Testează microfonul** și vorbește patru secunde. Nu se încarcă un model AI și nu se salvează înregistrarea. Dacă indicatorul nu se mișcă, verifică butonul Mute, nivelul intrării și permisiunea pentru aplicații desktop: Windows 10 **Settings → Privacy → Microphone**; Windows 11 **Settings → Privacy & security → Microphone**. Închide aplicațiile care folosesc exclusiv microfonul.
+3. Dacă testul primește sunet, alege **Română** la limba recunoașterii, salvează setările și apasă **Repornește microfonul**. Încărcarea sau descărcarea inițială Whisper poate dura câteva minute. Indicatorul arată „primește sunet” numai după deschiderea fluxului audio. Un test solicitat în timpul încărcării așteaptă oprirea operației curente.
+4. Pentru voce slabă mărește moderat **Sensibilitatea microfonului**. Pentru semnal prea puternic, redu amplificarea microfonului în Windows.
+5. **Salvează diagnosticul** dacă problema rămâne. Raportul include dispozitivele, versiunile și ultimul test de microfon; nu include chei API, conversații, înregistrări sau căile modelelor personale. Numele dispozitivelor pot identifica modelul căștilor.
+
+Comutatorul indică setarea cerută; mesajul și nivelul indică starea reală. Testele automate nu pot confirma microfonul fizic și driverele de pe calculatorul tău. La o eroare de actualizare, codul anterior este restaurat automat când este posibil; bibliotecile modificate parțial pot necesita `install_windows.bat`.

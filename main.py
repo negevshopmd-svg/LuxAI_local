@@ -83,6 +83,8 @@ def card():
 class VoiceWorker(QThread):
     transcript = Signal(str)
     status = Signal(str)
+    state = Signal(str, object)
+    level = Signal(float)
     def __init__(self, cfg):
         super().__init__()
         self.cfg = cfg
@@ -92,7 +94,9 @@ class VoiceWorker(QThread):
             self.listener.stop()
 
     def run(self):
+        failed = False
         try:
+            from luxai.voice import ModelLoadError
             if self.isInterruptionRequested():
                 return
             model_choice = self.cfg.get("whisper_model_path") or self.cfg.get("whisper_model") or "small"
@@ -102,10 +106,15 @@ class VoiceWorker(QThread):
                 "language": self.cfg.get("language", "auto"),
                 "microphone_device": self.cfg.get("microphone_device", -1),
                 "beam_size": self.cfg.get("whisper_beam_size", 1),
+                "microphone_name": self.cfg.get("microphone_name", ""),
+                "microphone_hostapi": self.cfg.get("microphone_hostapi", ""),
+                "sensitivity": self.cfg.get("microphone_sensitivity", 1.0),
+                "status_callback": lambda event, details: self.state.emit(event, details),
+                "level_callback": self.level.emit,
             }
             try:
                 self.listener = VoiceListener(model_path=model_choice, **params)
-            except (OSError, RuntimeError, MemoryError, ValueError) as exc:
+            except ModelLoadError as exc:
                 if str(model_choice) == "small" or self.isInterruptionRequested():
                     raise
                 self.status.emit(
@@ -115,18 +124,49 @@ class VoiceWorker(QThread):
             if self.isInterruptionRequested():
                 self.listener.stop()
                 return
-            self.status.emit("Микрофон включён — локальное распознавание")
             for text in self.listener.listen():
                 if self.isInterruptionRequested():
                     break
                 if text:
                     self.transcript.emit(text)
         except Exception as e:
+            failed = True
             self.status.emit(f"Microfon/Whisper: {e}")
+            self.state.emit("error", {"message": str(e)})
         finally:
             if self.listener:
                 self.listener.stop()
-            self.status.emit("Микрофон выключен")
+            if not failed:
+                self.state.emit("stopped", {})
+
+
+class AudioDiagnosticsWorker(QThread):
+    completed = Signal(dict)
+    level = Signal(float)
+
+    def __init__(self, config, probe=False):
+        super().__init__()
+        self.config = dict(config)
+        self.probe = probe
+        self.stop_event = threading.Event()
+
+    def stop_capture(self):
+        self.stop_event.set()
+
+    def run(self):
+        try:
+            from luxai.diagnostics import collect_diagnostics, microphone_probe
+            report = collect_diagnostics(self.config)
+            if self.probe and not self.stop_event.is_set():
+                report["microphone_probe"] = microphone_probe(
+                    device=self.config.get("microphone_device", -1),
+                    microphone_name=self.config.get("microphone_name", ""),
+                    microphone_hostapi=self.config.get("microphone_hostapi", ""),
+                    duration=4.0, level_callback=self.level.emit, stop_event=self.stop_event,
+                )
+            self.completed.emit(report)
+        except Exception as exc:
+            self.completed.emit({"error": type(exc).__name__})
 
 class MainWindow(QMainWindow):
     online_plan_ready = Signal(str, object)
@@ -188,6 +228,12 @@ class MainWindow(QMainWindow):
         self._speech_thread = threading.Thread(target=self._speech_loop, daemon=True, name="JarvisSpeech")
         self._speech_thread.start()
         self.worker = None
+        self.audio_diagnostics_worker = None
+        self._pending_microphone_test = None
+        self._probe_resume_listener = False
+        self._audio_event = "stopped"
+        self._audio_details = {}
+        self._last_microphone_probe = None
         self.history = []
         self.nav_buttons = []
         self.pending_confirmation_dialog = None
@@ -245,6 +291,7 @@ class MainWindow(QMainWindow):
         self.apply_ui_language()
         self.show_page(0)
         self.mic_status.setText(self._provider_status_text())
+        self._on_audio_state("stopped", {})
         # Remember the last other foreground window while Jarvis is out of
         # focus; the screen panel itself must not become the click target.
         self._foreground_observer = QTimer(self)
@@ -316,6 +363,7 @@ class MainWindow(QMainWindow):
                 "Жарвис, перескажи выделенный текст"
             )
         )
+        self.home_page.microphone_test_button.clicked.connect(self.test_microphone)
         self.volume.valueChanged.connect(self.sync_volume)
         self.pages.addWidget(self.home_page)
 
@@ -478,6 +526,9 @@ class MainWindow(QMainWindow):
         self.language = self.settings_panel.language
         self.model_label = self.settings_panel.model_label
         self.pages.addWidget(self.settings_panel)
+        self.settings_panel.test_microphone.clicked.connect(self.test_microphone)
+        self.settings_panel.restart_microphone.clicked.connect(self.restart_microphone)
+        self.settings_panel.export_diagnostics.clicked.connect(self.export_diagnostics)
 
     def apply_ui_language(self):
         """Change UI language in-place without touching the voice/Whisper language."""
@@ -492,6 +543,8 @@ class MainWindow(QMainWindow):
         translate_widgets(self, language)
         self._update_cloud_indicator()
         self.show_page(self.pages.currentIndex())
+        if hasattr(self, "_audio_event"):
+            self._on_audio_state(self._audio_event, self._audio_details)
 
     def show_page(self, index):
         self.pages.setCurrentIndex(index)
@@ -706,10 +759,16 @@ class MainWindow(QMainWindow):
                 self.tray_icon.hide()
         changed_audio = any(
             old.get(k) != self.cfg.get(k)
-            for k in ("language", "microphone_device", "whisper_beam_size", "whisper_model", "whisper_model_path")
+            for k in ("language", "microphone_device", "microphone_name", "microphone_hostapi",
+                      "microphone_sensitivity", "whisper_beam_size", "whisper_model", "whisper_model_path")
         )
         enabled = self.cfg.get("microphone_enabled", True)
         if changed_audio or old.get("microphone_enabled", True) != enabled:
+            if not enabled:
+                if self._pending_microphone_test is not None:
+                    self._set_diagnostic_controls(True)
+                self._pending_microphone_test = None
+                self._probe_resume_listener = False
             self._listener_restart_pending = bool(enabled)
             self.stop_listener()
             if enabled:
@@ -718,6 +777,7 @@ class MainWindow(QMainWindow):
             self.worker.listener.prefix_enabled = self.cfg.get("prefix_enabled", False)
             self.worker.listener.prefix = self.cfg.get("wake_prefix", "Jarvis")
         self.mic_status.setText(tr("Настройки сохранены.") + " " + self._provider_status_text())
+        self._on_audio_state(self._audio_event, self._audio_details)
 
     def test_online_api(self):
         """Verify the API; save provider, model and key only after test success."""
@@ -965,30 +1025,242 @@ class MainWindow(QMainWindow):
         self.save_settings()
         self.apply_appearance()
 
+    def _on_audio_level(self, rms):
+        import math
+        if self._closed:
+            return
+        if self._audio_event in ("stopped", "error", "input_stalled"):
+            rms = 0.0
+        value = 0 if rms <= 0 else int(max(0, min(100, (20 * math.log10(max(rms, 1e-8)) + 70) / 0.7)))
+        self.home_page.microphone_level.setValue(value)
+        self.settings_panel.audio_level.setValue(value)
+
+    def _on_audio_state(self, event, details):
+        """Show capture readiness separately from the requested on/off switch."""
+        if self._closed:
+            return
+        self._audio_event, self._audio_details = event, dict(details or {})
+        messages = {
+            "stopped": "Микрофон выключен",
+            "loading_model": "Загрузка модели распознавания… Первый запуск может занять несколько минут.",
+            "model_ready": "Модель готова. Открытие микрофона…",
+            "listening": "Микрофон принимает звук",
+            "speech_started": "Речь обнаружена…",
+            "transcribing": "Распознавание речи…",
+            "no_speech": "Речь не распознана. Проверьте язык и уровень сигнала.",
+            "transcription_error": "Ошибка распознавания",
+            "input_warning": "Проблема аудиопотока",
+            "input_stalled": "Нет аудиоданных. Переподключите гарнитуру и перезапустите микрофон.",
+            "input_silent": "Звука нет. Проверьте вход Headset / Hands-Free, кнопку Mute и разрешения Windows.",
+            "error": "Микрофон не запущен",
+            "testing": "Проверка микрофона: говорите в течение четырёх секунд…",
+            "waiting_for_capture": "Ожидание завершения текущей загрузки или распознавания. Проверка начнётся после остановки микрофона.",
+            "probe_ok": "Микрофон слышит звук. Если команд нет, проверьте язык и модель Whisper.",
+            "probe_silent": "Звука нет. Проверьте вход Headset / Hands-Free, кнопку Mute и разрешения Windows.",
+            "probe_clipped": "Сигнал перегружен. Уменьшите усиление микрофона в Windows.",
+        }
+        message = tr(messages.get(event, "Проблема аудиопотока"))
+        detail = self._audio_details.get("message", "") if event in ("error", "transcription_error", "input_warning") else ""
+        if detail:
+            message += ": " + str(detail)[:400]
+        if event == "listening" and self._audio_details.get("device"):
+            message += ": " + str(self._audio_details["device"])
+        self.home_page.microphone_state.setText(message)
+        self.settings_panel.audio_status.setText(message)
+        if event in ("no_speech", "transcription_error", "error", "input_warning", "input_stalled", "input_silent", "probe_ok", "probe_silent", "probe_clipped"):
+            self.settings_panel.audio_feedback.setText(message)
+        elif event in ("speech_started", "testing"):
+            self.settings_panel.audio_feedback.clear()
+        live = event in ("listening", "speech_started", "transcribing", "no_speech", "transcription_error", "input_warning")
+        error = event in ("error", "input_stalled", "input_silent", "probe_silent", "probe_clipped")
+        self.header_mic_button.setText("◉" if live else "!" if error else "…" if event in ("loading_model", "model_ready", "testing", "waiting_for_capture") else "◌")
+        self.header_mic_button.setToolTip(message)
+        self.header_mic_button.setStyleSheet("color:" + ("#ef7777" if error else "#80c99b" if live else "#d8ba70") + ";")
+        if event in ("stopped", "error", "input_stalled"):
+            self._on_audio_level(0)
+
+    def restart_microphone(self):
+        if self._pending_microphone_test is not None:
+            self._set_diagnostic_controls(True)
+        self._pending_microphone_test = None
+        self.settings_panel.mic.setChecked(True)
+        self.header_mic_button.setChecked(True)
+        if self.save_settings() is False:
+            return
+        diagnostic = self.audio_diagnostics_worker
+        if diagnostic and diagnostic.isRunning():
+            self._probe_resume_listener = True
+            diagnostic.stop_capture()
+            return
+        self._listener_restart_pending = True
+        self.stop_listener()
+        if not self.worker or not self.worker.isRunning():
+            self.start_listener()
+
+    def test_microphone(self):
+        """Test the selected input without downloading or initializing Whisper."""
+        if self._closed or self._pending_microphone_test is not None or (self.audio_diagnostics_worker and self.audio_diagnostics_worker.isRunning()):
+            return
+        self._pending_microphone_test = self.settings_panel.collect()
+        self._probe_resume_listener = bool(self.worker and self.worker.isRunning())
+        self._listener_restart_pending = False
+        self._set_diagnostic_controls(False)
+        if self.worker and self.worker.isRunning():
+            self.stop_listener()
+            self._on_audio_state("waiting_for_capture", {})
+        else:
+            self._begin_microphone_test()
+
+    def _begin_microphone_test(self):
+        config = self._pending_microphone_test
+        self._pending_microphone_test = None
+        if config is None or self._closed:
+            return
+        self._on_audio_state("testing", {})
+        self._start_audio_diagnostics(config, probe=True)
+
+    def export_diagnostics(self):
+        if self._closed or self._pending_microphone_test is not None or (self.audio_diagnostics_worker and self.audio_diagnostics_worker.isRunning()):
+            return
+        self._start_audio_diagnostics(self.settings_panel.collect(), probe=False)
+
+    def _start_audio_diagnostics(self, config, probe):
+        if self._closed or (self.audio_diagnostics_worker and self.audio_diagnostics_worker.isRunning()):
+            return False
+        worker = AudioDiagnosticsWorker(config, probe=probe)
+        self.audio_diagnostics_worker = worker
+        worker.level.connect(self._on_diagnostic_level)
+        worker.completed.connect(self._on_audio_diagnostics)
+        worker.finished.connect(self._on_audio_diagnostics_finished)
+        self._set_diagnostic_controls(False)
+        worker.start()
+        return True
+
+    def _set_diagnostic_controls(self, enabled):
+        self.settings_panel.test_microphone.setEnabled(enabled)
+        self.home_page.microphone_test_button.setEnabled(enabled)
+        self.settings_panel.export_diagnostics.setEnabled(enabled)
+
+    def _on_diagnostic_level(self, rms):
+        if self.sender() is self.audio_diagnostics_worker:
+            self._on_audio_level(rms)
+
+    def _on_audio_diagnostics(self, report):
+        if self._closed:
+            return
+        worker = self.sender()
+        if worker is not self.audio_diagnostics_worker:
+            return
+        if worker.probe:
+            result = report.get("microphone_probe", {})
+            if result.get("cancelled"):
+                self._on_audio_state("stopped", {})
+                return
+            self._last_microphone_probe = dict(result)
+            self._last_microphone_probe["requested_endpoint"] = {
+                "index": worker.config.get("microphone_device", -1),
+                "name": worker.config.get("microphone_name", ""),
+                "hostapi": worker.config.get("microphone_hostapi", ""),
+            }
+            if not result.get("ok"):
+                self._on_audio_state("error", {"message": result.get("error") or report.get("error", "Audio input unavailable")})
+            elif result.get("silent"):
+                self._on_audio_state("probe_silent", {})
+            elif result.get("clipped"):
+                self._on_audio_state("probe_clipped", {})
+            else:
+                self._on_audio_state("probe_ok", {})
+        else:
+            if self._last_microphone_probe is not None:
+                report["last_microphone_probe"] = self._last_microphone_probe
+            path, _ = QFileDialog.getSaveFileName(self, tr("Сохранить диагностику"), "luxai-diagnostics.json", "JSON (*.json)")
+            if path:
+                try:
+                    Path(path).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+                except OSError:
+                    QMessageBox.warning(self, tr("Ошибка"), tr("Не удалось сохранить диагностику."))
+
+    def _on_audio_diagnostics_finished(self):
+        worker = self.sender()
+        if worker is not self.audio_diagnostics_worker:
+            return
+        self.audio_diagnostics_worker = None
+        worker.deleteLater()
+        self._set_diagnostic_controls(True)
+        if getattr(self, "_pending_close", False):
+            self._pending_close = False
+            QTimer.singleShot(0, self.close)
+        elif self._probe_resume_listener and not self._closed:
+            self._probe_resume_listener = False
+            if self.cfg.get("microphone_enabled", True):
+                QTimer.singleShot(0, self.start_listener)
+
     def toggle_mic(self, enabled):
         self.save_settings()
         if enabled:
             self.start_listener()
         else:
+            if self._pending_microphone_test is not None:
+                self._set_diagnostic_controls(True)
+            self._pending_microphone_test = None
+            self._probe_resume_listener = False
             self._listener_restart_pending = False
             self.stop_listener()
             self.mic_status.setText("●  Микрофон выключен")
 
     def start_listener(self):
+        if self._closed:
+            return
+        if self.audio_diagnostics_worker and self.audio_diagnostics_worker.isRunning():
+            self._probe_resume_listener = True
+            return
         if self.worker and self.worker.isRunning():
             self._listener_restart_pending = True
             return
-        self.save_settings()
+        if self.save_settings() is False:
+            return
         # Always pass the latest saved prefix settings to a newly started listener.
+        if not self.cfg.get("microphone_enabled", True):
+            self._listener_restart_pending = False
+            self._probe_resume_listener = False
+            self._on_audio_state("stopped", {})
+            return
         self._listener_restart_pending = False
         self.worker = VoiceWorker(dict(self.cfg))
         self.worker.finished.connect(self._on_listener_finished)
-        self.worker.transcript.connect(self.handle_voice)
-        self.worker.status.connect(self.mic_status.setText)
+        self.worker.transcript.connect(self._on_voice_transcript)
+        self.worker.status.connect(self._on_voice_status)
+        self.worker.state.connect(self._on_voice_state)
+        self.worker.level.connect(self._on_voice_level)
+        self._on_audio_state("loading_model", {})
         self.worker.start()
+
+    def _on_voice_transcript(self, text):
+        worker = self.sender()
+        if (not self._closed and worker is not None and worker is self.worker and not worker.isInterruptionRequested()
+                and self.cfg.get("microphone_enabled", True)):
+            self.handle_voice(text)
+
+    def _on_voice_status(self, message):
+        worker = self.sender()
+        if not self._closed and worker is not None and worker is self.worker and not worker.isInterruptionRequested():
+            self.mic_status.setText(message)
+
+    def _on_voice_state(self, event, details):
+        worker = self.sender()
+        if worker is not None and worker is self.worker and not worker.isInterruptionRequested():
+            self._on_audio_state(event, details)
+
+    def _on_voice_level(self, rms):
+        worker = self.sender()
+        if worker is not None and worker is self.worker and not worker.isInterruptionRequested():
+            self._on_audio_level(rms)
 
     def stop_listener(self):
         """Request safe stop; never terminate a thread inside PortAudio / CTranslate2."""
+        diagnostic = self.audio_diagnostics_worker
+        if diagnostic and diagnostic.isRunning():
+            diagnostic.stop_capture()
         worker = self.worker
         if worker and worker.isRunning():
             worker.requestInterruption()
@@ -997,15 +1269,20 @@ class MainWindow(QMainWindow):
             # Qt terminate() can crash native microphone/Whisper runtimes.
             if not worker.wait(250):
                 self.mic_status.setText("Микрофон завершает текущую обработку…")
+        self._on_audio_state("stopped", {})
 
     def _on_listener_finished(self):
         worker = self.sender()
         if worker is not self.worker:
             return
         self.worker = None
+        worker.deleteLater()
         if getattr(self, "_pending_close", False):
             self._pending_close = False
             QTimer.singleShot(0, self.close)
+            return
+        if self._pending_microphone_test is not None and not self._closed:
+            self._begin_microphone_test()
             return
         if getattr(self, "_listener_restart_pending", False) and not self._closed:
             self._listener_restart_pending = False
@@ -2089,7 +2366,8 @@ class MainWindow(QMainWindow):
             pass
         self._listener_restart_pending = False
         self.stop_listener()
-        if self.worker is not None and self.worker.isRunning():
+        diagnostic_busy = self.audio_diagnostics_worker is not None and self.audio_diagnostics_worker.isRunning()
+        if (self.worker is not None and self.worker.isRunning()) or diagnostic_busy:
             # Do not destroy a running Qt thread when closing the window.
             self._pending_close = True
             self.hide()

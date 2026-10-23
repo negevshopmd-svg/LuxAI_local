@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -11,6 +13,7 @@ import urllib.error
 import urllib.request
 import zipfile
 from datetime import datetime
+from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 
 OWNER = "negevshopmd-svg"
@@ -21,14 +24,17 @@ ROOT = Path(__file__).resolve().parent
 STATE_FILE = ROOT / ".luxai_update_state.json"
 BACKUP_ROOT = ROOT / "backups"
 MAX_DOWNLOAD_BYTES = 500 * 1024 * 1024
+MAX_EXTRACTED_BYTES = 1024 * 1024 * 1024
+MAX_ARCHIVE_FILES = 20000
 
 # These are local/user data. They are never copied over by an update.
 PRESERVE_NAMES = {
     "models", "model", ".venv", "venv", ".git", "__pycache__",
     "backups", "downloads", "logs", "config.json", "settings.json",
-    ".env", "updater_config.json", ".luxai_secrets", ".luxai_data", "online_agent.log", "voice_error.log",
+    ".env", "config.local.json", "updater_config.json", ".luxai_secrets", ".luxai_data",
+    ".luxai_update_state.json", "online_agent.log", "voice_error.log",
 }
-SKIP_SUFFIXES = {".pyc", ".pyo"}
+SKIP_SUFFIXES = {".pyc", ".pyo", ".onnx", ".gguf"}
 
 
 def request_json(url: str) -> dict:
@@ -56,24 +62,173 @@ def download(url: str, target: Path) -> None:
 
 
 def is_preserved(rel: Path) -> bool:
-    return any(part in PRESERVE_NAMES for part in rel.parts) or rel.suffix.lower() in SKIP_SUFFIXES
+    # Windows paths are case insensitive. A differently-cased ZIP entry must
+    # never overwrite the user's settings, environment or model files.
+    return (
+        any(part.casefold() in PRESERVE_NAMES or part.casefold().startswith((".venv.old-", ".env."))
+            for part in rel.parts)
+        or rel.suffix.lower() in SKIP_SUFFIXES
+        or rel.name.casefold().endswith(".onnx.json")
+    )
 
 
 def safe_extract(zip_path: Path, destination: Path) -> None:
     base = destination.resolve()
     with zipfile.ZipFile(zip_path) as zf:
-        bad = zf.testzip()
-        if bad:
-            raise RuntimeError(f"Arhivă ZIP deteriorată: {bad}")
-        for info in zf.infolist():
+        entries = zf.infolist()
+        # Check declared sizes BEFORE testzip decompresses the archive.
+        if len(entries) > MAX_ARCHIVE_FILES or sum(info.file_size for info in entries) > MAX_EXTRACTED_BYTES:
+            raise RuntimeError("Arhiva depășește limita de fișiere sau de date extrase.")
+        seen = set()
+        for info in entries:
             name = info.filename.replace("\\", "/")
             p = PurePosixPath(name)
-            if p.is_absolute() or ".." in p.parts:
+            key = str(p).casefold()
+            reserved = {"con", "prn", "aux", "nul"} | {f"{prefix}{n}" for prefix in ("com", "lpt") for n in range(1, 10)}
+            if (
+                p.is_absolute() or ".." in p.parts or not p.parts
+                or any(":" in part or part.endswith((".", " ")) or part.split(".")[0].casefold() in reserved for part in p.parts)
+                or stat.S_ISLNK(info.external_attr >> 16)
+                or key in seen
+            ):
                 raise RuntimeError(f"Cale nesigură în arhivă: {name}")
+            seen.add(key)
             target = (destination / Path(*p.parts)).resolve()
             if target != base and base not in target.parents:
                 raise RuntimeError(f"Cale în afara directorului temporar: {name}")
+        bad = zf.testzip()
+        if bad:
+            raise RuntimeError(f"Arhivă ZIP deteriorată: {bad}")
         zf.extractall(destination)
+
+
+def validate_staged_source(source: Path) -> None:
+    """Catch incomplete archives and Python syntax errors before replacing code."""
+    for name in ("main.py", "launch_windows.py", "requirements.txt", "luxai/voice.py", "run_windows.bat"):
+        if not (source / name).is_file():
+            raise RuntimeError(f"Arhiva este incompletă: lipsește {name}.")
+    for path in source.rglob("*.py"):
+        if not is_preserved(path.relative_to(source)):
+            compile(path.read_bytes(), str(path), "exec")
+
+
+def _destination(rel: Path) -> Path:
+    """Never follow a local junction/symlink when overwriting application code."""
+    root = ROOT.resolve()
+    dest = ROOT / rel
+    resolved = dest.resolve()
+    if resolved == root or root not in resolved.parents:
+        raise RuntimeError(f"Destinație în afara proiectului: {rel}")
+    for path in (dest, *dest.parents):
+        if path == ROOT:
+            break
+        if path.is_symlink() or (hasattr(path, "is_junction") and path.is_junction()):
+            raise RuntimeError(f"Nu suprascriu o legătură locală: {rel}")
+    if dest.exists() and not dest.is_file():
+        raise RuntimeError(f"Destinația nu este un fișier: {rel}")
+    return dest
+
+
+def _atomic_copy(source: Path, destination: Path) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    fd, name = tempfile.mkstemp(prefix=".luxai-update-", dir=destination.parent)
+    os.close(fd)
+    temporary = Path(name)
+    try:
+        shutil.copy2(source, temporary)
+        os.replace(temporary, destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+@contextmanager
+def file_transaction(files: list[tuple[Path, Path]], backup: Path):
+    """Restore replaced code and remove new code if any update step fails.
+
+    Package installation is a separate operation: pip cannot roll back all
+    package changes. On dependency failure we restore the previous code and
+    explicitly direct the user to the installer to repair the environment.
+    """
+    destinations = [(src, rel, _destination(rel)) for src, rel in files]
+    originals = set()
+    for _, rel, dest in destinations:
+        if dest.is_file():
+            saved = backup / rel
+            saved.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(dest, saved)
+            originals.add(rel)
+    backup.mkdir(parents=True, exist_ok=True)
+    (backup.parent / (backup.name + ".manifest.json")).write_text(json.dumps({
+        "overwritten": [str(rel) for rel in sorted(originals)],
+        "new": [str(rel) for _, rel, _ in destinations if rel not in originals],
+    }, indent=2), encoding="utf-8")
+    applied = []
+    try:
+        for src, rel, dest in destinations:
+            _atomic_copy(src, dest)
+            applied.append((rel, dest))
+        yield
+    except BaseException as failure:
+        errors = []
+        for rel, dest in reversed(applied):
+            try:
+                if rel in originals:
+                    _atomic_copy(backup / rel, dest)
+                else:
+                    dest.unlink(missing_ok=True)
+            except OSError as exc:
+                errors.append(f"{rel}: {type(exc).__name__}")
+        if errors:
+            print(f"Restaurarea automată nu este completă. Backup: {backup}")
+            print("; ".join(errors))
+            raise RuntimeError(f"Restaurare incompletă; fișierele originale sunt în {backup}") from failure
+        else:
+            print("Fișierele programului au fost restaurate la versiunea anterioară.")
+        raise
+
+
+def write_update_state(latest_sha: str) -> None:
+    fd, name = tempfile.mkstemp(prefix=".luxai-state-", dir=ROOT)
+    os.close(fd)
+    temporary = Path(name)
+    try:
+        temporary.write_text(json.dumps({"commit": latest_sha, "branch": BRANCH}, indent=2), encoding="utf-8")
+        os.replace(temporary, STATE_FILE)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+@contextmanager
+def updater_lock():
+    """An OS lock is released even after a crash; stale PID files cannot block updates."""
+    lock_path = ROOT / ".luxai_data" / "updater.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+b") as handle:
+        if sys.platform == "win32":
+            import msvcrt
+            if not lock_path.stat().st_size:
+                handle.write(b"\0")
+                handle.flush()
+            handle.seek(0)
+            try:
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            except OSError as exc:
+                raise RuntimeError("O altă actualizare LuxAI rulează deja. Așteaptă să termine.") from exc
+            try:
+                yield
+            finally:
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError as exc:
+                raise RuntimeError("O altă actualizare LuxAI rulează deja. Așteaptă să termine.") from exc
+            try:
+                yield
+            finally:
+                fcntl.flock(handle, fcntl.LOCK_UN)
 
 
 def validate_staged_requirements(source: Path) -> None:
@@ -141,6 +296,7 @@ def upgrade_dependencies() -> bool:
          "--upgrade", "--upgrade-strategy", "only-if-needed", "--prefer-binary",
          "--retries", "2", "--timeout", "30", "-r", str(requirements)],
         [str(python), "-m", "pip", "check"],
+        [str(python), "-c", "import main; from luxai.voice import VoiceListener; print('LuxAI imports OK')"],
     ]
     for command in commands:
         try:
@@ -180,21 +336,23 @@ def ensure_local_ai_backend() -> bool:
     return False
 
 
-def main() -> int:
+def perform_update() -> int:
     print("=== Lux AI | Actualizare automată din GitHub ===")
     print(f"Repository: https://github.com/{OWNER}/{REPO}")
     try:
         commit = request_json(f"{API}/commits/{BRANCH}")
         latest_sha = commit.get("sha", "")
-        if not latest_sha:
-            raise RuntimeError("GitHub nu a returnat hash-ul commitului.")
+        if not isinstance(latest_sha, str) or len(latest_sha) != 40 or any(c not in "0123456789abcdef" for c in latest_sha):
+            raise RuntimeError("GitHub nu a returnat un hash valid al commitului.")
         state = {}
         if STATE_FILE.exists():
             try:
                 state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
                 state = {}
-        current_sha = state.get("commit", "")
+        current_sha = state.get("commit", "") if isinstance(state, dict) else ""
+        if not isinstance(current_sha, str) or len(current_sha) != 40 or any(c not in "0123456789abcdef" for c in current_sha):
+            current_sha = ""
         print(f"Commit instalat: {current_sha[:12] if current_sha else 'necunoscut'}")
         print(f"Commit GitHub:   {latest_sha[:12]}")
         if current_sha == latest_sha:
@@ -224,8 +382,7 @@ def main() -> int:
             if len(roots) != 1:
                 raise RuntimeError("Structura arhivei GitHub nu este cea așteptată.")
             source = roots[0]
-            if not (source / "main.py").is_file():
-                raise RuntimeError("Arhiva nu conține main.py; nu modific nimic.")
+            validate_staged_source(source)
             # Validate requirements from the downloaded copy, BEFORE backup
             # and BEFORE replacing anything in the user's installation.
             validate_staged_requirements(source)
@@ -240,63 +397,49 @@ def main() -> int:
             if not files:
                 raise RuntimeError("Nu am găsit fișiere de proiect pentru actualizare.")
 
-            stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
             backup = BACKUP_ROOT / f"{stamp}-{(current_sha[:12] if current_sha else 'initial')}"
-            # Create a backup only for files that will actually be overwritten.
-            for src, rel in files:
-                dest = ROOT / rel
-                if dest.is_file():
-                    backup_file = backup / rel
-                    backup_file.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(dest, backup_file)
-
             print(f"Aplic {len(files)} fișiere...")
-            for src, rel in files:
-                dest = ROOT / rel
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(src, dest)
-
-            # Direct dependencies are rechecked against the index, even when
-            # already installed. Stay within requirements and Python markers.
-            if not upgrade_dependencies():
-                raise RuntimeError(
-                    "Fișierele au fost actualizate, dar bibliotecile nu au putut "
-                    "fi aduse la cele mai noi versiuni compatibile. Rulează install_windows.bat."
-                )
-
-            # Refresh the optional llama.cpp backend automatically as well.
-            # Failure does not invalidate the core application update.
-            ensure_local_ai_backend()
-
-            # Prepare Tesseract OCR on the user's PC as part of the
-            # normal updater. The verified Windows installer and both
-            # language models live in .luxai_data/ocr, a preserved local
-            # folder. Failure does not corrupt the already-updated app.
-            ocr_ready = True
-            if sys.platform == "win32" and (ROOT / ".venv" / "Scripts" / "python.exe").is_file():
-                print("Pregatesc OCR integrat: Tesseract + rusa/engleza...")
-                venv_python = ROOT / ".venv" / "Scripts" / "python.exe"
-                try:
-                    ocr_result = subprocess.run(
-                        [str(venv_python), "-m", "luxai.ocr_setup"],
-                        cwd=str(ROOT), check=False, timeout=330,
-                    )
-                    ocr_ready = ocr_result.returncode == 0
-                except (subprocess.TimeoutExpired, OSError) as exc:
-                    ocr_ready = False
-                    print(f"OCR: eroare la instalare: {exc}")
-                if not ocr_ready:
-                    print(
-                        "AVERTISMENT: Codul Jarvis este actualizat, dar "
-                        "Tesseract nu s-a instalat. Verifica internetul "
-                        "sau permisiunile Windows. Instalarea OCR se "
-                        "reincearca si automat din aplicatie."
+            with file_transaction(files, backup):
+                # Direct dependencies are rechecked against the index, even when
+                # already installed. Stay within requirements and Python markers.
+                if not upgrade_dependencies():
+                    raise RuntimeError(
+                        "Actualizarea bibliotecilor a eșuat. Se încearcă restaurarea codului anterior; "
+                        "pip poate să fi modificat parțial mediul .venv. "
+                        "Rulează install_windows.bat pentru repararea bibliotecilor."
                     )
 
-            STATE_FILE.write_text(
-                json.dumps({"commit": latest_sha, "branch": BRANCH}, indent=2),
-                encoding="utf-8",
-            )
+                # Refresh the optional llama.cpp backend automatically as well.
+                # Failure does not invalidate the core application update.
+                ensure_local_ai_backend()
+
+                # Prepare Tesseract OCR on the user's PC as part of the
+                # normal updater. The verified Windows installer and both
+                # language models live in .luxai_data/ocr, a preserved local
+                # folder. Failure does not corrupt the already-updated app.
+                ocr_ready = True
+                if sys.platform == "win32" and (ROOT / ".venv" / "Scripts" / "python.exe").is_file():
+                    print("Pregatesc OCR integrat: Tesseract + rusa/engleza...")
+                    venv_python = ROOT / ".venv" / "Scripts" / "python.exe"
+                    try:
+                        ocr_result = subprocess.run(
+                            [str(venv_python), "-m", "luxai.ocr_setup"],
+                            cwd=str(ROOT), check=False, timeout=330,
+                        )
+                        ocr_ready = ocr_result.returncode == 0
+                    except (subprocess.TimeoutExpired, OSError) as exc:
+                        ocr_ready = False
+                        print(f"OCR: eroare la instalare: {exc}")
+                    if not ocr_ready:
+                        print(
+                            "AVERTISMENT: Codul Jarvis este actualizat, dar "
+                            "Tesseract nu s-a instalat. Verifica internetul "
+                            "sau permisiunile Windows. Instalarea OCR se "
+                            "reincearca si automat din aplicatie."
+                        )
+
+                write_update_state(latest_sha)
             print("Actualizare instalată cu succes.")
             if backup.exists():
                 print(f"Backup pentru fișierele suprascrise: {backup}")
@@ -308,8 +451,17 @@ def main() -> int:
             return 0
         except Exception as e:
             print(f"Actualizarea a eșuat: {e}")
-            print("Nu au fost șterse fișiere. Verifică folderul backups dacă s-au copiat deja fișiere.")
+            print("Datele personale au fost păstrate. Verifică mesajele de restaurare și folderul backups.")
             return 1
+
+
+def main() -> int:
+    try:
+        with updater_lock():
+            return perform_update()
+    except (OSError, RuntimeError) as exc:
+        print(f"Actualizarea nu poate porni: {exc}")
+        return 1
 
 
 if __name__ == "__main__":

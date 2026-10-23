@@ -385,6 +385,34 @@ API-ключ|||API key|||Cheie API
 Успешная проверка автоматически сохраняет ключ и модель. Запрос может расходовать квоту.|||Successful testing saves the key and model automatically. The request may use API quota.|||Verificarea reușită salvează automat cheia și modelul. Cererea poate consuma din cota API.
 Проверить облачный AI|||Check cloud AI|||Verifică AI cloud
 Ключ и связь с API будут проверены через выбранный провайдер.|||The key and API connection will be tested with the selected provider.|||Cheia și conexiunea API vor fi verificate la furnizorul ales.
+Чувствительность микрофона|||Microphone sensitivity|||Sensibilitatea microfonului
+100% — обычная; увеличьте для тихого микрофона. Это не меняет громкость Windows.|||100% is normal; increase for quiet microphones. This does not change Windows volume.|||100% este normal; mărește pentru un microfon slab. Volumul Windows nu se schimbă.
+Уровень микрофона|||Microphone level|||Nivelul microfonului
+Говорите: шкала должна двигаться.|||Speak: the meter should move.|||Vorbește: indicatorul trebuie să se miște.
+Обновить устройства|||Refresh devices|||Actualizează dispozitivele
+Проверить микрофон|||Test microphone|||Testează microfonul
+Перезапустить микрофон|||Restart microphone|||Repornește microfonul
+Сохранить диагностику|||Save diagnostics|||Salvează diagnosticul
+Не удалось сохранить диагностику.|||Could not save diagnostics.|||Diagnosticul nu a putut fi salvat.
+Для беспроводной гарнитуры выберите вход Headset / Hands-Free. Разрешите доступ к микрофону для настольных приложений в Windows.|||For wireless headsets, select the Headset / Hands-Free input. Allow microphone access for desktop apps in Windows.|||Pentru căști wireless, alege intrarea Headset / Hands-Free. Permite accesul la microfon pentru aplicațiile desktop în Windows.
+Недоступен|||Unavailable|||Indisponibil
+Устройства обновлены. Выберите вход и сохраните настройки.|||Devices refreshed. Select an input and save settings.|||Dispozitivele au fost actualizate. Alege intrarea și salvează setările.
+Микрофон выключен|||Microphone off|||Microfon oprit
+Загрузка модели распознавания… Первый запуск может занять несколько минут.|||Loading speech model… First launch may take several minutes.|||Se încarcă modelul vocal… Prima pornire poate dura câteva minute.
+Модель готова. Открытие микрофона…|||Model ready. Opening microphone…|||Model pregătit. Se deschide microfonul…
+Микрофон принимает звук|||Microphone is receiving audio|||Microfonul primește sunet
+Речь обнаружена…|||Speech detected…|||Voce detectată…
+Распознавание речи…|||Transcribing speech…|||Se recunoaște vocea…
+Речь не распознана. Проверьте язык и уровень сигнала.|||No speech recognized. Check the language and signal level.|||Nu s-a recunoscut vorbirea. Verifică limba și nivelul semnalului.
+Ошибка распознавания|||Speech recognition error|||Eroare de recunoaștere vocală
+Проблема аудиопотока|||Audio stream problem|||Problemă cu fluxul audio
+Нет аудиоданных. Переподключите гарнитуру и перезапустите микрофон.|||No audio data. Reconnect the headset and restart the microphone.|||Nu sunt date audio. Reconectează căștile și repornește microfonul.
+Микрофон не запущен|||Microphone could not start|||Microfonul nu a pornit
+Проверка микрофона: говорите в течение четырёх секунд…|||Testing microphone: speak for four seconds…|||Test microfon: vorbește timp de patru secunde…
+Ожидание завершения текущей загрузки или распознавания. Проверка начнётся после остановки микрофона.|||Waiting for the current download or transcription to finish. Testing will begin after the microphone stops.|||Se așteaptă terminarea încărcării sau recunoașterii curente. Testul începe după oprirea microfonului.
+Микрофон слышит звук. Если команд нет, проверьте язык и модель Whisper.|||Microphone receives sound. If commands are missing, check the language and Whisper model.|||Microfonul primește sunet. Dacă nu apar comenzi, verifică limba și modelul Whisper.
+Звука нет. Проверьте вход Headset / Hands-Free, кнопку Mute и разрешения Windows.|||No sound. Check the Headset / Hands-Free input, Mute switch and Windows permissions.|||Nu este sunet. Verifică intrarea Headset / Hands-Free, butonul Mute și permisiunile Windows.
+Сигнал перегружен. Уменьшите усиление микрофона в Windows.|||Signal is clipping. Reduce microphone gain in Windows.|||Semnalul este prea puternic. Redu amplificarea microfonului în Windows.
 """
 
 # Every entry is a Russian source string and an English/Romanian translation.

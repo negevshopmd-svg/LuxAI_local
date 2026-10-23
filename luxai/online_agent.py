@@ -187,7 +187,10 @@ class OnlinePlanner:
                 })
             except (TypeError, ValueError):
                 return None
-            target = valid_file["target"]
+            return {
+                "action": action, "target": valid_file["target"],
+                "location": valid_file["location"], "reply": reply.strip(),
+            }
         if action == "set_system_volume":
             if not target.isdecimal() or not 0 <= int(target) <= 100:
                 return None

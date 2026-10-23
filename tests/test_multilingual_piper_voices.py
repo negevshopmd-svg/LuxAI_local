@@ -20,6 +20,9 @@ class PiperLanguageVoicesTests(unittest.TestCase):
         self.patch_voices = mock.patch.object(voices, "VOICES_DIR", self.root)
         self.patch_voices.start()
         self.addCleanup(self.patch_voices.stop)
+        patch_log = mock.patch.object(voices, "ERROR_LOG", self.root / "voice_error.log")
+        patch_log.start()
+        self.addCleanup(patch_log.stop)
         self.manager = voices.VoiceManager()
         self.manager.config = {}
 

@@ -2,6 +2,20 @@
 
 Voice-controlled Jarvis assistant for Windows 10/11 (64-bit).
 
+## 0.2.0: microphone and wireless headset checks
+
+Close Jarvis, run `Update.bat`, and reopen it with `run_windows.bat`. Version 0.2.0 adds an actual capture-status indicator, live microphone level, device refresh, an independent microphone test, and diagnostic export. See [CHANGELOG.md](CHANGELOG.md) for the reliability fixes.
+
+If Jarvis appears enabled but does not hear you:
+
+1. Open **Settings → Voice input** and click **Refresh devices** after connecting your headset. Select its **recording/input endpoint**, commonly named **Headset / Hands-Free**, rather than the stereo playback endpoint. USB wireless headsets can use a different name; choose the endpoint shown as an input in Windows Sound settings.
+2. Click **Test microphone** and speak for four seconds. This measures input without loading Whisper or saving a recording. The meter should move. No sound means checking the headset's Mute switch, Windows input level, and **Settings → Privacy → Microphone → Allow desktop apps to access your microphone** (Windows 10); Windows 11 uses **Privacy & security → Microphone**. Another app may hold the device exclusively.
+3. If the test receives sound, select the correct recognition language (**Română** for Romanian), save settings, and use **Restart microphone**. The status first reports model loading and shows capture as active only after the driver opens. Initial model download/loading can take minutes; the input test can wait for an in-progress model operation to stop.
+4. Increase **Microphone sensitivity** moderately for quiet input. This changes speech detection, not Windows gain. Lower Windows microphone gain if the test reports clipping.
+5. If a failure persists, use **Save diagnostics**. The report lists runtime/dependency versions and device status and retains the last microphone-test result; it excludes API keys, conversations, recordings and personal model paths. Device names can identify your headset. A command-line report is also available: `.venv\Scripts\python.exe -m luxai.diagnostics`; append `--microphone --device INDEX` only to explicitly test an input.
+
+The on/off switch expresses your requested setting; the status and meter show actual capture. A working input test confirms audio capture, not Whisper accuracy. Windows 10/11 wireless drivers, headset firmware and Bluetooth profiles still need checking on the actual PC.
+
 ## Install on a new computer
 
 1. Download and extract the full repository ZIP.

@@ -17,6 +17,7 @@ class WindowsStartupTests(unittest.TestCase):
             with (
                 mock.patch.object(launch_windows, "ROOT", root),
                 mock.patch.object(launch_windows, "STARTUP_LOG", root / "logs" / "startup_error.log"),
+                mock.patch.object(launch_windows, "enable_native_crash_log"),
                 mock.patch("launch_windows.os.chdir"),
                 mock.patch.dict(sys.modules, {"main": fake}),
                 mock.patch.object(launch_windows, "_show_failure_dialog") as dialog,
