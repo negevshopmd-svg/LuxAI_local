@@ -88,7 +88,8 @@ def click_discord_microphone_by_screenshot(planner, *, mode="toggle", cancelled=
     initial_state, point = inspect_discord_microphone(planner, before)
     check_cancel()
 
-    if mode in {"mute", "unmute"} and initial_state == mode.replace("unmute", "unmuted").replace("mute", "muted"):
+    desired_state = {"mute": "muted", "unmute": "unmuted"}.get(mode)
+    if desired_state is not None and initial_state == desired_state:
         state_word = "выключен" if mode == "mute" else "включён"
         return f"Микрофон Discord уже {state_word} (по текущему снимку). Ничего не нажимал."
 
