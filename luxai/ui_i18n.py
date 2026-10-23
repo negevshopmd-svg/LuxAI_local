@@ -372,6 +372,8 @@ PowerShell — вводить только вручную|||PowerShell — enter
 API-ключ|||API key|||Cheie API
 Выберите tesseract.exe|||Select tesseract.exe|||Alege tesseract.exe
 Исполняемые файлы (*.exe)|||Executable files (*.exe)|||Fișiere executabile (*.exe)
+Автоматически — по языку ответа|||Automatic — match reply language|||Automat — după limba răspunsului
+✓ установлен, ↓ загрузится при первом использовании. Голос выбирается по языку ответа, а не по языку интерфейса.|||✓ installed, ↓ downloads on first use. Voice follows reply language, not interface language.|||✓ instalat, ↓ se descarcă la prima utilizare. Vocea urmează limba răspunsului, nu limba interfeței.
 """
 
 # Every entry is a Russian source string and an English/Romanian translation.
