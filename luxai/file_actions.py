@@ -16,6 +16,35 @@ ALLOWED_EXTENSIONS = {".txt", ".md", ".csv", ".json", ".log"}
 DEFAULT_FILE = "Новый файл.txt"
 DEFAULT_FOLDER = "Новая папка"
 
+# Placement is a clause, not any mention of "documents" in a filename. Keep
+# this shared by open and rename so a requested folder never becomes part of
+# the basename or silently redirects an operation to Desktop.
+_FILE_LOCATION_SUFFIX = re.compile(
+    r"\s+(?:"
+    r"(?P<desktop>на\s+рабоч(?:ем|ий)\s+стол(?:е|а)|"
+    r"с\s+рабоч(?:его|ем)\s+стол(?:а|е)|"
+    r"на\s+(?:десктопе|desktop)|с\s+(?:десктопа|desktop)|"
+    r"(?:on|from)\s+(?:the\s+)?desktop|(?:de\s+pe|pe|din)\s+(?:desktop|birou))|"
+    r"(?P<documents>в\s+(?:папке\s+)?(?:документах|документы)|"
+    r"из\s+(?:папки\s+)?документов|"
+    r"(?:in|from)\s+(?:the\s+)?documents(?:\s+folder)?|"
+    r"(?:din|în|in)\s+(?:(?:folderul|dosarul)\s+)?documente)|"
+    r"(?P<downloads>в\s+(?:папке\s+)?(?:загрузках|загрузки)|"
+    r"из\s+(?:папки\s+)?загрузок|"
+    r"(?:in|from)\s+(?:the\s+)?downloads(?:\s+folder)?|"
+    r"(?:din|în|in)\s+(?:(?:folderul|dosarul)\s+)?(?:descărcări|descarcari))"
+    r")\s*[.!?]*$",
+    flags=re.IGNORECASE,
+)
+
+
+def split_file_location(text: str) -> tuple[str, str]:
+    """Separate a supported trailing placement clause from a spoken name."""
+    match = _FILE_LOCATION_SUFFIX.search(text)
+    if match is None:
+        return text, "desktop"
+    return text[:match.start()].rstrip(), match.lastgroup
+
 
 def user_folder(location="desktop", home: Path | None = None) -> Path:
     location = str(location or "").lower()
@@ -106,33 +135,44 @@ def list_user_items(location="desktop", home=None) -> list[str]:
 
 def parse_file_intent(text: str) -> dict | None:
     """Recognize short Russian filesystem requests without loading a model."""
-    text = str(text or "").strip()
+    text, place = split_file_location(str(text or "").strip())
     lowered = text.casefold()
-    place = "desktop"
-    if re.search(r"(?:документ[а-я]*|documents|documente)", lowered):
-        place = "documents"
-    elif re.search(r"(?:загрузк[а-я]*|downloads|descărcări)", lowered):
-        place = "downloads"
-    if re.search(r"(?:рабоч(?:ем|ий) стол(?:е|а)|desktop|десктоп)", lowered):
-        place = "desktop"
 
     # Allow bounded offline rename/Recycle Bin workflows, with a real
     # last-created file context. If the command is incomplete, ask for a
     # filename rather than claiming a write happened.
-    if re.search(r"\b(?:переименуй|переименовать|переименуйте|rename)\b", lowered):
-        match = re.search(
-            r"\b(?:в|на|как|to)\s+([A-Za-zА-Яа-яЁё0-9_.() -]{1,100})\s*$",
-            text, flags=re.IGNORECASE,
+    rename = re.search(
+        r"\b(?:переименуй|переименовать|переименуйте|rename|redenumește|redenumeste)\b\s+(.+)",
+        text, flags=re.IGNORECASE,
+    )
+    if rename:
+        body = re.sub(
+            r"^(?:файл|файлик|file|fișierul|fisierul|fișier|fisier)\s+",
+            "", rename.group(1), flags=re.IGNORECASE,
+        )
+        match = re.fullmatch(
+            r'''("[^"]+"|'[^']+'|«[^»]+»|“[^”]+”|.+?)\s+(?:в|на|как|to|în|in)\s+(.+?)\s*[.!?]*''',
+            body, flags=re.IGNORECASE,
         )
         if not match:
             return None
-        destination = match.group(1).strip(" .,!?:")
+        original, destination = match.groups()
+        original = original.strip(" '\"«»“”")
+        # Only a genuine pronoun can refer to the last created item. An
+        # explicitly named source must never be replaced by that context.
+        pronouns = {
+            "его", "её", "ее", "это", "этот", "этот файл", "созданный файл",
+            "последний файл", "it", "this file", "that file", "acesta", "acest fișier",
+        }
         try:
-            target = safe_name(destination)
+            if not original:
+                return None
+            source = "@last" if original.casefold() in pronouns else safe_name(original, is_folder=True)
+            target = safe_name(destination.strip(" .,!?:"))
         except ValueError:
             return None
         return {
-            "action": "rename_file", "source": "@last", "target": target,
+            "action": "rename_file", "source": source, "target": target,
             "location": place, "content": "",
         }
 

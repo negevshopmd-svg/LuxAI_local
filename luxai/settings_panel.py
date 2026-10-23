@@ -14,7 +14,7 @@ from luxai.api_providers import PROVIDERS
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QScrollArea, QSlider, QSpinBox, QVBoxLayout, QWidget, QMessageBox, QFileDialog,
+    QPushButton, QProgressBar, QScrollArea, QSlider, QSpinBox, QVBoxLayout, QWidget, QMessageBox, QFileDialog,
 )
 
 from luxai.voices import available_voices
@@ -200,16 +200,40 @@ class SettingsPanel(QWidget):
         )
         self._row(panel, "Язык распознавания", "Также задаёт язык ответов ассистента.", self.language)
 
-        devices = [("По умолчанию", -1)]
-        try:
-            import sounddevice as sd
-            for i, item in enumerate(sd.query_devices()):
-                if item["max_input_channels"] > 0:
-                    devices.append((f"{i}: {item['name']}", i))
-        except Exception:
-            pass
-        self.mic_device = self._combo(devices, int(self.cfg.get("microphone_device", -1)))
+        self.mic_device = QComboBox()
+        self._microphone_metadata = {}
+        self.refresh_microphone_devices(initial=True)
         self._row(panel, "Микрофон", "Выберите устройство входа.", self.mic_device)
+        self.mic_sensitivity = self._slider(float(self.cfg.get("microphone_sensitivity", 1.0)) * 100, 50, 300)
+        self._row(panel, "Чувствительность микрофона",
+                  "100% — обычная; увеличьте для тихого микрофона. Это не меняет громкость Windows.",
+                  self.mic_sensitivity)
+        self.audio_level = QProgressBar()
+        self.audio_level.setRange(0, 100)
+        self.audio_level.setValue(0)
+        self.audio_level.setFormat("%p%")
+        self.audio_level.setAccessibleName(tr("Уровень микрофона"))
+        self._row(panel, "Уровень микрофона", "Говорите: шкала должна двигаться.", self.audio_level)
+        self.audio_status = QLabel(tr("Микрофон выключен"))
+        self.audio_status.setWordWrap(True)
+        panel.addWidget(self.audio_status)
+        self.audio_feedback = QLabel("")
+        self.audio_feedback.setWordWrap(True)
+        panel.addWidget(self.audio_feedback)
+        self.refresh_mics = QPushButton("Обновить устройства")
+        self.refresh_mics.clicked.connect(lambda: self.refresh_microphone_devices())
+        self.test_microphone = QPushButton("Проверить микрофон")
+        self.restart_microphone = QPushButton("Перезапустить микрофон")
+        self.export_diagnostics = QPushButton("Сохранить диагностику")
+        for pair in ((self.refresh_mics, self.test_microphone), (self.restart_microphone, self.export_diagnostics)):
+            controls = QHBoxLayout()
+            for button in pair:
+                controls.addWidget(button)
+            panel.addLayout(controls)
+        headset_hint = QLabel("Для беспроводной гарнитуры выберите вход Headset / Hands-Free. Разрешите доступ к микрофону для настольных приложений в Windows.")
+        headset_hint.setWordWrap(True)
+        headset_hint.setObjectName("Muted")
+        panel.addWidget(headset_hint)
 
         self.mic = self._toggle(self.cfg.get("microphone_enabled", True))
         self._row(panel, "Автовключение микрофона", "Начать прослушивание после запуска приложения.", self.mic)
@@ -217,6 +241,57 @@ class SettingsPanel(QWidget):
         self._row(panel, "Обращение (префикс)", "Реагировать только после имени Jarvis.", self.prefix)
         self.prefix_text = QLineEdit(self.cfg.get("wake_prefix", "джарвис, жарвис, jarvis"))
         self._row(panel, "Варианты обращения", "Несколько вариантов через запятую.", self.prefix_text)
+
+    def refresh_microphone_devices(self, initial=False):
+        """Keep a selected headset by its endpoint and host API after reconnecting."""
+        if initial:
+            selected = self.cfg.get("microphone_device", -1)
+            name = self.cfg.get("microphone_name", "")
+            host = self.cfg.get("microphone_hostapi", "")
+        else:
+            selected = self.mic_device.currentData()
+            info = self._selected_microphone_metadata()
+            name, host = info.get("name", ""), info.get("hostapi", "")
+        try:
+            selected = int(selected) if selected is not None else -1
+        except (TypeError, ValueError):
+            selected = -1
+        self.mic_device.clear()
+        self.mic_device.addItem(tr("По умолчанию"), -1)
+        self.mic_device.setItemData(0, {"name": "", "hostapi": ""}, Qt.ItemDataRole.UserRole + 1)
+        self._microphone_metadata = {-1: {"name": "", "hostapi": ""}}
+        error = ""
+        try:
+            import sounddevice as sd
+            hosts = sd.query_hostapis()
+            for index, device in enumerate(sd.query_devices()):
+                if device["max_input_channels"] <= 0:
+                    continue
+                host_name = str(hosts[device["hostapi"]]["name"])
+                self._microphone_metadata[index] = {"name": str(device["name"]), "hostapi": host_name}
+                self.mic_device.addItem(f"{device['name']} — {host_name}", index)
+                self.mic_device.setItemData(self.mic_device.count() - 1, self._microphone_metadata[index], Qt.ItemDataRole.UserRole + 1)
+            if name:
+                matches = [i for i, item in self._microphone_metadata.items()
+                           if item["name"] == name and (not host or item["hostapi"] == host)]
+                # Existing index is valid only if it still identifies this endpoint.
+                if selected not in matches:
+                    selected = matches[0] if len(matches) == 1 else None
+        except Exception as exc:
+            error = type(exc).__name__
+        position = self.mic_device.findData(selected)
+        if position < 0:
+            # Preserve an unavailable selection; never save a different mic implicitly.
+            unavailable_index = self.cfg.get("microphone_device", -1) if selected is None else selected
+            position = self.mic_device.count()
+            self.mic_device.addItem(tr("Недоступен") + ": " + (name or str(unavailable_index)), unavailable_index)
+            self.mic_device.setItemData(position, {"name": name, "hostapi": host}, Qt.ItemDataRole.UserRole + 1)
+        self.mic_device.setCurrentIndex(position)
+        if hasattr(self, "audio_status"):
+            self.audio_status.setText(tr("Устройства обновлены. Выберите вход и сохраните настройки.") + (f" ({error})" if error else ""))
+
+    def _selected_microphone_metadata(self):
+        return self.mic_device.itemData(self.mic_device.currentIndex(), Qt.ItemDataRole.UserRole + 1) or {}
 
     def _build_voice_output(self):
         panel = self._section("Озвучка", "Голос, которым звучат ответы Jarvis.")
@@ -747,6 +822,9 @@ class SettingsPanel(QWidget):
             "whisper_beam_size": self.recognition_quality.currentData(),
             "whisper_model": self.whisper_model.currentData(),
             "microphone_device": self.mic_device.currentData(),
+            "microphone_name": self._selected_microphone_metadata().get("name", ""),
+            "microphone_hostapi": self._selected_microphone_metadata().get("hostapi", ""),
+            "microphone_sensitivity": self.mic_sensitivity.value() / 100.0,
             "tts_enabled": self.tts.isChecked(),
             "voice_id": self.voice_id.currentData(),
             "response_language": self.response_language.currentData(),

@@ -1,18 +1,9 @@
 """Regression tests for missing local GGUF backend and response languages."""
 import sys
 import tempfile
-import types
 import unittest
 from pathlib import Path
 from unittest import mock
-
-sys.modules.setdefault(
-    "luxai.screen",
-    types.SimpleNamespace(
-        capture_screen=lambda: None,
-        read_screen_text=lambda *args, **kwargs: "",
-    ),
-)
 
 from luxai.agent import LocalAgent
 from luxai.fast_intents import strip_wake_name

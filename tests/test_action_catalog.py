@@ -1,18 +1,8 @@
 """Safe action catalog and multi-step persistent command tests (no GUI needed)."""
 import tempfile
 import unittest
-import sys
-import types
 from pathlib import Path
 from unittest import mock
-
-sys.modules.setdefault(
-    "luxai.screen",
-    types.SimpleNamespace(
-        capture_screen=lambda: None,
-        read_screen_text=lambda *args, **kwargs: "",
-    ),
-)
 
 from luxai.action_catalog import CATALOG, CATEGORIES, describe_step, validate_step
 from luxai.command_registry import CommandRegistry

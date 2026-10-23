@@ -5,8 +5,6 @@ No real OCR executable is downloaded or executed by these tests.
 """
 from pathlib import Path
 import hashlib
-import importlib.util
-import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -173,27 +171,65 @@ class BundledOCRTests(unittest.TestCase):
                 self.assertIn("--tessdata-dir", cmd)
                 self.assertIn(str(data), cmd)
 
-    @unittest.skipUnless(
-        importlib.util.find_spec("PIL") is not None,
-        "Pillow is installed in the user's .venv, but not in minimal CI",
-    )
     def test_first_ocr_includes_both_languages_without_manual_configuration(self):
         from PIL import Image
 
-        with tempfile.TemporaryDirectory() as folder:
+        with tempfile.TemporaryDirectory(prefix="luxai OCR ") as folder:
             image_path = Path(folder) / "shot.png"
             Image.new("RGB", (10, 10)).save(image_path)
             fake_exe = Path(folder) / "Tesseract-OCR" / "tesseract.exe"
             data = Path(folder) / "tessdata"
             with mock.patch("luxai.screen.ensure_tesseract", return_value=(fake_exe, data)), mock.patch(
-                "luxai.screen.pytesseract.image_to_string",
-                return_value="Привет! Hello!",
+                "luxai.screen.subprocess.run",
+                return_value=mock.Mock(returncode=0, stdout="Привет! Hello!", stderr=""),
             ) as ocr:
                 result = screen.read_screen_text(str(image_path))
             self.assertIn("Привет", result)
-            self.assertEqual(ocr.call_args.kwargs["lang"], "rus+eng")
-            self.assertIn("--tessdata-dir", ocr.call_args.kwargs["config"])
-            self.assertIn(str(data), ocr.call_args.kwargs["config"])
+            ocr.assert_called_once()
+            self.assertEqual(ocr.call_args.args[0], [
+                str(fake_exe), str(image_path), "stdout",
+                "--tessdata-dir", str(data), "-l", "rus+eng",
+            ])
+            self.assertFalse(ocr.call_args.kwargs["shell"])
+            self.assertEqual(ocr.call_args.kwargs["encoding"], "utf-8")
+            self.assertEqual(ocr.call_args.kwargs["timeout"], 45)
+
+    def test_failed_ocr_process_does_not_report_success(self):
+        with tempfile.TemporaryDirectory() as folder:
+            image = Path(folder) / "shot.png"
+            image.write_bytes(b"image bytes consumed only by mocked Tesseract")
+            binary, data = Path(folder) / "tesseract.exe", Path(folder) / "tessdata"
+            with mock.patch.object(screen, "ensure_tesseract", return_value=(binary, data)), mock.patch(
+                "luxai.screen.subprocess.run",
+                return_value=mock.Mock(returncode=1, stdout="", stderr="Invalid image file"),
+            ) as process:
+                with self.assertRaisesRegex(RuntimeError, "Invalid image file"):
+                    screen.read_screen_text(image)
+            process.assert_called_once()
+
+    def test_missing_russian_data_uses_english_and_reports_degradation(self):
+        with tempfile.TemporaryDirectory() as folder:
+            image = Path(folder) / "shot.png"
+            image.write_bytes(b"image bytes consumed only by mocked Tesseract")
+            binary, data = Path(folder) / "tesseract.exe", Path(folder) / "tessdata"
+            with mock.patch.object(screen, "ensure_tesseract", return_value=(binary, data)), mock.patch(
+                "luxai.screen.subprocess.run", side_effect=[
+                    mock.Mock(returncode=1, stdout="", stderr="Error opening rus.traineddata"),
+                    mock.Mock(returncode=0, stdout="Hello!", stderr=""),
+                ],
+            ) as process:
+                result = screen.read_screen_text(image)
+            self.assertIn("Hello!", result)
+            self.assertIn("Не удалось запустить русскую OCR-модель", result)
+            self.assertEqual(process.call_count, 2)
+            self.assertEqual(process.call_args_list[0].args[0][-2:], ["-l", "rus+eng"])
+            self.assertEqual(process.call_args_list[1].args[0][-2:], ["-l", "eng"])
+
+    def test_missing_image_does_not_run_engine_or_download(self):
+        with tempfile.TemporaryDirectory() as folder, mock.patch.object(screen, "ensure_tesseract") as setup:
+            with self.assertRaises(FileNotFoundError):
+                screen.read_screen_text(Path(folder) / "missing.png")
+            setup.assert_not_called()
 
     def test_win_installer_and_updater_schedule_ocr(self):
         root = Path(__file__).resolve().parents[1]

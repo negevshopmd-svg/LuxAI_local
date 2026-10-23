@@ -1,13 +1,6 @@
 """Fast-response tests: no GGUF or online API should be used for these phrases."""
-import sys
-import types
 import unittest
 from unittest import mock
-
-sys.modules.setdefault(
-    "luxai.screen",
-    types.SimpleNamespace(capture_screen=lambda: None, read_screen_text=lambda *a, **k: ""),
-)
 
 from luxai.agent import LocalAgent
 from luxai.fast_intents import strip_wake_name, quick_reply, has_launch_verb

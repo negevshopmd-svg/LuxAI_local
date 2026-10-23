@@ -1,18 +1,7 @@
 """Offline-safe routing tests. Run: python -m unittest discover -s tests -v"""
 import re
-import sys
-import types
 import unittest
 from unittest import mock
-
-# Unit tests of text routing do not require screen-capture libraries.
-sys.modules.setdefault(
-    "luxai.screen",
-    types.SimpleNamespace(
-        capture_screen=lambda: None,
-        read_screen_text=lambda *args, **kwargs: "",
-    ),
-)
 
 from luxai.agent import LocalAgent
 from luxai.online_agent import OnlinePlanner

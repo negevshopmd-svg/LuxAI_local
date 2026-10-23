@@ -10,7 +10,7 @@ import math
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
-    QCheckBox, QFrame, QHBoxLayout, QLabel, QPushButton, QSlider, QTextEdit,
+    QCheckBox, QFrame, QHBoxLayout, QLabel, QProgressBar, QPushButton, QScrollArea, QSlider, QTextEdit,
     QVBoxLayout, QWidget,
 )
 
@@ -186,6 +186,17 @@ class HomePage(QWidget):
         self.volume_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         volume.addWidget(self.volume_label)
         control_layout.addLayout(volume)
+        self.microphone_state = QLabel("Микрофон выключен")
+        self.microphone_state.setWordWrap(True)
+        control_layout.addWidget(self.microphone_state)
+        self.microphone_level = QProgressBar()
+        self.microphone_level.setRange(0, 100)
+        self.microphone_level.setValue(0)
+        self.microphone_level.setFormat("%p%")
+        self.microphone_level.setAccessibleName("Уровень микрофона")
+        control_layout.addWidget(self.microphone_level)
+        self.microphone_test_button = QPushButton("Проверить микрофон")
+        control_layout.addWidget(self.microphone_test_button)
         self.screen_assist_button = QPushButton("▣  Посмотреть кнопки на экране")
         self.screen_assist_button.setObjectName("ScreenAssistButton")
         self.screen_assist_button.setToolTip(
@@ -207,7 +218,12 @@ class HomePage(QWidget):
         control_layout.addStretch(1)
         left.addWidget(control_card, 2)
 
-        root.addWidget(column, 5)
+        controls_scroll = QScrollArea()
+        controls_scroll.setWidgetResizable(True)
+        controls_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        controls_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        controls_scroll.setWidget(column)
+        root.addWidget(controls_scroll, 5)
         self.avatar = OrbVisual()
         root.addWidget(self.avatar, 5)
 

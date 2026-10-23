@@ -57,7 +57,9 @@ class ProviderTests(unittest.TestCase):
     def test_keys_isolated_by_provider(self):
         # Simulate DPAPI in CI on Linux without ever handling real credentials.
         with tempfile.TemporaryDirectory() as folder:
-            with mock.patch.object(secure_keys, "SECRET_DIR", Path(folder)), mock.patch.object(
+            with mock.patch.object(secure_keys, "SECRET_DIR", Path(folder) / "current"), mock.patch.object(
+                secure_keys, "LEGACY_SECRET_DIR", Path(folder) / "legacy"
+            ), mock.patch.object(
                 secure_keys, "_win_crypt", side_effect=lambda data, encrypt: data[::-1]
             ), mock.patch.dict(os.environ, {
                 "OPENAI_API_KEY": "",
