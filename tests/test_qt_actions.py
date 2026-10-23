@@ -48,6 +48,13 @@ class QtActionTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
+    def test_home_has_selected_text_summary_button(self):
+        from luxai.ui_home import HomePage
+        home = HomePage({"voice_volume": 80})
+        self.assertTrue(home.selection_summary_button.isEnabled())
+        self.assertIn("Пересказать выделенный текст", home.selection_summary_button.text())
+        home.close()
+
     def test_selected_text_summary_routes_before_cloud_and_screen_ocr(self):
         import types
         from unittest import mock
