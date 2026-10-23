@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QPushButton, QScrollArea, QSpinBox, QVBoxLayout, QWidget, QSizePolicy,
 )
 
-from luxai.action_catalog import CATALOG, CATEGORIES, HOTKEYS, validate_step
+from luxai.action_catalog import CATALOG, CATEGORIES, HOTKEYS, SINGLE_KEYS, validate_step
 from luxai.command_registry import APP_TARGETS
 from luxai.file_actions import ALLOWED_LOCATIONS
 from luxai.steam_games import GAMES
@@ -216,6 +216,12 @@ class ActionOptionsDialog(QDialog):
                 self.target.addItem(title, identifier)
             self._choose(self.target, self.current_step.get("target"))
             form.addRow("Игра Steam", self.target)
+        elif action == "press_key":
+            self.target = QComboBox()
+            for key in sorted(SINGLE_KEYS):
+                self.target.addItem(key.upper(), key)
+            self._choose(self.target, self.current_step.get("target"))
+            form.addRow("Клавиша", self.target)
         elif action == "hotkey":
             self.target = QComboBox()
             for shortcut in HOTKEYS:

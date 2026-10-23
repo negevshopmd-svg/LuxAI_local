@@ -30,6 +30,7 @@ from luxai.ocr_setup import ensure_tesseract, find_tesseract, language_data_read
 from luxai.websites import website_plan
 from luxai.voice_files import parse_open_user_file
 from luxai.voice_shortcuts import keyboard_action_plan, command_capabilities_reply
+from luxai.voice_actions import parse_action_sequence
 from luxai.selection import (
     selected_text_intent, copy_selected_text, finish_selected_copy,
     extractive_fallback,
@@ -1297,8 +1298,9 @@ class MainWindow(QMainWindow):
                 return
 
             # Hotkeys and command-editor capabilities are known locally.
+            voice_steps = parse_action_sequence(text)
             keyboard = keyboard_action_plan(text)
-            if keyboard is not None:
+            if voice_steps is not None or keyboard is not None:
                 # Only target the currently focused external application.
                 if self.isActiveWindow():
                     answer = (
@@ -1306,10 +1308,15 @@ class MainWindow(QMainWindow):
                         "В окно самого Jarvis клавиши не отправляются."
                     )
                 else:
+                    steps = voice_steps if voice_steps is not None else [keyboard]
+                    if len(steps) > 1:
+                        self._current_route = "локальные голосовые действия"
+                        self._run_saved_steps(text, steps)
+                        return
                     answer = self.agent.execute_plan(
-                        text, keyboard, confirm_callback=self.confirm_action,
-                    ) or "Клавиша не нажата."
-                self._current_route = "локальная клавиатура"
+                        text, steps[0], confirm_callback=self.confirm_action,
+                    ) or "Действие не выполнено."
+                self._current_route = "локальная клавиатура и мышь"
                 self._resolved_command(text, answer)
                 return
             capabilities = command_capabilities_reply(text)

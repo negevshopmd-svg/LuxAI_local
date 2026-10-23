@@ -34,9 +34,11 @@ _ACTIONS = [
     ("run_powershell", "Запуск", "Выполнить команду PowerShell", "Только сохранённая вручную команда; обязательное подтверждение", True),
     ("type_text", "Клавиши", "Ввести текст", "Печатает указанный текст в активном окне", True),
     ("hotkey", "Клавиши", "Нажать клавишу или сочетание", "Выбираемое сочетание из безопасного списка", True),
+    ("press_key", "Клавиши", "Нажать одну клавишу", "Буквы, цифры и стандартные клавиши", True),
     ("press_enter", "Клавиши", "Нажать Enter", "Отправляет Enter в активное окно", True),
     ("save_document", "Клавиши", "Сохранить (Ctrl+S)", "Отправляет Ctrl+S в активное окно", True),
     ("mouse_double_click", "Мышь", "Двойной клик", "Двойной щелчок левой кнопкой", True),
+    ("mouse_right_click", "Мышь", "Правый клик", "Щелчок правой кнопкой мыши", True),
     ("mouse_click", "Мышь", "Левый клик", "Нажимает левую кнопку мыши", True),
     ("mouse_scroll", "Мышь", "Клик колесом / прокрутка", "Прокрутка колеса мыши", True),
     ("mouse_move", "Мышь", "Переместить курсор", "Перемещает курсор к координатам экрана", True),
@@ -92,9 +94,12 @@ HOTKEYS = {
     "win+d": ("win", "d"),
 }
 
+SINGLE_KEYS = set("abcdefghijklmnopqrstuvwxyz0123456789") | {"enter", "space", "tab", "esc", "backspace", "delete", "insert", "home", "end", "up", "down", "left", "right", "pageup", "pagedown"} | {f"f{i}" for i in range(1, 13)}
+HOTKEYS.update({f"ctrl+{key}": ("ctrl", key) for key in "abcdefghijklmnopqrstuvwxyz"})
+
 NO_TARGET = {
     "time", "minimize_windows", "press_enter", "save_document",
-    "mouse_click", "mouse_double_click", "volume_up", "volume_down",
+    "mouse_click", "mouse_right_click", "mouse_double_click", "volume_up", "volume_down",
     "lock_screen", "list_files", "speak_ready", "speak_done", "noop",
     "mouse_middle_click", "monitor_on", "monitor_off", "sleep_pc", "tray_minimize",
 }
@@ -222,6 +227,10 @@ def validate_step(raw):
         if any(ord(ch) < 32 for ch in target):
             raise ValueError("Неверный поисковый запрос")
         result["target"] = target.strip()
+    elif action == "press_key":
+        if target not in SINGLE_KEYS:
+            raise ValueError("Неизвестная клавиша")
+        result["target"] = target
     elif action == "hotkey":
         if target not in HOTKEYS:
             raise ValueError("Выберите разрешённое сочетание клавиш")
