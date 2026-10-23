@@ -17,6 +17,17 @@ import urllib.request
 from luxai.fast_intents import strip_wake_name
 
 
+def validate_research_topic(value: object) -> str:
+    if not isinstance(value, str):
+        raise ValueError("Тема должна быть текстом")
+    topic = " ".join(value.strip().split())
+    if not 2 <= len(topic) <= 60 or not re.fullmatch(
+        r"[\w\- ]{2,60}", topic, re.UNICODE,
+    ) or any(ord(c) < 32 for c in value):
+        raise ValueError("Укажите безопасную тему исследования")
+    return topic
+
+
 def detect_research_notepad(text: str) -> str | None:
     phrase = strip_wake_name(str(text or "")).strip()
     lower = phrase.casefold()
@@ -37,9 +48,10 @@ def detect_research_notepad(text: str) -> str | None:
     if not match:
         return None
     topic = " ".join(match.group(1).split())
-    if any(c in topic for c in "\\/:*?\"<>|") or len(topic) > 60:
+    try:
+        return validate_research_topic(topic)
+    except ValueError:
         return None
-    return topic
 
 
 def _research_three_facts(topic: str) -> tuple[str, str]:
@@ -128,8 +140,7 @@ def _focus_notepad_window() -> int:
 
 def write_researched_facts_to_notepad(topic: str, *, cancelled=None) -> str:
     """Open Notepad, type three sourced sentences and copy them via hotkeys."""
-    if not 2 <= len(topic) <= 60:
-        raise ValueError("Неправильная тема исследования")
+    topic = validate_research_topic(topic)
     from luxai.windows_apps import launch_installed_app
     from luxai.desktop_actions import _type_unicode_windows
     from luxai.screen_interact import _foreground_hwnd
