@@ -51,3 +51,9 @@ See the microphone troubleshooting steps in README.md or README_RO.md after upda
 - Detect short, exact spoken «Стоп», «Stop», «oprește-te» and equivalent stop words during actual voice output, and interrupt local Piper / Windows SAPI audio without forcefully terminating Qt threads.
 - Discard pending spoken replies on stop, and keep unrelated sounds or speech during playback from becoming new computer commands.
 - Expand the bounded audio queue for split Windows/Bluetooth recording callbacks; add microphone/interrupt regression tests.
+
+### 0.2.0 — Discord Whisper transcript / contact display-name hotfix
+
+- Correct routing for the spoken transcript `Откроете Скопт ... найдите пользователя Старый Бог ... краткое содержимое` and similar complete multi-stage screenshot requests; no partial execution or generic-chat refusal.
+- Support exact two-to-four-word Discord display names in the visual-review workflow, while requiring unambiguous Quick Switcher and chat-header verification.
+- If the chat application cannot be recognized with confidence, reject the whole task instead of allowing a partially generated cloud macro. Maintain explicit screenshot consent and zero send actions.
