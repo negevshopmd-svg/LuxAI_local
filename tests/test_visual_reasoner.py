@@ -181,6 +181,21 @@ class FeedbackRoutingUITests(unittest.TestCase):
         run.assert_called_once_with(phrase)
         macro.assert_not_called()
 
+    def test_stale_learned_open_app_cannot_override_full_gui_request(self):
+        window = self.make_window()
+        phrase = "Жарвис, открой Discord и нажми на значок настроек канала"
+        window.command_registry.match = mock.Mock(return_value={
+            "action": "open_app", "target": "discord",
+            "learned": True, "steps": [],
+        })
+        with (
+            mock.patch.object(window, "_start_visual_reasoner") as visual,
+            mock.patch.object(window, "_execute_registered") as stale,
+        ):
+            window.run_command(phrase)
+        visual.assert_called_once_with(phrase)
+        stale.assert_not_called()
+
     def test_discord_sending_is_not_delegated_to_unrestricted_mouse_agent(self):
         import main
         window = self.make_window()
