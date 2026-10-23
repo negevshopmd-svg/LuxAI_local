@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
 )
 
 from luxai.action_catalog import CATALOG, describe_step, validate_step
-from luxai.ui_i18n import get_ui_language, translate_widgets
+from luxai.ui_i18n import get_ui_language, translate_widgets, tr
 from luxai.ui_action_picker import ActionPicker, ActionOptionsDialog
 
 
@@ -160,7 +160,12 @@ class CommandEditor(QDialog):
     def _refresh_steps(self, selected=None):
         self.actions_list.clear()
         for i, step in enumerate(self.steps, 1):
-            item = QListWidgetItem(f"{i}.  {describe_step(step)}")
+            raw_title = CATALOG[step["action"]]["title"]
+            description = tr(raw_title, get_ui_language())
+            if step.get("target"):
+                target = str(step["target"])
+                description += ": " + (target[:45] + "..." if len(target) > 48 else target)
+            item = QListWidgetItem(f"{i}.  {description}")
             self.actions_list.addItem(item)
         if self._legacy:
             note = QListWidgetItem(
