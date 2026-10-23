@@ -84,10 +84,10 @@ def validate_generated_macro(proposal: object) -> dict | None:
             # Do not turn apparently harmless GUI typing + Enter into a
             # generated terminal command. Manual editor commands stay separate.
             value = valid["target"]
-            if "\\n" in value or "\\r" in value or re.match(
-                r"(?i)^\\s*(?:cmd(?:\\.exe)?|powershell(?:\\.exe)?|pwsh|"
-                r"reg(?:\\.exe)?|del|erase|format|rm|remove-item|"
-                r"shutdown|taskkill|curl|wget|python(?:w?\\.exe)?)\\b", value
+            if "\n" in value or "\r" in value or re.match(
+                r"(?i)^\s*(?:cmd(?:\.exe)?|powershell(?:\.exe)?|pwsh|"
+                r"reg(?:\.exe)?|del|erase|format|rm|remove-item|"
+                r"shutdown|taskkill|curl|wget|python(?:w?\.exe)?)\b", value
             ):
                 return None
         validated.append(valid)
