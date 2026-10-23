@@ -185,6 +185,7 @@ class DiscordDraftTests(unittest.TestCase):
     def test_declining_ambiguous_contact_never_clicks_or_types(self):
         from luxai.discord_contact_vision import VisibleContact
         with (
+            mock.patch.dict(sys.modules, {"pyautogui": types.SimpleNamespace(hotkey=mock.Mock())}),
             mock.patch("luxai.discord_research.get_wikipedia_summary",
                        return_value=("text", "url")),
             mock.patch("luxai.discord_research.find_discord_window", return_value=42),
