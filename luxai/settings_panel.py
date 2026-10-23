@@ -33,13 +33,14 @@ class SettingsPanel(QWidget):
         ("Система", "Автозапуск и сворачивание"),
     )
 
-    def __init__(self, config, on_save, on_pick_model, on_test_voice, on_test_online=None):
+    def __init__(self, config, on_save, on_pick_model, on_test_voice, on_test_online=None, on_install_local_ai=None):
         super().__init__()
         self.cfg = dict(config)
         self.on_save = on_save
         self.on_pick_model = on_pick_model
         self.on_test_voice = on_test_voice
         self.on_test_online = on_test_online
+        self.on_install_local_ai = on_install_local_ai
         self.sections = []
         self.section_buttons = []
 
@@ -512,6 +513,10 @@ class SettingsPanel(QWidget):
         refresh = QPushButton("Обновить список моделей")
         refresh.clicked.connect(self.refresh_local_models)
         panel.addWidget(refresh)
+        if self.on_install_local_ai is not None:
+            install = QPushButton("Установить локальный AI-движок (llama-cpp-python)")
+            install.clicked.connect(self.on_install_local_ai)
+            panel.addWidget(install)
 
     def _refresh_local_models(self):
         from luxai.local_models import available_models, resolve_model_path, format_model
