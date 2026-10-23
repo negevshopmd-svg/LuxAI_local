@@ -31,6 +31,7 @@ _ACTIONS = [
     ("discord_research_dm", "Программа", "Найти факты и написать в Discord", "Wikipedia → поиск @пользователя в Discord → черновик → подтверждение отправки", True),
     ("discord_screen_review", "Программа", "Найти человека в Discord и пересказать снимок", "Открыть Discord → два локальных снимка → подтверждённый пользователь → резюме", True),
     ("discord_open_dm", "Программа", "Открыть контакт Discord", "Найти контакт по снимку, открыть и проверить заголовок чата", True),
+    ("discord_send_text", "Программа", "Подготовить Discord DM", "Проверить адресата и черновик, затем спросить разрешение на отправку", True),
     ("research_notepad_facts", "Программа", "Три факта в Блокнот", "Wikipedia → три подтверждённых предложения → Блокнот → копировать", True),
     ("open_user_file", "Файлы", "Открыть файл по имени", "Ищет на рабочем столе, в Документах или Загрузках и открывает через Windows", True),
     ("open_website", "Запуск", "Открыть сайт", "Открывает указанный HTTPS-сайт в браузере", True),
@@ -154,7 +155,11 @@ def validate_step(raw):
     from luxai.file_actions import ALLOWED_LOCATIONS, safe_name
     from luxai.steam_games import GAMES
     from luxai.command_registry import APP_TARGETS  # lazy, avoids import loop
-    if action == "research_notepad_facts":
+    if action == "discord_send_text":
+        from luxai.discord_research import validate_discord_text_target
+        person, body = validate_discord_text_target(target)
+        result["target"] = person + "||" + body
+    elif action == "research_notepad_facts":
         from luxai.research_notepad import validate_research_topic
         result["target"] = validate_research_topic(target)
     elif action in ("discord_screen_review", "discord_open_dm"):
