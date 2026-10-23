@@ -1678,6 +1678,14 @@ class MainWindow(QMainWindow):
                 "en": "The optional llama-cpp-python module is missing. Simple commands still work.",
                 "ro": "Lipsește modulul opțional llama-cpp-python. Comenzile simple funcționează.",
             }[language]
+        if isinstance(exc, ModuleNotFoundError):
+            package = str(exc.name or "unknown")[:80]
+            message = {
+                "ru": f"Отсутствует модуль {package}. Запустите install_windows.bat для восстановления зависимостей.",
+                "en": f"Missing module {package}. Run install_windows.bat to repair dependencies.",
+                "ro": f"Lipsește modulul {package}. Rulează install_windows.bat pentru repararea dependențelor.",
+            }
+            return message[language]
         return f"{prefix}: {exc}"
 
     def _resolved_command(self, text, answer):
