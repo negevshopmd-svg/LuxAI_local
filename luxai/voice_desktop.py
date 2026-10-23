@@ -38,7 +38,9 @@ DISCORD_MIC = re.compile(
     re.I,
 )
 DISCORD_MUTE = re.compile(
-    r"\b(?:выключи|отключи|отключить|заглуши|замьюти|замутить|mute|заглушить)\b",
+    # Whisper frequently produces "выключу" instead of "выключи".
+    r"\b(?:выключ\w*|отключ\w*|заглуш\w*|замьют\w*|замут\w*|mute|"
+    r"приглуш\w*)\b",
     re.I,
 )
 
@@ -79,6 +81,10 @@ def wants_screen_read(text: str) -> bool:
 
 def wants_discord_mic_mute(text: str) -> bool:
     t = strip_wake_name(text)
+    # Do not consume a visual click request: that has a different meaning
+    # from the Discord global hotkey and requires screenshot validation.
+    if wants_discord_mic_visual_click(text):
+        return False
     return bool(DISCORD_MIC.search(t) and DISCORD_MUTE.search(t))
 
 

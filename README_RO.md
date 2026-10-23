@@ -106,3 +106,13 @@ Pentru fluxul Wikipedia → Discord, Jarvis analizează mai întâi captura list
 ### Corecție verificare finală Discord (linkuri Wikipedia lungi)
 
 La ultimul pas Wikipedia → Discord, mesajele cu URL-uri lungi codificate procentual puteau fi respinse de AI-ul vizual chiar dacă au fost introduse în editor. După aprobarea explicită a mesajului, Jarvis face o captură proaspătă și verifică exact **numele din antetul conversației individuale** și localizarea editorului de mesaje. Nu mai cere AI-ului să citească fiecare caracter al linkului din imagine. După verificarea vizuală, selectează conținutul editorului și îl **înlocuiește** prin tastare Unicode nativă cu textul exact pe care utilizatorul l-a aprobat, apoi cere sistemului să execute Enter. Această înlocuire este explicată în dialogul final. Nu accesează clipboardul. Dacă identitatea, editorul, fereastra activă sau tastarea nu pot fi verificate, nu apasă Enter. Livrarea nu poate fi garantată fără verificare în Discord.
+
+### Comenzi vocale Discord, verificarea acțiunilor și capturi fără confirmări repetate
+
+Comenzile locale au prioritate în fața scurtăturilor învățate: inclusiv `Выключу микрофон в дискорде` este recunoscut ca cerere de comutare a microfonului, nu doar de deschidere a Discord. Comanda `Нажми в Дискорд на пользователя Старый Бог` caută un utilizator vizibil, apoi prin Ctrl+K dacă este necesar, și verifică dacă antetul conversației individuale s-a deschis. Dacă primul clic doar închide căutarea, o nouă captură identifică utilizatorul înainte de un al doilea clic. Nu introduce și nu trimite mesaje.
+
+Capturile salvate **local** nu necesită confirmări. Pentru trimiterea de capturi către AI-ul extern, se cere consimțământ o singură dată **per sesiune Jarvis**; dacă accepți, toate acțiunile vizuale ulterioare din acea sesiune pot trimite imagini furnizorului AI configurat. Consimțământul expiră la închiderea aplicației. Trimiterea mesajelor Discord și acțiunile cu risc păstrează propriile confirmări.
+
+Secvența „размер экрана → перемести мышь на координаты 400,300 → подожди 2 секунды → правая кнопка мыши” folosește executorul local verificat al sistemului. Pentru „Найди в интернете три факта про Марс, открой Блокнот, напиши их, выдели весь текст и скопируй” există un flux separat: cere extrase textuale din Wikipedia, selectează trei propoziții complete fără inventarea faptelor, focalizează explicit procesul Notepad înainte de tastare și folosește Ctrl+A/Ctrl+C doar după verificarea ferestrei. Dacă sursa nu conține trei propoziții potrivite, operația se oprește explicând limita.
+
+Comenzile de tip „caută în browser, deschide Notepad și tastează un text literal” verifică acum că Notepad, nu pagina browserului, deține fereastra activă înainte de tastare.

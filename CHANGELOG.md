@@ -81,3 +81,12 @@ See the microphone troubleshooting steps in README.md or README_RO.md after upda
 - Stop requiring OCR-perfect matching of long percent-encoded Wikipedia URLs in a downscaled Discord screenshot. After explicit send approval, visually revalidate the exact individual DM header and live message composer, then restore the EXACT user-approved Unicode text in that composer before Enter.
 - The final confirmation now explains that the current editable draft will be replaced. Never use stale composer coordinates or alter the user's clipboard. Abort on ambiguous recipient/composer, cancellation, invalid draft, native keyboard-input failure, or switched foreground/process.
 - Add regression tests for the actual long-Wikipedia-URL scenario, exact text restoration, no send on ambiguity, focus change and failed native typing.
+
+### 0.2.0 — Regression repairs for native intents and verified desktop workflows
+
+- Make built-in Discord microphone intent matching resilient to Russian Whisper inflections (including `Выключу`) and resolve these intents **before** learned open-Discord shortcuts and generic cloud planning.
+- Add a dedicated `discord_open_dm` visual workflow that must verify the actual individual chat header after a click; retry at most once from a fresh screenshot if Ctrl+K only closes the search menu. Name mismatches still require explicit approval.
+- Execute multi-step display-info / mouse-move / right-click actions through the validated local executor, not the incompatible generic single-action agent. Preserve actual step-specific failure details.
+- Require cloud screenshot consent once per application session (not repeatedly per image); local screenshots need no consent. Final message sending still requires confirmation.
+- Implement source-backed three-fact Wikipedia research to a **verified** Notepad window, followed by select-all and copy. Also focus Notepad for ordinary cross-app literal-text macros after browser searches.
+- Add regression tests for the exact user-reported voice transcripts, Discord second-click failure, stale learned shortcuts, privacy decisions, Mars facts and Notepad focus.

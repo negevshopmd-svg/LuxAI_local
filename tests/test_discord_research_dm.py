@@ -127,6 +127,8 @@ class DiscordDraftTests(unittest.TestCase):
                        return_value=cap) as capture,
             mock.patch("luxai.discord_contact_vision.locate_visible_contact",
                        side_effect=[None, VisibleContact("ронси", (200, 100))]) as locate,
+            mock.patch("luxai.discord_navigation._chat_header_ok",
+                       return_value=cap) as chat_check,
             mock.patch("luxai.visual_click.find_visual_target",
                        return_value=(300, 800)) as header,
             mock.patch("luxai.visual_click.click_visual_target") as click,
@@ -137,7 +139,7 @@ class DiscordDraftTests(unittest.TestCase):
         self.assertEqual(type_unicode.call_args_list[0].args, ("@ронси",))
         self.assertEqual(type_unicode.call_args_list[1].args[0],
                          "verified text  Источник: url")
-        self.assertEqual(capture.call_count, 3)
+        self.assertEqual(capture.call_count, 2)
         self.assertEqual(locate.call_count, 2)
         self.assertFalse(locate.call_args_list[0].kwargs.get("quick_switcher", False))
         self.assertTrue(locate.call_args_list[1].kwargs["quick_switcher"])
@@ -161,6 +163,8 @@ class DiscordDraftTests(unittest.TestCase):
                        return_value=cap) as capture,
             mock.patch("luxai.discord_contact_vision.locate_visible_contact",
                        return_value=VisibleContact("RONfsy", (230, 480))) as locate,
+            mock.patch("luxai.discord_navigation._chat_header_ok",
+                       return_value=cap) as chat_check,
             mock.patch("luxai.visual_click.find_visual_target",
                        return_value=(310, 800)) as header,
             mock.patch("luxai.visual_click.click_visual_target") as click,
@@ -178,7 +182,7 @@ class DiscordDraftTests(unittest.TestCase):
         self.assertEqual(draft.username, "RONfsy")
         self.assertIn("RONfsy", header.call_args.args[1])
         self.assertEqual(click.call_count, 2)
-        self.assertEqual(capture.call_count, 3)
+        self.assertEqual(capture.call_count, 2)
         pyauto.hotkey.assert_not_called()
         typing.assert_called_once_with("verified text")
 
@@ -220,6 +224,8 @@ class DiscordDraftTests(unittest.TestCase):
                        side_effect=[
                            None, None, VisibleContact("RONfsy", (200, 400)),
                        ]) as locate,
+            mock.patch("luxai.discord_navigation._chat_header_ok",
+                       return_value=mock.Mock(hwnd=42)),
             mock.patch("luxai.visual_click.find_visual_target",
                        return_value=(320, 810)),
             mock.patch("luxai.visual_click.click_visual_target"),

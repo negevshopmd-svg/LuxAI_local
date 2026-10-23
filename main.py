@@ -194,6 +194,8 @@ class MainWindow(QMainWindow):
     visual_step_ready = Signal(int, object, str)
     discord_draft_ready = Signal(int, object, str)
     discord_contact_prompt = Signal(object)
+    discord_open_ready = Signal(int, object, str)
+    research_notepad_ready = Signal(int, object, str)
     discord_send_ready = Signal(int, object, str)
     discord_review_ready = Signal(int, object, str)
     discord_mic_visual_ready = Signal(str, str)
@@ -225,6 +227,8 @@ class MainWindow(QMainWindow):
         self.visual_step_ready.connect(self._on_visual_step_ready)
         self.discord_draft_ready.connect(self._on_discord_draft_ready)
         self.discord_contact_prompt.connect(self._on_discord_contact_prompt)
+        self.discord_open_ready.connect(self._on_discord_open_ready)
+        self.research_notepad_ready.connect(self._on_research_notepad_ready)
         self.discord_send_ready.connect(self._on_discord_send_ready)
         self.discord_review_ready.connect(self._on_discord_review_ready)
         self.discord_mic_visual_ready.connect(self._on_discord_mic_visual_ready)
@@ -1862,10 +1866,7 @@ class MainWindow(QMainWindow):
             # inside compound tasks before opening Discord or another app.
             # Saved exact commands take priority, then the ENTIRE chained
             # request goes to the validated macro planner.
-            if saved is not None:
-                self._execute_registered(text, saved)
-                return
-
+            # Native Discord intents take priority over older saved macros.
             # Preserve longstanding local Discord microphone controls.
             # Generic macros also match words like "нажми на кнопку" and
             # must not preempt a known, deterministic local operation.
@@ -1876,6 +1877,9 @@ class MainWindow(QMainWindow):
                 self._current_route = "Discord: глобальная комбинация клавиш"
                 answer = toggle_discord_microphone(self.confirm_action)
                 self._resolved_command(text, answer)
+                return
+            if saved is not None:
+                self._execute_registered(text, saved)
                 return
             if needs_live_macro_planning(text):
                 if not self.online_planner.enabled():
@@ -2101,6 +2105,33 @@ class MainWindow(QMainWindow):
             self.mic_status.setText(f"Пауза {count} {unit} (шаг {ctx['index']})")
             QTimer.singleShot(milliseconds, self._next_macro_step)
             return
+        if step["action"] == "research_notepad_facts":
+            self.mic_status.setText("Получаю три факта из Википедии и проверяю Блокнот…")
+            threading.Thread(
+                target=self._research_notepad_worker,
+                args=(step["target"], ctx["index"], ctx),
+                daemon=True, name="JarvisResearchNotepad",
+            ).start()
+            return
+        if step["action"] == "discord_open_dm":
+            username = step["target"]
+            if not self.online_planner.enabled():
+                ctx["messages"].append(
+                    "Для поиска контакта Discord нужен AI с поддержкой изображений."
+                )
+                self._finish_visual_macro()
+                return
+            if not self._allow_cloud_screenshots():
+                ctx["messages"].append("Передача снимков для поиска Discord отменена.")
+                self._finish_visual_macro()
+                return
+            self.mic_status.setText(f"Проверяю Discord и открываю чат {username}…")
+            threading.Thread(
+                target=self._discord_open_worker,
+                args=(username, ctx["index"], ctx),
+                daemon=True, name="JarvisDiscordOpenDM",
+            ).start()
+            return
         if step["action"] == "discord_screen_review":
             username = step["target"]
             if not self.online_planner.enabled():
@@ -2119,7 +2150,7 @@ class MainWindow(QMainWindow):
                 "Они могут содержать личные переписки. Продолжить? "
                 "Никакие сообщения отправляться не будут."
             )
-            if not self.confirm_action(approval):
+            if not self._allow_cloud_screenshots():
                 ctx["messages"].append("Отправка снимков в AI отменена.")
                 self._finish_visual_macro()
                 return
@@ -2149,7 +2180,7 @@ class MainWindow(QMainWindow):
                 "Скриншоты могут содержать личные сообщения. "
                 "Перед отправкой текста будет ещё одно подтверждение."
             )
-            if not self.confirm_action(approval):
+            if not self._allow_cloud_screenshots():
                 ctx["messages"].append("Согласие на отправку скриншотов не получено.")
                 self._finish_visual_macro()
                 return
@@ -2187,7 +2218,7 @@ class MainWindow(QMainWindow):
                 "Снимок может содержать личную информацию. "
                 "Если не согласны, выберите Нет."
             )
-            if not self.confirm_action(warning):
+            if not self._allow_cloud_screenshots():
                 ctx["messages"].append("Отправка снимка отменена пользователем.")
                 self._finish_visual_macro()
                 return
@@ -2266,6 +2297,14 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(0, self._next_macro_step)
             return
         if step["action"] in {
+            "display_info", "mouse_move", "mouse_right_click", "mouse_click",
+        }:
+            threading.Thread(
+                target=self._macro_worker, args=(dict(step), ctx["index"]),
+                daemon=True, name="JarvisLocalMouseStep",
+            ).start()
+            return
+        if step["action"] in {
             "run_cmd", "run_powershell", "app_volume", "voice_female",
             "sleep_pc",
         }:
@@ -2293,12 +2332,19 @@ class MainWindow(QMainWindow):
             ).start()
             return
         try:
+            # A browser search steals the foreground. An "open Notepad,
+            # then type" macro must explicitly verify and focus Notepad.
+            if step["action"] == "type_text" and ctx.get("last_opened_app") == "notepad":
+                from luxai.research_notepad import _focus_notepad_window
+                _focus_notepad_window()
             self.agent.last_execution_success = False
             answer = self.agent.execute_plan(
                 ctx["text"], step, confirm_callback=self.confirm_action,
             )
             if answer:
                 ctx["messages"].append(str(answer))
+            if self.agent.last_execution_success and step["action"] == "open_app":
+                ctx["last_opened_app"] = step["target"]
             if not self.agent.last_execution_success:
                 ctx["messages"].append(
                     f"Последующие действия не выполнены (шаг {ctx['index']})."
@@ -2323,6 +2369,71 @@ class MainWindow(QMainWindow):
         output = " ".join(ctx["messages"]) or "Действие не выполнено."
         self._macro_context = None
         self._resolved_command(ctx["text"], output)
+
+    def _research_notepad_worker(self, topic, index, context):
+        try:
+            from luxai.research_notepad import write_researched_facts_to_notepad
+            result = write_researched_facts_to_notepad(
+                topic, cancelled=lambda: self._closed or self._macro_context is not context
+            )
+            error = ""
+        except (ValueError, RuntimeError, OSError) as exc:
+            result, error = None, f"{type(exc).__name__}: {str(exc)[:170]}"
+        except Exception:
+            result, error = None, "Не получилось подтвердить факты или окно Блокнота."
+        if not self._closed:
+            try:
+                self.research_notepad_ready.emit(index, result, error)
+            except RuntimeError:
+                pass
+
+    def _on_research_notepad_ready(self, index, result, error):
+        ctx = getattr(self, "_macro_context", None)
+        if (self._closed or ctx is None or not self._processing
+                or ctx["index"] != index):
+            return
+        if error or result is None:
+            ctx["messages"].append(
+                "Запись фактов в Блокнот не выполнена: " + (error or "")
+            )
+            self._finish_visual_macro()
+            return
+        ctx["messages"].append(result)
+        QTimer.singleShot(0, self._next_macro_step)
+
+    def _discord_open_worker(self, username, index, context):
+        try:
+            from luxai.discord_navigation import open_discord_contact
+            result = open_discord_contact(
+                self.online_planner, username,
+                confirm_candidate=lambda spoken, displayed:
+                    self._confirm_discord_contact_in_ui(spoken, displayed, context),
+                cancelled=lambda: self._closed or self._macro_context is not context,
+            )
+            error = ""
+        except (ValueError, OSError, RuntimeError) as exc:
+            result, error = None, f"{type(exc).__name__}: {str(exc)[:180]}"
+        except Exception:
+            result, error = None, "Не получилось подтвердить открытие чата Discord."
+        if not self._closed:
+            try:
+                self.discord_open_ready.emit(index, result, error)
+            except RuntimeError:
+                pass
+
+    def _on_discord_open_ready(self, index, result, error):
+        ctx = getattr(self, "_macro_context", None)
+        if (self._closed or ctx is None or not self._processing
+                or ctx["index"] != index):
+            return
+        if error or result is None:
+            ctx["messages"].append(
+                "Discord: чат не открыт или не подтверждён. " + (error or "")
+            )
+            self._finish_visual_macro()
+            return
+        ctx["messages"].append(result)
+        QTimer.singleShot(0, self._next_macro_step)
 
     def _discord_review_worker(self, username, index, context):
         try:
@@ -2596,6 +2707,21 @@ class MainWindow(QMainWindow):
         else:
             QTimer.singleShot(0, self._next_macro_step)
 
+    def _allow_cloud_screenshots(self):
+        """Request permission once per run, not for every screenshot."""
+        if getattr(self, "_visual_upload_consent_session", False):
+            return True
+        approved = self.confirm_action(
+            "Разрешить отправку снимков окон выбранному облачному AI "
+            "для визуальных команд до закрытия Jarvis? Изображения могут "
+            "содержать личные сообщения и другие данные. Локальные снимки "
+            "не отправляются. Отправка сообщений по-прежнему требует "
+            "отдельного подтверждения."
+        )
+        if approved:
+            self._visual_upload_consent_session = True
+        return bool(approved)
+
     def _start_discord_mic_visual(self, text):
         """Restore a specific local visual command without cloud macro planning."""
         if not self.online_planner.enabled():
@@ -2605,15 +2731,7 @@ class MainWindow(QMainWindow):
                 "нужен включённый AI с поддержкой изображений и API-ключ."
             )
             return
-        approved = self.confirm_action(
-            "Открыть окно Discord, сохранить локальный снимок экрана "
-            "в Pictures/LuxAI и передать ОДИН снимок выбранному "
-            "облачному AI для нахождения кнопки микрофона? "
-            "Изображение может содержать личные переписки.\\n\\n"
-            "После распознавания будет выполнен ОДИН клик по кнопке. "
-            "Это переключатель: если микрофон выключен, он включится. "
-            "Продолжить?"
-        )
+        approved = self._allow_cloud_screenshots()
         if not approved:
             self._current_route = "Discord: визуальное управление"
             self._resolved_command(text, "Визуальное управление микрофоном отменено.")
@@ -2666,11 +2784,27 @@ class MainWindow(QMainWindow):
                 validate_generated_macro, plan_known_visual_sequence,
             )
             review_user = detect_discord_screen_review(text)
+            from luxai.discord_navigation import detect_discord_open_dm
+            from luxai.research_notepad import detect_research_notepad
+            open_user = detect_discord_open_dm(text)
+            facts_topic = detect_research_notepad(text)
             parsed = detect_research_dm_request(text)
             known = None
-            if not review_user and not parsed:
+            if not review_user and not parsed and not open_user and not facts_topic:
                 known = plan_known_visual_sequence(text)
-            if review_user:
+            if facts_topic:
+                proposal = validate_generated_macro(
+                    {"steps": [{"action": "research_notepad_facts", "target": facts_topic}]},
+                    text,
+                )
+                error = "" if proposal else "Не удалось определить тему исследования."
+            elif open_user:
+                proposal = validate_generated_macro(
+                    {"steps": [{"action": "discord_open_dm", "target": open_user}]},
+                    text,
+                )
+                error = "" if proposal else "Не удалось определить контакт Discord."
+            elif review_user:
                 proposal = validate_generated_macro(
                     {"steps": [{"action": "discord_screen_review",
                                  "target": review_user}]}, text,

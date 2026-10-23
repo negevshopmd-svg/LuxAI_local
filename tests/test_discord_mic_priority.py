@@ -153,7 +153,7 @@ class DiscordMicPriorityUITests(unittest.TestCase):
             mock.patch("main.threading.Thread") as thread,
         ):
             window._start_discord_mic_visual(VOICE)
-        self.assertIn("ОДИН снимок", confirm.call_args.args[0])
+        self.assertIn("до закрытия Jarvis", confirm.call_args.args[0])
         self.assertIn("отменено", resolved.call_args.args[1])
         thread.assert_not_called()
 
