@@ -25,7 +25,7 @@ SUPPORTED_VISUAL_PROVIDERS = {
 PROTECTED_TEXT = re.compile(
     r"(?i)(?:password|парол|пароль|login|вход в аккаунт|"
     r"credential|security|безопасност|uac|bank|банк|"
-    r"2fa|one.time password|секретн.*код|payment|оплат)"
+    r"2fa|passcode|one.time password|otp|pin.?code|секретн.*код|payment|оплат)"
 )
 VISUAL_SYSTEM = (
     "You are a VISUAL LOCATOR for a locally confirmed Windows GUI action. "
