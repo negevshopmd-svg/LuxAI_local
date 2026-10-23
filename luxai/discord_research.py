@@ -258,9 +258,27 @@ def prepare_discord_draft(planner, target: str, *,
     focus_discord(hwnd)
     abort_if_cancelled()
     click_visual_target(selected, candidate.point, 1)
-    time.sleep(0.75)
+    time.sleep(0.4)
     abort_if_cancelled()
-    conversation = capture_window(hwnd)
+    from luxai.discord_navigation import _chat_header_ok
+    try:
+        conversation = _chat_header_ok(planner, hwnd, displayed)
+    except (ValueError, RuntimeError):
+        # Quick Switcher may only close its search overlay on the first
+        # click. Do not type into a stale / unrelated chat.
+        focus_discord(hwnd)
+        new_capture = capture_window(hwnd)
+        again = locate_visible_contact(planner, new_capture, displayed)
+        if again is None or not same_discord_name(again.display_name, displayed):
+            raise ValueError(
+                "Discord: поиск закрылся без открытия нужного диалога; "
+                "контакт не найден повторно."
+            )
+        abort_if_cancelled()
+        click_visual_target(new_capture, again.point, 1)
+        time.sleep(0.4)
+        abort_if_cancelled()
+        conversation = _chat_header_ok(planner, hwnd, displayed)
     composer = find_visual_target(
         planner,
         f"Discord INDIVIDUAL DM HEADER must identify the user {displayed!r} "
