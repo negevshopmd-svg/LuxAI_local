@@ -89,6 +89,9 @@ def _action_from_description(text: str) -> dict | None:
 def _describe(plan):
     action, target = plan.get("action"), plan.get("target", "")
     location = plan.get("location", "desktop")
+    if plan.get("steps") and len(plan["steps"]) > 1:
+        from luxai.action_catalog import describe_step
+        return " → ".join(describe_step(item) for item in plan["steps"])
     if action == "open_app":
         return f"открыть {target}"
     if action == "launch_game":
@@ -109,9 +112,6 @@ def _describe(plan):
         return f"открыть файл «{target}» ({location})"
     if action == "open_website":
         return f"открыть сайт «{target}» в браузере"
-    if plan.get("steps") and len(plan["steps"]) > 1:
-        from luxai.action_catalog import describe_step
-        return " → ".join(describe_step(item) for item in plan["steps"])
     if action == "key_sequence":
         return "нажать последовательно " + " → ".join(target.upper().split(","))
     if action == "press_key":
