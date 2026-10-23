@@ -603,7 +603,7 @@ class MainWindow(QMainWindow):
         # Preview the voice chosen in Settings even if the microphone's
         # recognition language is different. Normal replies still use their
         # actual language; this never alters speech-recognition settings.
-        from luxai.voices import VOICE_PRESETS
+        from luxai.voice_presets import VOICE_PRESETS
         chosen_voice = self.cfg.get("voice_id", "")
         for voice_language, preset in VOICE_PRESETS.items():
             if preset["id"] == chosen_voice:
