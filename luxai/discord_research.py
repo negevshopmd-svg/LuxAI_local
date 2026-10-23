@@ -253,6 +253,10 @@ def prepare_discord_draft(planner, target: str, *,
                 "выбор получателя отменён, ничего не отправлено."
             )
     abort_if_cancelled()
+    # The confirmation dialog briefly takes focus away from Discord.
+    # Restore the *same verified* application before a screenshot-based click.
+    focus_discord(hwnd)
+    abort_if_cancelled()
     click_visual_target(selected, candidate.point, 1)
     time.sleep(0.75)
     abort_if_cancelled()
