@@ -68,3 +68,10 @@ See the microphone troubleshooting steps in README.md or README_RO.md after upda
 - Fix a regression caused by checking the generic live macro planner before longstanding native Discord microphone commands.
 - Route `Сделай снимок экрана и нажми на кнопку микрофона в дискорде` through a verified, opt-in Discord screenshot/mic-button click rather than an incomplete cloud macro proposal.
 - Preserve and prioritize the old `выключи микрофон в Discord` shortcut, confirmation and truthful toggle-state reporting; add mocked Linux/Windows UI and no-click-on-ambiguity regression tests.
+
+### 0.2.0 — Restore visual desktop steps and visual-first Discord contact discovery
+
+- Preserve complete multi-step Calculator visual button sequences, Steam Library navigation, and real-display-coordinates/right-click workflows as validated local plans, avoiding incomplete generic cloud proposals while retaining explicit screenshot permission.
+- Locate individual Discord contacts from a fresh DM-list screenshot BEFORE Ctrl+K search. Fall back to the spoken username and optionally a Latin search prefix for Cyrillic speech; reject group chats and ambiguous matches.
+- A visually detected name different from the dictated one requires an explicit user confirmation on the Qt main thread before clicking or composing. Verify the actual selected name again in chat header and before sending; show up to five cloud screenshot disclosures in consent.
+- Add mocked end-to-end regression cases for the exact failed calculator/mouse/Steam commands, wrong-account rejection, visible Latin handles and empty search results.
