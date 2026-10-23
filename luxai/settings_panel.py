@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QPushButton, QScrollArea, QSlider, QSpinBox, QVBoxLayout, QWidget, QMessageBox, QFileDialog,
 )
 
-from luxai.voices import available_voices
+from luxai.voices import available_voices, VOICE_PRESETS
 from luxai.ui_i18n import LANGUAGES, get_ui_language, tr, translate_widgets
 
 
@@ -211,13 +211,28 @@ class SettingsPanel(QWidget):
         panel = self._section("Озвучка", "Голос, которым звучат ответы Jarvis.")
         self.tts = self._toggle(self.cfg.get("tts_enabled", True))
         self._row(panel, "Голосовой ответ", "Озвучивать текст ответа.", self.tts)
-        voices = [("Дмитрий — русский (по умолчанию)", "")]
-        installed = available_voices()
-        for voice in installed:
-            if voice["ready"]:
+        installed = {voice["id"]: voice for voice in available_voices() if voice["ready"]}
+        voices = [("Автоматически — по языку ответа", "")]
+        labels = {
+            "ru": "Dmitri — Русский",
+            "ro": "Mihai — Română",
+            "en": "Lessac — English",
+        }
+        for lang, preset in VOICE_PRESETS.items():
+            voice_id = preset["id"]
+            state = "✓" if voice_id in installed else "↓"
+            voices.append((f"{state}  {labels[lang]}", voice_id))
+        preset_ids = {item["id"] for item in VOICE_PRESETS.values()}
+        for voice in installed.values():
+            if voice["id"] not in preset_ids:
                 voices.append((voice["name"], voice["id"]))
         self.voice_id = self._combo(voices, self.cfg.get("voice_id", ""))
-        self._row(panel, "Голос ассистента", "Список локально установленных моделей Piper.", self.voice_id)
+        self._row(
+            panel, "Голос ассистента",
+            "✓ установлен, ↓ загрузится при первом использовании. "
+            "Голос выбирается по языку ответа, а не по языку интерфейса.",
+            self.voice_id,
+        )
         self.voice_volume = self._slider(self.cfg.get("voice_volume", 80), 0, 100)
         self._row(panel, "Громкость", "0–100%, применяется к озвучке.", self.voice_volume)
         preview = QPushButton("▶  Прослушать пример")
