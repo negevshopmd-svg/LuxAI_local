@@ -193,6 +193,7 @@ class MainWindow(QMainWindow):
     macro_step_ready = Signal(int, bool, str)
     visual_step_ready = Signal(int, object, str)
     discord_draft_ready = Signal(int, object, str)
+    discord_contact_prompt = Signal(object)
     discord_send_ready = Signal(int, object, str)
     discord_review_ready = Signal(int, object, str)
     discord_mic_visual_ready = Signal(str, str)
@@ -223,6 +224,7 @@ class MainWindow(QMainWindow):
         self.macro_step_ready.connect(self._on_macro_step_ready)
         self.visual_step_ready.connect(self._on_visual_step_ready)
         self.discord_draft_ready.connect(self._on_discord_draft_ready)
+        self.discord_contact_prompt.connect(self._on_discord_contact_prompt)
         self.discord_send_ready.connect(self._on_discord_send_ready)
         self.discord_review_ready.connect(self._on_discord_review_ready)
         self.discord_mic_visual_ready.connect(self._on_discord_mic_visual_ready)
@@ -2139,9 +2141,11 @@ class MainWindow(QMainWindow):
             approval = (
                 f"Подготовить сообщение для Discord @{username} по теме «{topic}»?\n\n"
                 "Jarvis получит статью из Wikipedia, откроет установленный "
-                "Discord и передаст ДО ТРЁХ снимков окна вашему AI-провайдеру, "
-                "чтобы выбрать получателя, поле ввода и ещё раз проверить "
-                "точный диалог и черновик ПОСЛЕ подтверждения отправки. "
+                "Discord и передаст ДО ПЯТИ снимков окна вашему AI-провайдеру "
+                "(видимые личные сообщения, при необходимости результаты "
+                "поиска, заголовок чата и финальная проверка перед отправкой). "
+                "Если имя на экране отличается от произнесённого, "
+                "Jarvis отдельно спросит, правильный ли это человек. "
                 "Скриншоты могут содержать личные сообщения. "
                 "Перед отправкой текста будет ещё одно подтверждение."
             )
@@ -2358,9 +2362,58 @@ class MainWindow(QMainWindow):
         ctx["messages"].append(result)
         QTimer.singleShot(0, self._next_macro_step)
 
+    def _confirm_discord_contact_in_ui(self, spoken, displayed, context):
+        """Ask the GUI thread before clicking a visually similar contact.
+
+        A background worker must never show Qt dialogs directly. This
+        bounded handoff prevents waiting forever when the window is closed
+        or another command supersedes the current one.
+        """
+        response = {
+            "spoken": spoken, "displayed": displayed,
+            "context": context, "event": threading.Event(),
+            "approved": False,
+        }
+        if self._closed or context is None or self._macro_context is not context:
+            return False
+        self.discord_contact_prompt.emit(response)
+        for _ in range(360):  # at most 90 s for an interactive decision
+            if response["event"].wait(0.25):
+                return bool(response["approved"])
+            if self._closed or self._macro_context is not context:
+                return False
+        return False
+
+    def _on_discord_contact_prompt(self, response):
+        ctx = getattr(self, "_macro_context", None)
+        try:
+            if (self._closed or not self._processing or
+                    ctx is None or ctx is not response["context"]):
+                return
+            response["approved"] = bool(self.confirm_action(
+                "Discord: имя, которое вы произнесли: "
+                f"«{response['spoken']}».\\n"
+                "На снимке найден отдельный пользователь: "
+                f"«{response['displayed']}».\\n\\n"
+                "Это ТОТ ЖЕ САМЫЙ человек? Нажмите Да только "
+                "после личной проверки имени. При Нет Jarvis "
+                "не откроет беседу и ничего не отправит."
+            ))
+        finally:
+            response["event"].set()
+
     def _discord_draft_worker(self, step, index):
         try:
-            draft = prepare_discord_draft(self.online_planner, step["target"])
+            context = getattr(self, "_macro_context", None)
+            draft = prepare_discord_draft(
+                self.online_planner, step["target"],
+                confirm_candidate=lambda spoken, displayed: (
+                    self._confirm_discord_contact_in_ui(
+                        spoken, displayed, context
+                    )
+                ),
+                cancelled=lambda: self._closed or self._macro_context is not context,
+            )
             error = ""
         except (OSError, RuntimeError, ValueError) as exc:
             draft = None
