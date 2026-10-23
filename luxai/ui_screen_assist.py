@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from luxai.screen_interact import ScreenInspection, classify_button
+from luxai.ui_i18n import get_ui_language, translate_widgets, tr
 
 
 class ScreenAssistDialog(QDialog):
@@ -87,10 +88,12 @@ class ScreenAssistDialog(QDialog):
         actions.addWidget(close)
         outer.addLayout(actions)
         self.set_snapshot(snapshot)
+        translate_widgets(self, get_ui_language())
 
     def set_snapshot(self, snapshot: ScreenInspection):
         self.snapshot = snapshot
-        self.details.setText("Проверяемое окно: " + snapshot.title)
+        caption = {"en": "Inspected window: ", "ro": "Fereastra verificată: ", "ru": "Проверяемое окно: "}[get_ui_language()]
+        self.details.setText(caption + snapshot.title)
         image = QPixmap()
         if snapshot.screenshot and image.loadFromData(snapshot.screenshot, "PNG"):
             self.preview.setPixmap(
