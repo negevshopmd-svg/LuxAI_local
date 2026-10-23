@@ -253,6 +253,96 @@ Open-Meteo работает без ключа Gemini. Этот город по �
 Облачный ИИ выключен — локальный режим|||Cloud AI disabled — local mode|||AI cloud dezactivat — mod local
 Онлайн-ИИ включён, но ключ выбранного провайдера не сохранён|||Online AI enabled, but the selected provider key is missing|||AI online activat, dar cheia furnizorului ales lipsește
 Создание голосовой команды|||Creating voice command|||Creez comanda vocală
+Все действия|||All actions|||Toate acțiunile
+Запуск|||Launch|||Pornire
+Клавиши|||Keyboard|||Tastatură
+Мышь|||Mouse|||Mouse
+Программа|||Program|||Program
+Звук|||Sound|||Sunet
+Браузер|||Browser|||Navigator
+Запустить программу|||Launch application|||Pornește aplicația
+Открывает выбранное установленное приложение|||Opens the selected installed application|||Deschide aplicația instalată selectată
+Запустить файл или программу|||Launch file or application|||Pornește fișierul sau aplicația
+Открывает файл, вручную выбранный на вашем компьютере|||Opens the file selected from your computer|||Deschide fișierul ales de pe calculator
+Открыть файл по имени|||Open a file by name|||Deschide fișier după nume
+Ищет на рабочем столе, в Документах или Загрузках и открывает через Windows|||Looks on Desktop, Documents and Downloads and opens with Windows|||Caută pe Desktop, în Documente și Descărcări și deschide cu Windows
+Открыть сайт|||Open website|||Deschide site
+Открывает указанный HTTPS-сайт в браузере|||Opens the specified HTTPS website in a browser|||Deschide site-ul HTTPS specificat în navigator
+Выполнить команду CMD|||Run CMD command|||Execută comandă CMD
+Только сохранённый пользователем скрипт; подтверждение при каждом запуске|||Only manually saved scripts; confirmation each time|||Doar scripturi salvate manual; confirmare la fiecare execuție
+Выполнить команду PowerShell|||Run PowerShell command|||Execută comandă PowerShell
+Только сохранённая вручную команда; обязательное подтверждение|||Manually saved command only; confirmation required|||Doar comenzi salvate manual; confirmare obligatorie
+Ввести текст|||Type text|||Introdu text
+Печатает указанный текст в активном окне|||Types the specified text in the active window|||Tastează textul specificat în fereastra activă
+Нажать клавишу или сочетание|||Press key or shortcut|||Apasă tastă sau combinație
+Выбираемое сочетание из безопасного списка|||Choose a shortcut from the allowed list|||Alege combinația din lista permisă
+Нажать одну клавишу|||Press one key|||Apasă o tastă
+Буквы, цифры и стандартные клавиши|||Letters, digits and standard keys|||Litere, cifre și taste standard
+Нажать Enter|||Press Enter|||Apasă Enter
+Отправляет Enter в активное окно|||Sends Enter to the active window|||Trimite Enter în fereastra activă
+Сохранить (Ctrl+S)|||Save (Ctrl+S)|||Salvează (Ctrl+S)
+Отправляет Ctrl+S в активное окно|||Sends Ctrl+S to the active window|||Trimite Ctrl+S în fereastra activă
+Двойной клик|||Double-click|||Dublu clic
+Двойной щелчок левой кнопкой|||Double-clicks the left mouse button|||Dublu clic cu butonul stâng
+Правый клик|||Right-click|||Clic dreapta
+Щелчок правой кнопкой мыши|||Click right mouse button|||Clic cu butonul drept
+Левый клик|||Left-click|||Clic stânga
+Нажимает левую кнопку мыши|||Clicks the left mouse button|||Apasă butonul stâng al mouse-ului
+Клик колесом / прокрутка|||Scroll wheel|||Rotița de derulare
+Прокрутка колеса мыши|||Scrolls the mouse wheel|||Derulează cu rotița mouse-ului
+Переместить курсор|||Move cursor|||Mută cursorul
+Перемещает курсор к координатам экрана|||Moves cursor to screen coordinates|||Mută cursorul la coordonatele ecranului
+Зажать левую кнопку|||Hold left button|||Ține apăsat butonul stâng
+Удерживает кнопку 1–5 секунд и отпускает автоматически|||Holds button for 1–5 seconds then releases|||Ține apăsat 1–5 secunde și eliberează automat
+Не выполняет никаких действий — разделитель шагов|||Does nothing — separator between steps|||Nu execută nimic — separator între pași
+Пауза в секундах|||Wait seconds|||Pauză în secunde
+Ждёт 1–30 секунд до следующего действия|||Waits 1–30 seconds before next action|||Așteaptă 1–30 de secunde înainte de acțiunea următoare
+Пауза в минутах|||Wait minutes|||Pauză în minute
+Ждёт 1–10 минут без блокировки окна|||Waits 1–10 minutes without freezing the window|||Așteaptă 1–10 minute fără să blocheze fereastra
+Свернуть Jarvis в трей|||Minimize Jarvis to tray|||Minimizează Jarvis în zona de notificare
+Скрывает окно Jarvis в системный трей|||Hides Jarvis in the system tray|||Ascunde Jarvis în zona de notificare
+Произнести текст|||Speak text|||Rostește textul
+Произносит указанный текст голосом Jarvis|||Speaks the specified text using Jarvis' voice|||Rostește textul folosind vocea Jarvis
+Вас понял, сэр|||Understood, sir|||Am înțeles, domnule
+Готовая фраза подтверждения|||Ready confirmation phrase|||Expresie predefinită de confirmare
+Всё готово, сэр|||All done, sir|||Totul este gata, domnule
+Готовая фраза завершения|||Ready completion phrase|||Expresie predefinită de finalizare
+Воспроизвести MP3|||Play MP3|||Redă MP3
+Воспроизводит выбранный MP3 через Windows Media Control|||Plays the selected MP3 using Windows media|||Redă MP3-ul selectat folosind Windows
+Воспроизвести WAV|||Play WAV|||Redă WAV
+Воспроизводит выбранный WAV через Windows|||Plays the selected WAV with Windows|||Redă WAV-ul selectat folosind Windows
+Увеличить громкость|||Increase volume|||Crește volumul
+Повышает системную громкость|||Raises system volume|||Mărește volumul sistemului
+Уменьшить громкость|||Decrease volume|||Scade volumul
+Понижает системную громкость|||Lowers system volume|||Reduce volumul sistemului
+Громкость приложения|||Application volume|||Volumul aplicației
+Устанавливает громкость выбранного приложения, если оно запущено|||Sets volume for selected running app|||Setează volumul aplicației pornite
+Произнести женским голосом|||Speak with female voice|||Rostește cu voce feminină
+Использует доступный женский голос Windows SAPI|||Uses available female Windows SAPI voice|||Folosește vocea feminină Windows SAPI disponibilă
+Произнести мужским голосом|||Speak with male voice|||Rostește cu voce masculină
+Использует настроенный голос Jarvis|||Uses configured Jarvis voice|||Folosește vocea configurată pentru Jarvis
+Клик колёсиком|||Middle click|||Clic mijlociu
+Нажимает среднюю кнопку мыши|||Presses the middle mouse button|||Apasă butonul mijlociu al mouse-ului
+Зажать правую кнопку|||Hold right button|||Ține apăsat butonul drept
+Удерживает правую кнопку 1–5 секунд|||Holds the right button 1–5 seconds|||Ține apăsat butonul drept 1–5 secunde
+Включить монитор|||Turn on monitor|||Pornește monitorul
+Посылает Windows запрос включения монитора|||Asks Windows to wake the monitor|||Solicită Windows să pornească monitorul
+Выключить монитор|||Turn off monitor|||Oprește monitorul
+Гасит дисплей, не выключая компьютер|||Turns off the display, not the PC|||Stinge ecranul fără a opri calculatorul
+Заблокировать экран|||Lock screen|||Blochează ecranul
+Блокирует текущую сессию Windows|||Locks current Windows session|||Blochează sesiunea Windows curentă
+Спящий режим|||Sleep mode|||Mod repaus
+Отправляет Windows в сон после подтверждения|||Puts Windows to sleep after confirmation|||Pune Windows în repaus după confirmare
+Сворачивает открытые окна Windows|||Minimizes open Windows windows|||Minimizează ferestrele deschise
+Найти в интернете|||Search the web|||Caută pe internet
+Открывает результаты поиска по запросу|||Opens search results for the query|||Deschide rezultatele căutării
+Открыть первый результат поиска|||Open first search result|||Deschide primul rezultat al căutării
+Открывает первый найденный результат через поисковик|||Opens the first search-engine result|||Deschide primul rezultat al motorului de căutare
+Создаёт новый файл без перезаписи существующего|||Creates a file without overwriting existing files|||Creează un fișier fără să suprascrie fișiere existente
+Создаёт новую папку в выбранном месте|||Creates a folder in the selected location|||Creează un dosar în locația aleasă
+Показать файлы|||Show files|||Afișează fișierele
+Показывает имена файлов в выбранной папке|||Displays filenames in the selected folder|||Afișează numele fișierelor din dosarul ales
+Называет текущее время|||Says the current time|||Spune ora curentă
 """
 
 # Every entry is a Russian source string and an English/Romanian translation.
@@ -324,7 +414,7 @@ def translate_widgets(root: QWidget, language=None):
             _translate_property(widget, "title", widget.title, widget.setTitle, language)
         if isinstance(widget, (QLineEdit, QTextEdit)):
             _translate_property(widget, "placeholder", widget.placeholderText, widget.setPlaceholderText, language)
-        if isinstance(widget, QComboBox):
+        if isinstance(widget, QComboBox) and widget.objectName() != "UiLanguageCombo":
             for index in range(widget.count()):
                 source = widget.itemData(index, 0x0100 + 18)  # Qt.UserRole + 18
                 if not isinstance(source, str):
@@ -346,7 +436,7 @@ def translate_widgets(root: QWidget, language=None):
         if isinstance(widget, (QSpinBox, QDoubleSpinBox)):
             # Preserve digits, only translate the unit suffix.
             suffix = widget.suffix()
-            if suffix.strip() == "сек":
+            if suffix.strip() in ("сек", "sec", "s"):
                 widget.setSuffix(" sec" if language == "en" else (" s" if language == "ro" else " сек"))
         _translate_property(widget, "tooltip", widget.toolTip, widget.setToolTip, language)
         # Only local dialogs have translated window titles, not dynamic content.
