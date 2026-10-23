@@ -27,28 +27,10 @@ CONFIG_PATH = ROOT / "config.json"
 ERROR_LOG = ROOT / "voice_error.log"
 playback_active = threading.Event()
 
-DEFAULT_RUSSIAN = "ru_RU-dmitri-medium"
-DEFAULT_ROMANIAN = "ro_RO-mihai-medium"
-DEFAULT_ENGLISH = "en_US-lessac-medium"
-PIPER_REPOSITORY = "https://huggingface.co/rhasspy/piper-voices/resolve/main/"
-# Fixed, audited official Piper locations. The two new binary files use the
-# upstream published SHA-256 checksums, so a broken download is never installed.
-VOICE_PRESETS = {
-    "ru": {
-        "id": DEFAULT_RUSSIAN, "directory": "ru/ru_RU/dmitri/medium",
-        "language": "ru_RU", "sha256": None,
-    },
-    "ro": {
-        "id": DEFAULT_ROMANIAN, "directory": "ro/ro_RO/mihai/medium",
-        "language": "ro_RO",
-        "sha256": "e0608bbbd53c80267c09ece681b09f5199f54e792356684c8073738e5f15d29f",
-    },
-    "en": {
-        "id": DEFAULT_ENGLISH, "directory": "en/en_US/lessac/medium",
-        "language": "en_US",
-        "sha256": "5efe09e69902187827af646e1a6e9d269dee769f9877d17b16b1b46eeaaf019f",
-    },
-}
+from luxai.voice_presets import (
+    DEFAULT_RUSSIAN, DEFAULT_ROMANIAN, DEFAULT_ENGLISH,
+    PIPER_REPOSITORY, VOICE_PRESETS,
+)
 MAX_VOICE_DOWNLOAD_BYTES = 80_000_000
 MIN_MODEL_BYTES = 10_000_000
 
