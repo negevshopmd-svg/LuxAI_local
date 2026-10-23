@@ -71,7 +71,7 @@ class CloudMacroProposalTests(unittest.TestCase):
             {"action": "run_file", "target": "C:/danger.exe"},
             {"action": "type_text", "target": "powershell -Command Remove-Item X"},
             {"action": "type_text", "target": "del /q all"},
-            {"action": "type_text", "target": "hello\\nworld"},
+            {"action": "type_text", "target": "hello\nworld"},
             {"action": "trash_file", "target": "test.txt"},
             {"action": "empty_recycle_bin"},
             {"action": "hotkey", "target": "win+r; powershell"},
