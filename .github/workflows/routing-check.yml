@@ -87,3 +87,80 @@ jobs:
         run: python -m pip install --prefer-binary --disable-pip-version-check -r requirements.txt
       - name: Verify imports
         run: python -c "import main; from luxai.voice import VoiceListener; print('LuxAI imports OK')"
+
+  python-fallback-windows:
+    # Verify the real installer remains functional on a PC that has Python
+    # 3.15 (missing CTranslate2 Windows wheels) alongside Python 3.14.
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          architecture: x64
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.15'
+          architecture: x64
+      - name: Install LuxAI with fallback from 3.15
+        shell: powershell
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\install_windows.ps1 -SkipOcr
+          if ($LASTEXITCODE -ne 0) { throw 'Installer did not recover from unsupported Python 3.15 dependencies' }
+          & '.venv\Scripts\python.exe' -c "import sys; import main; assert sys.version_info[:2] == (3, 14), sys.version; print('Python 3.15 to 3.14 fallback passed')"
+          if ($LASTEXITCODE -ne 0) { throw 'Fallback interpreter or import test failed' }
+
+  python-315-compatibility-probe:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.15'
+          architecture: x64
+      - name: Confirm installer detects Python 3.15
+        shell: powershell
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\install_windows.ps1 -SelfTest
+          if ($LASTEXITCODE -ne 0) { throw 'Python 3.15 detection failed' }
+      - name: Probe native speech dependencies
+        id: native-dependencies
+        continue-on-error: true
+        run: |
+          python -m pip install --prefer-binary -r requirements.txt
+          python -c "import main; from luxai.voice import VoiceListener; from faster_whisper import WhisperModel; print('Python 3.15 speech dependency imports OK')"
+      - name: Explain fallback if wheels are missing
+        if: steps.native-dependencies.outcome == 'failure'
+        run: echo "::warning::Python 3.15 is detected, but speech libraries lack supported Windows wheels. LuxAI installer automatically retries an older installed Python version."
+
+  python-316-preview-windows:
+    # Experimental: official Python 3.16 alpha ZIP is not yet packaged by
+    # actions/setup-python. Missing native wheels must not block stable releases.
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download official Python 3.16 alpha (Windows x64)
+        shell: powershell
+        run: |
+          $url = 'https://www.python.org/ftp/python/3.16.0/python-3.16.0a1-amd64.zip'
+          Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\python316.zip"
+          Expand-Archive -LiteralPath "$env:RUNNER_TEMP\python316.zip" -DestinationPath "$env:RUNNER_TEMP\python316" -Force
+          & "$env:RUNNER_TEMP\python316\python.exe" -c "import sys; print(sys.version)"
+      - name: Probe alpha interpreter and dependencies
+        id: alpha-dependencies
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $python = "$env:RUNNER_TEMP\python316\python.exe"
+          & $python -m ensurepip --upgrade
+          if ($LASTEXITCODE -ne 0) { throw 'Python 3.16 does not include working ensurepip' }
+          & $python -m pip install --prefer-binary --disable-pip-version-check -r requirements.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Third-party Windows Python 3.16 wheels unavailable' }
+          & $python -c "import main; from luxai.voice import VoiceListener; print('LuxAI imports OK')"
+          if ($LASTEXITCODE -ne 0) { throw 'Python 3.16 application import failed' }
+      - name: Report preview package limitations
+        if: steps.alpha-dependencies.outcome == 'failure'
+        run: echo "::warning::Python 3.16 alpha has no compatible PySide6/Faster Whisper Windows wheels yet; stable Python fallback is required."
