@@ -20,6 +20,7 @@ from luxai.websites import website_plan
 from luxai.action_catalog import CATALOG, validate_step
 from luxai.macro_planner import validate_generated_macro
 from luxai.discord_research import detect_research_dm_request
+from luxai.discord_screen_review import detect_discord_screen_review
 
 
 def is_create_command_request(text: str) -> bool:
@@ -39,6 +40,11 @@ def _action_from_description(text: str) -> dict | None:
     """Narrow intent resolver, suitable for an untrusted voice utterance."""
     s = str(text or "").strip()
     t = s.casefold()
+    review_user = detect_discord_screen_review(s)
+    if review_user is not None:
+        step = {"action": "discord_screen_review", "target": review_user}
+        return {"action": step["action"], "target": review_user,
+                "location": "desktop", "steps": [step]}
     research_dm = detect_research_dm_request(s)
     if research_dm is not None:
         topic, username = research_dm
