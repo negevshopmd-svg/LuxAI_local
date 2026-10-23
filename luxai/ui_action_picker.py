@@ -259,7 +259,7 @@ class ActionOptionsDialog(QDialog):
         elif action in {
             "open_website", "search_web", "open_first_result", "type_text", "key_sequence",
             "speak_text", "voice_female", "voice_male", "run_cmd", "run_powershell",
-            "visual_click",
+            "visual_click", "discord_research_dm",
         }:
             self.target = QLineEdit(str(self.current_step.get("target", "")))
             prompts = {
@@ -269,6 +269,7 @@ class ActionOptionsDialog(QDialog):
                 "type_text": "Текст для активного окна",
                 "key_sequence": "Q,W,E,R,D — от 2 до 24 клавиш",
                 "visual_click": "Название кнопки или объекта||1 (1–10 кликов)",
+                "discord_research_dm": "Тема статьи||пользователь Discord",
                 "speak_text": "Текст для Jarvis",
                 "voice_female": "Текст женским голосом",
                 "voice_male": "Текст мужским голосом",
