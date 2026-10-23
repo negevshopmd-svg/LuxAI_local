@@ -218,18 +218,43 @@ def prepare_discord_draft(planner, target: str) -> DiscordDraft:
     return DiscordDraft(hwnd, username, message, source_url, composer)
 
 
-def submit_discord_draft(draft: DiscordDraft) -> str:
-    """Send only following separate approval with target and preview displayed."""
+def submit_discord_draft(draft: DiscordDraft, planner, *, cancelled=None) -> str:
+    """Reinspect the CURRENT recipient and unsent text after final approval.
+
+    A saved composer coordinate is not enough: the Discord chat or draft may
+    have changed while the user was reading the confirmation dialog. The
+    original screenshot consent covers this third and final visual check.
+    If anything cannot be verified, do not click or send.
+    """
     if not isinstance(draft, DiscordDraft):
         raise ValueError("No prepared Discord draft")
-    focus_discord(draft.hwnd)
-    # Check active target remains an actual Discord process, then return
-    # focus to the previously validated composer location.
+    if planner is None:
+        raise ValueError("A vision-capable AI is required to verify the draft")
+    if cancelled is not None and cancelled():
+        raise RuntimeError("Discord send cancelled")
+    from luxai.visual_click import capture_window, find_visual_target, click_visual_target
     import pyautogui
-    x, y = draft.composer_point
-    if not pyautogui.onScreen(x, y):
-        raise RuntimeError("Message composer is no longer on screen")
-    pyautogui.click(x, y)
+
+    focus_discord(draft.hwnd)
+    current = capture_window(draft.hwnd)
+    point = find_visual_target(
+        planner,
+        "Discord DIRECT MESSAGE: verify the visible chat HEADER is exactly "
+        f"the intended recipient @{draft.username}, AND the message composer "
+        "contains the COMPLETE UNSENT draft, not a different message. "
+        f"Expected exact draft: {draft.message!r}. "
+        "Only if BOTH checks are unambiguous, return the center of that "
+        "composer. If the chat, message or text is different, unreadable, "
+        "partially hidden or absent, return found:false.",
+        current,
+    )
+    if cancelled is not None and cancelled():
+        raise RuntimeError("Discord send cancelled")
+    # Clicking through the capture validator rejects a switched window,
+    # overlay or out-of-bounds location; never reuse the old coordinates.
+    click_visual_target(current, point, 1)
+    if cancelled is not None and cancelled():
+        raise RuntimeError("Discord send cancelled")
     pyautogui.press("enter")
-    return ("Enter отправлен в Discord. Доставку сообщения подтвердить "
-            "не могу — проверьте историю переписки.")
+    return ("Enter отправлен в проверенный диалог Discord. Доставку сообщения "
+            "подтвердить не могу — проверьте историю переписки.")
