@@ -1730,6 +1730,8 @@ class MainWindow(QMainWindow):
                     pass
 
     def _on_tts_played(self, played):
+        if hasattr(self, "settings_panel"):
+            self.settings_panel.refresh_voice_status()
         if not played:
             self.mic_status.setText("Нет подходящего голоса. Проверьте voice_error.log.")
 
