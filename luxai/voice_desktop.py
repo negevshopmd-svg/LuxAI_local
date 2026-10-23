@@ -79,32 +79,58 @@ def wants_screen_read(text: str) -> bool:
     return bool(SCREEN_READ.search(strip_wake_name(text)))
 
 
-def wants_discord_mic_mute(text: str) -> bool:
-    t = strip_wake_name(text)
-    # Do not consume a visual click request: that has a different meaning
-    # from the Discord global hotkey and requires screenshot validation.
-    if wants_discord_mic_visual_click(text):
-        return False
-    return bool(DISCORD_MIC.search(t) and DISCORD_MUTE.search(t))
+def discord_mic_visual_mode(text: str) -> str | None:
+    """A spoken GUI-button action is NEVER a Discord global shortcut.
+
+    An explicit button press does not require the user to also say "take a
+    screenshot": inspection is how LuxAI locates real on-screen controls.
+    Return the desired post-action state, not an arbitrary key sequence.
+    """
+    phrase = strip_wake_name(text).casefold().strip()
+    if not 14 <= len(phrase) <= 320 or not DISCORD_MIC.search(phrase):
+        return None
+    if re.search(
+        r"\b(?:отправ\w*|напиши|send|trimite|удали|delete|сообщени\w*)\b",
+        phrase,
+    ):
+        return None
+    button = re.search(
+        r"(?:\bкнопк\w*|\bзначок\w*|\bиконк\w*|"
+        r"\bbutton\b|\bicon\b)",
+        phrase,
+    )
+    pressing = re.search(
+        r"(?:нажм\w*|нажать|нажми|клик\w*|щёлк\w*|"
+        r"щелк\w*|click|apasă|apasa)",
+        phrase,
+    )
+    if not button or not pressing:
+        return None
+    if re.search(
+        r"\b(?:чтобы|для\s+того\s+чтобы)\s+"
+        r"(?:его\s+)?(?:включ\w*|размут\w*|активир\w*)",
+        phrase,
+    ):
+        return "unmute"
+    if re.search(
+        r"\b(?:чтобы|для\s+того\s+чтобы)\s+"
+        r"(?:его\s+)?(?:выключ\w*|отключ\w*|заглуш\w*|замут\w*)",
+        phrase,
+    ) or DISCORD_MUTE.search(phrase):
+        return "mute"
+    return "toggle"
 
 
 def wants_discord_mic_visual_click(text: str) -> bool:
-    """Screenshot then click the Discord microphone button, not a cloud macro.
+    return discord_mic_visual_mode(text) is not None
 
-    Match the full user-requested visual operation, not a generic "Discord"
-    mention. More complex commands must still pass through the usual planner.
-    """
-    phrase = strip_wake_name(text).casefold().strip()
-    if not 14 <= len(phrase) <= 260:
+
+def wants_discord_mic_mute(text: str) -> bool:
+    """Legacy keyboard shortcut ONLY for requests with no GUI button press."""
+    if wants_discord_mic_visual_click(text):
         return False
-    if re.search(r"\b(?:отправ\w*|напиши|send|trimite|удали|delete)\b", phrase):
-        return False
-    return bool(
-        DISCORD_MIC.search(phrase)
-        and re.search(r"(?:скрин|снимок\s+экрана|screenshot|captur)", phrase)
-        and re.search(r"(?:\bкнопк\w*|\bзначок\w*|\bicon\b|\bbutton\b)", phrase)
-        and re.search(r"(?:нажм\w*|клик\w*|щёлк\w*|щелк\w*|click|apasă|apasa)", phrase)
-    )
+    phrase = strip_wake_name(text)
+    return bool(DISCORD_MIC.search(phrase) and DISCORD_MUTE.search(phrase))
 
 
 def read_screen_locally(tesseract_path="") -> str:
