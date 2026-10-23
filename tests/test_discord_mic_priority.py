@@ -32,13 +32,15 @@ class DiscordMicIntentTests(unittest.TestCase):
         self.assertFalse(wants_discord_mic_visual_click(
             "Сделай снимок экрана потом отправь сообщение в Discord"
         ))
-        self.assertFalse(wants_discord_mic_visual_click(MUTE))
+        self.assertTrue(wants_discord_mic_visual_click(MUTE))
 
-    def test_existing_mute_shortcut_is_still_recognized(self):
-        self.assertTrue(wants_discord_mic_mute(MUTE))
-        self.assertTrue(wants_discord_mic_mute(
+    def test_plain_mute_uses_verified_visual_state(self):
+        from luxai.voice_desktop import discord_mic_visual_mode
+        self.assertFalse(wants_discord_mic_mute(MUTE))
+        self.assertEqual(discord_mic_visual_mode(MUTE), "mute")
+        self.assertEqual(discord_mic_visual_mode(
             "Отключи микрофон в дискорде"
-        ))
+        ), "mute")
 
     def test_spoken_button_mute_without_explicit_screenshot(self):
         from luxai.voice_desktop import discord_mic_visual_mode
@@ -56,7 +58,7 @@ class DiscordMicIntentTests(unittest.TestCase):
         self.assertEqual(discord_mic_visual_mode(
             "Открой Discord нажми на кнопку микрофона чтобы включить"
         ), "unmute")
-        self.assertFalse(wants_discord_mic_visual_click(MUTE))
+        self.assertTrue(wants_discord_mic_visual_click(MUTE))
 
     def test_already_muted_never_clicks_or_unmutes(self):
         captured = mock.Mock(hwnd=45)
@@ -273,23 +275,19 @@ class DiscordMicPriorityUITests(unittest.TestCase):
         self.assertIn("отменено", resolved.call_args.args[1])
         thread.assert_not_called()
 
-    def test_existing_mute_stays_local_even_when_generic_planner_would_match(self):
+    def test_plain_mute_never_hits_toggle_or_old_macro(self):
         import main
         window = self.make_window()
         with (
-            mock.patch.object(main, "needs_live_macro_planning",
-                              return_value=True) as macro_intent,
-            mock.patch.object(main, "toggle_discord_microphone",
-                              return_value="Отправил Ctrl+Shift+M.") as mute,
-            mock.patch.object(window, "_resolved_command") as result,
+            mock.patch.object(window, "_start_discord_mic_visual") as visual,
+            mock.patch.object(main, "toggle_discord_microphone") as keyboard,
+            mock.patch.object(window, "_execute_registered") as learned,
             mock.patch("main.threading.Thread") as thread,
         ):
             window.run_command(MUTE)
-        mute.assert_called_once()
-        result.assert_called_once()
-        # run_command queries macro planning only to decide whether to split
-        # the utterance. Its dispatcher must still use local mute immediately.
-        macro_intent.assert_called_once_with(MUTE)
+        visual.assert_called_once_with(MUTE)
+        keyboard.assert_not_called()
+        learned.assert_not_called()
         thread.assert_not_called()
 
 
