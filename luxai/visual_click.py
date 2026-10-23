@@ -60,8 +60,8 @@ def parse_click_target(value: object) -> tuple[str, int]:
     if not isinstance(value, str):
         raise ValueError("A visible control name is required")
     parts = value.rsplit("||", 1)
-    if len(parts) != 2 or parts[1] not in {"1", "2", "3"}:
-        raise ValueError("Visual click must be 'control label||1..3'")
+    if len(parts) != 2 or parts[1] not in {str(i) for i in range(1, 11)}:
+        raise ValueError("Visual click must be 'control label||1..10'")
     label = parts[0].strip()
     if (
         not 2 <= len(label) <= 110
@@ -194,8 +194,8 @@ def click_visual_target(capture: VisualCapture, point: tuple[int, int],
         raise RuntimeError("Do not click: user has switched to another window")
     if pid != capture.pid or title != capture.title:
         raise RuntimeError("Active application changed after screenshot")
-    if count not in (1, 2, 3):
-        raise ValueError("Only 1 to 3 clicks allowed")
+    if not isinstance(count, int) or not 1 <= count <= 10:
+        raise ValueError("Only 1 to 10 clicks allowed")
     x, y = point
     if not (capture.left <= x < capture.left + capture.width and
             capture.top <= y < capture.top + capture.height):
