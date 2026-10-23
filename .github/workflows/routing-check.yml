@@ -70,7 +70,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.11', '3.12', '3.13', '3.14', '3.15']
+        python-version: ['3.11', '3.12', '3.13', '3.14']
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
@@ -87,6 +87,30 @@ jobs:
         run: python -m pip install --prefer-binary --disable-pip-version-check -r requirements.txt
       - name: Verify imports
         run: python -c "import main; from luxai.voice import VoiceListener; print('LuxAI imports OK')"
+
+  python-315-compatibility-probe:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.15'
+          architecture: x64
+      - name: Confirm installer detects Python 3.15
+        shell: powershell
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\install_windows.ps1 -SelfTest
+          if ($LASTEXITCODE -ne 0) { throw 'Python 3.15 detection failed' }
+      - name: Probe native speech dependencies
+        id: native-dependencies
+        continue-on-error: true
+        run: |
+          python -m pip install --prefer-binary -r requirements.txt
+          python -c "import main; from luxai.voice import VoiceListener; from faster_whisper import WhisperModel; print('Python 3.15 speech dependency imports OK')"
+      - name: Explain fallback if wheels are missing
+        if: steps.native-dependencies.outcome == 'failure'
+        run: echo "::warning::Python 3.15 is detected, but speech libraries lack supported Windows wheels. LuxAI installer automatically retries an older installed Python version."
 
   python-316-preview-windows:
     # Experimental: official Python 3.16 alpha ZIP is not yet packaged by
