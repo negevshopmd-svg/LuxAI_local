@@ -199,7 +199,9 @@ class BundledOCRTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         install = (root / "install_windows.bat").read_text(encoding="utf-8")
         updater = (root / "Update.py").read_text(encoding="utf-8")
-        self.assertIn("-m luxai.ocr_setup", install)
+        powershell_setup = (root / "scripts" / "install_windows.ps1").read_text(encoding="utf-8")
+        self.assertIn("install_windows.ps1", install)
+        self.assertIn("'luxai.ocr_setup'", powershell_setup)
         self.assertIn('"luxai.ocr_setup"', updater)
         self.assertIn('".luxai_data"', updater)
         self.assertIn("OCR", updater)
