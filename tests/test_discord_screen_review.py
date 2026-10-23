@@ -27,6 +27,11 @@ VOICE_MISHEARD = (
     "снимок экрана и сделайте краткое содержимое."
 )
 VOICE_UNCERTAIN_APP = VOICE_MISHEARD.replace("Скопт", "Сквар")
+VOICE_FROM_NEW_SCREENSHOT = (
+    "жарис открой дискорд сделай снимок экрана найди там пользователя "
+    "старый бог нажми на него потом сделай еще один снимок экрана "
+    "потом сделай ей краткое расскажи краткое содержание чата"
+)
 
 
 class ReviewRoutingTests(unittest.TestCase):
@@ -59,6 +64,41 @@ class ReviewRoutingTests(unittest.TestCase):
         self.assertIsNone(validate_generated_macro({
             "steps": [{"action": "discord_screen_review", "target": "Старый"}],
         }, VOICE_MISHEARD))
+
+    def test_latest_spoken_command_with_tam_and_click_is_one_verified_workflow(self):
+        # Exact failed Whisper transcript: previously hit the generic cloud
+        # macro planner and "AI did not provide a complete supported sequence."
+        self.assertEqual(
+            detect_discord_screen_review(VOICE_FROM_NEW_SCREENSHOT),
+            "старый бог",
+        )
+        self.assertTrue(looks_like_discord_screen_review(VOICE_FROM_NEW_SCREENSHOT))
+        self.assertTrue(needs_live_macro_planning(VOICE_FROM_NEW_SCREENSHOT))
+        valid = validate_generated_macro({
+            "steps": [{"action": "discord_screen_review", "target": "старый бог"}],
+        }, VOICE_FROM_NEW_SCREENSHOT)
+        self.assertEqual(valid["steps"][0]["target"], "старый бог")
+        # No incomplete launcher-only or unsafely guessed GUI click proposals.
+        self.assertIsNone(validate_generated_macro({
+            "steps": [{"action": "open_app", "target": "discord"}]
+        }, VOICE_FROM_NEW_SCREENSHOT))
+        self.assertIsNone(validate_generated_macro({
+            "steps": [{"action": "visual_click", "target": "старый бог||1"}],
+        }, VOICE_FROM_NEW_SCREENSHOT))
+
+    def test_spoken_mouse_action_is_not_part_of_contact_name(self):
+        variants = [
+            "найди там пользователя старый бог нажми на него потом",
+            "найди пользователя Старый Бог и нажми на него",
+            "найди здесь пользователя старый бог кликни по нему",
+            "найди пользователя старый бог, нажми на него",
+        ]
+        from luxai.discord_screen_review import _USER_RE
+        for phrase in variants:
+            with self.subTest(phrase=phrase):
+                match = _USER_RE.search(phrase)
+                self.assertIsNotNone(match)
+                self.assertEqual(match.group("name").casefold(), "старый бог")
 
     def test_unknown_app_keeps_request_together_and_requires_clarification(self):
         self.assertTrue(looks_like_discord_screen_review(VOICE_UNCERTAIN_APP))
@@ -297,6 +337,35 @@ class ScreenRoutingUITests(unittest.TestCase):
             thread.call_args.kwargs["target"], window._direct_macro_worker,
         )
         self.assertEqual(thread.call_args.kwargs["args"], (VOICE_MISHEARD,))
+
+    def test_current_voice_phrase_runs_dedicated_macro_not_cloud_generation(self):
+        import main
+        window = self.build_window()
+        window.online_planner.enabled = mock.Mock(return_value=True)
+        with (
+            mock.patch.object(main.threading, "Thread") as thread,
+            mock.patch.object(window, "_start_screen_inspection") as screen,
+            mock.patch.object(window.online_planner, "plan_macro") as cloud,
+        ):
+            window.run_command(VOICE_FROM_NEW_SCREENSHOT)
+        screen.assert_not_called()
+        cloud.assert_not_called()
+        thread.assert_called_once()
+        self.assertEqual(thread.call_args.kwargs["args"], (VOICE_FROM_NEW_SCREENSHOT,))
+
+        # Verify actual worker processing bypasses open-ended cloud proposal
+        # and produces the dedicated, locally validated action.
+        surrogate = types.SimpleNamespace(
+            online_planner=mock.Mock(),
+            direct_macro_ready=types.SimpleNamespace(emit=mock.Mock()),
+            _closed=False,
+        )
+        main.MainWindow._direct_macro_worker(surrogate, VOICE_FROM_NEW_SCREENSHOT)
+        surrogate.online_planner.plan_macro.assert_not_called()
+        self.assertEqual(
+            surrogate.direct_macro_ready.emit.call_args.args[1]["steps"][0]["action"],
+            "discord_screen_review",
+        )
 
     def test_no_cloud_does_not_start_wrong_screen_inspection(self):
         window = self.build_window()

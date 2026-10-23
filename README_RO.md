@@ -88,3 +88,7 @@ O comandă vocală precum „жарис открой дискорд потом �
 ### Recunoașterea vocală a contactelor Discord
 
 Comenzile de tipul „Откроете Скопт, потом сделайте снимок экрана, найдите пользователя Старый Бог, после этого в переписке сделайте снимок экрана и сделайте краткое содержимое” sunt păstrate integral, în loc să fie împărțite și trimise chatbotului. Parserul acceptă acum varianta recunoscută greșit „Скопт” numai în contextul clar al unui flux Discord cu captură și conversație și solicită confirmarea că destinația este Discord. Numele afișate formate din mai multe cuvinte (de exemplu „Старый Бог”) rămân un singur destinatar, verificat în captură; dacă apar mai multe rezultate similare, Jarvis nu alege arbitrar și nu trimite mesaje. Dacă aplicația nu poate fi identificată, Jarvis anunță explicit problema fără a executa parțial comanda.
+
+### Corecție pentru „найди там пользователя”
+
+Comanda vocală „жарис открой дискорд сделай снимок экрана найди там пользователя старый бог нажми на него потом сделай еще один снимок экрана потом сделай ей краткое расскажи краткое содержание чата” este recunoscută ca un singur flux Discord. Parserul acceptă adverbe după „найди” (de ex. „там”), păstrează numele „старый бог” fără să includă „нажми на него” în acesta și trimite acțiunea către fluxul verificat vizual, nu către un plan AI incomplet. Capturile către AI necesită în continuare acord, iar fluxul nu trimite mesaje.

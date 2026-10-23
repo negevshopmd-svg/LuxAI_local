@@ -57,3 +57,8 @@ See the microphone troubleshooting steps in README.md or README_RO.md after upda
 - Correct routing for the spoken transcript `Откроете Скопт ... найдите пользователя Старый Бог ... краткое содержимое` and similar complete multi-stage screenshot requests; no partial execution or generic-chat refusal.
 - Support exact two-to-four-word Discord display names in the visual-review workflow, while requiring unambiguous Quick Switcher and chat-header verification.
 - If the chat application cannot be recognized with confidence, reject the whole task instead of allowing a partially generated cloud macro. Maintain explicit screenshot consent and zero send actions.
+
+### 0.2.0 — Discord screenshot macro: search-then-click phrasing
+
+- Parse voice phrases such as `найди там пользователя старый бог нажми на него`, separating location adverbs, contact display names and the subsequent click action.
+- Ensure the complete screenshot/search/screenshot/summary request takes the verified Discord visual workflow rather than an unsupported general-cloud plan; add regression tests matching the actual Whisper transcript.
