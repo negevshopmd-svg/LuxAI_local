@@ -19,7 +19,6 @@ import wave
 from datetime import datetime
 from pathlib import Path
 
-import sounddevice as sd
 
 ROOT = Path(__file__).resolve().parents[1]
 VOICES_DIR = ROOT / "voices"
@@ -268,6 +267,7 @@ class VoiceManager:
                             self._voice.synthesize_wav(text, wav_file)
                     import soundfile as sf
                     audio, sample_rate = sf.read(str(wav_path), dtype="float32")
+                    import sounddevice as sd
                     sd.play(audio * volume, sample_rate)
                     sd.wait()
                     return True
