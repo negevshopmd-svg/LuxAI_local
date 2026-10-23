@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from luxai.voices import available_voices
+from luxai.ui_i18n import LANGUAGES, get_ui_language, tr, translate_widgets
 
 
 class SettingsPanel(QWidget):
@@ -104,6 +105,7 @@ class SettingsPanel(QWidget):
         reset.clicked.connect(lambda: self.search.clear())
         side.addWidget(reset)
         root.addWidget(sidebar)
+        translate_widgets(self, get_ui_language())
 
     def _section(self, title, subtitle):
         frame = QFrame()
@@ -268,10 +270,15 @@ class SettingsPanel(QWidget):
         self._row(panel, "Анимации", "Отображение анимированного аватара.", self.animations)
         self.on_top = self._toggle(self.cfg.get("always_on_top", False))
         self._row(panel, "Поверх остальных окон", "Оставлять Jarvis видимым поверх приложений.", self.on_top)
-        hint = QLabel("Язык интерфейса: Русский. Румынский и английский доступны для распознавания и ответов.")
-        hint.setObjectName("Muted")
-        hint.setWordWrap(True)
-        panel.addWidget(hint)
+        self.ui_language = self._combo(
+            LANGUAGES, self.cfg.get("ui_language", "ru")
+        )
+        self.ui_language.setObjectName("UiLanguageCombo")
+        self._row(
+            panel, "Язык интерфейса",
+            "Меняет только интерфейс. Язык распознавания и озвучивания настраивается отдельно.",
+            self.ui_language,
+        )
 
     def _build_ai(self):
         panel = self._section(
@@ -461,9 +468,9 @@ class SettingsPanel(QWidget):
 
     def set_test_busy(self, busy):
         self.api_test_button.setEnabled(not busy)
-        self.api_test_button.setText("Проверка…" if busy else "Проверить ключ")
+        self.api_test_button.setText(tr("Проверка…" if busy else "Проверить ключ"))
         if busy:
-            self.key_status.setText("Проверка ключа и выбранной модели через API…")
+            self.key_status.setText(tr("Проверка ключа и выбранной модели через API…"))
 
     def show_test_result(self, message, valid):
         self.set_test_busy(False)
@@ -575,6 +582,9 @@ class SettingsPanel(QWidget):
         if path:
             self.tesseract_path.setText(path)
 
+    def retranslate(self, language):
+        translate_widgets(self, language)
+
     def _jump(self, index):
         section = self.sections[index]
         self.scroll.verticalScrollBar().setValue(section.y())
@@ -584,9 +594,9 @@ class SettingsPanel(QWidget):
             button.style().polish(button)
 
     def _filter(self, text):
-        query = text.strip().lower()
-        for (name, _), section, button in zip(self.SECTIONS, self.sections, self.section_buttons):
-            match = not query or query in name.lower()
+        query = text.strip().casefold()
+        for (_name, _), section, button in zip(self.SECTIONS, self.sections, self.section_buttons):
+            match = not query or query in button.text().casefold()
             section.setVisible(match)
             button.setVisible(match)
 
@@ -609,6 +619,7 @@ class SettingsPanel(QWidget):
             "confirm_no_words": self.confirm_no.text().strip(),
             "confirmation_timeout": self.confirm_timeout.value(),
             "command_chain_words": self.chain_words.text().strip(),
+            "ui_language": self.ui_language.currentData(),
             "ui_theme": self.theme.currentData(),
             "ui_accent": self.accent.currentData(),
             "ui_transparency": self.transparency.value(),
