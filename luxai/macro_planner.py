@@ -6,6 +6,8 @@ shell commands, permanent deletion, credential access or arbitrary paths.
 """
 from __future__ import annotations
 
+import re
+
 from luxai.action_catalog import validate_step
 
 MAX_MACRO_STEPS = 8
@@ -78,6 +80,16 @@ def validate_generated_macro(proposal: object) -> dict | None:
             valid = validate_step(raw)
         except (ValueError, TypeError, OverflowError):
             return None
+        if valid["action"] == "type_text":
+            # Do not turn apparently harmless GUI typing + Enter into a
+            # generated terminal command. Manual editor commands stay separate.
+            value = valid["target"]
+            if "\\n" in value or "\\r" in value or re.match(
+                r"(?i)^\\s*(?:cmd(?:\\.exe)?|powershell(?:\\.exe)?|pwsh|"
+                r"reg(?:\\.exe)?|del|erase|format|rm|remove-item|"
+                r"shutdown|taskkill|curl|wget|python(?:w?\\.exe)?)\\b", value
+            ):
+                return None
         validated.append(valid)
     first = validated[0]
     return {"action": first["action"], "target": first["target"],
