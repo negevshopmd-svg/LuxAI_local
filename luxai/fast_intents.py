@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 
 
-WAKE_ALIASES = ("jarvis", "джарвис", "жарвис", "джервис", "жервис")
+WAKE_ALIASES = ("jarvis", "джарвис", "жарвис", "джервис", "жервис", "жарис", "джарис")
 
 
 def strip_wake_name(text: str, configured: str = "Jarvis") -> str:

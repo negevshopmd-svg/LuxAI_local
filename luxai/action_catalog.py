@@ -29,6 +29,7 @@ _ACTIONS = [
     ("launch_game", "Запуск", "Запустить игру Steam", "Dota 2, Counter-Strike 2, War Thunder", True),
     ("run_file", "Запуск", "Запустить файл или программу", "Открывает файл, вручную выбранный на вашем компьютере", True),
     ("discord_research_dm", "Программа", "Найти факты и написать в Discord", "Wikipedia → поиск @пользователя в Discord → черновик → подтверждение отправки", True),
+    ("discord_screen_review", "Программа", "Найти человека в Discord и пересказать снимок", "Открыть Discord → два локальных снимка → подтверждённый пользователь → резюме", True),
     ("open_user_file", "Файлы", "Открыть файл по имени", "Ищет на рабочем столе, в Документах или Загрузках и открывает через Windows", True),
     ("open_website", "Запуск", "Открыть сайт", "Открывает указанный HTTPS-сайт в браузере", True),
     ("run_cmd", "Запуск", "Выполнить команду CMD", "Только сохранённый пользователем скрипт; подтверждение при каждом запуске", True),
@@ -151,7 +152,10 @@ def validate_step(raw):
     from luxai.file_actions import ALLOWED_LOCATIONS, safe_name
     from luxai.steam_games import GAMES
     from luxai.command_registry import APP_TARGETS  # lazy, avoids import loop
-    if action == "open_app":
+    if action == "discord_screen_review":
+        from luxai.discord_screen_review import validate_discord_review_user
+        result["target"] = validate_discord_review_user(target)
+    elif action == "open_app":
         if target not in APP_TARGETS:
             raise ValueError("Выберите приложение из списка")
         result["target"] = target

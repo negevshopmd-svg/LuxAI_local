@@ -34,6 +34,9 @@ from luxai.command_wizard import CommandWizard, is_create_command_request
 from luxai.discord_research import (
     detect_research_dm_request, prepare_discord_draft, submit_discord_draft,
 )
+from luxai.discord_screen_review import (
+    detect_discord_screen_review, run_discord_screen_review,
+)
 from luxai.macro_planner import needs_live_macro_planning
 from luxai.action_catalog import describe_step
 from luxai.visual_click import (
@@ -190,6 +193,7 @@ class MainWindow(QMainWindow):
     visual_step_ready = Signal(int, object, str)
     discord_draft_ready = Signal(int, object, str)
     discord_send_ready = Signal(int, object, str)
+    discord_review_ready = Signal(int, object, str)
     direct_macro_ready = Signal(str, object, str)
     direct_task_ready = Signal(str, str, str)
     screen_inspection_ready = Signal(str, object, str)
@@ -218,6 +222,7 @@ class MainWindow(QMainWindow):
         self.visual_step_ready.connect(self._on_visual_step_ready)
         self.discord_draft_ready.connect(self._on_discord_draft_ready)
         self.discord_send_ready.connect(self._on_discord_send_ready)
+        self.discord_review_ready.connect(self._on_discord_review_ready)
         self.direct_macro_ready.connect(self._on_direct_macro_ready)
         self.wizard_plan_ready.connect(self._on_wizard_plan)
         self.local_reply_ready.connect(self._on_local_reply)
@@ -1386,7 +1391,7 @@ class MainWindow(QMainWindow):
             configured = str(self.cfg.get("wake_prefix", "Jarvis") or "Jarvis")
             # Accept multiple names separated by commas, plus common Whisper variants.
             aliases = [name.strip() for name in configured.split(",") if name.strip()]
-            aliases += ["Jarvis", "Джарвис", "Жарвис", "Джервис", "Жервис"]
+            aliases += ["Jarvis", "Джарвис", "Жарвис", "Джервис", "Жервис", "Жарис", "Джарис"]
             prefix = aliases[0]
             variants = "|".join(
                 re.escape(name) for name in sorted(set(aliases), key=len, reverse=True)
@@ -1478,8 +1483,9 @@ class MainWindow(QMainWindow):
             word.strip() for word in self.cfg.get("command_chain_words", "и затем, потом").split(",")
             if word.strip()
         ]
-        if self.online_planner.enabled() and needs_live_macro_planning(text):
-            # Keep the ENTIRE task for the macro AI. Splitting on "потом"
+        if needs_live_macro_planning(text):
+            # Preserve multi-step intent even when cloud AI is disabled:
+            # never execute the first standalone screenshot and lose the rest.
             # previously discarded interdependent screen actions.
             connectors = []
         for connector in connectors:
@@ -1847,6 +1853,30 @@ class MainWindow(QMainWindow):
                 self._start_selection_request(text, selected_mode)
                 return
 
+            # Previously, local screen inspection matched "найди ... экран"
+            # inside compound tasks before opening Discord or another app.
+            # Saved exact commands take priority, then the ENTIRE chained
+            # request goes to the validated macro planner.
+            if saved is not None:
+                self._execute_registered(text, saved)
+                return
+            if needs_live_macro_planning(text):
+                if not self.online_planner.enabled():
+                    self._current_route = "сложные голосовые команды"
+                    self._resolved_command(
+                        text,
+                        "Команда из нескольких шагов не выполнена. "
+                        "Для анализа снимков и поиска элементов включите "
+                        "онлайн AI с поддержкой изображений и проверьте API-ключ."
+                    )
+                    return
+                self.mic_status.setText("AI планирует всю последовательность действий…")
+                threading.Thread(
+                    target=self._direct_macro_worker, args=(text,),
+                    daemon=True, name="JarvisLiveMacroPlanner",
+                ).start()
+                return
+
             # Live weather and local screen OCR use dedicated, verifiable
             # services. They work even if Gemini is quota-blocked (HTTP 429).
             if re.search(
@@ -1880,16 +1910,6 @@ class MainWindow(QMainWindow):
                 self._current_route = "Discord: глобальная комбинация клавиш"
                 answer = toggle_discord_microphone(self.confirm_action)
                 self._resolved_command(text, answer)
-                return
-
-            # Explicitly authored/learned personal commands are intentionally
-            # instant, even if Gemini is enabled. Every unknown spoken action
-            # is handed to Gemini first when the cloud key works.
-            if saved is not None:
-                # Both shipped presets and user-authored commands have
-                # precise, prevalidated actions. Execute them immediately
-                # without waiting for the online planner or local GGUF.
-                self._execute_registered(text, saved)
                 return
 
             choice = button_choice(text)
@@ -1955,13 +1975,6 @@ class MainWindow(QMainWindow):
                 self._resolved_command(text, answer or "Не удалось открыть сайт.")
                 return
 
-            if self.online_planner.enabled() and needs_live_macro_planning(text):
-                self.mic_status.setText("AI планирует визуальные действия на экране…")
-                threading.Thread(
-                    target=self._direct_macro_worker, args=(text,),
-                    daemon=True, name="JarvisLiveMacroPlanner",
-                ).start()
-                return
             quick = routine_reply(text, reply_language(self.cfg, text))
             if quick is not None:
                 self.agent.remember(text, quick)
@@ -2076,6 +2089,34 @@ class MainWindow(QMainWindow):
             unit = "мин" if step["action"] == "wait_minutes" else "сек"
             self.mic_status.setText(f"Пауза {count} {unit} (шаг {ctx['index']})")
             QTimer.singleShot(milliseconds, self._next_macro_step)
+            return
+        if step["action"] == "discord_screen_review":
+            username = step["target"]
+            if not self.online_planner.enabled():
+                ctx["messages"].append(
+                    "Нужен AI с поддержкой изображений для поиска в Discord."
+                )
+                self._finish_visual_macro()
+                return
+            approval = (
+                f"Открыть Discord, сделать снимок, найти @{username}, "
+                "сделать второй снимок и кратко пересказать его?\n\n"
+                "Два снимка будут сохранены локально в Pictures/LuxAI. "
+                "До ТРЁХ изображений Discord (поиск, проверка чата и анализ "
+                "второго снимка) будут переданы выбранному облачному AI. "
+                "Они могут содержать личные переписки. Продолжить? "
+                "Никакие сообщения отправляться не будут."
+            )
+            if not self.confirm_action(approval):
+                ctx["messages"].append("Отправка снимков в AI отменена.")
+                self._finish_visual_macro()
+                return
+            self.mic_status.setText(f"Открываю Discord и ищу @{username}…")
+            threading.Thread(
+                target=self._discord_review_worker,
+                args=(username, ctx["index"], ctx),
+                daemon=True, name="JarvisDiscordVisualReview",
+            ).start()
             return
         if step["action"] == "discord_research_dm":
             topic, username = step["target"].rsplit("||", 1)
@@ -2269,6 +2310,44 @@ class MainWindow(QMainWindow):
         self._macro_context = None
         self._resolved_command(ctx["text"], output)
 
+    def _discord_review_worker(self, username, index, context):
+        try:
+            result = run_discord_screen_review(
+                self.online_planner, username,
+                cancelled=lambda: self._closed or self._macro_context is not context,
+            )
+            error = ""
+        except (OSError, RuntimeError, ValueError, PermissionError) as exc:
+            result = None
+            if isinstance(exc, ValueError) and "Control not found" in str(exc):
+                error = (
+                    "Discord не подтвердил точного пользователя или заголовок чата. "
+                    "Снимки могут остаться локально; сообщений не отправлено."
+                )
+            else:
+                error = f"{type(exc).__name__}: {str(exc)[:170]}"
+        except Exception:
+            result, error = None, "Не удалось безопасно исследовать окно Discord."
+        if not self._closed:
+            try:
+                self.discord_review_ready.emit(index, result, error)
+            except RuntimeError:
+                pass
+
+    def _on_discord_review_ready(self, index, result, error):
+        ctx = getattr(self, "_macro_context", None)
+        if self._closed or ctx is None or not self._processing or ctx["index"] != index:
+            return
+        if result is None or error:
+            ctx["messages"].append(
+                "Discord: последовательность остановлена. " +
+                (error or "результат не получен.")
+            )
+            self._finish_visual_macro()
+            return
+        ctx["messages"].append(result)
+        QTimer.singleShot(0, self._next_macro_step)
+
     def _discord_draft_worker(self, step, index):
         try:
             draft = prepare_discord_draft(self.online_planner, step["target"])
@@ -2455,8 +2534,15 @@ class MainWindow(QMainWindow):
     def _direct_macro_worker(self, text):
         try:
             from luxai.macro_planner import validate_generated_macro
+            review_user = detect_discord_screen_review(text)
             parsed = detect_research_dm_request(text)
-            if parsed:
+            if review_user:
+                proposal = validate_generated_macro(
+                    {"steps": [{"action": "discord_screen_review",
+                                 "target": review_user}]}, text,
+                )
+                error = "" if proposal else "Не удалось определить пользователя Discord."
+            elif parsed:
                 topic, username = parsed
                 proposal = validate_generated_macro(
                     {"steps": [{"action": "discord_research_dm",
