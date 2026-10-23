@@ -408,7 +408,7 @@ class MainWindow(QMainWindow):
 
     def _wizard_online_thread(self, description, history):
         try:
-            proposal = self.online_planner.plan(description, history=history)
+            proposal = self.online_planner.plan_macro(description)
         except Exception:
             proposal = None
         if not self._closed:
@@ -422,7 +422,9 @@ class MainWindow(QMainWindow):
             return
         if self.command_wizard.stage != "online" or self.command_wizard.description != description:
             return
-        response, _ = self.command_wizard.accept_online_plan(plan)
+        response, _ = self.command_wizard.accept_online_plan(
+            plan, error=self.online_planner.last_error if plan is None else ""
+        )
         self._wizard_response(response)
 
     def run_saved_command(self, entry):

@@ -35,6 +35,7 @@ _ACTIONS = [
     ("type_text", "Клавиши", "Ввести текст", "Печатает указанный текст в активном окне", True),
     ("hotkey", "Клавиши", "Нажать клавишу или сочетание", "Выбираемое сочетание из безопасного списка", True),
     ("press_key", "Клавиши", "Нажать одну клавишу", "Буквы, цифры и стандартные клавиши", True),
+    ("key_sequence", "Клавиши", "Последовательность клавиш", "По очереди нажимает 2–24 буквы или цифры, например Q,W,E,R,D", True),
     ("press_enter", "Клавиши", "Нажать Enter", "Отправляет Enter в активное окно", True),
     ("save_document", "Клавиши", "Сохранить (Ctrl+S)", "Отправляет Ctrl+S в активное окно", True),
     ("mouse_double_click", "Мышь", "Двойной клик", "Двойной щелчок левой кнопкой", True),
@@ -227,6 +228,19 @@ def validate_step(raw):
         if any(ord(ch) < 32 for ch in target):
             raise ValueError("Неверный поисковый запрос")
         result["target"] = target.strip()
+    elif action == "key_sequence":
+        if not isinstance(target, str):
+            raise ValueError("Укажите последовательность из 2–24 английских букв или цифр")
+        raw = target.strip().casefold()
+        if any(ord(ch) < 32 or ord(ch) == 127 for ch in raw):
+            raise ValueError("Управляющие символы запрещены")
+        if re.fullmatch(r"[a-z0-9]{2,24}", raw):
+            keys = list(raw)
+        else:
+            keys = [item.strip() for item in re.split(r"[,\s]+", raw) if item.strip()]
+        if not 2 <= len(keys) <= 24 or any(not re.fullmatch(r"[a-z0-9]", key) for key in keys):
+            raise ValueError("Допустимы только 2–24 последовательных букв или цифр")
+        result["target"] = ",".join(keys)
     elif action == "press_key":
         if target not in SINGLE_KEYS:
             raise ValueError("Неизвестная клавиша")
@@ -269,6 +283,8 @@ def validate_step(raw):
 
 def describe_step(step: dict) -> str:
     title = CATALOG[step["action"]]["title"]
+    if step["action"] == "key_sequence":
+        return title + ": " + " → ".join(step["target"].upper().split(","))
     if step.get("target"):
         short = step["target"]
         if len(short) > 48:

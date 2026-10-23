@@ -50,3 +50,11 @@ Dacă apare pornit, dar nu te aude:
 5. **Salvează diagnosticul** dacă problema rămâne. Raportul include dispozitivele, versiunile și ultimul test de microfon; nu include chei API, conversații, înregistrări sau căile modelelor personale. Numele dispozitivelor pot identifica modelul căștilor.
 
 Comutatorul indică setarea cerută; mesajul și nivelul indică starea reală. Testele automate nu pot confirma microfonul fizic și driverele de pe calculatorul tău. La o eroare de actualizare, codul anterior este restaurat automat când este posibil; bibliotecile modificate parțial pot necesita `install_windows.bat`.
+
+## Comenzi vocale complexe cu AI cloud
+
+În versiunea 0.2.0, generatorul de comenzi are un planificator separat pentru macrocomenzi. Spune **„Создай команду”** sau **„Creează o nouă comandă”**, dictează fraza care o va activa, apoi descrie toți pașii (în ordine). De exemplu: **„deschide Notepad, apoi așteaptă 2 secunde, apoi apasă Q W E R D”**. Dacă interpretorul local nu recunoaște întreaga descriere, planificatorul cloud configurat în Setări poate propune acțiuni aprobate. Urmărește previzualizarea pas cu pas și spune „да” / „yes” pentru salvare sau „нет” / „no” pentru a descrie altfel.
+
+O comandă salvată poate avea până la **8 pași**, cu până la **24 de apăsări individuale** într-o singură acțiune „secvență de taste”. Comenzile disponibile includ tastatură, combinații aprobate, mouse, pauze, programe și site-uri. Secvența „qwerd” apasă Q, W, E, R, D *pe rând*, nu introduce un text în câmp. Poți edita și secvența în interfața Comenzi.
+
+Agentul cloud oferă doar propuneri; fiecare pas este validat local și nu se execută la creare. Cererile distructive (de exemplu golirea Coșului de reciclare), scripturile shell, operațiile pe parole și alte acțiuni în afara listei nu sunt generate automat. AI-ul cloud trebuie activat și cheia sa API trebuie să funcționeze. Comenzile locale simple și comenzile deja salvate funcționează fără cloud.

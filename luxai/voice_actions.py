@@ -35,6 +35,20 @@ def parse_action(text: str) -> dict | None:
     original = re.sub(r"^(?:пожалуйста|please|te rog)\s+", "", original, flags=re.I)
     if not phrase:
         return None
+    # A spoken compact sequence is NOT text dictation. Actually press each
+    # key (useful for hotkeys in games and apps such as Q,W,E,R,D).
+    sequence = re.fullmatch(
+        r"(?:нажми|нажимай|нажать|нажмите|жми|press|apasă|apasa)"
+        r"(?:\s+(?:по\s+очереди|последовательно|клавиши|кнопки|"
+        r"keys|the\s+keys|tastele|literele))*"
+        r"\s+([a-z0-9]{2,24}|[a-z0-9](?:\s+[a-z0-9]){1,23})",
+        phrase, flags=re.I,
+    )
+    if sequence and sequence.group(1) not in SINGLE_KEYS | {"ctrl", "shift", "alt", "win"}:
+        try:
+            return validate_step({"action": "key_sequence", "target": sequence.group(1)})
+        except ValueError:
+            return None
     key = KEY_START.match(phrase)
     if key:
         words = key.group(0)

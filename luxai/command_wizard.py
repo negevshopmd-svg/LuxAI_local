@@ -18,6 +18,7 @@ from luxai.voice_actions import parse_action_sequence
 from luxai.voice_files import parse_open_user_file
 from luxai.websites import website_plan
 from luxai.action_catalog import CATALOG, validate_step
+from luxai.macro_planner import validate_generated_macro
 
 
 def is_create_command_request(text: str) -> bool:
@@ -25,7 +26,9 @@ def is_create_command_request(text: str) -> bool:
     return bool(
         re.search(
             r"\b(?:создай|создать|сделай|добавь|запиши)\b.{0,35}\b(?:новую\s+)?команду\b"
-            r"|\b(?:create|add)\s+(?:a\s+)?(?:new\s+)?(?:voice\s+)?command\b",
+            r"|\b(?:create|add)\s+(?:a\s+)?(?:new\s+)?(?:voice\s+)?command\b"
+            r"|\b(?:creează|creeaza|creaza|adaugă|adauga|fă|fa)\b.{0,35}\b(?:o\s+)?(?:nouă\s+|noua\s+)?comandă\b"
+            r"|\b(?:creează|creeaza|creaza|adaugă|adauga)\s+comanda\b",
             t,
         )
     )
@@ -38,6 +41,10 @@ def _action_from_description(text: str) -> dict | None:
     local_steps = parse_action_sequence(s)
     if local_steps:
         return {"action": local_steps[0]["action"], "target": local_steps[0]["target"], "location": "desktop", "steps": local_steps}
+    # Do not save just the first recognizable part of a complex request.
+    # The cloud macro planner must either validate ALL steps or reject it.
+    if re.search(r"\b(?:потом|затем|после этого|then|and then|apoi|după aceea|dupa aceea)\b", t):
+        return None
     keyboard = keyboard_action_plan(s)
     if keyboard is not None:
         return keyboard
@@ -82,6 +89,9 @@ def _action_from_description(text: str) -> dict | None:
 def _describe(plan):
     action, target = plan.get("action"), plan.get("target", "")
     location = plan.get("location", "desktop")
+    if plan.get("steps") and len(plan["steps"]) > 1:
+        from luxai.action_catalog import describe_step
+        return " → ".join(describe_step(item) for item in plan["steps"])
     if action == "open_app":
         return f"открыть {target}"
     if action == "launch_game":
@@ -102,9 +112,8 @@ def _describe(plan):
         return f"открыть файл «{target}» ({location})"
     if action == "open_website":
         return f"открыть сайт «{target}» в браузере"
-    if plan.get("steps") and len(plan["steps"]) > 1:
-        from luxai.action_catalog import describe_step
-        return " → ".join(describe_step(item) for item in plan["steps"])
+    if action == "key_sequence":
+        return "нажать последовательно " + " → ".join(target.upper().split(","))
     if action == "press_key":
         return f"нажать клавишу {target.upper()}"
     if action == "hotkey":
@@ -216,8 +225,8 @@ class CommandWizard:
                 f"Запомнил фразу «{self.phrase}». Что нужно делать? "
                 "Например: открыть Telegram или YouTube, открыть файл "
                 "с рабочего стола, нажать Q или Ctrl+S, кликнуть мышью, "
-                "переместить курсор на 600,350. Можно сказать цепочку "
-                "из нескольких действий через «потом» или «затем».",
+                "переместить курсор на 600,350, нажать по очереди Q W E R D. "
+                "Можно описать несколько действий через «потом» или «затем».",
                 None, None,
             )
         if self.stage == "action":
@@ -260,10 +269,11 @@ class CommandWizard:
             return "Скажите «да» для сохранения, «нет» для изменения или «отмена».", None, None
         return self.cancel(), None, None
 
-    def accept_online_plan(self, plan):
+    def accept_online_plan(self, plan, error=""):
         if self.stage != "online":
             return "", None
-        verified = _allowed_plan(plan)
+        # Cloud proposals are restricted further than locally selected actions.
+        verified = _allowed_plan(validate_generated_macro(plan))
         if verified is None:
             self.stage = "action"
             return (
@@ -271,7 +281,10 @@ class CommandWizard:
                 "Попробуйте сказать: открыть Telegram, открыть YouTube в браузере, "
                 "нажать Q, кликни, прокрути вниз 3, "
                 "перемести курсор на 600,350 или подожди 2 секунды. "
-                "Другие действия доступны в визуальном редакторе.",
+                "Удаление всех файлов, очистка корзины и произвольные "
+                "системные скрипты не создаются автоматически. "
+                "Другие действия доступны в визуальном редакторе."
+                + (("\nПричина: " + str(error)[:180]) if error else ""),
                 None,
             )
         self.plan = verified
