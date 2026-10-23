@@ -2272,8 +2272,18 @@ class MainWindow(QMainWindow):
             error = ""
         except (OSError, RuntimeError, ValueError) as exc:
             draft = None
-            # Do not expose chat screenshots or credentials in error output.
-            error = str(exc)[:220]
+            # Do not expose chat screenshots, provider bodies or credentials.
+            if isinstance(exc, ValueError) and (
+                "Control not found" in str(exc)
+                or "unambiguously" in str(exc)
+            ):
+                error = (
+                    "Discord не показал однозначного пользователя или поле сообщения. "
+                    "Проверьте написание ника в Discord и повторите команду; "
+                    "ничего не было отправлено."
+                )
+            else:
+                error = str(exc)[:220]
         except Exception:
             draft, error = None, "Не удалось подготовить сообщение в Discord."
         if not self._closed:
