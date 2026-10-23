@@ -327,6 +327,10 @@ def execute_desktop_step(raw: dict) -> str:
     if action == "hotkey":
         gui.hotkey(*HOTKEYS[target], interval=0.07)
         return f"Нажато: {target.upper()}."
+    if action == "key_sequence":
+        # Validated characters only; no shell, scripts or arbitrary shortcuts.
+        gui.press(target.split(","), interval=0.08)
+        return "Клавиши нажаты по очереди."
     if action == "press_key":
         gui.press(target)
         return f"Нажата клавиша {target.upper()}."
