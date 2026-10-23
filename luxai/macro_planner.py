@@ -127,7 +127,6 @@ def validate_generated_macro(proposal: object, description: str = "") -> dict | 
             # Explicit user authorization in their *spoken description*; the
             # model cannot grant itself permission to empty the recycle bin.
             phrase = str(description).casefold()
-            import re
             if not re.search(
                 r"(?:очист|удал|опустош|empty|clear|purge|șterg|sterge|goleșt|golest)"
                 r".{0,65}(?:корзин|recycle.?bin|coș|cos)",
