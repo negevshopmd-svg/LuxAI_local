@@ -70,7 +70,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.11', '3.12', '3.13', '3.14']
+        python-version: ['3.11', '3.12', '3.13', '3.14', '3.15']
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
@@ -87,3 +87,26 @@ jobs:
         run: python -m pip install --prefer-binary --disable-pip-version-check -r requirements.txt
       - name: Verify imports
         run: python -c "import main; from luxai.voice import VoiceListener; print('LuxAI imports OK')"
+
+  python-316-preview-windows:
+    # Python 3.16 is an alpha release. It must not block stable deployments.
+    runs-on: windows-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.16 alpha
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.16.0-alpha.1'
+          architecture: x64
+          allow-prereleases: true
+      - name: Detect Python 3.16
+        shell: powershell
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\install_windows.ps1 -SelfTest
+          if ($LASTEXITCODE -ne 0) { throw 'Python 3.16 preview detection failed' }
+      - name: Try third-party packages and imports on Python 3.16
+        run: |
+          python -m pip install --prefer-binary -r requirements.txt
+          python -c "import main; from luxai.voice import VoiceListener; print('LuxAI imports OK')"
