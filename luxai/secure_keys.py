@@ -82,6 +82,13 @@ def _saved_key(provider: str) -> str:
             if file.is_file():
                 key = _win_crypt(file.read_bytes(), encrypt=False).decode("utf-8").strip()
                 if key:
+                    # Move older project-local storage to per-user AppData once
+                    # the key has been successfully decrypted by this user.
+                    if file != _secret_file(provider) and sys.platform == "win32":
+                        try:
+                            store_api_key(key, provider)
+                        except (OSError, RuntimeError, ValueError):
+                            pass  # Legacy file remains readable; do not delete it.
                     return key
         except (OSError, ValueError, UnicodeError, RuntimeError, AttributeError):
             continue
