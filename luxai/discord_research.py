@@ -191,7 +191,7 @@ def prepare_discord_draft(planner, target: str, *,
         locate_visible_contact, same_discord_name, search_alias,
     )
     from luxai.desktop_actions import _type_unicode_windows
-    import pyautogui
+    from luxai.discord_search_guard import verified_discord_search
 
     def abort_if_cancelled():
         if cancelled is not None and cancelled():
@@ -214,25 +214,19 @@ def prepare_discord_draft(planner, target: str, *,
     if candidate is None:
         # Search is a fallback, not a prerequisite for visually selecting a
         # contact. This avoids hiding visible DMs under Quick Switcher.
-        pyautogui.hotkey("ctrl", "k", interval=0.07)
-        time.sleep(0.18)
-        _type_unicode_windows("@" + username)
-        time.sleep(0.75)
-        abort_if_cancelled()
-        selected = capture_window(hwnd)
+        selected = verified_discord_search(
+            planner, hwnd, "@" + username, cancelled=cancelled,
+        )
         candidate = locate_visible_contact(
             planner, selected, username, quick_switcher=True
         )
         if candidate is None:
             alias = search_alias(username)
             if alias:
-                # Broad Latin prefix for Cyrillic speech recognition only;
-                # the result STILL requires visual proof and user approval.
-                pyautogui.hotkey("ctrl", "a", interval=0.06)
-                _type_unicode_windows("@" + alias)
-                time.sleep(0.7)
-                abort_if_cancelled()
-                selected = capture_window(hwnd)
+                # Latin variants remain search hints, never identity proof.
+                selected = verified_discord_search(
+                    planner, hwnd, "@" + alias, replace=True, cancelled=cancelled,
+                )
                 candidate = locate_visible_contact(
                     planner, selected, username, quick_switcher=True
                 )
