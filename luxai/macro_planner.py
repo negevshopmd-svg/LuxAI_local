@@ -19,7 +19,7 @@ CLOUD_MACRO_ACTIONS = frozenset({
     "wait_seconds", "wait_minutes", "noop", "minimize_windows",
     "search_web", "speak_text", "speak_ready", "speak_done",
     "create_file", "create_folder", "list_files",
-    "visual_click", "display_info", "empty_recycle_bin", "close_window",
+    "visual_click", "display_info", "empty_recycle_bin", "open_recycle_bin", "close_window",
 })
 
 MACRO_SYSTEM = """You are the MULTI-STEP MACRO DESIGNER for LuxAI Jarvis on Windows.
@@ -33,7 +33,8 @@ hotkey, press_enter, save_document, type_text, mouse_click,
 mouse_right_click, mouse_double_click, mouse_middle_click, mouse_move,
 mouse_scroll, wait_seconds, wait_minutes, noop, minimize_windows,
 search_web, speak_text, speak_ready, speak_done, create_file, create_folder,
-list_files, visual_click, display_info, empty_recycle_bin, close_window.
+list_files, visual_click, display_info, open_recycle_bin,
+empty_recycle_bin, close_window.
 At most 8 steps. For MANY sequential keyboard letters use ONE key_sequence
 step with comma-delimited characters. Each sequence supports 2-24 English
 letters/digits. Example: "нажми qwerd" / "press Q W E R D" /
@@ -49,9 +50,11 @@ letters/digits. Example: "нажми qwerd" / "press Q W E R D" /
 "нажми 3 раза на кнопку с надписью Обновить" ->
 {"steps":[{"action":"visual_click","target":"Обновить||3"}]}.
 "размер экрана" -> {"steps":[{"action":"display_info"}]}.
-"открой корзину затем очисти корзину" ->
-{"steps":[{"action":"visual_click","target":"Recycle Bin desktop icon||2"},
+"открой корзину затем очисти корзину и закрой окно" ->
+{"steps":[{"action":"open_recycle_bin"},
 {"action":"empty_recycle_bin"},{"action":"close_window"}]}.
+For "open recycle bin", ALWAYS use open_recycle_bin, never guess at the
+Windows desktop icon position. Some desktops have no such icon.
 visual_click target MUST be the visible GUI control description followed by ||1, ||2
 or ||3 (number of clicks); no coordinate guesses at planning time.
 At RUN TIME Jarvis asks permission to capture the currently active external
