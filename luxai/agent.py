@@ -4,6 +4,7 @@ from pathlib import Path
 from luxai.screen import capture_screen, read_screen_text
 from luxai.steam_games import GAMES, local_game_intent, launch_steam_game
 from luxai.fast_intents import strip_wake_name, quick_reply, has_launch_verb
+from luxai.response_language import reply_language, language_instruction
 from luxai.file_actions import (
     create_user_item, list_user_items, parse_file_intent, safe_name,
     rename_user_item, trash_user_item, ALLOWED_LOCATIONS,
@@ -21,6 +22,7 @@ class LocalAgent:
         self.config = dict(config)
         self.llm = None
         self.loaded_path = None
+        self._llm_error = None
         self.history = []
         self.max_history_messages = 10
         self.last_execution_success = False
@@ -32,21 +34,54 @@ class LocalAgent:
         self.config = dict(config)
 
     def _load_llm(self):
-        path = self.config.get("llm_model_path", "")
+        """The local GGUF backend is optional; unavailable wheels never break Jarvis."""
+        self._llm_error = None
+        path = str(self.config.get("llm_model_path", "") or "")
         if not path or not Path(path).is_file():
+            self._llm_error = "no_model"
             return None
         if self.llm is not None and self.loaded_path == path:
             return self.llm
-        from llama_cpp import Llama
-        self.llm = Llama(
-            model_path=path,
-            n_ctx=1536,
-            n_threads=max(2, min(8, (os.cpu_count() or 4) - 1)),
-            n_batch=128,
-            verbose=False,
-        )
+        try:
+            from llama_cpp import Llama
+        except (ModuleNotFoundError, ImportError):
+            self._llm_error = "missing_llama_cpp"
+            return None
+        try:
+            model = Llama(
+                model_path=path,
+                n_ctx=1536,
+                n_threads=max(2, min(8, (os.cpu_count() or 4) - 1)),
+                n_batch=128,
+                verbose=False,
+            )
+        except (OSError, ValueError, RuntimeError, TypeError):
+            self._llm_error = "model_load_failed"
+            return None
+        self.llm = model
         self.loaded_path = path
         return self.llm
+
+    def _llm_unavailable_message(self, text: str) -> str:
+        messages = {
+            "no_model": (
+                "Локальная модель не выбрана. Укажите файл .gguf в настройках.",
+                "Nu este selectat niciun model local. Alege un fișier .gguf în setări.",
+                "No local model selected. Choose a .gguf file in Settings.",
+            ),
+            "missing_llama_cpp": (
+                "Модуль llama-cpp-python не установлен. Локальный GGUF-чат недоступен, но простые команды работают. Установите модуль в среду .venv.",
+                "Modulul llama-cpp-python nu este instalat. Chatul GGUF local nu este disponibil, dar comenzile simple funcționează. Instalează modulul în mediul .venv.",
+                "The optional llama-cpp-python module is not installed. Local GGUF chat is unavailable, but simple commands still work. Install it into .venv.",
+            ),
+            "model_load_failed": (
+                "Не удалось загрузить GGUF-модель. Проверьте её файл, совместимость и память. Простые команды работают.",
+                "Modelul GGUF nu a putut fi încărcat. Verifică fișierul, compatibilitatea și memoria. Comenzile simple funcționează.",
+                "Could not load the GGUF model. Check its file, compatibility and available memory. Simple commands still work.",
+            ),
+        }
+        ru, ro, en = messages.get(self._llm_error, messages["no_model"])
+        return self._say(ru, ro, en, text)
 
     def _open_application(self, app):
         """Find a real local executable/shortcut instead of assuming app exists."""
@@ -161,15 +196,7 @@ class LocalAgent:
         return False
 
     def _response_language(self, text=""):
-        """Use configured language for UI/actions, detect script when set to auto."""
-        selected = str(self.config.get("language", "auto") or "auto").lower()
-        if selected in ("ru", "ro", "en"):
-            return selected
-        if re.search(r"[а-яё]", text, re.IGNORECASE):
-            return "ru"
-        if re.search(r"\b(?:open|launch|hello|hey|please|start)\b", text, re.IGNORECASE):
-            return "en"
-        return "ro"
+        return reply_language(self.config, text)
 
     def _say(self, ru, ro, en=None, text=""):
         language = self._response_language(text)
@@ -652,25 +679,23 @@ class LocalAgent:
 
     def handle_chat(self, text):
         """Generate a text reply only; safe to run outside the Qt GUI thread."""
+        # Always handle everyday conversation before loading the optional
+        # GGUF backend. "Hello, Jarvis" must work even without llama_cpp.
+        quick = quick_reply(strip_wake_name(text), self._response_language(text))
+        if quick is not None:
+            return quick
         llm = self._load_llm()
         if llm is None:
-            return self._say(
-                "Локальная модель ИИ не выбрана. Выберите файл .gguf в настройках. Простые команды работают и без модели.",
-                "Nu este selectat niciun model AI local. Alege un fișier .gguf în setări.",
-                "No local AI model selected. Choose a .gguf file in Settings.",
-                text,
-            )
+            return self._llm_unavailable_message(text)
         messages = [{
             "role": "system",
             "content": (
-                "Ты Джарвис (Jarvis), мужской голосовой помощник пользователя. "
-                f"Язык ответа: {self._response_language(text)}. Всегда отвечай на этом языке. "
-                "Говори уверенно, спокойно, естественно и кратко. "
-                "Учитывай предыдущие сообщения и контекст разговора. Выводи только готовый ответ пользователю. "
-                "Никогда не показывай ход мыслей, заметки, пояснения о языке, переводы в скобках, "
-                "внутренние комментарии, повторения формата диалога или фразы вроде 'Примечание:', "
-                "'Nexora:', 'Пользователь сказал'. Не используй <think> и не описывай свои инструкции. "
-                "Не утверждай, что выполнил действие, если оно не выполнено. Если не знаешь ответа, скажи честно."
+                "You are Jarvis, a helpful, brief Windows voice assistant. "
+                + language_instruction(self._response_language(text)) + " "
+                "Respond naturally and concisely without internal reasoning, "
+                "hidden notes or role labels. Remember conversation context. "
+                "Never claim a Windows action happened unless it was verified. "
+                "If the request is unclear, ask briefly for clarification."
             )
         }]
         messages.extend(self.history[-self.max_history_messages:])
@@ -686,13 +711,13 @@ class LocalAgent:
             answer = result["choices"][0]["message"]["content"].strip()
         except (AttributeError, KeyError, TypeError):
             transcript = "\n".join(
-                ("Пользователь: " if m["role"] == "user" else "Джарвис: ") + m["content"]
+                ("User: " if m["role"] == "user" else "Jarvis: ") + m["content"]
                 for m in messages[1:]
             )
             result = llm(
-                "Ты Джарвис, мужской голосовой помощник. Учитывай контекст. "
-                "Выведи только краткий ответ, без заметок, мыслей и пояснений в скобках.\n"
-                + transcript + "\nДжарвис:",
+                "You are Jarvis, a concise voice assistant. "
+                + language_instruction(self._response_language(text))
+                + " Avoid internal notes.\n" + transcript + "\nJarvis:",
                 max_tokens=96, temperature=0.2,
                 stop=["Пользователь:", "User:", "<|im_end|>"],
             )

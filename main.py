@@ -19,6 +19,7 @@ from luxai.ui_home import HomePage
 from luxai.ui_sidebar import NavigationSidebar
 from luxai.styles import build_styles
 from luxai.ui_i18n import get_ui_language, set_ui_language, translate_widgets, tr, normalize_language
+from luxai.response_language import reply_language
 from luxai.online_agent import OnlinePlanner
 from luxai.secure_keys import store_api_key, get_api_key
 from luxai.api_verification import check_api_key_detailed
@@ -922,7 +923,7 @@ class MainWindow(QMainWindow):
         pieces = [part.strip() for part in pieces if part.strip()]
         if not pieces or len(pieces) > 4:
             pieces = [text]
-        self._command_queue.append({"parts": pieces, "answers": [], "routes": []})
+        self._command_queue.append({"parts": pieces, "answers": [], "routes": [], "original_text": text})
         self._dispatch_command()
 
     def _type_voice_chunk(self, spoken):
@@ -1372,7 +1373,7 @@ class MainWindow(QMainWindow):
                 self._resolved_command(text, answer or "Не удалось открыть сайт.")
                 return
 
-            quick = routine_reply(text, self.cfg.get("language", "ru"))
+            quick = routine_reply(text, reply_language(self.cfg, text))
             if quick is not None:
                 self.agent.remember(text, quick)
                 self._current_route = "быстрый ответ"
@@ -1638,12 +1639,11 @@ class MainWindow(QMainWindow):
     def _start_local_chat(self, text, reason=""):
         if not self.cfg.get("local_llm_fallback_enabled", True):
             self._current_route = "без тяжёлой модели"
-            answer = (
-                "Облачный агент недоступен. Проверьте API-ключ и соединение. "
-                "Быстрые голосовые команды продолжают работать."
-                if self.cfg.get("language") == "ru" else
-                "Agentul online nu este disponibil. Verifică cheia API și conexiunea."
-            )
+            answer = {
+                "ru": "Облачный ИИ недоступен. Проверьте API-ключ и соединение. Простые команды работают без ИИ.",
+                "en": "Cloud AI is unavailable. Check your API key and connection. Simple commands work without AI.",
+                "ro": "AI-ul cloud nu este disponibil. Verifică cheia API și conexiunea. Comenzile simple funcționează fără AI.",
+            }[reply_language(self.cfg, text)]
             self._resolved_command(text, answer)
             return
         self._current_route = "локальный GGUF"
@@ -1670,9 +1670,23 @@ class MainWindow(QMainWindow):
             self._resolved_command(text, answer)
 
     def _error_message(self, exc):
-        if self.cfg.get("language") == "ru":
-            return f"Ошибка: {exc}"
-        return f"Eroare: {exc}"
+        language = reply_language(self.cfg, getattr(self, "_active_text", "") or "")
+        prefix = {"ru": "Ошибка", "en": "Error", "ro": "Eroare"}[language]
+        if isinstance(exc, ModuleNotFoundError) and exc.name == "llama_cpp":
+            return {
+                "ru": "Не установлен необязательный модуль llama-cpp-python. Простые команды работают.",
+                "en": "The optional llama-cpp-python module is missing. Simple commands still work.",
+                "ro": "Lipsește modulul opțional llama-cpp-python. Comenzile simple funcționează.",
+            }[language]
+        if isinstance(exc, ModuleNotFoundError):
+            package = str(exc.name or "unknown")[:80]
+            message = {
+                "ru": f"Отсутствует модуль {package}. Запустите install_windows.bat для восстановления зависимостей.",
+                "en": f"Missing module {package}. Run install_windows.bat to repair dependencies.",
+                "ro": f"Lipsește modulul {package}. Rulează install_windows.bat pentru repararea dependențelor.",
+            }
+            return message[language]
+        return f"{prefix}: {exc}"
 
     def _resolved_command(self, text, answer):
         if not self._command_queue:
@@ -1697,7 +1711,7 @@ class MainWindow(QMainWindow):
             self.append_message("Jarvis", result, "#a5b9dc")
             self.mic_status.setText("Готово: " + (", ".join(routes) or "локально"))
             if self.cfg.get("tts_enabled", True):
-                self._queue_speech(result, self.cfg.get("language", "ru"))
+                self._queue_speech(result, reply_language(self.cfg, group.get("original_text", "")))
         QTimer.singleShot(0, self._dispatch_command)
 
     def _queue_speech(self, text, language):
@@ -1733,7 +1747,12 @@ class MainWindow(QMainWindow):
         if hasattr(self, "settings_panel"):
             self.settings_panel.refresh_voice_status()
         if not played:
-            self.mic_status.setText("Нет подходящего голоса. Проверьте voice_error.log.")
+            language = reply_language(self.cfg)
+            self.mic_status.setText({
+                "ru": "Голос недоступен. Проверьте voice_error.log.",
+                "en": "Voice unavailable. Check voice_error.log.",
+                "ro": "Vocea nu este disponibilă. Verifică voice_error.log.",
+            }[language])
 
     def confirm_action(self, description):
         # Ordinary app launches, documents, sites, text and hotkeys execute
