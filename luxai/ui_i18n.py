@@ -374,6 +374,9 @@ API-ключ|||API key|||Cheie API
 Исполняемые файлы (*.exe)|||Executable files (*.exe)|||Fișiere executabile (*.exe)
 Автоматически — по языку ответа|||Automatic — match reply language|||Automat — după limba răspunsului
 ✓ установлен, ↓ загрузится при первом использовании. Голос выбирается по языку ответа, а не по языку интерфейса.|||✓ installed, ↓ downloads on first use. Voice follows reply language, not interface language.|||✓ instalat, ↓ se descarcă la prima utilizare. Vocea urmează limba răspunsului, nu limba interfeței.
+Автоматически — как язык распознавания|||Automatic — match recognition language|||Automat — ca limba recunoașterii
+Язык ответов Jarvis|||Jarvis reply language|||Limba răspunsurilor Jarvis
+Определяет язык текста и озвучивания. Не меняет язык микрофона или интерфейса.|||Sets the text and speech language. Does not change microphone or interface language.|||Stabilește limba textului și a vocii. Nu schimbă limba microfonului sau interfeței.
 """
 
 # Every entry is a Russian source string and an English/Romanian translation.
