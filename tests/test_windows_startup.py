@@ -19,8 +19,10 @@ class WindowsStartupTests(unittest.TestCase):
                 mock.patch.object(launch_windows, "STARTUP_LOG", root / "logs" / "startup_error.log"),
                 mock.patch("launch_windows.os.chdir"),
                 mock.patch.dict(sys.modules, {"main": fake}),
+                mock.patch.object(launch_windows, "_show_failure_dialog") as dialog,
             ):
                 self.assertEqual(launch_windows.main(), 1)
+                dialog.assert_called_once()
             log = (root / "logs" / "startup_error.log").read_text(encoding="utf-8")
             self.assertIn("RuntimeError: example failure", log)
             self.assertIn("Python:", log)
