@@ -1842,6 +1842,19 @@ class MainWindow(QMainWindow):
 
             # Live weather and local screen OCR use dedicated, verifiable
             # services. They work even if Gemini is quota-blocked (HTTP 429).
+            if re.search(
+                r"(?i)(?:размер|разрешени|resolution|rezoluți|rezoluti)"
+                r".{0,22}(?:экран|диспле|screen|monitor|ecran)",
+                text,
+            ):
+                from luxai.desktop_actions import execute_desktop_step
+                try:
+                    info = execute_desktop_step({"action": "display_info"})
+                except (OSError, RuntimeError, ValueError) as exc:
+                    info = "Не удалось определить экран: " + str(exc)[:140]
+                self._current_route = "локальная конфигурация дисплея"
+                self._resolved_command(text, info)
+                return
             if is_weather_question(text):
                 self.mic_status.setText("Получаю актуальный прогноз Open-Meteo…")
                 threading.Thread(
