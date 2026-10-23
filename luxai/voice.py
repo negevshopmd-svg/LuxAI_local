@@ -9,7 +9,7 @@ import threading
 import numpy as np
 import sounddevice as sd
 
-from .voices import playback_active
+from .voices import speak, playback_active
 
 
 ROMANIAN_PROMPT = (
