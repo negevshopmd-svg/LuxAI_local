@@ -35,11 +35,23 @@ function Get-CompatiblePythonVersion([string]$Path) {
     return $null
 }
 
+function Test-StablePython([string]$Path) {
+    if (-not (Test-CompatiblePython $Path)) {
+        return $false
+    }
+    try {
+        $result = & $Path -I -c "import sys; print('STABLE' if sys.version_info.releaselevel == 'final' else 'PREVIEW')" 2>$null
+        return ($LASTEXITCODE -eq 0 -and ($result | Out-String).Trim() -eq 'STABLE')
+    } catch {
+        return $false
+    }
+}
+
 function Test-CompatiblePython([string]$Path) {
     return ($null -ne (Get-CompatiblePythonVersion $Path))
 }
 
-function Find-CompatiblePython([int]$MaxMinor = 99) {
+function Find-CompatiblePython([int]$MaxMinor = 99, [switch]$StableOnly) {
     $candidates = New-Object 'System.Collections.Generic.List[string]'
     $launcher = Get-Command -Name 'py.exe' -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($null -ne $launcher) {
@@ -101,7 +113,7 @@ function Find-CompatiblePython([int]$MaxMinor = 99) {
     $bestVersion = [version]'0.0.0'
     foreach ($candidate in ($candidates | Select-Object -Unique)) {
         $version = Get-CompatiblePythonVersion $candidate
-        if ($null -ne $version -and $version.Minor -le $MaxMinor -and $version -gt $bestVersion) {
+        if ($null -ne $version -and $version.Minor -le $MaxMinor -and $version -gt $bestVersion -and ((-not $StableOnly) -or (Test-StablePython $candidate))) {
             $bestPath = $candidate
             $bestVersion = $version
         }
@@ -113,9 +125,9 @@ function Find-CompatiblePython([int]$MaxMinor = 99) {
 }
 
 function Find-PreferredPython {
-    # Prefer released versions over newer alpha/beta runtimes.
-    # Python 3.16 is still a developer preview in October 2026.
-    $released = Find-CompatiblePython -MaxMinor 15
+    # Prefer stable versions across all future releases, not merely the
+    # currently newest version. Preview runtimes can lack native wheels.
+    $released = Find-CompatiblePython -StableOnly
     if ($released) {
         return $released
     }
