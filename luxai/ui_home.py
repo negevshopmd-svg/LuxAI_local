@@ -194,6 +194,16 @@ class HomePage(QWidget):
         )
         self.screen_assist_button.setMinimumHeight(36)
         control_layout.addWidget(self.screen_assist_button)
+        self.selection_summary_button = QPushButton("▤  Пересказать выделенный текст")
+        self.selection_summary_button.setObjectName("SelectedTextSummaryButton")
+        self.selection_summary_button.setToolTip(
+            "Выделите текст в браузере или Word. Затем нажмите здесь "
+            "или скажите: «Жарвис, перескажи выделенное». "
+            "Jarvis копирует выделенный текст, возвращает прежний буфер "
+            "обмена и делает краткий пересказ на русском."
+        )
+        self.selection_summary_button.setMinimumHeight(36)
+        control_layout.addWidget(self.selection_summary_button)
         control_layout.addStretch(1)
         left.addWidget(control_card, 2)
 
