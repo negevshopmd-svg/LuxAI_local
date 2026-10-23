@@ -18,7 +18,7 @@ from luxai.fast_intents import strip_wake_name
 
 
 _STAGE_RE = re.compile(
-    r"\\b(?:после\\s+этого|потом|затем|then|apoi|după\\s+aceea)\\b",
+    r"\b(?:после\s+этого|потом|затем|then|apoi|după\s+aceea)\b",
     re.IGNORECASE,
 )
 _SCREEN_RE = re.compile(r"(?:скрин|снимок|screenshot|captur)", re.IGNORECASE)
@@ -27,21 +27,21 @@ _SUMMARY_RE = re.compile(
     r"summary|summari|rezumat)", re.IGNORECASE,
 )
 _USER_RE = re.compile(
-    r"(?:\\bнайд\\w*|\\bпоищ\\w*|\\bfind\\b|\\bcaut\\w*)\\s+"
-    r"(?:пользовател\\w*|user(?:name)?|utilizator\\w*)\\s+"
+    r"(?:\bнайд\w*|\bпоищ\w*|\bfind\b|\bcaut\w*)\s+"
+    r"(?:пользовател\w*|user(?:name)?|utilizator\w*)\s+"
     r"(?P<name>.+?)"
-    r"(?=\\s+(?:(?:и\\s+)?(?:после\\s+этого|потом|затем|"
-    r"в\\s+переписк\\w*|в\\s+чат\\w*|в\\s+диалог\\w*|"
-    r"сдела\\w*|сними\\w*|откро\\w*|then|apoi|după\\s+aceea))\\b"
+    r"(?=\s+(?:(?:и\s+)?(?:после\s+этого|потом|затем|"
+    r"в\s+переписк\w*|в\s+чат\w*|в\s+диалог\w*|"
+    r"сдела\w*|сними\w*|откро\w*|then|apoi|după\s+aceea))\b"
     r"|[,;.!?]|$)",
     re.IGNORECASE | re.UNICODE,
 )
 _DISCORD_RE = re.compile(
-    r"\\b(?:discord|дискорд\\w*|дискор\\w*|дисси|dessie|дисе|"
-    r"скопт|скорт)\\b", re.IGNORECASE,
+    r"\b(?:discord|дискорд\w*|дискор\w*|дисси|dessie|дисе|"
+    r"скопт|скорт)\b", re.IGNORECASE,
 )
 _CHAT_RE = re.compile(
-    r"(?:переписк\\w*|чат\\w*|диалог\\w*)", re.IGNORECASE,
+    r"(?:переписк\w*|чат\w*|диалог\w*)", re.IGNORECASE,
 )
 
 
@@ -49,9 +49,9 @@ def validate_discord_review_user(value: object) -> str:
     """Support exact usernames AND multiword display names, never free text."""
     if not isinstance(value, str):
         raise ValueError("Укажите точное имя пользователя Discord.")
-    name = " ".join(value.strip().strip("@ \\"'«»“”").split())
+    name = " ".join(value.strip().strip(" @'«»“”").strip('"').split())
     if not 2 <= len(name) <= USER_LIMIT or not re.fullmatch(
-        r"[\\w.\\-]+(?: [\\w.\\-]+){0,3}", name, flags=re.UNICODE,
+        r"[\w.\-]+(?: [\w.\-]+){0,3}", name, flags=re.UNICODE,
     ):
         raise ValueError("Укажите точное имя пользователя Discord.")
     return name
@@ -70,7 +70,7 @@ def looks_like_discord_screen_review(text: str) -> bool:
         return False
     # This read-only workflow must NEVER absorb commands that send messages.
     return not bool(re.search(
-        r"\\b(?:отправ\\w*|send|trimite|отосл\\w*)\\b",
+        r"\b(?:отправ\w*|send|trimite|отосл\w*)\b",
         phrase, re.IGNORECASE,
     ))
 
