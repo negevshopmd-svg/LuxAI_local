@@ -13,8 +13,11 @@ import numpy as np
 import sounddevice as sd
 
 from .audio_devices import resolve_microphone_device
-from .voices import speak, playback_active
-from .voice_rules import recognition_options, ROMANIAN_PROMPT
+from .voices import speak, playback_active, barge_in_ready
+from .voice_rules import (
+    recognition_options, ROMANIAN_PROMPT, speech_pause_seconds,
+    is_hallucinated_outro, is_stop_speech_command,
+)
 
 
 class ModelLoadError(RuntimeError):
@@ -32,7 +35,7 @@ class VoiceListener:
     def __init__(self, model_path="small", prefix_enabled=True, prefix="Jarvis",
                  language="auto", microphone_device=-1, beam_size=1,
                  microphone_name="", microphone_hostapi="", sensitivity=1.0,
-                 status_callback=None, level_callback=None):
+                 status_callback=None, level_callback=None, speech_pause=2.3):
         self.status_callback = status_callback
         self.level_callback = level_callback
         self._stop_event = threading.Event()
@@ -40,6 +43,7 @@ class VoiceListener:
         self.prefix = (prefix or "Jarvis").strip()
         self.language = None if language == "auto" else language
         self.beam_size = max(1, min(5, int(beam_size)))
+        self.speech_pause = speech_pause_seconds(speech_pause)
         try:
             sensitivity = float(sensitivity)
         except (TypeError, ValueError):
@@ -123,9 +127,11 @@ class VoiceListener:
         input_rate = self._sample_rate()
         input_samples = max(1, int(round(input_rate * 0.03)))
         frame_samples = 480
-        silence_frames_needed = 30
+        silence_frames_needed = round(self.speech_pause / 0.03)
         pre_roll_frames = 14
-        max_frames = 800
+        # Keep longer descriptions together, instead of interrupting after
+        # each small pause or forcing an arbitrary 24-second cutoff.
+        max_frames = 1400
         min_speech_frames = 3
         try:
             import webrtcvad
@@ -133,7 +139,8 @@ class VoiceListener:
         except (ImportError, ValueError):
             vad = None
 
-        chunks = queue.Queue(maxsize=150)
+        # Allow full multi-second pauses even with split wireless callbacks.
+        chunks = queue.Queue(maxsize=500)
         capture = {"last_frame": time.monotonic(), "warning": "", "dropped": 0,
                    "sequence": 0, "discard_through": 0}
 
@@ -150,10 +157,12 @@ class VoiceListener:
             # playback at capture time, not only when draining buffered audio.
             # Sequence numbers preserve ordering even when Windows <=3.12's
             # monotonic clock gives adjacent callbacks the same coarse tick.
-            if playback_active.is_set():
+            during_playback = playback_active.is_set()
+            if during_playback:
                 capture["discard_through"] = sequence
-                return
-            item = (sequence, indata.copy().reshape(-1))
+                if not barge_in_ready.is_set():
+                    return
+            item = (sequence, indata.copy().reshape(-1), during_playback)
             try:
                 chunks.put_nowait(item)
             except queue.Full:
@@ -178,6 +187,13 @@ class VoiceListener:
         warned_silent = False
         last_playback_discard = 0
         warned_drops = 0
+        # Dedicated interrupt channel while TTS is audible. Other speech
+        # during playback is never forwarded as a desktop instruction.
+        interrupt_preroll = deque(maxlen=9)
+        interrupt_parts = []
+        interrupt_active = 0
+        interrupt_silence = 0
+        interrupt_started = False
 
         with sd.InputStream(device=self.microphone_device, samplerate=input_rate,
                             channels=1, dtype="float32", blocksize=input_samples,
@@ -189,7 +205,7 @@ class VoiceListener:
                 if not getattr(stream, "active", True):
                     raise RuntimeError("The microphone stream stopped. Reconnect your headset and restart the microphone.")
                 try:
-                    sequence, chunk = chunks.get(timeout=0.25)
+                    sequence, chunk, during_playback = chunks.get(timeout=0.25)
                 except queue.Empty:
                     if time.monotonic() - capture["last_frame"] >= 5.0:
                         self._emit("input_stalled", message="The microphone driver is no longer sending audio.")
@@ -202,13 +218,72 @@ class VoiceListener:
                     warned_drops = capture["dropped"]
                     self._emit("input_warning", message="Audio processing fell behind; older microphone frames were dropped.",
                                dropped_frames=warned_drops)
-                if playback_active.is_set() or sequence <= capture["discard_through"]:
+                if during_playback or playback_active.is_set() or sequence <= capture["discard_through"]:
                     pre_roll.clear()
                     parts = []
                     pending = np.empty(0, dtype=np.float32)
                     active_frames = silence_frames = candidate_frames = 0
                     speech_started = False
+                    # Only active during actual TTS playback, not model loading
+                    # or speech synthesis. Typical headphones reduce echo.
+                    if during_playback and barge_in_ready.is_set():
+                        frame = self._resample_chunk(chunk, input_rate, 480)
+                        rms = float(np.sqrt(np.mean(np.square(frame, dtype=np.float64))))
+                        background = float(np.percentile(noise_samples, 20)) if noise_samples else 0.0001
+                        threshold = max(0.0018 / self.sensitivity, background * 3)
+                        # Ignore clipping/very loud output leaking back into mic.
+                        voiced = threshold <= rms <= 0.25
+                        if vad is not None and voiced:
+                            pcm = np.clip(frame * 32768.0, -32768, 32767).astype(np.int16).tobytes()
+                            try:
+                                voiced = bool(vad.is_speech(pcm, output_rate)) or rms > 0.007
+                            except (ValueError, RuntimeError):
+                                pass
+                        if not interrupt_started:
+                            interrupt_preroll.append(frame)
+                            if voiced:
+                                interrupt_active += 1
+                                if interrupt_active >= 3:
+                                    interrupt_started = True
+                                    interrupt_parts = list(interrupt_preroll)
+                                    interrupt_silence = 0
+                            else:
+                                interrupt_active = 0
+                        else:
+                            interrupt_parts.append(frame)
+                            if voiced:
+                                interrupt_active += 1
+                                interrupt_silence = 0
+                            else:
+                                interrupt_silence += 1
+                            if interrupt_silence >= 13 or len(interrupt_parts) >= 120:
+                                audio = np.concatenate(interrupt_parts).astype(np.float32)
+                                valid = interrupt_active >= 5 and len(audio) >= 5600
+                                interrupt_preroll.clear()
+                                interrupt_parts = []
+                                interrupt_active = interrupt_silence = 0
+                                interrupt_started = False
+                                if valid and not self._stop_event.is_set() and barge_in_ready.is_set():
+                                    try:
+                                        detected_segments, _ = self.model.transcribe(
+                                            self._normalize_audio(audio),
+                                            **recognition_options(self.language, self.beam_size),
+                                        )
+                                        stop_text = " ".join(seg.text.strip() for seg in detected_segments).strip()
+                                        if is_stop_speech_command(stop_text):
+                                            yield "stop"
+                                    except (OSError, RuntimeError, ValueError):
+                                        logging.getLogger(__name__).debug("Stop-word recognition failed")
+                    else:
+                        interrupt_preroll.clear()
+                        interrupt_parts = []
+                        interrupt_active = interrupt_silence = 0
+                        interrupt_started = False
                     continue
+                interrupt_preroll.clear()
+                interrupt_parts = []
+                interrupt_active = interrupt_silence = 0
+                interrupt_started = False
                 if capture["discard_through"] != last_playback_discard:
                     # Never join a pre-playback partial sentence to later audio.
                     last_playback_discard = capture["discard_through"]
@@ -293,7 +368,9 @@ class VoiceListener:
                                 self._normalize_audio(audio), **recognition_options(self.language, self.beam_size)
                             )
                             utterance = " ".join(segment.text.strip() for segment in segments).strip()
-                            if utterance and not self._stop_event.is_set():
+                            if is_hallucinated_outro(utterance):
+                                self._emit("ignored_hallucination", message="Common Whisper noise/outro hallucination ignored.")
+                            elif utterance and not self._stop_event.is_set():
                                 yield utterance
                             elif not self._stop_event.is_set():
                                 self._emit("no_speech", message="Sound was captured, but no words were recognized. Check recognition language and microphone sensitivity.")

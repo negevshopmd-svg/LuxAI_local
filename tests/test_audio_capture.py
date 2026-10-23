@@ -94,7 +94,7 @@ class CaptureLoopTests(unittest.TestCase):
     def speech(self, amplitude=0.02):
         frame = np.sin(np.arange(480, dtype=np.float32) * (2 * math.pi * 440 / 16000)) * amplitude
         return np.concatenate([np.zeros(480 * 5, dtype=np.float32), np.tile(frame, 12),
-                               np.zeros(480 * 33, dtype=np.float32)])
+                               np.zeros(480 * 96, dtype=np.float32)])
 
     def run_capture(self, audio, chunk_size=480, **kwargs):
         events = []

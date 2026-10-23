@@ -14,6 +14,8 @@ from PySide6.QtWidgets import (
 
 from luxai.agent import LocalAgent
 from luxai.voice import VoiceListener, speak
+from luxai.voices import stop_speaking as stop_voice_output
+from luxai.voice_rules import is_stop_speech_command, is_hallucinated_outro
 from luxai.screen import capture_screen, read_screen_text
 from luxai.settings_panel import SettingsPanel
 from luxai.ui_home import HomePage
@@ -109,6 +111,7 @@ class VoiceWorker(QThread):
                 "microphone_name": self.cfg.get("microphone_name", ""),
                 "microphone_hostapi": self.cfg.get("microphone_hostapi", ""),
                 "sensitivity": self.cfg.get("microphone_sensitivity", 1.0),
+                "speech_pause": self.cfg.get("speech_pause_seconds", 2.3),
                 "status_callback": lambda event, details: self.state.emit(event, details),
                 "level_callback": self.level.emit,
             }
@@ -173,7 +176,7 @@ class MainWindow(QMainWindow):
     local_reply_ready = Signal(str, str)
     api_test_result = Signal(str, bool, str, object)
     cloud_check_result = Signal(str, str, bool, str)
-    tts_played = Signal(bool)
+    tts_played = Signal(bool, int)
     wizard_plan_ready = Signal(str, object)
     macro_step_ready = Signal(int, bool, str)
     direct_task_ready = Signal(str, str, str)
@@ -225,6 +228,7 @@ class MainWindow(QMainWindow):
         self._cloud_probe_running = False
         self._cloud_first_check_done = False
         self._speech_queue = queue.Queue(maxsize=8)
+        self._speech_generation = 0
         self._speech_thread = threading.Thread(target=self._speech_loop, daemon=True, name="JarvisSpeech")
         self._speech_thread.start()
         self.worker = None
@@ -762,7 +766,8 @@ class MainWindow(QMainWindow):
         changed_audio = any(
             old.get(k) != self.cfg.get(k)
             for k in ("language", "microphone_device", "microphone_name", "microphone_hostapi",
-                      "microphone_sensitivity", "whisper_beam_size", "whisper_model", "whisper_model_path")
+                      "microphone_sensitivity", "speech_pause_seconds",
+                      "whisper_beam_size", "whisper_model", "whisper_model_path")
         )
         enabled = self.cfg.get("microphone_enabled", True)
         if changed_audio or old.get("microphone_enabled", True) != enabled:
@@ -1327,6 +1332,14 @@ class MainWindow(QMainWindow):
             self.mic_status.setText("Model selectat. Pentru chat GGUF este necesar llama-cpp-python.")
 
     def handle_voice(self, text):
+        # A single clear stop word interrupts TTS even in the middle of
+        # speaking. Dictation retains its own existing stop behavior.
+        if is_hallucinated_outro(text):
+            return
+        if not self.dictation_active and is_stop_speech_command(text):
+            self.append_message("Tu (voce)", text.strip(), "#79a6ff")
+            self.stop_speaking()
+            return
         # Voice answers can approve/deny an action while its confirmation dialog is open.
         if self.pending_confirmation_dialog is not None:
             answer = self._parse_confirmation(text)
@@ -2250,16 +2263,31 @@ class MainWindow(QMainWindow):
                 self._queue_speech(result, reply_language(self.cfg, group.get("original_text", "")))
         QTimer.singleShot(0, self._dispatch_command)
 
+    def stop_speaking(self):
+        """Stop current voice and discard queued replies without killing threads."""
+        self._speech_generation += 1
+        while True:
+            try:
+                item = self._speech_queue.get_nowait()
+                if item is None:
+                    self._speech_queue.put_nowait(None)
+                    break
+            except queue.Empty:
+                break
+        stop_voice_output()
+        if not self._closed:
+            self.mic_status.setText("Jarvis: воспроизведение остановлено.")
+
     def _queue_speech(self, text, language):
         if self._closed:
             return
+        item = (text, language, self._speech_generation)
         try:
-            self._speech_queue.put_nowait((text, language))
+            self._speech_queue.put_nowait(item)
         except queue.Full:
-            # Prefer the latest relevant reply when many messages arrive rapidly.
             try:
                 self._speech_queue.get_nowait()
-                self._speech_queue.put_nowait((text, language))
+                self._speech_queue.put_nowait(item)
             except queue.Empty:
                 pass
 
@@ -2268,18 +2296,23 @@ class MainWindow(QMainWindow):
             task = self._speech_queue.get()
             if task is None:
                 return
-            text, language = task
+            text, language, generation = task
+            if generation != self._speech_generation:
+                continue
             try:
                 played = speak(text, enabled=True, language=language)
             except Exception:
                 played = False
             if not self._closed:
                 try:
-                    self.tts_played.emit(played)
+                    self.tts_played.emit(played, generation)
                 except RuntimeError:
                     pass
 
-    def _on_tts_played(self, played):
+    def _on_tts_played(self, played, generation):
+        # A deliberate spoken stop is not a missing voice or synthesis error.
+        if generation != self._speech_generation:
+            return
         if hasattr(self, "settings_panel"):
             self.settings_panel.refresh_voice_status()
         if not played:
@@ -2362,6 +2395,7 @@ class MainWindow(QMainWindow):
         if self.tray_icon:
             self.tray_icon.hide()
         self._closed = True
+        self.stop_speaking()
         try:
             self._speech_queue.put_nowait(None)
         except queue.Full:
