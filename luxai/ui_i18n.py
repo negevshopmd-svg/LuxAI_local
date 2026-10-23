@@ -345,6 +345,33 @@ Open-Meteo работает без ключа Gemini. Этот город по �
 Показать файлы|||Show files|||Afișează fișierele
 Показывает имена файлов в выбранной папке|||Displays filenames in the selected folder|||Afișează numele fișierelor din dosarul ales
 Называет текущее время|||Says the current time|||Spune ora curentă
+Jarvis | Просмотр экрана|||Jarvis | Screen inspection|||Jarvis | Inspectare ecran
+Экран и кнопки Windows|||Windows screen and buttons|||Ecranul și butoanele Windows
+Снимок экрана недоступен.|||Screenshot unavailable.|||Captura ecranului nu este disponibilă.
+Найденные кнопки Да / Нет|||Detected Yes / No buttons|||Butoane Da / Nu detectate
+Для голосового нажатия скажите «Жарвис, нажми да» или «нажми нет». Нажимается только одна точно найденная кнопка после подтверждения. Защищённые окна и непонятные кнопки не нажимаются.|||To activate by voice, say “Jarvis, press yes” or “press no”. One clearly identified button is clicked after approval. Protected or unclear controls are never clicked.|||Pentru apăsare vocală spune „Jarvis, apasă da” sau „apasă nu”. Se apasă doar un buton clar identificat după confirmare. Controalele protejate sau neclare nu sunt apăsate.
+Нажать Да|||Press Yes|||Apasă Da
+Нажать Нет|||Press No|||Apasă Nu
+Обновить снимок|||Refresh screenshot|||Actualizează captura
+Закрыть|||Close|||Închide
+Показать локальный снимок и кнопки Да/Нет активной программы. Можно также сказать: «Жарвис, покажи кнопки на экране».|||Display a local screenshot and Yes/No controls of the active app. You can also ask Jarvis to show on-screen buttons.|||Afișează captura locală și butoanele Da/Nu ale aplicației active. Îi poți cere și vocal lui Jarvis să arate butoanele.
+Выделите текст в браузере или Word. Затем нажмите здесь или скажите: «Жарвис, перескажи выделенное». Jarvis копирует выделенный текст, возвращает прежний буфер обмена и делает краткий пересказ на русском.|||Select text in the browser or Word, then click here or ask Jarvis to summarize selection. Jarvis copies the selection, restores the clipboard and summarizes it in Russian.|||Selectează text în navigator sau Word, apoi apasă aici ori cere-i lui Jarvis să rezume selecția. Jarvis copiază textul, restaurează clipboardul și îl rezumă în rusă.
+Jarvis спросит фразу и действие, затем сохранит команду.|||Jarvis will ask for a phrase and action, then save the command.|||Jarvis va cere o expresie și o acțiune, apoi va salva comanda.
+Поиск: «открыть», «клавиши», «громкость»…|||Search: “open”, “keyboard”, “volume”…|||Caută: „deschide”, „tastatură”, „volum”…
+Внимание! Это действие может изменить работу Windows. Jarvis покажет содержимое и всегда спросит разрешение перед выполнением. ИИ не сможет вставлять команды CMD сюда.|||Warning: This action may change Windows behavior. Jarvis shows the content and requires approval. AI cannot insert CMD commands here.|||Atenție! Această acțiune poate modifica Windows. Jarvis va afișa conținutul și va solicita confirmare. AI nu poate insera aici comenzi CMD.
+Что найти в интернете|||What to search for|||Ce să cauți pe internet
+Что искать и открыть|||What to search and open|||Ce să cauți și să deschizi
+Текст для активного окна|||Text for active window|||Text pentru fereastra activă
+Текст для Jarvis|||Text for Jarvis|||Text pentru Jarvis
+Текст женским голосом|||Text with female voice|||Text cu voce feminină
+Текст мужским голосом|||Text with male voice|||Text cu voce masculină
+Команда CMD — вводить только вручную|||CMD command — enter manually only|||Comandă CMD — introdu doar manual
+PowerShell — вводить только вручную|||PowerShell — enter manually only|||PowerShell — introdu doar manual
+Например: 600,350|||Example: 600,350|||Exemplu: 600,350
+Выберите аудиофайл|||Select audio file|||Alege fișier audio
+API-ключ|||API key|||Cheie API
+Выберите tesseract.exe|||Select tesseract.exe|||Alege tesseract.exe
+Исполняемые файлы (*.exe)|||Executable files (*.exe)|||Fișiere executabile (*.exe)
 """
 
 # Every entry is a Russian source string and an English/Romanian translation.
