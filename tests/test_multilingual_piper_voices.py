@@ -42,7 +42,7 @@ class PiperLanguageVoicesTests(unittest.TestCase):
         russian = self.create_voice("ru_RU-dmitri-medium", "ru_RU")
         english = self.create_voice("en_US-lessac-medium", "en_US")
         self.manager.config["voice_id"] = "en_US-lessac-medium"
-        with mock.patch.object(self.manager, "_download_voice") as download:
+        with mock.patch.object(self.manager, "_download_voice", return_value=None) as download:
             self.assertEqual(self.manager._select_model("ru"), russian)
             self.assertEqual(self.manager._select_model("en"), english)
             self.assertIsNone(self.manager._select_model("ro"))
