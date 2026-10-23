@@ -41,7 +41,7 @@ function Test-CompatiblePython([string]$Path) {
 
 function Find-CompatiblePython([int]$MaxMinor = 99) {
     $candidates = New-Object 'System.Collections.Generic.List[string]'
-    $launcher = Get-Command -Name 'py.exe' -CommandType Application -ErrorAction SilentlyContinue
+    $launcher = Get-Command -Name 'py.exe' -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($null -ne $launcher) {
         # Enumerate locally installed runtimes only; do not trigger the
         # newer Python install manager to download Python during detection.
@@ -240,10 +240,9 @@ try {
     Assert-ProjectFiles
 
     if ($SelfTest) {
-        $python = Get-Command -Name 'python.exe' -CommandType Application -ErrorAction Stop
+        $python = Get-Command -Name 'python.exe' -CommandType Application -ErrorAction Stop | Where-Object { $_.Source -notmatch '\\WindowsApps\\' } | Select-Object -First 1
+        if ($null -eq $python) { throw 'Python executable not found on PATH.' }
         Write-Status "Self-test Python path: $($python.Source)"
-        $diagnostic = & $python.Source -I -c 'import sys; print("LuxAI_PY=" + ".".join(map(str, sys.version_info[:3])) if sys.version_info.major == 3 and sys.version_info.minor >= 11 and sys.maxsize > 2**32 else "UNSUPPORTED")' 2>&1
-        Write-Status "Self-test Python output: $(($diagnostic | Out-String).Trim()) (exit $LASTEXITCODE)"
         $version = Get-CompatiblePythonVersion $python.Source
         if ($null -eq $version -or $version.Major -ne 3 -or $version.Minor -lt 11) {
             throw 'The selected Python interpreter is not 64-bit Python 3.11 or newer.'
