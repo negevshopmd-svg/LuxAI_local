@@ -42,6 +42,8 @@ def parse_action(text: str) -> dict | None:
         rest = re.sub(r"^(?:(?:на|клавишу|клавиши|кнопку|комбинацию|английскую|английский|букву|key|the)\s+)+", "", rest)
         parts = [x.strip() for x in re.split(r"\s*\+\s*|\s+и\s+|\s+", rest) if x.strip()]
         mapped = [KEY_WORDS.get(x, x) for x in parts]
+        if len(mapped) == 1 and mapped[0] == "enter":
+            return validate_step({"action": "press_enter"})
         if len(mapped) == 1 and mapped[0] in SINGLE_KEYS:
             return validate_step({"action": "press_key", "target": mapped[0]})
         joined = "+".join(mapped)
