@@ -232,6 +232,8 @@ def validate_step(raw):
         if not isinstance(target, str):
             raise ValueError("Укажите последовательность из 2–24 английских букв или цифр")
         raw = target.strip().casefold()
+        if any(ord(ch) < 32 or ord(ch) == 127 for ch in raw):
+            raise ValueError("Управляющие символы запрещены")
         if re.fullmatch(r"[a-z0-9]{2,24}", raw):
             keys = list(raw)
         else:
