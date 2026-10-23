@@ -1,21 +1,15 @@
-LUX AI — UPDATER PENTRU GITHUB PUBLIC
+LUXAI LOCAL 0.2.0 — ACTUALIZARE
 
-Repository configurat:
-https://github.com/negevshopmd-svg/LuxAI_local
+Repository: https://github.com/negevshopmd-svg/LuxAI_local
 
-1. Copiază Update.py și Update.bat în folderul principal al Lux AI.
-2. În GitHub, creează un Release cu tag, de exemplu v0.1.0.
-3. Atașează la Release un fișier numit EXACT:
-   LuxAI_local-update.zip
-4. ZIP-ul trebuie să conțină fișierele actualizate direct în rădăcina arhivei,
-   nu într-un folder suplimentar.
-5. Rulează Update.bat. Verifică versiunea, cere confirmare și face backup
-   fișierelor existente pe care urmează să le suprascrie.
+Închide Jarvis, rulează Update.bat din folderul instalat, apoi run_windows.bat.
+Actualizatorul descarcă branch-ul main; nu necesită un Release, un tag sau un ZIP
+atașat manual. O modificare disponibilă doar într-un PR nu este încă publicată.
 
-IMPORTANT:
-- Acesta este un updater inițial generic; testează-l întâi pe o copie a proiectului.
-- Păstrează settings.json, .env, modelele și folderele de logs/downloads.
-- Nu include secrete în repository-ul public.
-- Nu există rollback automat complet dacă Windows blochează un fișier în timpul copierii.
-- Creează un Release înainte de prima rulare; simplul commit pe branch nu este Release.
-- Fișierul .luxai_update_state.json înregistrează versiunea instalată.
+Setările, cheile, modelele și mediul .venv sunt păstrate. Fișierele înlocuite au
+backup. La o eroare se încearcă restaurarea automată a codului. Bibliotecile pip
+modificate parțial nu pot fi restaurate automat; rulează install_windows.bat
+dacă mesajul de eroare cere repararea mediului.
+
+Pentru microfon, căști wireless, instalare și diagnostic, deschide README_RO.md.
+Lista modificărilor este în CHANGELOG.md. Nu publica chei sau date personale.

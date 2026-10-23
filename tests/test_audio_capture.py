@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import math
 import importlib.util
+from contextlib import nullcontext
 import sys
 import types
 import unittest
@@ -215,6 +216,12 @@ class CaptureLoopTests(unittest.TestCase):
         self.assertEqual(self.models[0].transcribe.call_count, 0)
 
     def test_jarvis_speech_is_discarded_at_capture_time_during_transcription(self):
+        self.assert_playback_exclusion()
+
+    def test_post_playback_audio_is_not_lost_when_clock_ticks_tie(self):
+        self.assert_playback_exclusion(coarse_clock=True)
+
+    def assert_playback_exclusion(self, coarse_clock=False):
         listener = voice.VoiceListener()
         initial = self.speech()
         later = self.speech(amplitude=0.03)
@@ -250,7 +257,20 @@ class CaptureLoopTests(unittest.TestCase):
             return [types.SimpleNamespace(text="voice input")], None
 
         model.transcribe.side_effect = transcribe
-        with mock.patch.object(voice.sd, "InputStream", Stream), mock.patch.dict(sys.modules, {"webrtcvad": None}):
+        # All samples are synchronously supplied by this synthetic stream.
+        # Exhausting them must fail directly, rather than waiting for a real
+        # driver's timeout (or hanging when the test intentionally freezes time).
+        class BufferedQueue(voice.queue.Queue):
+            def get(self, *args, **kwargs):
+                try:
+                    return super().get(block=False)
+                except voice.queue.Empty as exc:
+                    raise AssertionError("Post-playback microphone frames were lost") from exc
+
+        clock = mock.patch.object(voice.time, "monotonic", return_value=100.0) if coarse_clock else nullcontext()
+        with mock.patch.object(voice.sd, "InputStream", Stream), \
+                mock.patch.dict(sys.modules, {"webrtcvad": None}), \
+                mock.patch.object(voice.queue, "Queue", BufferedQueue), clock:
             generator = listener.listen()
             try:
                 self.assertEqual(next(generator), "voice input")

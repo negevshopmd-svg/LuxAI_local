@@ -134,21 +134,26 @@ class VoiceListener:
             vad = None
 
         chunks = queue.Queue(maxsize=150)
-        capture = {"last_frame": time.monotonic(), "warning": "", "dropped": 0, "discard_before": 0.0}
+        capture = {"last_frame": time.monotonic(), "warning": "", "dropped": 0,
+                   "sequence": 0, "discard_through": 0}
 
         def callback(indata, frames, time_info, status):
             if self._stop_event.is_set():
                 return
             captured_at = time.monotonic()
             capture["last_frame"] = captured_at
+            capture["sequence"] += 1
+            sequence = capture["sequence"]
             if status:
                 capture["warning"] = str(status)
             # Whisper may still be busy when Jarvis starts speaking. Discard
             # playback at capture time, not only when draining buffered audio.
+            # Sequence numbers preserve ordering even when Windows <=3.12's
+            # monotonic clock gives adjacent callbacks the same coarse tick.
             if playback_active.is_set():
-                capture["discard_before"] = captured_at
+                capture["discard_through"] = sequence
                 return
-            item = (captured_at, indata.copy().reshape(-1))
+            item = (sequence, indata.copy().reshape(-1))
             try:
                 chunks.put_nowait(item)
             except queue.Full:
@@ -171,7 +176,7 @@ class VoiceListener:
         last_level = 0.0
         last_nonzero = time.monotonic()
         warned_silent = False
-        last_playback_discard = 0.0
+        last_playback_discard = 0
         warned_drops = 0
 
         with sd.InputStream(device=self.microphone_device, samplerate=input_rate,
@@ -184,7 +189,7 @@ class VoiceListener:
                 if not getattr(stream, "active", True):
                     raise RuntimeError("The microphone stream stopped. Reconnect your headset and restart the microphone.")
                 try:
-                    captured_at, chunk = chunks.get(timeout=0.25)
+                    sequence, chunk = chunks.get(timeout=0.25)
                 except queue.Empty:
                     if time.monotonic() - capture["last_frame"] >= 5.0:
                         self._emit("input_stalled", message="The microphone driver is no longer sending audio.")
@@ -197,16 +202,16 @@ class VoiceListener:
                     warned_drops = capture["dropped"]
                     self._emit("input_warning", message="Audio processing fell behind; older microphone frames were dropped.",
                                dropped_frames=warned_drops)
-                if playback_active.is_set() or captured_at <= capture["discard_before"]:
+                if playback_active.is_set() or sequence <= capture["discard_through"]:
                     pre_roll.clear()
                     parts = []
                     pending = np.empty(0, dtype=np.float32)
                     active_frames = silence_frames = candidate_frames = 0
                     speech_started = False
                     continue
-                if capture["discard_before"] != last_playback_discard:
+                if capture["discard_through"] != last_playback_discard:
                     # Never join a pre-playback partial sentence to later audio.
-                    last_playback_discard = capture["discard_before"]
+                    last_playback_discard = capture["discard_through"]
                     pre_roll.clear()
                     parts = []
                     pending = np.empty(0, dtype=np.float32)

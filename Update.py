@@ -37,6 +37,37 @@ PRESERVE_NAMES = {
 SKIP_SUFFIXES = {".pyc", ".pyo", ".onnx", ".gguf"}
 
 
+def report(message: str) -> None:
+    """Keep console/redirect encoding failures outside update transactions.
+
+    Windows redirected stdout can still use a strict legacy code page even
+    after chcp 65001. Preserve Unicode when the stream supports it; otherwise
+    escape only unsupported characters. A closed pipe must not hide the real
+    update error or prevent restoration of the previous files.
+    """
+    text = message + "\n"
+    for stream in (sys.stdout, sys.stderr):
+        if stream is None:
+            continue
+        try:
+            stream.write(text)
+            stream.flush()
+            return
+        except UnicodeEncodeError:
+            try:
+                encoding = getattr(stream, "encoding", None) or "ascii"
+                escaped = text.encode(encoding, errors="backslashreplace").decode(encoding)
+                stream.write(escaped)
+                stream.flush()
+                return
+            except Exception:
+                # Reporting is best-effort; output errors must never replace
+                # the exception that triggered rollback or mark success false.
+                continue
+        except Exception:
+            continue
+
+
 def request_json(url: str) -> dict:
     req = urllib.request.Request(url, headers={
         "Accept": "application/vnd.github+json",
@@ -179,11 +210,11 @@ def file_transaction(files: list[tuple[Path, Path]], backup: Path):
             except OSError as exc:
                 errors.append(f"{rel}: {type(exc).__name__}")
         if errors:
-            print(f"Restaurarea automată nu este completă. Backup: {backup}")
-            print("; ".join(errors))
+            report(f"Restaurarea automată nu este completă. Backup: {backup}")
+            report("; ".join(errors))
             raise RuntimeError(f"Restaurare incompletă; fișierele originale sunt în {backup}") from failure
         else:
-            print("Fișierele programului au fost restaurate la versiunea anterioară.")
+            report("Fișierele programului au fost restaurate la versiunea anterioară.")
         raise
 
 
@@ -286,9 +317,9 @@ def upgrade_dependencies() -> bool:
     python = windows_python if windows_python.is_file() else unix_python
     requirements = ROOT / "requirements.txt"
     if not python.is_file() or not requirements.is_file():
-        print("Dependențe: mediul .venv lipsește. Rulează install_windows.bat.")
+        report("Dependențe: mediul .venv lipsește. Rulează install_windows.bat.")
         return False
-    print("Verific ultimele versiuni compatibile ale bibliotecilor LuxAI...")
+    report("Verific ultimele versiuni compatibile ale bibliotecilor LuxAI...")
     commands = [
         [str(python), "-m", "pip", "install", "--disable-pip-version-check",
          "--upgrade", "pip"],
@@ -302,12 +333,12 @@ def upgrade_dependencies() -> bool:
         try:
             result = subprocess.run(command, cwd=str(ROOT), timeout=480, check=False)
             if result.returncode != 0:
-                print("Dependențe: actualizarea/verificarea a eșuat. Rulează install_windows.bat.")
+                report("Dependențe: actualizarea/verificarea a eșuat. Rulează install_windows.bat.")
                 return False
         except (OSError, subprocess.TimeoutExpired) as exc:
-            print(f"Dependențe: verificarea a eșuat ({type(exc).__name__}).")
+            report(f"Dependențe: verificarea a eșuat ({type(exc).__name__}).")
             return False
-    print("Bibliotecile LuxAI sunt actualizate la ultimele versiuni compatibile.")
+    report("Bibliotecile LuxAI sunt actualizate la ultimele versiuni compatibile.")
     return True
 
 
@@ -318,27 +349,27 @@ def ensure_local_ai_backend() -> bool:
     python = ROOT / ".venv" / "Scripts" / "python.exe"
     helper = ROOT / "luxai" / "local_ai_setup.py"
     if not python.is_file() or not helper.is_file():
-        print("GGUF: missing Python environment or installer; run install_windows.bat.")
+        report("GGUF: missing Python environment or installer; run install_windows.bat.")
         return False
-    print("Verific motorul local GGUF (llama-cpp-python)...")
+    report("Verific motorul local GGUF (llama-cpp-python)...")
     try:
         result = subprocess.run(
             [str(python), "-m", "luxai.local_ai_setup"],
             cwd=str(ROOT), timeout=480, check=False,
         )
         if result.returncode == 0:
-            print("Motorul GGUF este instalat si verificat.")
+            report("Motorul GGUF este instalat si verificat.")
             return True
     except (OSError, subprocess.TimeoutExpired) as exc:
-        print(f"GGUF: instalarea nu a reusit: {type(exc).__name__}.")
-    print("GGUF: nu este disponibil; verifica logs/local_ai_install.log.")
-    print("Jarvis si comenzile fara GGUF continua sa functioneze.")
+        report(f"GGUF: instalarea nu a reusit: {type(exc).__name__}.")
+    report("GGUF: nu este disponibil; verifica logs/local_ai_install.log.")
+    report("Jarvis si comenzile fara GGUF continua sa functioneze.")
     return False
 
 
 def perform_update() -> int:
-    print("=== Lux AI | Actualizare automată din GitHub ===")
-    print(f"Repository: https://github.com/{OWNER}/{REPO}")
+    report("=== Lux AI | Actualizare automată din GitHub ===")
+    report(f"Repository: https://github.com/{OWNER}/{REPO}")
     try:
         commit = request_json(f"{API}/commits/{BRANCH}")
         latest_sha = commit.get("sha", "")
@@ -353,20 +384,20 @@ def perform_update() -> int:
         current_sha = state.get("commit", "") if isinstance(state, dict) else ""
         if not isinstance(current_sha, str) or len(current_sha) != 40 or any(c not in "0123456789abcdef" for c in current_sha):
             current_sha = ""
-        print(f"Commit instalat: {current_sha[:12] if current_sha else 'necunoscut'}")
-        print(f"Commit GitHub:   {latest_sha[:12]}")
+        report(f"Commit instalat: {current_sha[:12] if current_sha else 'necunoscut'}")
+        report(f"Commit GitHub:   {latest_sha[:12]}")
         if current_sha == latest_sha:
-            print("Lux AI este deja la zi. Verific si bibliotecile instalate...")
+            report("Lux AI este deja la zi. Verific si bibliotecile instalate...")
             if not upgrade_dependencies():
                 return 1
             ensure_local_ai_backend()
             return 0
     except Exception as e:
-        print(f"Nu pot verifica GitHub: {e}")
+        report(f"Nu pot verifica GitHub: {e}")
         return 1
 
     # Update proceeds automatically without an interactive confirmation.
-    print("Actualizarea pornește automat. Fișierele suprascrise vor avea backup.")
+    report("Actualizarea pornește automat. Fișierele suprascrise vor avea backup.")
 
     with tempfile.TemporaryDirectory(prefix="luxai_update_") as temp:
         tempdir = Path(temp)
@@ -399,7 +430,7 @@ def perform_update() -> int:
 
             stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
             backup = BACKUP_ROOT / f"{stamp}-{(current_sha[:12] if current_sha else 'initial')}"
-            print(f"Aplic {len(files)} fișiere...")
+            report(f"Aplic {len(files)} fișiere...")
             with file_transaction(files, backup):
                 # Direct dependencies are rechecked against the index, even when
                 # already installed. Stay within requirements and Python markers.
@@ -420,7 +451,7 @@ def perform_update() -> int:
                 # folder. Failure does not corrupt the already-updated app.
                 ocr_ready = True
                 if sys.platform == "win32" and (ROOT / ".venv" / "Scripts" / "python.exe").is_file():
-                    print("Pregatesc OCR integrat: Tesseract + rusa/engleza...")
+                    report("Pregatesc OCR integrat: Tesseract + rusa/engleza...")
                     venv_python = ROOT / ".venv" / "Scripts" / "python.exe"
                     try:
                         ocr_result = subprocess.run(
@@ -430,9 +461,9 @@ def perform_update() -> int:
                         ocr_ready = ocr_result.returncode == 0
                     except (subprocess.TimeoutExpired, OSError) as exc:
                         ocr_ready = False
-                        print(f"OCR: eroare la instalare: {exc}")
+                        report(f"OCR: eroare la instalare: {exc}")
                     if not ocr_ready:
-                        print(
+                        report(
                             "AVERTISMENT: Codul Jarvis este actualizat, dar "
                             "Tesseract nu s-a instalat. Verifica internetul "
                             "sau permisiunile Windows. Instalarea OCR se "
@@ -440,18 +471,18 @@ def perform_update() -> int:
                         )
 
                 write_update_state(latest_sha)
-            print("Actualizare instalată cu succes.")
+            report("Actualizare instalată cu succes.")
             if backup.exists():
-                print(f"Backup pentru fișierele suprascrise: {backup}")
+                report(f"Backup pentru fișierele suprascrise: {backup}")
             else:
-                print("Nu au existat fișiere existente care să necesite backup.")
-            print("Nu am șters niciun fișier local.")
-            print("Folderul models și config.json au fost păstrate.")
-            print("Pornește Lux AI cu run_windows.bat.")
+                report("Nu au existat fișiere existente care să necesite backup.")
+            report("Nu am șters niciun fișier local.")
+            report("Folderul models și config.json au fost păstrate.")
+            report("Pornește Lux AI cu run_windows.bat.")
             return 0
         except Exception as e:
-            print(f"Actualizarea a eșuat: {e}")
-            print("Datele personale au fost păstrate. Verifică mesajele de restaurare și folderul backups.")
+            report(f"Actualizarea a eșuat: {e}")
+            report("Datele personale au fost păstrate. Verifică mesajele de restaurare și folderul backups.")
             return 1
 
 
@@ -460,7 +491,7 @@ def main() -> int:
         with updater_lock():
             return perform_update()
     except (OSError, RuntimeError) as exc:
-        print(f"Actualizarea nu poate porni: {exc}")
+        report(f"Actualizarea nu poate porni: {exc}")
         return 1
 
 
@@ -468,5 +499,5 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except KeyboardInterrupt:
-        print("\nActualizare anulată.")
+        report("\nActualizare anulată.")
         raise SystemExit(130)

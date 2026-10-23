@@ -1,5 +1,6 @@
 """Updater failures must preserve user data and restore the previous code."""
 from contextlib import ExitStack
+import io
 import json
 from pathlib import Path
 import shutil
@@ -95,6 +96,66 @@ class UpdaterReliabilityTests(unittest.TestCase):
         backups = list((self.root / "backups").glob("*/main.py"))
         self.assertEqual(len(backups), 1)
         self.assertEqual(backups[0].read_text(), "VALUE = 'old'\n")
+
+    def test_update_success_and_rollback_survive_strict_cp1252_stdout(self):
+        for dependencies in (True, False):
+            with self.subTest(dependencies=dependencies):
+                self.installed("main.py", "VALUE = 'old'\n")
+                self.installed("config.json", '{"personal": "keep"}')
+                self.installed(".luxai_update_state.json", json.dumps({"commit": "a" * 40}))
+                raw = io.BytesIO()
+                stream = io.TextIOWrapper(raw, encoding="cp1252", errors="strict")
+                try:
+                    with mock.patch.object(updater.sys, "stdout", stream):
+                        result, packages = self.run_update(self.complete_archive(), dependencies=dependencies)
+                    stream.flush()
+                    output = raw.getvalue().decode("cp1252")
+                finally:
+                    stream.close()
+                self.assertEqual(result, 0 if dependencies else 1)
+                packages.assert_called_once()
+                expected_code = "VALUE = 'new'\n" if dependencies else "VALUE = 'old'\n"
+                self.assertEqual((self.root / "main.py").read_text(), expected_code)
+                self.assertEqual(json.loads((self.root / "config.json").read_text()), {"personal": "keep"})
+                expected_sha = "b" * 40 if dependencies else "a" * 40
+                self.assertEqual(json.loads(updater.STATE_FILE.read_text())["commit"], expected_sha)
+                self.assertIn("Actualizare automat", output)
+                if not dependencies:
+                    self.assertIn("restaurate la versiunea anterioar", output)
+
+    def test_unicode_output_is_preserved_on_utf8_stream(self):
+        raw = io.BytesIO()
+        stream = io.TextIOWrapper(raw, encoding="utf-8", errors="strict")
+        message = "Fișierele au fost păstrate. Привет!"
+        try:
+            with mock.patch.object(updater.sys, "stdout", stream):
+                updater.report(message)
+            stream.flush()
+            self.assertEqual(raw.getvalue().decode("utf-8"), message + "\n")
+        finally:
+            stream.close()
+
+    def test_broken_stdout_uses_stderr_without_masking_rollback_exception(self):
+        original = self.installed("main.py", "old")
+        broken_stdout = mock.Mock()
+        broken_stdout.write.side_effect = BrokenPipeError("redirected output was closed")
+        stderr = io.StringIO()
+        with mock.patch.object(updater.sys, "stdout", broken_stdout), mock.patch.object(
+            updater.sys, "stderr", stderr,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "original update failure"):
+                with updater.file_transaction([self.staged("main.py", "new")], self.backup):
+                    raise RuntimeError("original update failure")
+        self.assertEqual(original.read_text(), "old")
+        self.assertIn("restaurate", stderr.getvalue())
+
+    def test_unavailable_console_does_not_interrupt_rollback(self):
+        original = self.installed("main.py", "old")
+        with mock.patch.object(updater.sys, "stdout", None), mock.patch.object(updater.sys, "stderr", None):
+            with self.assertRaisesRegex(RuntimeError, "original update failure"):
+                with updater.file_transaction([self.staged("main.py", "new")], self.backup):
+                    raise RuntimeError("original update failure")
+        self.assertEqual(original.read_text(), "old")
 
     def test_invalid_staged_python_never_replaces_installed_files_or_runs_pip(self):
         self.installed("main.py", "VALUE = 'old'\n")
