@@ -259,6 +259,16 @@ def execute_desktop_step(raw: dict) -> str:
             f"Экран: {info['width']}×{info['height']}, "
             f"виртуальное начало ({info['left']},{info['top']})."
         )
+    if action == "open_recycle_bin":
+        if sys.platform != "win32":
+            raise OSError("Windows Recycle Bin required")
+        subprocess.Popen(
+            ["explorer.exe", "shell:RecycleBinFolder"],
+            shell=False, stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        return "Открыл корзину Windows."
     if action == "empty_recycle_bin":
         if sys.platform != "win32":
             raise OSError("Windows Recycle Bin required")
