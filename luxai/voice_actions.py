@@ -44,7 +44,7 @@ def parse_action(text: str) -> dict | None:
         r"\s+([a-z0-9]{2,24}|[a-z0-9](?:\s+[a-z0-9]){1,23})",
         phrase, flags=re.I,
     )
-    if sequence and sequence.group(1) not in SINGLE_KEYS:
+    if sequence and sequence.group(1) not in SINGLE_KEYS | {"ctrl", "shift", "alt", "win"}:
         try:
             return validate_step({"action": "key_sequence", "target": sequence.group(1)})
         except ValueError:
