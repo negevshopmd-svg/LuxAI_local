@@ -171,7 +171,9 @@ class DiscordMicPriorityUITests(unittest.TestCase):
             window.run_command(MUTE)
         mute.assert_called_once()
         result.assert_called_once()
-        macro_intent.assert_not_called()
+        # run_command queries macro planning only to decide whether to split
+        # the utterance. Its dispatcher must still use local mute immediately.
+        macro_intent.assert_called_once_with(MUTE)
         thread.assert_not_called()
 
 
