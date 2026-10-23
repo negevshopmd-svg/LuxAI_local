@@ -25,6 +25,9 @@ def detect_language(text: str, fallback: str = "ro") -> str:
 
 
 def reply_language(config: dict, text: str = "") -> str:
+    output = str(config.get("response_language", "auto") or "auto").lower()
+    if output in LANGUAGE_NAMES:
+        return output
     configured = str(config.get("language", "auto") or "auto").lower()
     if configured in LANGUAGE_NAMES:
         return configured
