@@ -52,7 +52,9 @@ class RealSpeechRegressionTests(unittest.TestCase):
             MUTE, "Жарвис выключи микрофон в Discord",
             "Отключу микрофон в дискорде",
         ):
-            self.assertTrue(wants_discord_mic_mute(phrase), phrase)
+            from luxai.voice_desktop import discord_mic_visual_mode
+            self.assertEqual(discord_mic_visual_mode(phrase), "mute", phrase)
+            self.assertFalse(wants_discord_mic_mute(phrase))
         self.assertFalse(wants_discord_mic_mute(
             "Сделай снимок и нажми на кнопку микрофона в дискорде"
         ))
@@ -105,15 +107,14 @@ class RealSpeechRegressionTests(unittest.TestCase):
                     "action": "open_app", "target": "discord", "steps": [],
                 })
                 with (
-                    mock.patch.object(main, "toggle_discord_microphone",
-                                      return_value="Discord toggle pressed") as mute,
+                    mock.patch.object(window, "_start_discord_mic_visual") as visual,
                     mock.patch.object(window, "_execute_registered") as registered,
-                    mock.patch.object(window, "_resolved_command") as resolved,
+                    mock.patch.object(main, "toggle_discord_microphone") as shortcut,
                 ):
                     window.run_command(MUTE)
-                mute.assert_called_once()
+                visual.assert_called_once_with(MUTE)
                 registered.assert_not_called()
-                self.assertIn("toggle", resolved.call_args.args[1])
+                shortcut.assert_not_called()
             finally:
                 window.close()
 
