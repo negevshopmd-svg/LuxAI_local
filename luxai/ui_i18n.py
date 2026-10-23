@@ -20,7 +20,11 @@ def normalize_language(value):
     return value if value in VALID_LANGUAGES else "ru"
 
 
-_DATA = r"""Открыть Jarvis|||Open Jarvis|||Deschide Jarvis
+_DATA = r"""
+Последовательность клавиш|||Key sequence|||Secvență de taste
+По очереди нажимает 2–24 буквы или цифры, например Q,W,E,R,D|||Presses 2–24 letters or digits in order, for example Q,W,E,R,D|||Apasă în ordine 2–24 de litere sau cifre, de exemplu Q,W,E,R,D
+Q,W,E,R,D — от 2 до 24 клавиш|||Q,W,E,R,D — 2 to 24 keys|||Q,W,E,R,D — de la 2 la 24 de taste
+Открыть Jarvis|||Open Jarvis|||Deschide Jarvis
 Выход|||Exit|||Ieșire
 Главная|||Home|||Acasă
 Команды|||Commands|||Comenzi
