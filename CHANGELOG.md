@@ -104,3 +104,11 @@ See the microphone troubleshooting steps in README.md or README_RO.md after upda
 - Add atomic `discord_send_text` tool for unknown phrasing that requests a Discord DM. Validate that both spoken recipient and literal message originate in the user's request. Reuse screenshot-verified recipient, draft and explicit send confirmation; no blind `type_text` + `Enter`.
 - Before any Discord Ctrl+K search typing, require a fresh screenshot and unique visual match for the QUICK SWITCHER popup input, with a conservative positional check to prohibit the bottom conversation composer. Abort without typing if missing/ambiguous.
 - Apply the screenshot gate to both opening contacts and Wikipedia→Discord messages. Add offline tests reproducing the @Octavian wrong-composer issue, AI revision and safe message drafting.
+
+### 0.2.0 — Closed-loop visual reasoning, verification and correction feedback
+
+- Introduce bounded image-grounded agent: one observed decision at a time, independent control localization, validated Windows click, post-action recapture, updated planning and independent final-state screenshot verification.
+- If the user says “ты не попал, давай заново” within 10 minutes of a visual goal, restart the preceding intent from a NEW screenshot instead of responding as generic small-talk or replaying guessed coordinates.
+- Enforce maximum 6 GUI actions/9 observations, abort on uncertain target/window, refuse repeating failed clicks on toggles, never claim success merely because the mouse was clicked.
+- Keep Discord messaging and other high-impact tasks routed through their existing dedicated tools and human confirmation; generic agent cannot execute shell, delete files, send messages, submit sensitive forms or payments.
+- Add mocked regression tests for unfamiliar visual commands, user correction, before/after checks, unsafe controls and no false success claims.
