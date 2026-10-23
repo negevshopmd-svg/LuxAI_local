@@ -228,6 +228,26 @@ class SettingsPanel(QWidget):
             if voice["id"] not in preset_ids:
                 voices.append((voice["name"], voice["id"]))
         self.voice_id = self._combo(voices, self.cfg.get("voice_id", ""))
+        self.response_language = self._combo(
+            [("Автоматически — как язык распознавания", "auto"),
+             ("Русский", "ru"), ("English", "en"), ("Română", "ro")],
+            self.cfg.get("response_language", "auto"),
+        )
+        self._row(
+            panel, "Язык ответов Jarvis",
+            "Определяет язык текста и озвучивания. "
+            "Не меняет язык микрофона или интерфейса.",
+            self.response_language,
+        )
+        def voice_changed(_index):
+            selected = self.voice_id.currentData()
+            for language, preset in VOICE_PRESETS.items():
+                if preset["id"] == selected:
+                    position = self.response_language.findData(language)
+                    if position >= 0:
+                        self.response_language.setCurrentIndex(position)
+                    break
+        self.voice_id.currentIndexChanged.connect(voice_changed)
         self._row(
             panel, "Голос ассистента",
             "✓ установлен, ↓ загрузится при первом использовании. "
@@ -650,6 +670,7 @@ class SettingsPanel(QWidget):
             "microphone_device": self.mic_device.currentData(),
             "tts_enabled": self.tts.isChecked(),
             "voice_id": self.voice_id.currentData(),
+            "response_language": self.response_language.currentData(),
             "voice_volume": self.voice_volume.value(),
             "voice_engine": self.voice_engine.currentData(),
             "voice_speed": round(self.voice_speed.value() / 100, 2),
