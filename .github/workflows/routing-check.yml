@@ -106,7 +106,7 @@ jobs:
       - name: Install LuxAI with fallback from 3.15
         shell: powershell
         run: |
-          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\install_windows.ps1 -SkipOcr
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\install_windows.ps1 -SkipOcr -SkipLocalAI
           if ($LASTEXITCODE -ne 0) { throw 'Installer did not recover from unsupported Python 3.15 dependencies' }
           & '.venv\Scripts\python.exe' -c "import sys; import main; assert sys.version_info[:2] == (3, 14), sys.version; print('Python 3.15 to 3.14 fallback passed')"
           if ($LASTEXITCODE -ne 0) { throw 'Fallback interpreter or import test failed' }
@@ -164,3 +164,26 @@ jobs:
       - name: Report preview package limitations
         if: steps.alpha-dependencies.outcome == 'failure'
         run: echo "::warning::Python 3.16 alpha has no compatible PySide6/Faster Whisper Windows wheels yet; stable Python fallback is required."
+
+  local-gguf-windows:
+    # Real Windows wheel installation, separate from regular dependencies.
+    # The native GGUF model file itself is not downloaded in CI.
+    runs-on: windows-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.14']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          architecture: x64
+      - name: Install and verify official prebuilt llama-cpp-python CPU backend
+        shell: powershell
+        run: |
+          & python -m luxai.local_ai_setup
+          if ($LASTEXITCODE -ne 0) { throw 'Official llama-cpp-python Windows wheel installation failed' }
+          & python -c "from llama_cpp import Llama; print('llama_cpp CPU wheel imported')"
+          if ($LASTEXITCODE -ne 0) { throw 'llama_cpp native DLL import failed' }
