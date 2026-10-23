@@ -711,13 +711,13 @@ class LocalAgent:
             answer = result["choices"][0]["message"]["content"].strip()
         except (AttributeError, KeyError, TypeError):
             transcript = "\n".join(
-                ("Пользователь: " if m["role"] == "user" else "Джарвис: ") + m["content"]
+                ("User: " if m["role"] == "user" else "Jarvis: ") + m["content"]
                 for m in messages[1:]
             )
             result = llm(
                 "You are Jarvis, a concise voice assistant. "
                 + language_instruction(self._response_language(text))
-                + " Avoid internal notes.\\n" + transcript + "\\nJarvis:",
+                + " Avoid internal notes.\n" + transcript + "\nJarvis:",
                 max_tokens=96, temperature=0.2,
                 stop=["Пользователь:", "User:", "<|im_end|>"],
             )
