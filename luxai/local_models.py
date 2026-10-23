@@ -1,7 +1,7 @@
 """Discover local GGUF files without persisting another PC's absolute paths."""
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 ROOT = Path(__file__).resolve().parents[1]
 MODELS_DIR = ROOT / "models"
@@ -47,9 +47,13 @@ def resolve_model_path(configured: str, *, directory: Path | None = None) -> Pat
     local = directory / candidate
     if local.is_file():
         return local.resolve()
+    # Old Windows paths must remain readable when validating on macOS/Linux
+    # or after the files are moved from another machine.
+    original_name = (PureWindowsPath(configured).name if "\\" in configured
+                     else candidate.name)
     matches = [
         Path(item["path"]) for item in available_models(directory)
-        if item["valid"] and Path(item["path"]).name.casefold() == candidate.name.casefold()
+        if item["valid"] and Path(item["path"]).name.casefold() == original_name.casefold()
     ]
     return matches[0] if len(matches) == 1 else None
 
