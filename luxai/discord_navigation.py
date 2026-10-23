@@ -48,7 +48,7 @@ def _chat_header_ok(planner, hwnd: int, displayed: str):
     """Check the CURRENT open DM, not a username in the side bar."""
     from luxai.visual_click import capture_window, find_visual_target
     capture = capture_window(hwnd)
-    find_visual_target(
+    point = find_visual_target(
         planner,
         "Only return found:true for the HEADER of the currently OPEN individual "
         f"Discord DIRECT MESSAGE chat if it unmistakably identifies {displayed!r}. "
@@ -57,6 +57,12 @@ def _chat_header_ok(planner, hwnd: int, displayed: str):
         "NOT prove an open chat. Return found:false otherwise.",
         capture,
     )
+    # Model text matching in a sidebar or search popup is NOT evidence
+    # that we entered a chat. A valid active-chat header must be in the
+    # actual top strip of the center conversation pane.
+    if (point[1] > capture.top + max(58, int(capture.height * 0.20))
+            or point[0] < capture.left + int(capture.width * 0.18)):
+        raise ValueError("Discord: header of intended active chat not verified")
     return capture
 
 
