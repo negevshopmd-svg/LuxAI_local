@@ -39,7 +39,7 @@ function Test-CompatiblePython([string]$Path) {
     return ($null -ne (Get-CompatiblePythonVersion $Path))
 }
 
-function Find-CompatiblePython {
+function Find-CompatiblePython([int]$MaxMinor = 99) {
     $candidates = New-Object 'System.Collections.Generic.List[string]'
     $launcher = Get-Command -Name 'py.exe' -CommandType Application -ErrorAction SilentlyContinue
     if ($null -ne $launcher) {
@@ -62,6 +62,7 @@ function Find-CompatiblePython {
     }
     if ($env:ProgramFiles) {
         $pythonRoots += (Join-Path $env:ProgramFiles 'Python')
+        $pythonRoots += $env:ProgramFiles
     }
     foreach ($base in $pythonRoots) {
         if (-not $base -or -not (Test-Path -LiteralPath $base -PathType Container)) {
@@ -100,7 +101,7 @@ function Find-CompatiblePython {
     $bestVersion = [version]'0.0.0'
     foreach ($candidate in ($candidates | Select-Object -Unique)) {
         $version = Get-CompatiblePythonVersion $candidate
-        if ($null -ne $version -and $version -gt $bestVersion) {
+        if ($null -ne $version -and $version.Minor -le $MaxMinor -and $version -gt $bestVersion) {
             $bestPath = $candidate
             $bestVersion = $version
         }
@@ -183,6 +184,13 @@ function Invoke-PythonStep([string]$Executable, [string[]]$Arguments, [string]$T
     }
 }
 
+function Install-ApplicationDependencies {
+    Invoke-PythonStep $script:VenvPython @('-m', 'ensurepip', '--upgrade') 'Checking pip'
+    Invoke-PythonStep $script:VenvPython @('-m', 'pip', 'install', '--disable-pip-version-check', '--prefer-binary', '--retries', '2', '--timeout', '30', '-r', 'requirements.txt') 'Installing LuxAI dependencies'
+    Invoke-PythonStep $script:VenvPython @('-m', 'compileall', '-q', 'main.py', 'luxai') 'Checking Python source'
+    Invoke-PythonStep $script:VenvPython @('-c', 'import main; print("LuxAI imports OK")') 'Checking application imports'
+}
+
 function Install-OfficialPython {
     if (-not [Environment]::Is64BitOperatingSystem) {
         throw 'LuxAI requires 64-bit Windows.'
@@ -232,6 +240,12 @@ try {
     Assert-ProjectFiles
 
     if ($SelfTest) {
+        $python = Get-Command -Name 'python.exe' -CommandType Application -ErrorAction Stop
+        $version = Get-CompatiblePythonVersion $python.Source
+        if ($null -eq $version -or $version.Major -ne 3 -or $version.Minor -lt 11) {
+            throw 'The selected Python interpreter is not 64-bit Python 3.11 or newer.'
+        }
+        Write-Status "Installer self-test detected Python $version"
         $temporary = Join-Path $env:TEMP ('luxai-venv-selftest-' + [Guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $temporary -Force | Out-Null
         try {
@@ -274,10 +288,31 @@ try {
         Write-Status 'Existing .venv is valid; no reinstall of Python required.'
     }
 
-    Invoke-PythonStep $script:VenvPython @('-m', 'ensurepip', '--upgrade') 'Checking pip'
-    Invoke-PythonStep $script:VenvPython @('-m', 'pip', 'install', '--disable-pip-version-check', '--prefer-binary', '--retries', '2', '--timeout', '30', '-r', 'requirements.txt') 'Installing LuxAI dependencies'
-    Invoke-PythonStep $script:VenvPython @('-m', 'compileall', '-q', 'main.py', 'luxai') 'Checking Python source'
-    Invoke-PythonStep $script:VenvPython @('-c', 'import main; print("LuxAI imports OK")') 'Checking application imports'
+    try {
+        Install-ApplicationDependencies
+    } catch {
+        $version = Get-CompatiblePythonVersion $script:VenvPython
+        if ($null -eq $version -or $version.Minor -le 11) {
+            throw
+        }
+        Write-Status "WARNING: Python $version dependency setup failed: $($_.Exception.Message)"
+        Write-Status 'Trying the Python 3.11 fallback for unsupported third-party packages.'
+        $fallback = Find-CompatiblePython -MaxMinor 11
+        if (-not $fallback) {
+            Install-OfficialPython
+            $fallback = Find-CompatiblePython -MaxMinor 11
+        }
+        if (-not $fallback) {
+            throw 'Python 3.11 fallback installation was unsuccessful.'
+        }
+        $oldName = '.venv.old-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [Guid]::NewGuid().ToString('N').Substring(0, 6)
+        Move-Item -LiteralPath $script:Venv -Destination (Join-Path $script:Root $oldName) -ErrorAction Stop
+        Invoke-PythonStep $fallback @('-m', 'venv', $script:Venv) 'Creating Python 3.11 fallback virtual environment'
+        if (-not (Test-UsableVenv)) {
+            throw 'Python 3.11 fallback virtual environment failed verification.'
+        }
+        Install-ApplicationDependencies
+    }
 
     try {
         Invoke-PythonStep $script:VenvPython @('-m', 'luxai.ocr_setup') 'Installing optional Tesseract OCR (Russian and English)'
