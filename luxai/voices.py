@@ -260,6 +260,9 @@ class VoiceManager:
             with _cancel_lock:
                 _sapi_process = process
                 if cancel_token == _cancel_generation:
+                    # A running SAPI process can speak; do not block the
+                    # microphone earlier during Piper downloads/synthesis.
+                    playback_active.set()
                     barge_in_ready.set()
                 else:
                     process.terminate()
@@ -284,7 +287,8 @@ class VoiceManager:
             with _cancel_lock:
                 if 'process' in locals() and _sapi_process is process:
                     _sapi_process = None
-                barge_in_ready.clear()
+                    barge_in_ready.clear()
+                    playback_active.clear()
         return False
 
     def speak(self, text: str, language: str | None = None, cancel_token: int = 0) -> bool:
@@ -332,22 +336,26 @@ class VoiceManager:
                     if _was_cancelled(cancel_token):
                         return False
                     import sounddevice as sd
-                    with _cancel_lock:
-                        if cancel_token != _cancel_generation:
-                            return False
-                        sd.play(audio * volume, sample_rate)
-                        barge_in_ready.set()
                     try:
+                        with _cancel_lock:
+                            if cancel_token != _cancel_generation:
+                                return False
+                            # Keep capture live through model loading and
+                            # synthesis. Suppress the mic only for playback.
+                            playback_active.set()
+                            sd.play(audio * volume, sample_rate)
+                            barge_in_ready.set()
                         sd.wait()
                     finally:
                         barge_in_ready.clear()
+                        playback_active.clear()
                     return not _was_cancelled(cancel_token)
                 finally:
                     wav_path.unlink(missing_ok=True)
             except Exception as exc:
                 self._log(f"Piper playback failed for {model_path.name}: {exc}")
 
-        if self._windows_speak(text, language):
+        if self._windows_speak(text, language, cancel_token):
             return True
         model_name = VOICE_PRESETS.get(language, VOICE_PRESETS["ru"])["id"]
         self._log(
@@ -364,14 +372,11 @@ def speak(text: str, enabled: bool = True, language: str | None = None) -> bool:
     if not enabled:
         return False
     token = _cancel_token()
-    playback_active.set()
-    try:
-        if _was_cancelled(token):
-            return False
-        return _manager.speak(text, language=language, cancel_token=token)
-    finally:
-        barge_in_ready.clear()
-        playback_active.clear()
+    if _was_cancelled(token):
+        return False
+    # Capture remains active while voices are downloaded/loaded/synthesized.
+    # Each playback backend owns its own microphone exclusion interval.
+    return _manager.speak(text, language=language, cancel_token=token)
 
 
 def available_voices() -> list[dict]:
