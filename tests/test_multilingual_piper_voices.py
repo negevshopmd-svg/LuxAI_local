@@ -88,7 +88,7 @@ class PiperLanguageVoicesTests(unittest.TestCase):
 
     def test_download_new_voice_and_metadata_when_selected(self):
         binary = b"a" * 100
-        metadata = json.dumps({"language": {"code": "ro_RO"}}).encode("utf-8")
+        metadata = json.dumps({"language": {"code": "ro_RO"}}).encode("utf-8") + b" " * 100
         sha = hashlib.sha256(binary).hexdigest()
         preset = {
             "id": "ro_RO-mihai-medium",
