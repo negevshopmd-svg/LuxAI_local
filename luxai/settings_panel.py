@@ -240,6 +240,19 @@ class SettingsPanel(QWidget):
         preview.clicked.connect(self.on_test_voice)
         panel.addWidget(preview)
 
+    def refresh_voice_status(self):
+        """Refresh installed/download icon without resetting the user's choice."""
+        installed = {voice["id"] for voice in available_voices() if voice["ready"]}
+        known = {preset["id"] for preset in VOICE_PRESETS.values()}
+        for index in range(self.voice_id.count()):
+            voice_id = self.voice_id.itemData(index)
+            if voice_id not in known:
+                continue
+            label = self.voice_id.itemText(index)
+            name = label.split("  ", 1)[-1]
+            status = "✓" if voice_id in installed else "↓"
+            self.voice_id.setItemText(index, f"{status}  {name}")
+
     def _build_commands(self):
         panel = self._section(
             "Выполнение команд",
