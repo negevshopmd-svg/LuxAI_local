@@ -111,21 +111,31 @@ def find_discord_window() -> int:
         raise OSError("This workflow requires Windows Discord desktop")
     import psutil
     user32 = ctypes.windll.user32
+    user32.IsWindowVisible.argtypes = [wintypes.HWND]
+    user32.IsWindowVisible.restype = wintypes.BOOL
+    user32.GetWindow.argtypes = [wintypes.HWND, wintypes.UINT]
+    user32.GetWindow.restype = wintypes.HWND
+    user32.GetWindowThreadProcessId.argtypes = [
+        wintypes.HWND, ctypes.POINTER(wintypes.DWORD),
+    ]
+    user32.GetWindowTextW.argtypes = [
+        wintypes.HWND, wintypes.LPWSTR, ctypes.c_int,
+    ]
     handles = []
 
     @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
     def collect(hwnd, extra):
-        if not user32.IsWindowVisible(hwnd) or user32.GetWindow(hwnd, 4):
+        if not user32.IsWindowVisible(wintypes.HWND(hwnd)) or user32.GetWindow(wintypes.HWND(hwnd), 4):
             return True
         pid = wintypes.DWORD()
-        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        user32.GetWindowThreadProcessId(wintypes.HWND(hwnd), ctypes.byref(pid))
         try:
             process_name = psutil.Process(pid.value).name().casefold()
         except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
             return True
-        if process_name == "discord.exe":
+        if process_name in {"discord.exe", "discordptb.exe", "discordcanary.exe"}:
             title_buffer = ctypes.create_unicode_buffer(260)
-            user32.GetWindowTextW(hwnd, title_buffer, len(title_buffer))
+            user32.GetWindowTextW(wintypes.HWND(hwnd), title_buffer, len(title_buffer))
             if "discord" in title_buffer.value.casefold():
                 handles.append(int(hwnd))
         return True
@@ -143,11 +153,13 @@ def focus_discord(hwnd: int) -> None:
     from luxai.screen_interact import _valid_external_window, _foreground_hwnd
     pid, title = _valid_external_window(hwnd)
     import psutil
-    if psutil.Process(pid).name().casefold() != "discord.exe":
+    if psutil.Process(pid).name().casefold() not in {
+        "discord.exe", "discordptb.exe", "discordcanary.exe",
+    }:
         raise ValueError("Selected window is not the Discord application")
     user32 = ctypes.windll.user32
-    user32.ShowWindow(hwnd, 9)  # restore; does not minimize user windows
-    user32.SetForegroundWindow(hwnd)
+    user32.ShowWindow(wintypes.HWND(hwnd), 9)  # restore; does not minimize user windows
+    user32.SetForegroundWindow(wintypes.HWND(hwnd))
     time.sleep(0.22)
     if _foreground_hwnd() != hwnd:
         raise RuntimeError("Could not focus Discord window")
