@@ -119,6 +119,32 @@ def validate_staged_requirements(source: Path) -> None:
         )
 
 
+
+def ensure_local_ai_backend() -> bool:
+    """Update the optional GGUF backend even when the code is already up-to-date."""
+    if sys.platform != "win32":
+        return True
+    python = ROOT / ".venv" / "Scripts" / "python.exe"
+    helper = ROOT / "luxai" / "local_ai_setup.py"
+    if not python.is_file() or not helper.is_file():
+        print("GGUF: missing Python environment or installer; run install_windows.bat.")
+        return False
+    print("Verific motorul local GGUF (llama-cpp-python)...")
+    try:
+        result = subprocess.run(
+            [str(python), "-m", "luxai.local_ai_setup"],
+            cwd=str(ROOT), timeout=480, check=False,
+        )
+        if result.returncode == 0:
+            print("Motorul GGUF este instalat si verificat.")
+            return True
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        print(f"GGUF: instalarea nu a reusit: {type(exc).__name__}.")
+    print("GGUF: nu este disponibil; verifica logs/local_ai_install.log.")
+    print("Jarvis si comenzile fara GGUF continua sa functioneze.")
+    return False
+
+
 def main() -> int:
     print("=== Lux AI | Actualizare automată din GitHub ===")
     print(f"Repository: https://github.com/{OWNER}/{REPO}")
@@ -137,7 +163,8 @@ def main() -> int:
         print(f"Commit instalat: {current_sha[:12] if current_sha else 'necunoscut'}")
         print(f"Commit GitHub:   {latest_sha[:12]}")
         if current_sha == latest_sha:
-            print("Lux AI este deja la zi.")
+            print("Lux AI este deja la zi. Verific si motorul GGUF optional...")
+            ensure_local_ai_backend()
             return 0
     except Exception as e:
         print(f"Nu pot verifica GitHub: {e}")
@@ -220,6 +247,10 @@ def main() -> int:
                     "AVERTISMENT: .venv nu există; rulează "
                     "install_windows.bat înainte să pornești aplicația."
                 )
+
+            # Refresh the optional llama.cpp backend automatically as well.
+            # Failure does not invalidate the core application update.
+            ensure_local_ai_backend()
 
             # Prepare Tesseract OCR on the user's PC as part of the
             # normal updater. The verified Windows installer and both

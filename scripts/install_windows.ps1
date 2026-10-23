@@ -1,4 +1,4 @@
-param([switch]$SelfTest, [switch]$CheckVenv, [switch]$SkipOcr)
+param([switch]$SelfTest, [switch]$CheckVenv, [switch]$SkipOcr, [switch]$SkipLocalAI)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -349,6 +349,20 @@ try {
             }
         }
     }
+    # GGUF models do not work merely because the .gguf file exists.
+    # Install the optional CPU wheel by default; no C++ compiler or source build.
+    # If a wheel is unavailable, keep core Jarvis and its voice controls usable.
+    if ($SkipLocalAI) {
+        Write-Status 'Optional llama-cpp-python installation skipped for test environment.'
+    } else {
+        try {
+            Invoke-PythonStep $script:VenvPython @('-m', 'luxai.local_ai_setup') 'Installing and verifying local GGUF AI engine'
+        } catch {
+            Write-Status "WARNING: Local GGUF engine could not be installed: $($_.Exception.Message)"
+            Write-Status 'Jarvis can still run. See logs\local_ai_install.log and retry install_local_ai.bat.'
+        }
+    }
+
     if ($SkipOcr) {
         Write-Status 'Optional OCR installation skipped for test environment.'
     } else {
