@@ -20,7 +20,9 @@ def normalize_language(value):
     return value if value in VALID_LANGUAGES else "ru"
 
 
-_DATA = r"""Главная|||Home|||Acasă
+_DATA = r"""Открыть Jarvis|||Open Jarvis|||Deschide Jarvis
+Выход|||Exit|||Ieșire
+Главная|||Home|||Acasă
 Команды|||Commands|||Comenzi
 Дополнения|||Tools|||Instrumente
 Настройки|||Settings|||Setări
