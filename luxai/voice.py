@@ -139,7 +139,8 @@ class VoiceListener:
         except (ImportError, ValueError):
             vad = None
 
-        chunks = queue.Queue(maxsize=150)
+        # Allow full multi-second pauses even with split wireless callbacks.
+        chunks = queue.Queue(maxsize=500)
         capture = {"last_frame": time.monotonic(), "warning": "", "dropped": 0,
                    "sequence": 0, "discard_through": 0}
 
