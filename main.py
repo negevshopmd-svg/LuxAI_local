@@ -2660,9 +2660,14 @@ class MainWindow(QMainWindow):
 
     def _direct_macro_worker(self, text):
         try:
-            from luxai.macro_planner import validate_generated_macro
+            from luxai.macro_planner import (
+                validate_generated_macro, plan_known_visual_sequence,
+            )
             review_user = detect_discord_screen_review(text)
             parsed = detect_research_dm_request(text)
+            known = None
+            if not review_user and not parsed:
+                known = plan_known_visual_sequence(text)
             if review_user:
                 proposal = validate_generated_macro(
                     {"steps": [{"action": "discord_screen_review",
@@ -2684,6 +2689,8 @@ class MainWindow(QMainWindow):
                     text,
                 )
                 error = "" if proposal else "Не удалось определить тему или получателя."
+            elif known:
+                proposal, error = known, ""
             else:
                 proposal = self.online_planner.plan_macro(text)
                 error = self.online_planner.last_error if proposal is None else ""
