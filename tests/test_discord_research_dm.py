@@ -87,7 +87,8 @@ class ResearchContentTests(unittest.TestCase):
             text, url = get_wikipedia_summary("Adolf Hitler")
         self.assertIn("немецким политическим", text)
         self.assertIn("Источник: https://ru.wikipedia.org/wiki/", text)
-        self.assertIn("Гитлер", url)
+        from urllib.parse import unquote
+        self.assertIn("Гитлер", unquote(url))
         requested = fetch.call_args.args[0]
         self.assertIn("ru.wikipedia.org/w/api.php", requested.full_url)
         self.assertIn("gsrsearch=Adolf+Hitler", requested.full_url)
