@@ -32,6 +32,7 @@ def parse_action(text: str) -> dict | None:
     original = strip_wake_name(text).strip().strip(" .!?")
     phrase = original.casefold()
     phrase = re.sub(r"^(?:пожалуйста|please|te rog)\s+", "", phrase)
+    original = re.sub(r"^(?:пожалуйста|please|te rog)\s+", "", original, flags=re.I)
     if not phrase:
         return None
     key = KEY_START.match(phrase)
@@ -68,7 +69,7 @@ def parse_action(text: str) -> dict | None:
     pause = re.fullmatch(r"(?:подожди|жди|пауза|wait)\s+(\d{1,2})\s*(?:секунд[уы]?|сек|seconds?|s)", phrase)
     if pause and 1 <= int(pause[1]) <= 30:
         return validate_step({"action": "wait_seconds", "target": pause[1]})
-    typing = re.fullmatch(r"(?:напечатай|введи|напиши|type|write)\s+(?:текст\s+)?(.{1,350})", phrase, re.I)
+    typing = re.fullmatch(r"(?:напечатай|введи|напиши|type|write)\s+(?:текст\s+)?(.{1,350})", original, re.I)
     if typing:
         return validate_step({"action": "type_text", "target": typing[1]})
     return None
