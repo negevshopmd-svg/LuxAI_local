@@ -1,4 +1,4 @@
-param([switch]$SelfTest)
+param([switch]$SelfTest, [switch]$CheckVenv)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -109,6 +109,13 @@ function Test-UsableVenv {
         return $false
     }
     return (Test-CompatiblePython $script:VenvPython)
+}
+
+if ($CheckVenv) {
+    if (Test-UsableVenv) {
+        exit 0
+    }
+    exit 1
 }
 
 function Invoke-PythonStep([string]$Executable, [string[]]$Arguments, [string]$Title) {
