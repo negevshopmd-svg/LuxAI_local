@@ -189,6 +189,7 @@ class MainWindow(QMainWindow):
     macro_step_ready = Signal(int, bool, str)
     visual_step_ready = Signal(int, object, str)
     discord_draft_ready = Signal(int, object, str)
+    discord_send_ready = Signal(int, object, str)
     direct_macro_ready = Signal(str, object, str)
     direct_task_ready = Signal(str, str, str)
     screen_inspection_ready = Signal(str, object, str)
@@ -216,6 +217,7 @@ class MainWindow(QMainWindow):
         self.macro_step_ready.connect(self._on_macro_step_ready)
         self.visual_step_ready.connect(self._on_visual_step_ready)
         self.discord_draft_ready.connect(self._on_discord_draft_ready)
+        self.discord_send_ready.connect(self._on_discord_send_ready)
         self.direct_macro_ready.connect(self._on_direct_macro_ready)
         self.wizard_plan_ready.connect(self._on_wizard_plan)
         self.local_reply_ready.connect(self._on_local_reply)
@@ -2086,8 +2088,9 @@ class MainWindow(QMainWindow):
             approval = (
                 f"Подготовить сообщение для Discord @{username} по теме «{topic}»?\n\n"
                 "Jarvis получит статью из Wikipedia, откроет установленный "
-                "Discord и передаст ДО ДВУХ снимков окна вашему AI-провайдеру, "
-                "чтобы выбрать получателя и поле ввода. "
+                "Discord и передаст ДО ТРЁХ снимков окна вашему AI-провайдеру, "
+                "чтобы выбрать получателя, поле ввода и ещё раз проверить "
+                "точный диалог и черновик ПОСЛЕ подтверждения отправки. "
                 "Скриншоты могут содержать личные сообщения. "
                 "Перед отправкой текста будет ещё одно подтверждение."
             )
@@ -2306,8 +2309,10 @@ class MainWindow(QMainWindow):
         preview = (
             f"Получатель Discord: @{draft.username}\n"
             f"Подготовленный текст:\n\n{draft.message}\n\n"
-            "Проверьте, что открыт диалог именно с этим человеком. "
-            "Отправить сообщение нажатием Enter?"
+            "Перед отправкой Jarvis ещё раз проверит получателя и весь "
+            "неотправленный текст на свежем снимке Discord. "
+            "Если они изменились или не видны однозначно, сообщение не отправится. "
+            "Разрешить финальную проверку и отправку нажатием Enter?"
         )
         if not self.confirm_action(preview):
             ctx["messages"].append(
@@ -2315,11 +2320,48 @@ class MainWindow(QMainWindow):
             )
             self._finish_visual_macro()
             return
+        self.mic_status.setText(
+            f"Проверяю получателя @{draft.username} и содержимое черновика перед отправкой…"
+        )
+        threading.Thread(
+            target=self._discord_send_worker,
+            args=(draft, ctx["index"], ctx),
+            daemon=True, name="JarvisDiscordVerifiedSend",
+        ).start()
+
+    def _discord_send_worker(self, draft, index, context):
         try:
-            result = submit_discord_draft(draft)
+            result = submit_discord_draft(
+                draft, self.online_planner,
+                cancelled=lambda: self._closed or self._macro_context is not context,
+            )
+            error = ""
         except (OSError, RuntimeError, ValueError) as exc:
+            result = None
+            if isinstance(exc, ValueError) and (
+                "Control not found" in str(exc) or "unambiguously" in str(exc)
+            ):
+                error = (
+                    "Получатель или черновик в Discord изменился либо не "
+                    "распознан однозначно. Ничего не отправлено."
+                )
+            else:
+                error = f"{type(exc).__name__}: {str(exc)[:160]}"
+        except Exception:
+            result, error = None, "Не удалось безопасно проверить отправку Discord."
+        if not self._closed:
+            try:
+                self.discord_send_ready.emit(index, result, error)
+            except RuntimeError:
+                pass
+
+    def _on_discord_send_ready(self, index, result, error):
+        ctx = getattr(self, "_macro_context", None)
+        if self._closed or ctx is None or not self._processing or ctx["index"] != index:
+            return
+        if result is None or error:
             ctx["messages"].append(
-                "Отправка не подтверждена: " + str(exc)[:180]
+                "Discord: сообщение не отправлено. " + (error or "проверка не пройдена.")
             )
             self._finish_visual_macro()
             return
