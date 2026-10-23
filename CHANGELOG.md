@@ -75,3 +75,9 @@ See the microphone troubleshooting steps in README.md or README_RO.md after upda
 - Locate individual Discord contacts from a fresh DM-list screenshot BEFORE Ctrl+K search. Fall back to the spoken username and optionally a Latin search prefix for Cyrillic speech; reject group chats and ambiguous matches.
 - A visually detected name different from the dictated one requires an explicit user confirmation on the Qt main thread before clicking or composing. Verify the actual selected name again in chat header and before sending; show up to five cloud screenshot disclosures in consent.
 - Add mocked end-to-end regression cases for the exact failed calculator/mouse/Steam commands, wrong-account rejection, visible Latin handles and empty search results.
+
+### 0.2.0 — Reliable final approval for long Discord research drafts
+
+- Stop requiring OCR-perfect matching of long percent-encoded Wikipedia URLs in a downscaled Discord screenshot. After explicit send approval, visually revalidate the exact individual DM header and live message composer, then restore the EXACT user-approved Unicode text in that composer before Enter.
+- The final confirmation now explains that the current editable draft will be replaced. Never use stale composer coordinates or alter the user's clipboard. Abort on ambiguous recipient/composer, cancellation, invalid draft, native keyboard-input failure, or switched foreground/process.
+- Add regression tests for the actual long-Wikipedia-URL scenario, exact text restoration, no send on ambiguity, focus change and failed native typing.
