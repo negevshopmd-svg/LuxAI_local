@@ -48,6 +48,13 @@ class PiperLanguageVoicesTests(unittest.TestCase):
             self.assertIsNone(self.manager._select_model("ro"))
             download.assert_called_once_with("ro")
 
+    def test_selected_english_preset_downloads_even_with_other_english_voice(self):
+        self.create_voice("en_US-custom-medium", "en_US")
+        self.manager.config["voice_id"] = "en_US-lessac-medium"
+        with mock.patch.object(self.manager, "_download_voice", return_value=None) as download:
+            self.assertIsNone(self.manager._select_model("en"))
+            download.assert_called_once_with("en")
+
     def test_explicit_wrong_language_voice_is_not_used(self):
         russian = self.create_voice("ru_RU-dmitri-medium", "ru_RU")
         self.manager.config["voice_model_path"] = str(russian)
