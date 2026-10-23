@@ -86,7 +86,7 @@ class ReasoningUnitTests(unittest.TestCase):
             result = run_visual_reasoner(planner, GOAL, feedback="ты не попал")
         verify.assert_called_once()
         click.assert_not_called()
-        self.assertIn("не удалось", result)
+        self.assertIn("не удалось", result.casefold())
 
     def test_missed_click_does_not_repeat_the_same_control(self):
         planner = mock.Mock()
