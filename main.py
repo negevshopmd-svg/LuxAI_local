@@ -31,6 +31,8 @@ from luxai.api_providers import PROVIDERS
 from luxai.command_registry import CommandRegistry
 from luxai.ui_commands import CommandsPage
 from luxai.command_wizard import CommandWizard, is_create_command_request
+from luxai.macro_planner import needs_live_macro_planning
+from luxai.action_catalog import describe_step
 from luxai.visual_click import (
     capture_window, find_visual_target, click_visual_target, parse_click_target,
 )
@@ -183,6 +185,7 @@ class MainWindow(QMainWindow):
     wizard_plan_ready = Signal(str, object)
     macro_step_ready = Signal(int, bool, str)
     visual_step_ready = Signal(int, object, str)
+    direct_macro_ready = Signal(str, object, str)
     direct_task_ready = Signal(str, str, str)
     screen_inspection_ready = Signal(str, object, str)
     ocr_setup_ready = Signal(bool, str)
@@ -208,6 +211,7 @@ class MainWindow(QMainWindow):
         self.selected_summary_ready.connect(self._on_selected_summary_ready)
         self.macro_step_ready.connect(self._on_macro_step_ready)
         self.visual_step_ready.connect(self._on_visual_step_ready)
+        self.direct_macro_ready.connect(self._on_direct_macro_ready)
         self.wizard_plan_ready.connect(self._on_wizard_plan)
         self.local_reply_ready.connect(self._on_local_reply)
         self.api_test_result.connect(self._on_api_test_result)
@@ -1467,6 +1471,10 @@ class MainWindow(QMainWindow):
             word.strip() for word in self.cfg.get("command_chain_words", "и затем, потом").split(",")
             if word.strip()
         ]
+        if self.online_planner.enabled() and needs_live_macro_planning(text):
+            # Keep the ENTIRE task for the macro AI. Splitting on "потом"
+            # previously discarded interdependent screen actions.
+            connectors = []
         for connector in connectors:
             next_parts = []
             for part in pieces:
@@ -1927,6 +1935,13 @@ class MainWindow(QMainWindow):
                 self._resolved_command(text, answer or "Не удалось открыть сайт.")
                 return
 
+            if self.online_planner.enabled() and needs_live_macro_planning(text):
+                self.mic_status.setText("AI планирует визуальные действия на экране…")
+                threading.Thread(
+                    target=self._direct_macro_worker, args=(text,),
+                    daemon=True, name="JarvisLiveMacroPlanner",
+                ).start()
+                return
             quick = routine_reply(text, reply_language(self.cfg, text))
             if quick is not None:
                 self.agent.remember(text, quick)
@@ -2242,6 +2257,42 @@ class MainWindow(QMainWindow):
             self._resolved_command(ctx["text"], result)
         else:
             QTimer.singleShot(0, self._next_macro_step)
+
+    def _direct_macro_worker(self, text):
+        try:
+            proposal = self.online_planner.plan_macro(text)
+            error = self.online_planner.last_error if proposal is None else ""
+        except Exception:
+            proposal, error = None, "Не удалось обработать команду."
+        if not self._closed:
+            try:
+                self.direct_macro_ready.emit(text, proposal, error)
+            except RuntimeError:
+                pass
+
+    def _on_direct_macro_ready(self, text, proposal, error):
+        if self._closed or not self._processing or self._active_text != text:
+            return
+        if proposal is None:
+            self._current_route = "AI визуальных действий"
+            self._resolved_command(
+                text, "Команда не выполнена: " + (error or "нет подходящего плана")
+            )
+            return
+        steps = proposal.get("steps", [])
+        if not steps:
+            self._resolved_command(text, "AI не нашёл допустимых действий.")
+            return
+        summary = "\n".join(
+            f"{i}. {describe_step(step)}" for i, step in enumerate(steps, 1)
+        )
+        if not self.confirm_action(
+            "⚠ AI предлагает выполнить следующую последовательность:\n" +
+            summary[:1600] + "\n\nПродолжить?"
+        ):
+            self._resolved_command(text, "Команда отменена пользователем.")
+            return
+        self._run_saved_steps(text, steps)
 
     def _online_thread(self, text, history):
         try:
