@@ -12,9 +12,24 @@ import os
 from pathlib import Path
 import sys
 import traceback
+import faulthandler
 
 ROOT = Path(__file__).resolve().parent
 STARTUP_LOG = ROOT / "logs" / "startup_error.log"
+NATIVE_LOG = ROOT / "logs" / "fatal_error.log"
+_native_log_handle = None
+
+
+def enable_native_crash_log():
+    """Record native stack traces for access violations when Python survives long enough."""
+    global _native_log_handle
+    try:
+        NATIVE_LOG.parent.mkdir(parents=True, exist_ok=True)
+        _native_log_handle = NATIVE_LOG.open("a", encoding="utf-8")
+        faulthandler.enable(file=_native_log_handle, all_threads=True)
+    except (OSError, RuntimeError, ValueError):
+        pass
+
 
 
 def _log_startup_error(exc: BaseException) -> None:
@@ -53,6 +68,7 @@ def _show_failure_dialog(detail: str) -> None:
 def main() -> int:
     try:
         os.chdir(ROOT)
+        enable_native_crash_log()
         import main as application
         return int(application.main() or 0)
     except Exception as exc:
