@@ -77,6 +77,14 @@ function Find-Python311 {
     return $null
 }
 
+function Test-ExistingFile([string]$Path) {
+    try {
+        return (Test-Path -LiteralPath $Path -PathType Leaf -ErrorAction Stop)
+    } catch {
+        return $false
+    }
+}
+
 function Test-VenvBasePaths([string]$Directory) {
     $cfg = Join-Path $Directory 'pyvenv.cfg'
     if (-not (Test-Path -LiteralPath $cfg -PathType Leaf)) {
@@ -87,13 +95,13 @@ function Test-VenvBasePaths([string]$Directory) {
         if ($line -match '^home\s*=\s*(.+?)\s*$') {
             $sawHome = $true
             $homeDir = $Matches[1].Trim().Trim('"')
-            if (-not (Test-Path -LiteralPath (Join-Path $homeDir 'python.exe') -PathType Leaf)) {
+            if (-not (Test-ExistingFile (Join-Path $homeDir 'python.exe'))) {
                 return $false
             }
         }
         if ($line -match '^executable\s*=\s*(.+?)\s*$') {
             $originalPython = $Matches[1].Trim().Trim('"')
-            if (-not (Test-Path -LiteralPath $originalPython -PathType Leaf)) {
+            if (-not (Test-ExistingFile $originalPython)) {
                 return $false
             }
         }
@@ -102,7 +110,7 @@ function Test-VenvBasePaths([string]$Directory) {
 }
 
 function Test-UsableVenv {
-    if (-not (Test-Path -LiteralPath $script:VenvPythonw -PathType Leaf)) {
+    if (-not (Test-ExistingFile $script:VenvPythonw)) {
         return $false
     }
     if (-not (Test-VenvBasePaths $script:Venv)) {
