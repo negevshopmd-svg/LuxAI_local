@@ -243,6 +243,43 @@ def execute_desktop_step(raw: dict) -> str:
     step = validate_step(raw)
     action, target = step["action"], step["target"]
 
+    if action == "close_window":
+        if sys.platform != "win32":
+            raise OSError("Closing Windows app windows is Windows-only")
+        from luxai.screen_interact import _valid_external_window, _foreground_hwnd
+        hwnd = _foreground_hwnd()
+        _valid_external_window(hwnd)
+        import pyautogui
+        pyautogui.hotkey("alt", "f4")
+        return "Запрошено закрытие активного окна."
+    if action == "display_info":
+        from luxai.visual_click import desktop_geometry
+        info = desktop_geometry()
+        return (
+            f"Экран: {info['width']}×{info['height']}, "
+            f"виртуальное начало ({info['left']},{info['top']})."
+        )
+    if action == "open_recycle_bin":
+        if sys.platform != "win32":
+            raise OSError("Windows Recycle Bin required")
+        subprocess.Popen(
+            ["explorer.exe", "shell:RecycleBinFolder"],
+            shell=False, stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        return "Открыл корзину Windows."
+    if action == "empty_recycle_bin":
+        if sys.platform != "win32":
+            raise OSError("Windows Recycle Bin required")
+        # Native Windows confirmation is still displayed (flags=0).
+        # The caller must also ask the user explicitly before execution.
+        result = ctypes.windll.shell32.SHEmptyRecycleBinW(None, None, 0)
+        if result != 0:
+            raise OSError(f"Windows cancelled or refused emptying Recycle Bin ({result}).")
+        return "Корзина Windows очищена после подтверждения."
+    if action == "visual_click":
+        raise RuntimeError("Visual click requires live screenshot analysis and permission in Jarvis UI")
     if action == "noop":
         return ""
     if action == "open_website":

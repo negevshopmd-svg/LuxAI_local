@@ -1,3 +1,12 @@
+
+### 0.2.0 — Visual command planner improvement
+
+- Added consent-gated screenshot analysis for exact visible UI element clicks (1–10 repetitions), with real virtual desktop coordinates and multi-monitor geometry.
+- Added native Recycle Bin opening, separately confirmed bin emptying and safely confirmed external window closing.
+- Routes direct multi-step spoken tasks through the constrained cloud macro planner, while retaining the existing reusable command wizard.
+- Rejects protected windows, ambiguous/offscreen coordinates, unsupported image APIs and changing foreground windows without guessing or silently continuing.
+- Added isolated, offline tests for screenshot payload formats, coordinate validation, multi-monitor geometry and destructive intent checks.
+
 # Changes
 
 ## 0.2.0 — Voice reliability and recovery

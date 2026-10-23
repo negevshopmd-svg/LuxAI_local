@@ -31,6 +31,11 @@ from luxai.api_providers import PROVIDERS
 from luxai.command_registry import CommandRegistry
 from luxai.ui_commands import CommandsPage
 from luxai.command_wizard import CommandWizard, is_create_command_request
+from luxai.macro_planner import needs_live_macro_planning
+from luxai.action_catalog import describe_step
+from luxai.visual_click import (
+    capture_window, find_visual_target, click_visual_target, parse_click_target,
+)
 from luxai.intent_routing import is_operational_request, routine_reply, suspicious_completion_reply
 from luxai.ocr_setup import ensure_tesseract, find_tesseract, language_data_ready
 from luxai.websites import website_plan
@@ -179,6 +184,8 @@ class MainWindow(QMainWindow):
     tts_played = Signal(bool, int)
     wizard_plan_ready = Signal(str, object)
     macro_step_ready = Signal(int, bool, str)
+    visual_step_ready = Signal(int, object, str)
+    direct_macro_ready = Signal(str, object, str)
     direct_task_ready = Signal(str, str, str)
     screen_inspection_ready = Signal(str, object, str)
     ocr_setup_ready = Signal(bool, str)
@@ -203,6 +210,8 @@ class MainWindow(QMainWindow):
         self.ocr_setup_ready.connect(self._on_ocr_setup_ready)
         self.selected_summary_ready.connect(self._on_selected_summary_ready)
         self.macro_step_ready.connect(self._on_macro_step_ready)
+        self.visual_step_ready.connect(self._on_visual_step_ready)
+        self.direct_macro_ready.connect(self._on_direct_macro_ready)
         self.wizard_plan_ready.connect(self._on_wizard_plan)
         self.local_reply_ready.connect(self._on_local_reply)
         self.api_test_result.connect(self._on_api_test_result)
@@ -1462,6 +1471,10 @@ class MainWindow(QMainWindow):
             word.strip() for word in self.cfg.get("command_chain_words", "и затем, потом").split(",")
             if word.strip()
         ]
+        if self.online_planner.enabled() and needs_live_macro_planning(text):
+            # Keep the ENTIRE task for the macro AI. Splitting on "потом"
+            # previously discarded interdependent screen actions.
+            connectors = []
         for connector in connectors:
             next_parts = []
             for part in pieces:
@@ -1829,6 +1842,19 @@ class MainWindow(QMainWindow):
 
             # Live weather and local screen OCR use dedicated, verifiable
             # services. They work even if Gemini is quota-blocked (HTTP 429).
+            if re.search(
+                r"(?i)(?:размер|разрешени|resolution|rezoluți|rezoluti)"
+                r".{0,22}(?:экран|диспле|screen|monitor|ecran)",
+                text,
+            ):
+                from luxai.desktop_actions import execute_desktop_step
+                try:
+                    info = execute_desktop_step({"action": "display_info"})
+                except (OSError, RuntimeError, ValueError) as exc:
+                    info = "Не удалось определить экран: " + str(exc)[:140]
+                self._current_route = "локальная конфигурация дисплея"
+                self._resolved_command(text, info)
+                return
             if is_weather_question(text):
                 self.mic_status.setText("Получаю актуальный прогноз Open-Meteo…")
                 threading.Thread(
@@ -1922,6 +1948,13 @@ class MainWindow(QMainWindow):
                 self._resolved_command(text, answer or "Не удалось открыть сайт.")
                 return
 
+            if self.online_planner.enabled() and needs_live_macro_planning(text):
+                self.mic_status.setText("AI планирует визуальные действия на экране…")
+                threading.Thread(
+                    target=self._direct_macro_worker, args=(text,),
+                    daemon=True, name="JarvisLiveMacroPlanner",
+                ).start()
+                return
             quick = routine_reply(text, reply_language(self.cfg, text))
             if quick is not None:
                 self.agent.remember(text, quick)
@@ -2037,6 +2070,99 @@ class MainWindow(QMainWindow):
             self.mic_status.setText(f"Пауза {count} {unit} (шаг {ctx['index']})")
             QTimer.singleShot(milliseconds, self._next_macro_step)
             return
+        if step["action"] == "visual_click":
+            label, clicks = parse_click_target(step["target"])
+            if not self.online_planner.enabled():
+                ctx["messages"].append("Для визуального клика включите AI с поддержкой изображений.")
+                self._finish_visual_macro()
+                return
+            hwnd = _foreground_hwnd()
+            try:
+                _valid_external_window(hwnd)
+            except (OSError, ValueError):
+                hwnd = getattr(self, "_last_external_hwnd", 0)
+            try:
+                _valid_external_window(hwnd)
+            except (OSError, ValueError):
+                ctx["messages"].append(
+                    "Откройте целевую программу, активируйте её окно и повторите команду."
+                )
+                self._finish_visual_macro()
+                return
+            # A screenshot is not sent to the cloud without user consent,
+            # even when the voice shortcut was previously saved.
+            warning = (
+                "⚠ Отправить снимок выбранного окна внешнему AI-сервису "
+                f"и нажать на «{label}» {clicks} раз(а)?\n"
+                "Снимок может содержать личную информацию. "
+                "Если не согласны, выберите Нет."
+            )
+            if not self.confirm_action(warning):
+                ctx["messages"].append("Отправка снимка отменена пользователем.")
+                self._finish_visual_macro()
+                return
+            self._last_external_hwnd = hwnd
+            self.mic_status.setText(f"AI анализирует окно для «{label}»…")
+            try:
+                import ctypes
+                ctypes.windll.user32.SetForegroundWindow(hwnd)
+            except (AttributeError, OSError):
+                pass
+            # Let the confirmation dialog disappear before capturing pixels.
+            QTimer.singleShot(
+                350, lambda: threading.Thread(
+                    target=self._visual_worker,
+                    args=(dict(step), ctx["index"], hwnd),
+                    daemon=True, name="JarvisVisualLocator",
+                ).start()
+            )
+            return
+        if step["action"] == "close_window":
+            hwnd = _foreground_hwnd()
+            try:
+                _valid_external_window(hwnd)
+            except (OSError, ValueError):
+                hwnd = getattr(self, "_last_external_hwnd", 0)
+            try:
+                _valid_external_window(hwnd)
+            except (OSError, ValueError):
+                ctx["messages"].append("Не найдено активное внешнее окно для закрытия.")
+                self._finish_visual_macro()
+                return
+            if not self.confirm_action(
+                "⚠ Закрыть активное окно другой программы? "
+                "Несохранённые изменения могут быть потеряны."
+            ):
+                ctx["messages"].append("Закрытие окна отменено.")
+                self._finish_visual_macro()
+                return
+            try:
+                import ctypes
+                ctypes.windll.user32.SetForegroundWindow(hwnd)
+            except (AttributeError, OSError):
+                pass
+            QTimer.singleShot(
+                300, lambda: threading.Thread(
+                    target=self._macro_worker,
+                    args=(dict(step), ctx["index"]),
+                    daemon=True, name="JarvisCloseWindow",
+                ).start()
+            )
+            return
+        if step["action"] == "empty_recycle_bin":
+            if not self.confirm_action(
+                "⚠ БЕЗВОЗВРАТНО удалить ВСЕ файлы из корзины Windows? "
+                "Отменить удаление после этого будет невозможно."
+            ):
+                ctx["messages"].append("Очистка корзины отменена.")
+                self._finish_visual_macro()
+                return
+            threading.Thread(
+                target=self._macro_worker,
+                args=(dict(step), ctx["index"]),
+                daemon=True, name="JarvisRecycleBin",
+            ).start()
+            return
         if step["action"] == "tray_minimize":
             if not self.tray_icon or not QSystemTrayIcon.isSystemTrayAvailable():
                 ctx["messages"].append("Системный трей недоступен.")
@@ -2100,6 +2226,64 @@ class MainWindow(QMainWindow):
         # Schedule instead of recursion so UI remains responsive.
         QTimer.singleShot(0, self._next_macro_step)
 
+    def _finish_visual_macro(self):
+        ctx = getattr(self, "_macro_context", None)
+        if ctx is None:
+            return
+        output = " ".join(ctx["messages"]) or "Действие не выполнено."
+        self._macro_context = None
+        self._resolved_command(ctx["text"], output)
+
+    def _visual_worker(self, step, index, hwnd):
+        try:
+            label, count = parse_click_target(step["target"])
+            screenshot = capture_window(hwnd)
+            point = find_visual_target(self.online_planner, label, screenshot)
+            result = {"capture": screenshot, "point": point, "count": count, "label": label}
+            error = ""
+        except Exception as exc:
+            result = None
+            # Never show cloud response bodies or image bytes to the UI.
+            import urllib.error
+            if isinstance(exc, urllib.error.HTTPError) and exc.code in (400, 404, 415, 422):
+                error = (
+                    "Выбранная модель не смогла обработать изображение. "
+                    "Выберите Gemini или OpenAI с поддержкой зрения."
+                )
+            elif isinstance(exc, urllib.error.HTTPError) and exc.code == 429:
+                error = "Лимит запросов облачного AI достигнут (HTTP 429)."
+            else:
+                error = f"{type(exc).__name__}: {str(exc)[:180]}"
+        if not self._closed:
+            try:
+                self.visual_step_ready.emit(index, result, error)
+            except RuntimeError:
+                pass
+
+    def _on_visual_step_ready(self, index, result, error):
+        ctx = getattr(self, "_macro_context", None)
+        if self._closed or not ctx or not self._processing or ctx["index"] != index:
+            return
+        if result is None or error:
+            ctx["messages"].append(
+                "Визуальное действие не выполнено: " + (error or "объект не найден")
+            )
+            self._finish_visual_macro()
+            return
+        try:
+            click_visual_target(result["capture"], result["point"], result["count"])
+            ctx["messages"].append(
+                f"Нажал {result['count']} раз(а) на «{result['label']}» "
+                f"в точке {result['point']}."
+            )
+        except Exception as exc:
+            ctx["messages"].append(
+                "Окно изменилось или клик не выполнен: " + str(exc)[:180]
+            )
+            self._finish_visual_macro()
+            return
+        QTimer.singleShot(0, self._next_macro_step)
+
     def _macro_worker(self, step, index):
         from luxai.desktop_actions import execute_desktop_step
         try:
@@ -2127,6 +2311,42 @@ class MainWindow(QMainWindow):
             self._resolved_command(ctx["text"], result)
         else:
             QTimer.singleShot(0, self._next_macro_step)
+
+    def _direct_macro_worker(self, text):
+        try:
+            proposal = self.online_planner.plan_macro(text)
+            error = self.online_planner.last_error if proposal is None else ""
+        except Exception:
+            proposal, error = None, "Не удалось обработать команду."
+        if not self._closed:
+            try:
+                self.direct_macro_ready.emit(text, proposal, error)
+            except RuntimeError:
+                pass
+
+    def _on_direct_macro_ready(self, text, proposal, error):
+        if self._closed or not self._processing or self._active_text != text:
+            return
+        if proposal is None:
+            self._current_route = "AI визуальных действий"
+            self._resolved_command(
+                text, "Команда не выполнена: " + (error or "нет подходящего плана")
+            )
+            return
+        steps = proposal.get("steps", [])
+        if not steps:
+            self._resolved_command(text, "AI не нашёл допустимых действий.")
+            return
+        summary = "\n".join(
+            f"{i}. {describe_step(step)}" for i, step in enumerate(steps, 1)
+        )
+        if not self.confirm_action(
+            "⚠ AI предлагает выполнить следующую последовательность:\n" +
+            summary[:1600] + "\n\nПродолжить?"
+        ):
+            self._resolved_command(text, "Команда отменена пользователем.")
+            return
+        self._run_saved_steps(text, steps)
 
     def _online_thread(self, text, history):
         try:

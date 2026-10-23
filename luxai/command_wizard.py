@@ -114,6 +114,14 @@ def _describe(plan):
         return f"открыть сайт «{target}» в браузере"
     if action == "key_sequence":
         return "нажать последовательно " + " → ".join(target.upper().split(","))
+    if action == "visual_click":
+        from luxai.visual_click import parse_click_target
+        label, clicks = parse_click_target(target)
+        return f"найти «{label}» на экране и нажать {clicks} раз(а)"
+    if action == "display_info":
+        return "показать реальные размеры экранов"
+    if action == "empty_recycle_bin":
+        return "очистить корзину Windows с отдельным подтверждением"
     if action == "press_key":
         return f"нажать клавишу {target.upper()}"
     if action == "hotkey":
@@ -273,7 +281,7 @@ class CommandWizard:
         if self.stage != "online":
             return "", None
         # Cloud proposals are restricted further than locally selected actions.
-        verified = _allowed_plan(validate_generated_macro(plan))
+        verified = _allowed_plan(validate_generated_macro(plan, self.description))
         if verified is None:
             self.stage = "action"
             return (
@@ -281,8 +289,8 @@ class CommandWizard:
                 "Попробуйте сказать: открыть Telegram, открыть YouTube в браузере, "
                 "нажать Q, кликни, прокрути вниз 3, "
                 "перемести курсор на 600,350 или подожди 2 секунды. "
-                "Удаление всех файлов, очистка корзины и произвольные "
-                "системные скрипты не создаются автоматически. "
+                "Очистка корзины требует отдельного подтверждения при запуске. "
+                "Произвольные системные скрипты не создаются автоматически. "
                 "Другие действия доступны в визуальном редакторе."
                 + (("\nПричина: " + str(error)[:180]) if error else ""),
                 None,

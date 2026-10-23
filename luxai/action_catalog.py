@@ -41,6 +41,11 @@ _ACTIONS = [
     ("mouse_double_click", "Мышь", "Двойной клик", "Двойной щелчок левой кнопкой", True),
     ("mouse_right_click", "Мышь", "Правый клик", "Щелчок правой кнопкой мыши", True),
     ("mouse_click", "Мышь", "Левый клик", "Нажимает левую кнопку мыши", True),
+    ("visual_click", "Мышь", "Найти объект на экране и нажать", "Снимок окна, облачное зрение и 1–10 кликов после подтверждения", True),
+    ("close_window", "Программа", "Закрыть активное окно", "Закрывает только окно другой программы после подтверждения", True),
+    ("display_info", "Система", "Размеры экранов", "Реальные координаты и размеры виртуального рабочего стола", True),
+    ("open_recycle_bin", "Файлы", "Открыть корзину Windows", "Открывает системную корзину через Проводник", True),
+    ("empty_recycle_bin", "Файлы", "Очистить корзину Windows", "Безвозвратно удалить файлы из корзины только после явного подтверждения", True),
     ("mouse_scroll", "Мышь", "Клик колесом / прокрутка", "Прокрутка колеса мыши", True),
     ("mouse_move", "Мышь", "Переместить курсор", "Перемещает курсор к координатам экрана", True),
     ("mouse_hold", "Мышь", "Зажать левую кнопку", "Удерживает кнопку 1–5 секунд и отпускает автоматически", True),
@@ -103,6 +108,7 @@ NO_TARGET = {
     "mouse_click", "mouse_right_click", "mouse_double_click", "volume_up", "volume_down",
     "lock_screen", "list_files", "speak_ready", "speak_done", "noop",
     "mouse_middle_click", "monitor_on", "monitor_off", "sleep_pc", "tray_minimize",
+    "display_info", "empty_recycle_bin", "open_recycle_bin", "close_window",
 }
 
 
@@ -265,6 +271,10 @@ def validate_step(raw):
         if not -10 <= clicks <= 10 or clicks == 0:
             raise ValueError("Прокрутка должна быть от -10 до 10 (не 0)")
         result["target"] = str(clicks)
+    elif action == "visual_click":
+        from luxai.visual_click import parse_click_target
+        label, count = parse_click_target(target)
+        result["target"] = label + "||" + str(count)
     elif action == "mouse_move":
         if not isinstance(target, str) or not re.fullmatch(r"\d{1,5},\s*\d{1,5}", target):
             raise ValueError("Координаты должны быть в формате X,Y")
