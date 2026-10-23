@@ -496,6 +496,11 @@ class SettingsPanel(QWidget):
         )
         self.model_label.setObjectName("Muted")
         self.model_label.setWordWrap(True)
+        self.model_health = QLabel("")
+        self.model_health.setObjectName("Muted")
+        self.model_health.setWordWrap(True)
+        panel.addWidget(self.model_health)
+        self._selected_local_model()
         self._row(
             panel, "Локальная модель ИИ",
             "Продолжает работать без интернета, даже если онлайн API недоступен.",
@@ -536,10 +541,15 @@ class SettingsPanel(QWidget):
         return len(found)
 
     def _selected_local_model(self, *_):
+        current = self.model_select.currentData() or ""
         if hasattr(self, "model_label"):
             self.model_label.setText(
-                Path(self.model_select.currentData() or "").name or "Модель не выбрана"
+                Path(current).name or "Модель не выбрана"
             )
+        if hasattr(self, "model_health"):
+            from luxai.local_models import model_status
+            ready, status = model_status(str(current))
+            self.model_health.setText(("✓  " if ready else "⚠  ") + status)
 
     def refresh_local_models(self):
         """Rescan files after user copies a model or chooses one externally."""
