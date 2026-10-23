@@ -116,3 +116,9 @@ Capturile salvate **local** nu necesită confirmări. Pentru trimiterea de captu
 Secvența „размер экрана → перемести мышь на координаты 400,300 → подожди 2 секунды → правая кнопка мыши” folosește executorul local verificat al sistemului. Pentru „Найди в интернете три факта про Марс, открой Блокнот, напиши их, выдели весь текст и скопируй” există un flux separat: cere extrase textuale din Wikipedia, selectează trei propoziții complete fără inventarea faptelor, focalizează explicit procesul Notepad înainte de tastare și folosește Ctrl+A/Ctrl+C doar după verificarea ferestrei. Dacă sursa nu conține trei propoziții potrivite, operația se oprește explicând limita.
 
 Comenzile de tip „caută în browser, deschide Notepad și tastează un text literal” verifică acum că Notepad, nu pagina browserului, deține fereastra activă înainte de tastare.
+
+### Discord: «нажми на кнопку микрофона чтобы его выключить»
+
+Formularea „Зайди в Discord и нажми на кнопку микрофона чтобы его выключить” este o comandă **vizuală** chiar dacă nu este menționat „снимок экрана”. Jarvis localizează butonul real din colțul stânga-jos al ferestrei Discord, citește starea dintr-o captură nouă și **nu apasă** dacă microfonul apare deja dezactivat. Dacă apare activ, apasă o singură dată și analizează o altă captură pentru confirmare. Dacă imaginea nu permite distingerea stării, se oprește fără un clic riscant. Nu folosește Ctrl+Shift+M pentru această comandă.
+
+Comenzile „нажми на кнопку ... чтобы включить” folosesc aceeași verificare inversă. Comenzile care cer doar „нажми на кнопку микрофона” fără stare explicită păstrează comportamentul de **toggle** cu verificare ulterioară. Comanda simplă „выключи микрофон в Discord”, fără cerința de clic vizual, păstrează scurtătura existentă cu avertisment că poate comuta în ambele direcții.
