@@ -132,5 +132,52 @@ class DiscordContactVisualTests(unittest.TestCase):
                 ))
 
 
+class QtContactConfirmationTests(unittest.TestCase):
+    def test_name_mismatch_requires_gui_explicit_approval(self):
+        import threading
+        import types
+        try:
+            import main
+        except ImportError:
+            self.skipTest("Qt unavailable")
+        ctx = {"index": 1}
+        fake = types.SimpleNamespace(
+            _closed=False, _processing=True, _macro_context=ctx,
+            confirm_action=mock.Mock(return_value=True),
+        )
+        choice = {
+            "spoken": "ронси", "displayed": "RONfsy",
+            "context": ctx, "event": threading.Event(), "approved": False,
+        }
+        main.MainWindow._on_discord_contact_prompt(fake, choice)
+        fake.confirm_action.assert_called_once()
+        prompt = fake.confirm_action.call_args.args[0]
+        self.assertIn("ронси", prompt)
+        self.assertIn("RONfsy", prompt)
+        self.assertTrue(choice["event"].is_set())
+        self.assertTrue(choice["approved"])
+
+    def test_stale_macro_does_not_approve_a_different_contact(self):
+        import threading
+        import types
+        try:
+            import main
+        except ImportError:
+            self.skipTest("Qt unavailable")
+        fake = types.SimpleNamespace(
+            _closed=False, _processing=True, _macro_context={"index": 2},
+            confirm_action=mock.Mock(return_value=True),
+        )
+        choice = {
+            "spoken": "ронси", "displayed": "OtherPerson",
+            "context": {"index": 1}, "event": threading.Event(),
+            "approved": False,
+        }
+        main.MainWindow._on_discord_contact_prompt(fake, choice)
+        fake.confirm_action.assert_not_called()
+        self.assertTrue(choice["event"].is_set())
+        self.assertFalse(choice["approved"])
+
+
 if __name__ == "__main__":
     unittest.main()
