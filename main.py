@@ -1864,10 +1864,7 @@ class MainWindow(QMainWindow):
             # inside compound tasks before opening Discord or another app.
             # Saved exact commands take priority, then the ENTIRE chained
             # request goes to the validated macro planner.
-            if saved is not None:
-                self._execute_registered(text, saved)
-                return
-
+            # Native Discord intents take priority over older saved macros.
             # Preserve longstanding local Discord microphone controls.
             # Generic macros also match words like "нажми на кнопку" and
             # must not preempt a known, deterministic local operation.
@@ -1878,6 +1875,9 @@ class MainWindow(QMainWindow):
                 self._current_route = "Discord: глобальная комбинация клавиш"
                 answer = toggle_discord_microphone(self.confirm_action)
                 self._resolved_command(text, answer)
+                return
+            if saved is not None:
+                self._execute_registered(text, saved)
                 return
             if needs_live_macro_planning(text):
                 if not self.online_planner.enabled():
@@ -2140,7 +2140,7 @@ class MainWindow(QMainWindow):
                 "Они могут содержать личные переписки. Продолжить? "
                 "Никакие сообщения отправляться не будут."
             )
-            if not self.confirm_action(approval):
+            if not self._allow_cloud_screenshots():
                 ctx["messages"].append("Отправка снимков в AI отменена.")
                 self._finish_visual_macro()
                 return
@@ -2170,7 +2170,7 @@ class MainWindow(QMainWindow):
                 "Скриншоты могут содержать личные сообщения. "
                 "Перед отправкой текста будет ещё одно подтверждение."
             )
-            if not self.confirm_action(approval):
+            if not self._allow_cloud_screenshots():
                 ctx["messages"].append("Согласие на отправку скриншотов не получено.")
                 self._finish_visual_macro()
                 return
@@ -2208,7 +2208,7 @@ class MainWindow(QMainWindow):
                 "Снимок может содержать личную информацию. "
                 "Если не согласны, выберите Нет."
             )
-            if not self.confirm_action(warning):
+            if not self._allow_cloud_screenshots():
                 ctx["messages"].append("Отправка снимка отменена пользователем.")
                 self._finish_visual_macro()
                 return
@@ -2285,6 +2285,14 @@ class MainWindow(QMainWindow):
             self.hide()
             ctx["messages"].append("Jarvis свёрнут в системный трей.")
             QTimer.singleShot(0, self._next_macro_step)
+            return
+        if step["action"] in {
+            "display_info", "mouse_move", "mouse_right_click", "mouse_click",
+        }:
+            threading.Thread(
+                target=self._macro_worker, args=(dict(step), ctx["index"]),
+                daemon=True, name="JarvisLocalMouseStep",
+            ).start()
             return
         if step["action"] in {
             "run_cmd", "run_powershell", "app_volume", "voice_female",
@@ -2651,6 +2659,21 @@ class MainWindow(QMainWindow):
         else:
             QTimer.singleShot(0, self._next_macro_step)
 
+    def _allow_cloud_screenshots(self):
+        """Request permission once per run, not for every screenshot."""
+        if getattr(self, "_visual_upload_consent_session", False):
+            return True
+        approved = self.confirm_action(
+            "Разрешить отправку снимков окон выбранному облачному AI "
+            "для визуальных команд до закрытия Jarvis? Изображения могут "
+            "содержать личные сообщения и другие данные. Локальные снимки "
+            "не отправляются. Отправка сообщений по-прежнему требует "
+            "отдельного подтверждения."
+        )
+        if approved:
+            self._visual_upload_consent_session = True
+        return bool(approved)
+
     def _start_discord_mic_visual(self, text):
         """Restore a specific local visual command without cloud macro planning."""
         if not self.online_planner.enabled():
@@ -2660,15 +2683,7 @@ class MainWindow(QMainWindow):
                 "нужен включённый AI с поддержкой изображений и API-ключ."
             )
             return
-        approved = self.confirm_action(
-            "Открыть окно Discord, сохранить локальный снимок экрана "
-            "в Pictures/LuxAI и передать ОДИН снимок выбранному "
-            "облачному AI для нахождения кнопки микрофона? "
-            "Изображение может содержать личные переписки.\\n\\n"
-            "После распознавания будет выполнен ОДИН клик по кнопке. "
-            "Это переключатель: если микрофон выключен, он включится. "
-            "Продолжить?"
-        )
+        approved = self._allow_cloud_screenshots()
         if not approved:
             self._current_route = "Discord: визуальное управление"
             self._resolved_command(text, "Визуальное управление микрофоном отменено.")
