@@ -27,12 +27,16 @@ _SUMMARY_RE = re.compile(
     r"summary|summari|rezumat)", re.IGNORECASE,
 )
 _USER_RE = re.compile(
-    r"(?:\bнайд\w*|\bпоищ\w*|\bfind\b|\bcaut\w*)\s+"
-    r"(?:пользовател\w*|user(?:name)?|utilizator\w*)\s+"
+    # Spoken "найди ТАМ пользователя ..." must still resolve the contact.
+    # Do not include ensuing mouse instructions in the account name.
+    r"(?:\bнайд\w*|\bпоищ\w*|\bfind\b|\bcaut\w*)"
+    r"(?:\s+(?:там|здесь|тут|в\s+(?:дискорд\w*|discord|чате)))?"
+    r"\s+(?:пользовател\w*|user(?:name)?|utilizator\w*)\s+"
     r"(?P<name>.+?)"
     r"(?=\s+(?:(?:и\s+)?(?:после\s+этого|потом|затем|"
     r"в\s+переписк\w*|в\s+чат\w*|в\s+диалог\w*|"
-    r"сдела\w*|сними\w*|откро\w*|then|apoi|după\s+aceea))\b"
+    r"сдела\w*|сними\w*|откро\w*|нажм\w*|"
+    r"клик\w*|щёлк\w*|щелк\w*|выбер\w*|then|apoi|după\s+aceea))\b"
     r"|[,;.!?]|$)",
     re.IGNORECASE | re.UNICODE,
 )
