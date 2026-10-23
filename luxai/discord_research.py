@@ -99,7 +99,9 @@ def get_wikipedia_summary(topic: str) -> tuple[str, str]:
     )
     limit = max(105, 336 - len(title) - len(link))
     snippet = extract[:limit].rsplit(" ", 1)[0].rstrip(" ,;:-")
-    body = f"{title}: {snippet}…\nИсточник: {link}"
+    # One visual line: inserting a newline into Discord may send before
+    # the explicit final user confirmation on some client versions.
+    body = f"{title}: {snippet}…  Источник: {link}"
     if len(body.encode("utf-16-le")) // 2 > 350:
         raise ValueError("Article preview exceeds message size limit")
     return body, link
@@ -210,6 +212,8 @@ def prepare_discord_draft(planner, target: str) -> DiscordDraft:
     )
     click_visual_target(conversation, composer, 1)
     # The message is PREPARED; no Enter or other send action here.
+    if "\n" in message or "\r" in message:
+        raise ValueError("Message contains an unsafe newline")
     _type_unicode_windows(message)
     return DiscordDraft(hwnd, username, message, source_url, composer)
 
