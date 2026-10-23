@@ -94,6 +94,9 @@ def capture_window(hwnd: int) -> VisualCapture:
     from PIL import Image
 
     pid, title = _valid_external_window(hwnd)
+    from luxai.screen_interact import _foreground_hwnd
+    if _foreground_hwnd() != hwnd:
+        raise RuntimeError("Selected window must be visible and focused to capture it")
     if PROTECTED_TEXT.search(title):
         raise PermissionError("Protected or sensitive windows cannot be captured")
     rect = wintypes.RECT()
@@ -186,6 +189,9 @@ def click_visual_target(capture: VisualCapture, point: tuple[int, int],
     import ctypes
     from luxai.screen_interact import _valid_external_window
     pid, title = _valid_external_window(capture.hwnd)
+    from luxai.screen_interact import _foreground_hwnd
+    if _foreground_hwnd() != capture.hwnd:
+        raise RuntimeError("Do not click: user has switched to another window")
     if pid != capture.pid or title != capture.title:
         raise RuntimeError("Active application changed after screenshot")
     if count not in (1, 2, 3):
