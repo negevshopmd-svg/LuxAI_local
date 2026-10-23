@@ -63,6 +63,10 @@ def validate_generated_macro(proposal: object) -> dict | None:
     if not isinstance(proposal, dict):
         return None
     steps = proposal.get("steps")
+    # Preserve safe legacy cloud single-action plans, which can still be
+    # returned by older providers/models. Never relax the action allowlist.
+    if steps is None and proposal.get("action") in CLOUD_MACRO_ACTIONS:
+        steps = [proposal]
     if not isinstance(steps, list) or not 1 <= len(steps) <= MAX_MACRO_STEPS:
         return None
     validated = []
