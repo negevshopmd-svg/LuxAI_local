@@ -2745,8 +2745,10 @@ class MainWindow(QMainWindow):
     def _discord_mic_visual_worker(self, text):
         try:
             from luxai.discord_mic_visual import click_discord_microphone_by_screenshot
+            from luxai.voice_desktop import discord_mic_visual_mode
             answer = click_discord_microphone_by_screenshot(
                 self.online_planner,
+                mode=discord_mic_visual_mode(text) or "toggle",
                 cancelled=lambda: (
                     self._closed or not self._processing or self._active_text != text
                 ),
