@@ -2105,6 +2105,17 @@ class MainWindow(QMainWindow):
             )
             return
         if step["action"] == "close_window":
+            hwnd = _foreground_hwnd()
+            try:
+                _valid_external_window(hwnd)
+            except (OSError, ValueError):
+                hwnd = getattr(self, "_last_external_hwnd", 0)
+            try:
+                _valid_external_window(hwnd)
+            except (OSError, ValueError):
+                ctx["messages"].append("Не найдено активное внешнее окно для закрытия.")
+                self._finish_visual_macro()
+                return
             if not self.confirm_action(
                 "⚠ Закрыть активное окно другой программы? "
                 "Несохранённые изменения могут быть потеряны."
@@ -2112,11 +2123,18 @@ class MainWindow(QMainWindow):
                 ctx["messages"].append("Закрытие окна отменено.")
                 self._finish_visual_macro()
                 return
-            threading.Thread(
-                target=self._macro_worker,
-                args=(dict(step), ctx["index"]),
-                daemon=True, name="JarvisCloseWindow",
-            ).start()
+            try:
+                import ctypes
+                ctypes.windll.user32.SetForegroundWindow(hwnd)
+            except (AttributeError, OSError):
+                pass
+            QTimer.singleShot(
+                300, lambda: threading.Thread(
+                    target=self._macro_worker,
+                    args=(dict(step), ctx["index"]),
+                    daemon=True, name="JarvisCloseWindow",
+                ).start()
+            )
             return
         if step["action"] == "empty_recycle_bin":
             if not self.confirm_action(
