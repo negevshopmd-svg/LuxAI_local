@@ -381,7 +381,8 @@ class DiscordDraftTests(unittest.TestCase):
         pyauto.press.assert_not_called()
 
     def test_send_refuses_invalid_approved_draft_before_any_action(self):
-        for text in ("", "  ", "line1\\nline2", "line1\\rline2"):
+        for text in ("", "  ", "line1" + chr(10) + "line2",
+                     "line1" + chr(13) + "line2"):
             with self.subTest(text=text), mock.patch(
                 "luxai.discord_research.focus_discord"
             ) as focused:
