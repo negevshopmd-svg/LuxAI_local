@@ -23,7 +23,16 @@ def strip_wake_name(text: str, configured: str = "Jarvis") -> str:
         value,
         flags=re.IGNORECASE,
     )
-    return value[match.end():].lstrip(" \t,.!?:;—–-") if match else value
+    if match:
+        return value[match.end():].lstrip(" \\t,.!?:;—–-")
+    # Many speakers say "Hello, Jarvis" rather than "Jarvis, hello".
+    # Strip only a known standalone name at the *end* of a phrase.
+    tail = re.search(
+        r"[,\\s]+(?:" + alternatives + r")[.!?]*$", value, flags=re.IGNORECASE
+    )
+    if tail and value[:tail.start()].strip():
+        return value[:tail.start()].strip()
+    return value
 
 
 def quick_reply(text: str, language: str = "ru") -> str | None:
