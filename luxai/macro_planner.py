@@ -19,7 +19,7 @@ CLOUD_MACRO_ACTIONS = frozenset({
     "wait_seconds", "wait_minutes", "noop", "minimize_windows",
     "search_web", "speak_text", "speak_ready", "speak_done",
     "create_file", "create_folder", "list_files",
-    "visual_click", "display_info", "empty_recycle_bin",
+    "visual_click", "display_info", "empty_recycle_bin", "close_window",
 })
 
 MACRO_SYSTEM = """You are the MULTI-STEP MACRO DESIGNER for LuxAI Jarvis on Windows.
@@ -33,7 +33,7 @@ hotkey, press_enter, save_document, type_text, mouse_click,
 mouse_right_click, mouse_double_click, mouse_middle_click, mouse_move,
 mouse_scroll, wait_seconds, wait_minutes, noop, minimize_windows,
 search_web, speak_text, speak_ready, speak_done, create_file, create_folder,
-list_files, visual_click, display_info, empty_recycle_bin.
+list_files, visual_click, display_info, empty_recycle_bin, close_window.
 At most 8 steps. For MANY sequential keyboard letters use ONE key_sequence
 step with comma-delimited characters. Each sequence supports 2-24 English
 letters/digits. Example: "нажми qwerd" / "press Q W E R D" /
@@ -51,13 +51,14 @@ letters/digits. Example: "нажми qwerd" / "press Q W E R D" /
 "размер экрана" -> {"steps":[{"action":"display_info"}]}.
 "открой корзину затем очисти корзину" ->
 {"steps":[{"action":"visual_click","target":"Recycle Bin desktop icon||2"},
-{"action":"empty_recycle_bin"}]}.
+{"action":"empty_recycle_bin"},{"action":"close_window"}]}.
 visual_click target MUST be the visible GUI control description followed by ||1, ||2
 or ||3 (number of clicks); no coordinate guesses at planning time.
 At RUN TIME Jarvis asks permission to capture the currently active external
 window and transmit one screenshot to the configured vision-capable API;
 only the current screenshot determines the coordinates. If the wrong window
 is focused or model cannot locate one unique control, execution fails safely.
+close_window closes the currently active external app window, not Jarvis itself.
 empty_recycle_bin permanently deletes ALL items; ONLY return when the user
 explicitly asked to empty/purge the Windows Recycle Bin, and Jarvis must
 require a separate destructive confirmation at runtime.
