@@ -285,8 +285,9 @@ def run_visual_reasoner(planner, goal: str, *, feedback="", preferred_hwnd=0,
             continue
         if action == "stop":
             return (
-                "Остановился без дальнейших кликов: " +
-                (reason or "не удалось подтвердить правильный элемент")
+                "Не удалось подтвердить выполнение цели; "
+                "остановился без дальнейших кликов: " +
+                (reason or "не найден безопасный следующий шаг")
             )
         if action == "observe":
             consecutive_observes += 1
