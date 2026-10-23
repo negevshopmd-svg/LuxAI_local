@@ -30,6 +30,9 @@ class SelectionIntentTests(unittest.TestCase):
             "Read highlighted text": "read",
             "Summarize selected text": "summarize",
             "Сделай краткий пересказ выделенного на экране текста": "summarize",
+            "Жарвис, сделай краткий пересказ": "summarize",
+            "Дай резюме текста": "summarize",
+            "Сделай пересказ": "summarize",
         }
         for text, expected in phrases.items():
             with self.subTest(text=text):
@@ -40,6 +43,7 @@ class SelectionIntentTests(unittest.TestCase):
             "привет", "сколько времени", "Открой браузер",
             "прочитай экран", "сделай скриншот",
             "посмотри текст в браузере", "нажми Ctrl+C",
+            "сделай пересказ о моём детстве", "пересказ книги Война и мир",
         ):
             self.assertIsNone(selected_text_intent(text))
 
