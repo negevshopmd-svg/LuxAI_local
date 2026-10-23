@@ -26,10 +26,10 @@ class VisualTargetRules(unittest.TestCase):
     def test_click_count_and_user_named_control(self):
         self.assertEqual(parse_click_target("Корзина||2"), ("Корзина", 2))
         self.assertEqual(validate_step({
-            "action": "visual_click", "target": "Download button||3",
-        })["target"], "Download button||3")
+            "action": "visual_click", "target": "Download button||5",
+        })["target"], "Download button||5")
         for unsafe in (
-            "button", "button||0", "button||4", "button||999",
+            "button", "button||0", "button||11", "button||999",
             "password box||1", "Windows Security||1", "passcode||1",
             "some\nbutton||1",
         ):
