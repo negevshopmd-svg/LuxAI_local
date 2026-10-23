@@ -42,6 +42,7 @@ _ACTIONS = [
     ("mouse_right_click", "Мышь", "Правый клик", "Щелчок правой кнопкой мыши", True),
     ("mouse_click", "Мышь", "Левый клик", "Нажимает левую кнопку мыши", True),
     ("visual_click", "Мышь", "Найти объект на экране и нажать", "Снимок окна, облачное зрение и 1–3 клика после подтверждения", True),
+    ("close_window", "Программа", "Закрыть активное окно", "Закрывает только окно другой программы после подтверждения", True),
     ("display_info", "Система", "Размеры экранов", "Реальные координаты и размеры виртуального рабочего стола", True),
     ("empty_recycle_bin", "Файлы", "Очистить корзину Windows", "Безвозвратно удалить файлы из корзины только после явного подтверждения", True),
     ("mouse_scroll", "Мышь", "Клик колесом / прокрутка", "Прокрутка колеса мыши", True),
@@ -106,7 +107,7 @@ NO_TARGET = {
     "mouse_click", "mouse_right_click", "mouse_double_click", "volume_up", "volume_down",
     "lock_screen", "list_files", "speak_ready", "speak_done", "noop",
     "mouse_middle_click", "monitor_on", "monitor_off", "sleep_pc", "tray_minimize",
-    "display_info", "empty_recycle_bin",
+    "display_info", "empty_recycle_bin", "close_window",
 }
 
 
