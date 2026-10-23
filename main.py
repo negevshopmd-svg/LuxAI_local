@@ -2,6 +2,7 @@ import re
 import sys, os, json, html, urllib.request
 import queue
 import threading
+import hashlib
 from pathlib import Path
 from PySide6.QtCore import Qt, QThread, Signal, QTimer
 from PySide6.QtGui import QFontDatabase, QFont, QAction
@@ -21,7 +22,7 @@ from luxai.styles import build_styles
 from luxai.ui_i18n import get_ui_language, set_ui_language, translate_widgets, tr, normalize_language
 from luxai.response_language import reply_language
 from luxai.online_agent import OnlinePlanner
-from luxai.secure_keys import store_api_key, get_api_key
+from luxai.secure_keys import store_api_key, get_api_key, key_storage_status
 from luxai.api_verification import check_api_key_detailed
 from luxai.api_providers import PROVIDERS
 from luxai.command_registry import CommandRegistry
@@ -124,6 +125,7 @@ class MainWindow(QMainWindow):
     online_plan_ready = Signal(str, object)
     local_reply_ready = Signal(str, str)
     api_test_result = Signal(str, bool, str, object)
+    cloud_check_result = Signal(str, str, bool, str)
     tts_played = Signal(bool)
     wizard_plan_ready = Signal(str, object)
     macro_step_ready = Signal(int, bool, str)
@@ -154,6 +156,7 @@ class MainWindow(QMainWindow):
         self.wizard_plan_ready.connect(self._on_wizard_plan)
         self.local_reply_ready.connect(self._on_local_reply)
         self.api_test_result.connect(self._on_api_test_result)
+        self.cloud_check_result.connect(self._on_cloud_check_result)
         self.tts_played.connect(self._on_tts_played)
         self._command_queue = []
         self._active_text = None
@@ -167,6 +170,12 @@ class MainWindow(QMainWindow):
         self._closed = False
         self._api_test_running = False
         self._api_test_requested_model = None
+        self._cloud_probe_signature = None
+        self._cloud_verified_signature = None
+        self._cloud_probe_failed = False
+        self._cloud_probe_message = ""
+        self._cloud_probe_running = False
+        self._cloud_first_check_done = False
         self._speech_queue = queue.Queue(maxsize=8)
         self._speech_thread = threading.Thread(target=self._speech_loop, daemon=True, name="JarvisSpeech")
         self._speech_thread.start()
@@ -378,6 +387,21 @@ class MainWindow(QMainWindow):
         desc = QLabel("Инструменты, доступные локально на этом компьютере.")
         desc.setObjectName("Muted")
         layout.addWidget(desc)
+        cloud_frame, cloud_box = card()
+        self.cloud_indicator = QLabel("●  Облачный AI: не проверен")
+        self.cloud_indicator.setObjectName("CloudAIStatus")
+        self.cloud_indicator.setStyleSheet("color:#c6a35f;font-size:15px;font-weight:650;")
+        cloud_box.addWidget(self.cloud_indicator)
+        self.cloud_details = QLabel("Ключ и связь с API будут проверены через выбранный провайдер.")
+        self.cloud_details.setWordWrap(True)
+        self.cloud_details.setObjectName("Muted")
+        cloud_box.addWidget(self.cloud_details)
+        self.cloud_check_button = QPushButton("Проверить облачный AI")
+        self.cloud_check_button.setObjectName("Primary")
+        self.cloud_check_button.clicked.connect(lambda: self._start_cloud_check(force=True))
+        cloud_box.addWidget(self.cloud_check_button)
+        layout.addWidget(cloud_frame)
+        self._update_cloud_indicator()
         for name, description, action in [
             ("Снимок экрана", "Сохранить снимок текущего экрана на этом компьютере.", self.screen_action),
             ("Распознавание текста (OCR)", "Сделать снимок и извлечь из него видимый текст.", self.ocr_action),
@@ -465,10 +489,115 @@ class MainWindow(QMainWindow):
         titles = ["Главная", "Команды", "Дополнения", "Jarvis AI", "Настройки"]
         self.header_title.setText("Jarvis   |   " + tr(titles[index]))
         self.sidebar.set_active(index)
+        if index == 2 and hasattr(self, "cloud_indicator"):
+            self._update_cloud_indicator()
+            if not self._cloud_first_check_done:
+                self._cloud_first_check_done = True
+                self._start_cloud_check()
 
     def toggle_microphone_from_header(self, enabled):
         self.settings_panel.mic.setChecked(bool(enabled))
         self.apply_settings()
+
+    def _cloud_signature(self):
+        """Bind a status to exactly the stored key, provider, model and endpoint."""
+        cfg = self.cfg
+        provider = cfg.get("online_provider", "openai")
+        if provider not in PROVIDERS:
+            return None
+        key = get_api_key(provider)
+        if not key:
+            return None
+        canonical = "|".join((
+            provider, str(cfg.get("online_model", "")),
+            str(cfg.get("online_custom_url", "")),
+            key, str(bool(cfg.get("online_agent_enabled", False))),
+        ))
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    def _update_cloud_indicator(self):
+        if not hasattr(self, "cloud_indicator"):
+            return
+        provider = self.cfg.get("online_provider", "openai")
+        name = PROVIDERS.get(provider, {}).get("label", provider)
+        signature = self._cloud_signature()
+        storage = key_storage_status(provider) if provider in PROVIDERS else "missing"
+        if not self.cfg.get("online_agent_enabled", False):
+            title, detail, color = (
+                "●  Облачный AI выключен",
+                "Включите облачный помощник в настройках.", "#c6a35f"
+            )
+        elif not signature:
+            title = "●  Облачный AI: ключ отсутствует"
+            detail = ("Сохранённый ключ недоступен для текущего пользователя Windows."
+                      if storage == "unreadable" else "Добавьте и сохраните API-ключ в настройках.")
+            color = "#d36f6f"
+        elif self._cloud_probe_running and signature == self._cloud_probe_signature:
+            title, detail, color = "●  Облачный AI: проверка…", f"Подключаюсь к {name}…", "#c6a35f"
+        elif self._cloud_verified_signature == signature:
+            title, detail, color = "●  Облачный AI работает", f"{name}: API успешно ответил на тест.", "#3dbb77"
+        elif self._cloud_probe_failed and signature == self._cloud_probe_signature:
+            title, detail, color = "●  Облачный AI недоступен", self._cloud_probe_message, "#d36f6f"
+        else:
+            title, detail, color = (
+                "●  Облачный AI: не проверен",
+                f"{name}: ключ найден, но соединение ещё не проверено.",
+                "#c6a35f"
+            )
+        self.cloud_indicator.setText(title)
+        self.cloud_indicator.setStyleSheet(f"color:{color};font-size:15px;font-weight:650;")
+        self.cloud_details.setText(detail)
+
+    def _start_cloud_check(self, force=False):
+        if self._closed or self._cloud_probe_running:
+            return
+        signature = self._cloud_signature()
+        if not self.cfg.get("online_agent_enabled", False) or not signature:
+            self._update_cloud_indicator()
+            return
+        if not force and self._cloud_verified_signature == signature:
+            return
+        provider = self.cfg.get("online_provider", "openai")
+        key = get_api_key(provider)
+        settings = dict(self.cfg)
+        self._cloud_probe_signature = signature
+        self._cloud_probe_failed = False
+        self._cloud_probe_running = True
+        self._update_cloud_indicator()
+        self.cloud_check_button.setEnabled(False)
+        threading.Thread(
+            target=self._cloud_check_worker,
+            args=(provider, signature, settings, key),
+            name="JarvisCloudHealth", daemon=True,
+        ).start()
+
+    def _cloud_check_worker(self, provider, signature, settings, key):
+        try:
+            valid, message, model = check_api_key_detailed(settings, key)
+        except Exception:
+            valid, message, model = False, "Ошибка подключения к облачному API.", None
+        if not self._closed:
+            try:
+                self.cloud_check_result.emit(provider, signature, valid, message)
+            except RuntimeError:
+                pass
+
+    def _on_cloud_check_result(self, provider, signature, valid, message):
+        self._cloud_probe_running = False
+        self.cloud_check_button.setEnabled(True)
+        if self._closed or signature != self._cloud_signature() or (
+            provider != self.cfg.get("online_provider")
+        ):
+            self._update_cloud_indicator()
+            return
+        if valid:
+            self._cloud_verified_signature = signature
+            self._cloud_probe_failed = False
+        else:
+            self._cloud_verified_signature = None
+            self._cloud_probe_failed = True
+            self._cloud_probe_message = message
+        self._update_cloud_indicator()
 
     def save_settings(self, *_):
         if not hasattr(self, "settings_panel"):
@@ -478,13 +607,27 @@ class MainWindow(QMainWindow):
         new_key = key_field.text().strip()
         if new_key:
             try:
-                store_api_key(new_key, self.settings_panel.online_provider.currentData())
-                key_field.clear()
-                self.settings_panel.refresh_key_status()
+                provider = self.settings_panel.online_provider.currentData()
+                store_api_key(new_key, provider)
+                if get_api_key(provider) != new_key:
+                    raise OSError("API key could not be read back")
             except (ValueError, OSError, RuntimeError) as exc:
-                self.mic_status.setText("Ошибка сохранения ключа API.")
-                print(f"API key storage failed: {type(exc).__name__}")
-        save_config(self.cfg)
+                # Never clear the text: the user must be able to retry.
+                self.mic_status.setText("Ошибка сохранения ключа API. Проверьте права Windows.")
+                self.settings_panel.key_status.setText(
+                    "Не удалось сохранить API-ключ. Поле не очищено; повторите сохранение."
+                )
+                self._cloud_verified_signature = None
+                self._update_cloud_indicator()
+                return False
+            key_field.clear()
+            self.settings_panel.refresh_key_status()
+        try:
+            save_config(self.cfg)
+        except OSError:
+            self.mic_status.setText("Ошибка сохранения config.json.")
+            return False
+        self._update_cloud_indicator()
         if self.agent:
             self.agent.update_config(self.cfg)
         self.online_planner.update_config(self.cfg)
