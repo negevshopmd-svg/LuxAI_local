@@ -13,3 +13,11 @@
 - Repaired OCR tests and test isolation. Added capture, device selection, diagnostic, UI lifecycle, voice-file and update recovery regressions. Linux and Windows CI run the full suite; physical headset and audio-driver behavior still require testing on the target PC.
 
 See the microphone troubleshooting steps in README.md or README_RO.md after updating.
+
+### 0.2.0 — Complex voice macros follow-up
+
+- Added a dedicated cloud JSON planner for multi-step voice-created commands instead of the single-action chat planner.
+- Added a bounded `key_sequence` macro step: QWERD means five individual keyboard presses in order (2–24 letters/digits per step). Works in basic local voice recognition and can be edited visually.
+- Cloud proposals are revalidated against the local safe action catalog, previewed step by step, and saved only after explicit confirmation. Unsupported destructive/system actions do not receive fabricated replacements.
+- Improved recognition of Romanian command-creation phrases; existing safe single-action online macro proposals remain supported.
+- Added regression tests for cloud planning, spoken key sequences, safe rejection, saved macro persistence and Windows keyboard execution.
