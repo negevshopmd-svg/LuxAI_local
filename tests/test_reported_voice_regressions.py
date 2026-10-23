@@ -169,7 +169,7 @@ class DiscordNavigationTests(unittest.TestCase):
             mock.patch("luxai.discord_navigation._ensure_discord_visible",
                        return_value=42),
             mock.patch("luxai.discord_navigation.focus_discord"),
-            mock.patch("luxai.discord_navigation.verified_discord_search",
+            mock.patch("luxai.discord_search_guard.verified_discord_search",
                        return_value=capture) as search,
             mock.patch("luxai.visual_click.capture_window", return_value=capture) as shot,
             mock.patch("luxai.desktop_actions._type_unicode_windows") as write,
