@@ -87,14 +87,23 @@ class VoiceWorker(QThread):
         try:
             if self.isInterruptionRequested():
                 return
-            self.listener = VoiceListener(
-                model_path=self.cfg.get("whisper_model_path") or self.cfg.get("whisper_model") or "small",
-                prefix_enabled=self.cfg.get("prefix_enabled", False),
-                prefix=self.cfg.get("wake_prefix", "Jarvis"),
-                language=self.cfg.get("language", "auto"),
-                microphone_device=self.cfg.get("microphone_device", -1),
-                beam_size=self.cfg.get("whisper_beam_size", 1),
-            )
+            model_choice = self.cfg.get("whisper_model_path") or self.cfg.get("whisper_model") or "small"
+            params = {
+                "prefix_enabled": self.cfg.get("prefix_enabled", False),
+                "prefix": self.cfg.get("wake_prefix", "Jarvis"),
+                "language": self.cfg.get("language", "auto"),
+                "microphone_device": self.cfg.get("microphone_device", -1),
+                "beam_size": self.cfg.get("whisper_beam_size", 1),
+            }
+            try:
+                self.listener = VoiceListener(model_path=model_choice, **params)
+            except (OSError, RuntimeError, MemoryError, ValueError) as exc:
+                if str(model_choice) == "small" or self.isInterruptionRequested():
+                    raise
+                self.status.emit(
+                    f"Whisper {model_choice} unavailable ({type(exc).__name__}); trying small..."
+                )
+                self.listener = VoiceListener(model_path="small", **params)
             if self.isInterruptionRequested():
                 self.listener.stop()
                 return
@@ -769,6 +778,7 @@ class MainWindow(QMainWindow):
         if enabled:
             self.start_listener()
         else:
+            self._listener_restart_pending = False
             self.stop_listener()
             self.mic_status.setText("●  Микрофон выключен")
 
