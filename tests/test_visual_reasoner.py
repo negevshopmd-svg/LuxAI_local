@@ -120,6 +120,43 @@ class ReasoningUnitTests(unittest.TestCase):
                 run_visual_reasoner(mock.Mock(), GOAL)
         click.assert_not_called()
 
+    def test_new_contact_spelling_uses_verified_discord_search_tool(self):
+        goal = "Открой Discord и найди пользователя Octavian"
+        planner = mock.Mock()
+        with (
+            mock.patch("luxai.visual_reasoner.sys.platform", "win32"),
+            mock.patch("luxai.visual_reasoner._select_window", return_value=42),
+            mock.patch("luxai.visual_reasoner.capture_window"),
+            mock.patch("luxai.visual_reasoner._choose", side_effect=[
+                {"action": "search_discord", "target": "Octavian"},
+                {"action": "stop", "reason": "result list has no unique match"},
+            ]),
+            mock.patch("luxai.discord_search_guard.verified_discord_search") as search,
+            mock.patch("luxai.visual_reasoner.click_visual_target") as click,
+            mock.patch("luxai.visual_reasoner.time.sleep"),
+        ):
+            result = run_visual_reasoner(planner, goal)
+        search.assert_called_once()
+        self.assertEqual(search.call_args.args[:3],
+                         (planner, 42, "@Octavian"))
+        click.assert_not_called()
+        self.assertIn("не удалось", result.casefold())
+
+    def test_ai_cannot_invent_contact_name_during_search(self):
+        goal = "Открой Discord и найди пользователя Octavian"
+        with (
+            mock.patch("luxai.visual_reasoner.sys.platform", "win32"),
+            mock.patch("luxai.visual_reasoner._select_window", return_value=42),
+            mock.patch("luxai.visual_reasoner.capture_window"),
+            mock.patch("luxai.visual_reasoner._choose", return_value={
+                "action": "search_discord", "target": "AnotherPerson",
+            }),
+            mock.patch("luxai.discord_search_guard.verified_discord_search") as search,
+        ):
+            with self.assertRaisesRegex(PermissionError, "invented"):
+                run_visual_reasoner(mock.Mock(), goal)
+        search.assert_not_called()
+
     def test_missing_target_app_stops_instead_of_guessing_window(self):
         with (
             mock.patch("luxai.visual_reasoner.sys.platform", "win32"),
