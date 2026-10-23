@@ -1,4 +1,4 @@
-param([switch]$SelfTest, [switch]$CheckVenv)
+param([switch]$SelfTest, [switch]$CheckVenv, [switch]$SkipOcr)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -349,11 +349,15 @@ try {
             }
         }
     }
-    try {
-        Invoke-PythonStep $script:VenvPython @('-m', 'luxai.ocr_setup') 'Installing optional Tesseract OCR (Russian and English)'
-    } catch {
-        Write-Status "WARNING: OCR could not be installed: $($_.Exception.Message)"
-        Write-Status 'Jarvis can start; OCR setup will be retried when needed.'
+    if ($SkipOcr) {
+        Write-Status 'Optional OCR installation skipped for test environment.'
+    } else {
+        try {
+            Invoke-PythonStep $script:VenvPython @('-m', 'luxai.ocr_setup') 'Installing optional Tesseract OCR (Russian and English)'
+        } catch {
+            Write-Status "WARNING: OCR could not be installed: $($_.Exception.Message)"
+            Write-Status 'Jarvis can start; OCR setup will be retried when needed.'
+        }
     }
 
     Write-Status 'SUCCESS: LuxAI installation completed. Launch run_windows.bat.'
