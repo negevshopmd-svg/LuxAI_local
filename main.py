@@ -1908,7 +1908,12 @@ class MainWindow(QMainWindow):
                 answer = toggle_discord_microphone(self.confirm_action)
                 self._resolved_command(text, answer)
                 return
-            if saved is not None:
+            # Auto-learned one-shot "open app" shortcuts must not shadow a
+            # richer visual user goal that also requested actual UI work.
+            # Manually created custom commands continue to take precedence.
+            if saved is not None and not (
+                is_visual_goal(text) and saved.get("learned", False)
+            ):
                 self._execute_registered(text, saved)
                 return
             # Keep known HTTPS-site opening local and OFFLINE. A browser
