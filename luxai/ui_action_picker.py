@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QPushButton, QScrollArea, QSpinBox, QVBoxLayout, QWidget, QSizePolicy,
 )
 
+from luxai.ui_i18n import tr, get_ui_language, translate_widgets
 from luxai.action_catalog import CATALOG, CATEGORIES, HOTKEYS, SINGLE_KEYS, validate_step
 from luxai.command_registry import APP_TARGETS
 from luxai.file_actions import ALLOWED_LOCATIONS
@@ -333,6 +334,7 @@ class ActionOptionsDialog(QDialog):
         save.clicked.connect(self._accept)
         buttons.addWidget(save)
         layout.addLayout(buttons)
+        translate_widgets(self, get_ui_language())
 
     def _browse_audio(self):
         ext = "MP3 (*.mp3)" if self.action == "play_mp3" else "WAV (*.wav)"
@@ -430,7 +432,7 @@ class ActionPicker(QDialog):
         self.category_list.setFixedWidth(190)
         self.category_list.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
         for name, icon_name in CATEGORIES:
-            entry = QListWidgetItem(f"{icon_name}   {name}")
+            entry = QListWidgetItem(f"{icon_name}   {tr(name)}")
             entry.setData(Qt.ItemDataRole.UserRole, name)
             entry.setSizeHint(QSize(170, 43))
             self.category_list.addItem(entry)
@@ -470,6 +472,7 @@ class ActionPicker(QDialog):
         root.addLayout(footer)
         self.setStyleSheet(PICKER_CSS)
         self.category_list.setCurrentRow(0)
+        translate_widgets(self, get_ui_language())
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton and event.position().y() < 85:
@@ -507,7 +510,8 @@ class ActionPicker(QDialog):
                 continue
             searchable = (
                 details["title"] + " " + details["description"] + " "
-                + details["category"]
+                + details["category"] + " "
+                + tr(details["title"]) + " " + tr(details["description"])
             ).casefold()
             if query and query not in searchable:
                 continue
@@ -531,6 +535,7 @@ class ActionPicker(QDialog):
             note.setWordWrap(True)
             self.action_layout.addWidget(note)
         self.action_layout.addStretch(1)
+        translate_widgets(self.action_area, get_ui_language())
         self.action_scroll.verticalScrollBar().setValue(0)
 
     def _activate_action(self, action):
