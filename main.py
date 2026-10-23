@@ -64,7 +64,13 @@ def load_config():
         return {}
 
 def save_config(cfg):
-    CONFIG.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+    """Write preferences atomically, so an interrupted shutdown won't erase them."""
+    target = CONFIG.with_name(CONFIG.name + ".tmp")
+    try:
+        target.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(target, CONFIG)
+    finally:
+        target.unlink(missing_ok=True)
 
 def card():
     frame = QFrame()
@@ -659,7 +665,8 @@ class MainWindow(QMainWindow):
     def apply_settings(self, *_):
         """Save settings and apply them to running services where supported."""
         old = dict(self.cfg)
-        self.save_settings()
+        if self.save_settings() is False:
+            return
         self.apply_appearance()
         self.apply_ui_language()
         if old.get("autostart_windows", False) != self.cfg.get("autostart_windows", False):
