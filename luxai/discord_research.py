@@ -177,46 +177,101 @@ class DiscordDraft:
     # The screenshot is not retained in this object.
 
 
-def prepare_discord_draft(planner, target: str) -> DiscordDraft:
-    """Run only AFTER user consents to sharing up to two Discord screenshots."""
+def prepare_discord_draft(planner, target: str, *,
+                          confirm_candidate=None, cancelled=None) -> DiscordDraft:
+    """Visually inspect the DM list BEFORE resorting to Discord search.
+
+    The user consents in the UI to at most five cloud screenshots across this
+    preparation and the later separately approved send. A differently spelled
+    visible contact ALWAYS needs independent user confirmation before a click.
+    The actual displayed name is verified again in the DM header and on send.
+    """
     from luxai.visual_click import capture_window, find_visual_target, click_visual_target
+    from luxai.discord_contact_vision import (
+        locate_visible_contact, same_discord_name, search_alias,
+    )
     from luxai.desktop_actions import _type_unicode_windows
     import pyautogui
 
+    def abort_if_cancelled():
+        if cancelled is not None and cancelled():
+            raise RuntimeError("Discord command cancelled")
+
     topic, username = validate_research_dm_target(target)
+    abort_if_cancelled()
     message, source_url = get_wikipedia_summary(topic)
+    abort_if_cancelled()
     hwnd = find_discord_window()
     focus_discord(hwnd)
+    abort_if_cancelled()
 
-    # Discord's documented Ctrl+K Quick Switcher, @ prefix for DM users.
-    pyautogui.hotkey("ctrl", "k", interval=0.07)
-    time.sleep(0.18)
-    _type_unicode_windows("@" + username)
-    time.sleep(0.95)
-    selected = capture_window(hwnd)
-    point = find_visual_target(
-        planner,
-        f"Discord Quick Switcher USER result EXACTLY matching @{username}. "
-        "Search result must be visible in the switcher; reject ambiguous names.",
-        selected,
-    )
-    click_visual_target(selected, point, 1)
-    time.sleep(0.8)
+    # A contact may already be visible in the direct-message list, even when
+    # spoken Cyrillic differs from its English handle. No blind search first.
+    initial = capture_window(hwnd)
+    candidate = locate_visible_contact(planner, initial, username)
+    selected = initial
+
+    if candidate is None:
+        # Search is a fallback, not a prerequisite for visually selecting a
+        # contact. This avoids hiding visible DMs under Quick Switcher.
+        pyautogui.hotkey("ctrl", "k", interval=0.07)
+        time.sleep(0.18)
+        _type_unicode_windows("@" + username)
+        time.sleep(0.75)
+        abort_if_cancelled()
+        selected = capture_window(hwnd)
+        candidate = locate_visible_contact(
+            planner, selected, username, quick_switcher=True
+        )
+        if candidate is None:
+            alias = search_alias(username)
+            if alias:
+                # Broad Latin prefix for Cyrillic speech recognition only;
+                # the result STILL requires visual proof and user approval.
+                pyautogui.hotkey("ctrl", "a", interval=0.06)
+                _type_unicode_windows("@" + alias)
+                time.sleep(0.7)
+                abort_if_cancelled()
+                selected = capture_window(hwnd)
+                candidate = locate_visible_contact(
+                    planner, selected, username, quick_switcher=True
+                )
+
+    if candidate is None:
+        raise ValueError(
+            "Discord: пользователь не найден визуально ни в списке, "
+            "ни через поиск. Укажите имя, как оно отображается в Discord."
+        )
+
+    displayed = candidate.display_name
+    # Similar-sounding names are not proof of recipient identity. Explicit
+    # human approval is mandatory when the displayed name differs.
+    if not same_discord_name(username, displayed):
+        if confirm_candidate is None or not confirm_candidate(username, displayed):
+            raise ValueError(
+                "Discord: имя на снимке отличается от произнесённого; "
+                "выбор получателя отменён, ничего не отправлено."
+            )
+    abort_if_cancelled()
+    click_visual_target(selected, candidate.point, 1)
+    time.sleep(0.75)
+    abort_if_cancelled()
     conversation = capture_window(hwnd)
     composer = find_visual_target(
         planner,
-        f"Discord DM conversation HEADER displays recipient {username} "
-        "and message composer at bottom; ONLY locate composer if header "
-        f"unambiguously matches {username}. Otherwise return found:false.",
+        f"Discord INDIVIDUAL DM HEADER must identify the user {displayed!r} "
+        f"(requested voice spelling was {username!r}). Find the MESSAGE COMPOSER "
+        "at the bottom ONLY if the header visibly identifies that same "
+        "individual and not a group or channel; otherwise found:false.",
         conversation,
     )
+    abort_if_cancelled()
     click_visual_target(conversation, composer, 1)
-    # The message is PREPARED; no Enter or other send action here.
+    # Typing is not sending: no Enter until the user confirms in the Qt UI.
     if "\n" in message or "\r" in message:
         raise ValueError("Message contains an unsafe newline")
     _type_unicode_windows(message)
-    return DiscordDraft(hwnd, username, message, source_url, composer)
-
+    return DiscordDraft(hwnd, displayed, message, source_url, composer)
 
 def submit_discord_draft(draft: DiscordDraft, planner, *, cancelled=None) -> str:
     """Reinspect the CURRENT recipient and unsent text after final approval.
