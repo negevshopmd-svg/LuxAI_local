@@ -1,38 +1,37 @@
 @echo off
+setlocal
 chcp 65001 >nul
 cd /d "%~dp0"
+title LuxAI Local - Windows setup
 
-echo === LuxAI Local | Instalare Windows ===
-py -3.11 -m venv .venv
-if errorlevel 1 (
-    echo EROARE: Python 3.11 nu este disponibil. Instaleaza Python 3.11 64-bit.
+echo.
+echo ================================================
+echo     LuxAI Local - Instalare / Reparare Windows
+echo ================================================
+echo.
+echo Instaleaza Python 3.11, bibliotecile LuxAI si OCR.
+echo Repara automat un .venv copiat de pe alt calculator.
+echo Nu sterge modelele sau configuratia personala.
+echo.
+
+if not exist "scripts\install_windows.ps1" (
+    echo EROARE: Lipseste scripts\install_windows.ps1.
+    echo Descarca arhiva COMPLETA LuxAI_Local de pe GitHub.
     pause
     exit /b 1
 )
 
-.venv\Scripts\python.exe -m pip install --upgrade pip
-if errorlevel 1 goto :pip_error
-.venv\Scripts\python.exe -m pip install -r requirements.txt
-if errorlevel 1 goto :pip_error
-
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\install_windows.ps1"
+set "RESULT=%ERRORLEVEL%"
 echo.
-echo === Instalez OCR integrat Tesseract, limba rusa si engleza ===
-.venv\Scripts\python.exe -m luxai.ocr_setup
-if errorlevel 1 (
-    echo ATENTIE: OCR nu a putut fi instalat.
-    echo Verifica conexiunea sau permisiunile Windows.
-    echo Jarvis va reincerca automat la pornire.
-) else (
-    echo Tesseract OCR este gata in aplicatie.
+
+if not "%RESULT%"=="0" (
+    echo Instalarea nu s-a terminat. Vezi logs\install_windows.log.
+    echo Poti rula install_windows.bat din nou dupa rezolvarea erorii.
+    pause
+    exit /b %RESULT%
 )
 
-echo.
-echo Instalarea programului s-a terminat.
-echo Pentru GPU AMD/Vulkan poate fi necesar un build llama-cpp-python compatibil.
+echo Instalare finalizata. Poti porni run_windows.bat.
 pause
 exit /b 0
-
-:pip_error
-echo EROARE: Instalarea bibliotecilor Python a esuat.
-pause
-exit /b 1
