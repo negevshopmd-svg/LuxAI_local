@@ -41,6 +41,10 @@ def _action_from_description(text: str) -> dict | None:
     local_steps = parse_action_sequence(s)
     if local_steps:
         return {"action": local_steps[0]["action"], "target": local_steps[0]["target"], "location": "desktop", "steps": local_steps}
+    # Do not save just the first recognizable part of a complex request.
+    # The cloud macro planner must either validate ALL steps or reject it.
+    if re.search(r"\b(?:потом|затем|после этого|then|and then|apoi|după aceea|dupa aceea)\b", t):
+        return None
     keyboard = keyboard_action_plan(s)
     if keyboard is not None:
         return keyboard
