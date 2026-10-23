@@ -25,6 +25,52 @@ class SpeechRuleTests(unittest.TestCase):
         self.assertEqual(speech_pause_seconds(3.4), 3.4)
         self.assertEqual(speech_pause_seconds("99"), 2.3)
 
+
+    def test_voice_is_stopped_during_speech_without_normal_command(self):
+        import importlib.util
+        if not importlib.util.find_spec("numpy") or not importlib.util.find_spec("sounddevice"):
+            self.skipTest("Native audio prerequisites unavailable")
+        import numpy as np
+        from luxai import voice
+        frame = (0.02 * np.sin(np.arange(480) * 2 * np.pi * 440 / 16000)).astype(np.float32)
+        audio = np.concatenate((np.zeros(480 * 4, dtype=np.float32),
+                                np.tile(frame, 19), np.zeros(480 * 21, dtype=np.float32)))
+        model = mock.Mock()
+        model.transcribe.return_value = ([types.SimpleNamespace(text="Стоп.")], None)
+        fake_whisper = types.SimpleNamespace(WhisperModel=mock.Mock(return_value=model))
+        class Stream:
+            active = True
+            def __init__(self, **kwargs):
+                self.callback = kwargs["callback"]
+            def __enter__(self):
+                voice.playback_active.set()
+                voice.barge_in_ready.set()
+                for i in range(0, len(audio), 480):
+                    frame_bytes = audio[i:i + 480].reshape(-1, 1)
+                    self.callback(frame_bytes, len(frame_bytes), None, False)
+                return self
+            def __exit__(self, *_):
+                voice.playback_active.clear()
+                voice.barge_in_ready.clear()
+        device = {"name": "Mic", "max_input_channels": 1,
+                  "default_samplerate": 16000}
+        try:
+            with mock.patch.dict(sys.modules, {"faster_whisper": fake_whisper,
+                                                "webrtcvad": None}), \
+                 mock.patch.object(voice.sd, "query_devices", return_value=device), \
+                 mock.patch.object(voice.sd, "check_input_settings"), \
+                 mock.patch.object(voice.sd, "InputStream", Stream):
+                listener = voice.VoiceListener(language="ru")
+                gen = listener.listen()
+                try:
+                    self.assertEqual(next(gen), "stop")
+                finally:
+                    gen.close()
+            model.transcribe.assert_called_once()
+        finally:
+            voice.playback_active.clear()
+            voice.barge_in_ready.clear()
+
     def test_stop_requests_sounddevice_stop(self):
         audio = types.SimpleNamespace(stop=mock.Mock())
         token = voices._cancel_token()
