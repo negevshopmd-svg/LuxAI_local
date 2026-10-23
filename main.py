@@ -2486,8 +2486,8 @@ class MainWindow(QMainWindow):
                 "Control not found" in str(exc) or "unambiguously" in str(exc)
             ):
                 error = (
-                    "Получатель или черновик в Discord изменился либо не "
-                    "распознан однозначно. Ничего не отправлено."
+                    "Не смог однозначно подтвердить имя получателя или найти "
+                    "поле ввода в Discord на новом снимке. Ничего не отправлено."
                 )
             else:
                 error = f"{type(exc).__name__}: {str(exc)[:160]}"
