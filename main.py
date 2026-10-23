@@ -199,6 +199,7 @@ class MainWindow(QMainWindow):
     discord_send_ready = Signal(int, object, str)
     discord_review_ready = Signal(int, object, str)
     discord_mic_visual_ready = Signal(str, str)
+    visual_reasoner_ready = Signal(str, str)
     direct_macro_ready = Signal(str, object, str)
     direct_task_ready = Signal(str, str, str)
     screen_inspection_ready = Signal(str, object, str)
@@ -232,6 +233,7 @@ class MainWindow(QMainWindow):
         self.discord_send_ready.connect(self._on_discord_send_ready)
         self.discord_review_ready.connect(self._on_discord_review_ready)
         self.discord_mic_visual_ready.connect(self._on_discord_mic_visual_ready)
+        self.visual_reasoner_ready.connect(self._on_visual_reasoner_ready)
         self.direct_macro_ready.connect(self._on_direct_macro_ready)
         self.wizard_plan_ready.connect(self._on_wizard_plan)
         self.local_reply_ready.connect(self._on_local_reply)
@@ -246,6 +248,8 @@ class MainWindow(QMainWindow):
         self._pending_screen_click = None
         self._screen_dialog = None
         self._last_external_hwnd = 0
+        self._last_visual_goal = None
+        self._last_visual_goal_at = 0.0
         self._current_route = ""
         self._closed = False
         self._api_test_running = False
@@ -1484,6 +1488,17 @@ class MainWindow(QMainWindow):
             self.start_voice_command_wizard()
             return
         self.save_settings()
+        # "You missed, try again" is meaningful feedback about the LAST
+        # desktop goal, not a new small-talk request. Retry from a NEW image
+        # rather than replaying yesterday's click coordinates or old macro.
+        from luxai.visual_reasoner import is_visual_feedback
+        import time
+        retry_feedback = ""
+        if is_visual_feedback(text):
+            old = getattr(self, "_last_visual_goal", None)
+            age = time.monotonic() - getattr(self, "_last_visual_goal_at", 0.0)
+            if old and 0 <= age <= 600:
+                retry_feedback, text = text, old
         if len(self._command_queue) >= 8:
             self.mic_status.setText("Очередь заполнена. Подождите завершения команды.")
             return
@@ -1507,7 +1522,10 @@ class MainWindow(QMainWindow):
         pieces = [part.strip() for part in pieces if part.strip()]
         if not pieces or len(pieces) > 4:
             pieces = [text]
-        self._command_queue.append({"parts": pieces, "answers": [], "routes": [], "original_text": text})
+        self._command_queue.append({
+            "parts": pieces, "answers": [], "routes": [],
+            "original_text": text, "visual_feedback": retry_feedback,
+        })
         self._dispatch_command()
 
     def _type_voice_chunk(self, spoken):
@@ -1854,6 +1872,18 @@ class MainWindow(QMainWindow):
                 return
 
             saved = self.command_registry.match(text, prefix)
+            from luxai.visual_reasoner import is_visual_goal
+            feedback = self._command_queue[0].get("visual_feedback", "")
+            if is_visual_goal(text):
+                import time
+                self._last_visual_goal = text
+                self._last_visual_goal_at = time.monotonic()
+            if feedback:
+                # Replay the INTENT through a new observe/plan/verify loop,
+                # never replay a stale macro or an unverified click location.
+                self._start_visual_reasoner(text, feedback=feedback)
+                return
+
 
             # Real text highlighting lives in the active application's
             # selection, not in a screenshot. Copy it before model routing.
@@ -1881,6 +1911,20 @@ class MainWindow(QMainWindow):
             if saved is not None:
                 self._execute_registered(text, saved)
                 return
+            # Novel visual goals are solved by repeated real observations,
+            # not by a one-shot macro which cannot see whether a click worked.
+            # Dedicated Discord message/contact and sourced-research tools
+            # retain their stronger safeguards, including send confirmation.
+            if is_visual_goal(text) and not (
+                detect_research_dm_request(text)
+                or detect_discord_screen_review(text)
+                or looks_like_discord_screen_review(text)
+            ):
+                from luxai.discord_navigation import detect_discord_open_dm
+                from luxai.research_notepad import detect_research_notepad
+                if not detect_discord_open_dm(text) and not detect_research_notepad(text):
+                    self._start_visual_reasoner(text)
+                    return
             if needs_live_macro_planning(text):
                 if not self.online_planner.enabled():
                     self._current_route = "сложные голосовые команды"
@@ -2745,6 +2789,55 @@ class MainWindow(QMainWindow):
         if approved:
             self._visual_upload_consent_session = True
         return bool(approved)
+
+    def _start_visual_reasoner(self, text, feedback=""):
+        if not self.online_planner.enabled():
+            self._current_route = "AI: визуальная проверка"
+            self._resolved_command(
+                text, "Для анализа и проверки нового действия нужен "
+                "облачный AI с поддержкой изображений и API-ключ."
+            )
+            return
+        if not self._allow_cloud_screenshots():
+            self._current_route = "AI: визуальная проверка"
+            self._resolved_command(text, "Анализ экрана отменён.")
+            return
+        self.mic_status.setText("AI наблюдает окно и планирует следующий шаг…")
+        threading.Thread(
+            target=self._visual_reasoner_worker,
+            args=(text, feedback),
+            daemon=True, name="JarvisClosedLoopReasoner",
+        ).start()
+
+    def _visual_reasoner_worker(self, text, feedback):
+        try:
+            from luxai.visual_reasoner import run_visual_reasoner
+            answer = run_visual_reasoner(
+                self.online_planner, text, feedback=feedback,
+                preferred_hwnd=getattr(self, "_last_external_hwnd", 0),
+                cancelled=lambda: (
+                    self._closed or not self._processing
+                    or self._active_text != text
+                ),
+            )
+        except (OSError, RuntimeError, ValueError, PermissionError) as exc:
+            answer = (
+                "Визуальная задача остановлена: " +
+                f"{type(exc).__name__}: {str(exc)[:180]}"
+            )
+        except Exception:
+            answer = "Визуальный агент остановился без подтверждённого результата."
+        if not self._closed:
+            try:
+                self.visual_reasoner_ready.emit(text, answer)
+            except RuntimeError:
+                pass
+
+    def _on_visual_reasoner_ready(self, text, answer):
+        if self._closed or not self._processing or self._active_text != text:
+            return
+        self._current_route = "AI: наблюдение → действие → проверка"
+        self._resolved_command(text, answer)
 
     def _start_discord_mic_visual(self, text):
         """Restore a specific local visual command without cloud macro planning."""
