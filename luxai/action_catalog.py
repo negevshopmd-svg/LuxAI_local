@@ -283,6 +283,8 @@ def validate_step(raw):
 
 def describe_step(step: dict) -> str:
     title = CATALOG[step["action"]]["title"]
+    if step["action"] == "key_sequence":
+        return title + ": " + " → ".join(step["target"].upper().split(","))
     if step.get("target"):
         short = step["target"]
         if len(short) > 48:
