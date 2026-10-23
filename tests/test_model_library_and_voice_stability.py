@@ -74,7 +74,7 @@ class PortableModelTests(unittest.TestCase):
                 IsolatedGGUF("example.gguf").create_chat_completion(messages=[])
 
     def test_voice_options_for_romanian_are_stronger(self):
-        from luxai.voice import recognition_options
+        from luxai.voice_rules import recognition_options
         ro = recognition_options("ro", 1)
         en = recognition_options("en", 1)
         self.assertGreaterEqual(ro["beam_size"], 3)
