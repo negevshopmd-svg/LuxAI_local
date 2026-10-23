@@ -2244,7 +2244,16 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             result = None
             # Never show cloud response bodies or image bytes to the UI.
-            error = f"{type(exc).__name__}: {str(exc)[:180]}"
+            import urllib.error
+            if isinstance(exc, urllib.error.HTTPError) and exc.code in (400, 404, 415, 422):
+                error = (
+                    "Выбранная модель не смогла обработать изображение. "
+                    "Выберите Gemini или OpenAI с поддержкой зрения."
+                )
+            elif isinstance(exc, urllib.error.HTTPError) and exc.code == 429:
+                error = "Лимит запросов облачного AI достигнут (HTTP 429)."
+            else:
+                error = f"{type(exc).__name__}: {str(exc)[:180]}"
         if not self._closed:
             try:
                 self.visual_step_ready.emit(index, result, error)
