@@ -1,4 +1,12 @@
 
+### 0.2.0 — Discord research / cross-app voice workflow repair
+
+- Prevent cross-app hallucinations: a `search_web` side effect is no longer mistaken for extracted source content, and an unrelated browser screenshot cannot be treated as a Discord contact.
+- Added a dedicated `discord_research_dm` macro with a real Wikipedia source, Discord Quick Switcher `Ctrl+K` username search, two verified vision-based steps and a prepared message.
+- Added mandatory per-run screenshot permission and a separate recipient/message send confirmation; never reports Discord delivery without evidence.
+- Added regression tests for the exact Russian voice transcript, Wikipedia query/citation, ambiguous user refusal and Enter being reserved for confirmed sends.
+
+
 ### 0.2.0 — Visual command planner improvement
 
 - Added consent-gated screenshot analysis for exact visible UI element clicks (1–10 repetitions), with real virtual desktop coordinates and multi-monitor geometry.

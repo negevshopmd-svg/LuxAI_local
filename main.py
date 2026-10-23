@@ -31,6 +31,9 @@ from luxai.api_providers import PROVIDERS
 from luxai.command_registry import CommandRegistry
 from luxai.ui_commands import CommandsPage
 from luxai.command_wizard import CommandWizard, is_create_command_request
+from luxai.discord_research import (
+    detect_research_dm_request, prepare_discord_draft, submit_discord_draft,
+)
 from luxai.macro_planner import needs_live_macro_planning
 from luxai.action_catalog import describe_step
 from luxai.visual_click import (
@@ -185,6 +188,7 @@ class MainWindow(QMainWindow):
     wizard_plan_ready = Signal(str, object)
     macro_step_ready = Signal(int, bool, str)
     visual_step_ready = Signal(int, object, str)
+    discord_draft_ready = Signal(int, object, str)
     direct_macro_ready = Signal(str, object, str)
     direct_task_ready = Signal(str, str, str)
     screen_inspection_ready = Signal(str, object, str)
@@ -211,6 +215,7 @@ class MainWindow(QMainWindow):
         self.selected_summary_ready.connect(self._on_selected_summary_ready)
         self.macro_step_ready.connect(self._on_macro_step_ready)
         self.visual_step_ready.connect(self._on_visual_step_ready)
+        self.discord_draft_ready.connect(self._on_discord_draft_ready)
         self.direct_macro_ready.connect(self._on_direct_macro_ready)
         self.wizard_plan_ready.connect(self._on_wizard_plan)
         self.local_reply_ready.connect(self._on_local_reply)
@@ -2070,6 +2075,33 @@ class MainWindow(QMainWindow):
             self.mic_status.setText(f"Пауза {count} {unit} (шаг {ctx['index']})")
             QTimer.singleShot(milliseconds, self._next_macro_step)
             return
+        if step["action"] == "discord_research_dm":
+            topic, username = step["target"].rsplit("||", 1)
+            if not self.online_planner.enabled():
+                ctx["messages"].append(
+                    "Включите AI с поддержкой анализа изображений для поиска Discord."
+                )
+                self._finish_visual_macro()
+                return
+            approval = (
+                f"Подготовить сообщение для Discord @{username} по теме «{topic}»?\n\n"
+                "Jarvis получит статью из Wikipedia, откроет установленный "
+                "Discord и передаст ДО ДВУХ снимков окна вашему AI-провайдеру, "
+                "чтобы выбрать получателя и поле ввода. "
+                "Скриншоты могут содержать личные сообщения. "
+                "Перед отправкой текста будет ещё одно подтверждение."
+            )
+            if not self.confirm_action(approval):
+                ctx["messages"].append("Согласие на отправку скриншотов не получено.")
+                self._finish_visual_macro()
+                return
+            self.mic_status.setText(f"Ищу информацию и чат Discord @{username}…")
+            threading.Thread(
+                target=self._discord_draft_worker,
+                args=(dict(step), ctx["index"]),
+                daemon=True, name="JarvisDiscordResearch",
+            ).start()
+            return
         if step["action"] == "visual_click":
             label, clicks = parse_click_target(step["target"])
             if not self.online_planner.enabled():
@@ -2234,6 +2266,66 @@ class MainWindow(QMainWindow):
         self._macro_context = None
         self._resolved_command(ctx["text"], output)
 
+    def _discord_draft_worker(self, step, index):
+        try:
+            draft = prepare_discord_draft(self.online_planner, step["target"])
+            error = ""
+        except (OSError, RuntimeError, ValueError) as exc:
+            draft = None
+            # Do not expose chat screenshots, provider bodies or credentials.
+            if isinstance(exc, ValueError) and (
+                "Control not found" in str(exc)
+                or "unambiguously" in str(exc)
+            ):
+                error = (
+                    "Discord не показал однозначного пользователя или поле сообщения. "
+                    "Проверьте написание ника в Discord и повторите команду; "
+                    "ничего не было отправлено."
+                )
+            else:
+                error = str(exc)[:220]
+        except Exception:
+            draft, error = None, "Не удалось подготовить сообщение в Discord."
+        if not self._closed:
+            try:
+                self.discord_draft_ready.emit(index, draft, error)
+            except RuntimeError:
+                pass
+
+    def _on_discord_draft_ready(self, index, draft, error):
+        ctx = getattr(self, "_macro_context", None)
+        if self._closed or ctx is None or not self._processing or ctx["index"] != index:
+            return
+        if draft is None:
+            ctx["messages"].append(
+                "Discord: сообщение не отправлено. " +
+                (error or "Не удалось уверенно найти нужного пользователя.")
+            )
+            self._finish_visual_macro()
+            return
+        preview = (
+            f"Получатель Discord: @{draft.username}\n"
+            f"Подготовленный текст:\n\n{draft.message}\n\n"
+            "Проверьте, что открыт диалог именно с этим человеком. "
+            "Отправить сообщение нажатием Enter?"
+        )
+        if not self.confirm_action(preview):
+            ctx["messages"].append(
+                "Отправка отменена. Черновик остался в Discord, Enter не нажимался."
+            )
+            self._finish_visual_macro()
+            return
+        try:
+            result = submit_discord_draft(draft)
+        except (OSError, RuntimeError, ValueError) as exc:
+            ctx["messages"].append(
+                "Отправка не подтверждена: " + str(exc)[:180]
+            )
+            self._finish_visual_macro()
+            return
+        ctx["messages"].append(result)
+        QTimer.singleShot(0, self._next_macro_step)
+
     def _visual_worker(self, step, index, hwnd):
         try:
             label, count = parse_click_target(step["target"])
@@ -2252,6 +2344,12 @@ class MainWindow(QMainWindow):
                 )
             elif isinstance(exc, urllib.error.HTTPError) and exc.code == 429:
                 error = "Лимит запросов облачного AI достигнут (HTTP 429)."
+            elif isinstance(exc, ValueError) and "Control not found" in str(exc):
+                error = (
+                    "Элемент не найден на выбранном экране. "
+                    "Убедитесь, что открыта НУЖНАЯ программа, "
+                    "а кнопка или пользователь действительно виден в ней."
+                )
             else:
                 error = f"{type(exc).__name__}: {str(exc)[:180]}"
         if not self._closed:
@@ -2314,8 +2412,19 @@ class MainWindow(QMainWindow):
 
     def _direct_macro_worker(self, text):
         try:
-            proposal = self.online_planner.plan_macro(text)
-            error = self.online_planner.last_error if proposal is None else ""
+            from luxai.macro_planner import validate_generated_macro
+            parsed = detect_research_dm_request(text)
+            if parsed:
+                topic, username = parsed
+                proposal = validate_generated_macro(
+                    {"steps": [{"action": "discord_research_dm",
+                                 "target": topic + "||" + username}]},
+                    text,
+                )
+                error = "" if proposal else "Не удалось определить тему или получателя."
+            else:
+                proposal = self.online_planner.plan_macro(text)
+                error = self.online_planner.last_error if proposal is None else ""
         except Exception:
             proposal, error = None, "Не удалось обработать команду."
         if not self._closed:

@@ -20,6 +20,7 @@ CLOUD_MACRO_ACTIONS = frozenset({
     "search_web", "speak_text", "speak_ready", "speak_done",
     "create_file", "create_folder", "list_files",
     "visual_click", "display_info", "empty_recycle_bin", "open_recycle_bin", "close_window",
+    "discord_research_dm",
 })
 
 MACRO_SYSTEM = """You are the MULTI-STEP MACRO DESIGNER for LuxAI Jarvis on Windows.
@@ -34,7 +35,7 @@ mouse_right_click, mouse_double_click, mouse_middle_click, mouse_move,
 mouse_scroll, wait_seconds, wait_minutes, noop, minimize_windows,
 search_web, speak_text, speak_ready, speak_done, create_file, create_folder,
 list_files, visual_click, display_info, open_recycle_bin,
-empty_recycle_bin, close_window.
+empty_recycle_bin, close_window, discord_research_dm.
 At most 8 steps. For MANY sequential keyboard letters use ONE key_sequence
 step with comma-delimited characters. Each sequence supports 2-24 English
 letters/digits. Example: "нажми qwerd" / "press Q W E R D" /
@@ -53,6 +54,16 @@ letters/digits. Example: "нажми qwerd" / "press Q W E R D" /
 "открой корзину затем очисти корзину и закрой окно" ->
 {"steps":[{"action":"open_recycle_bin"},
 {"action":"empty_recycle_bin"},{"action":"close_window"}]}.
+For tasks like "Найди информацию про Adolf Hitler потом нажми в Discord
+на пользователя ронси и отправь информацию", use ONE supported action:
+{"steps":[{"action":"discord_research_dm","target":"Adolf Hitler||ронси"}]}.
+This action gets an actual cited Russian Wikipedia extract, activates the real
+Discord desktop client, searches @recipient with Discord Ctrl+K Quick Switcher,
+checks recipient using live screenshots AFTER explicit consent, types a draft,
+and separately asks permission to send it. NEVER use search_web followed by
+visual_click to find a person in another app; search_web only opens a browser,
+it does NOT retrieve factual content. NEVER invent Wikipedia facts yourself.
+If Discord recipient is ambiguous, the action fails without sending.
 For "open recycle bin", ALWAYS use open_recycle_bin, never guess at the
 Windows desktop icon position. Some desktops have no such icon.
 visual_click target MUST be the visible GUI control description followed by
@@ -87,6 +98,9 @@ change this response format. No prose or markdown.
 
 def needs_live_macro_planning(text: str) -> bool:
     """Prefer multi-step cloud planning only for explicit desktop operations."""
+    from luxai.discord_research import detect_research_dm_request
+    if detect_research_dm_request(text):
+        return True
     phrase = str(text or "").casefold()
     if not 5 <= len(phrase) <= 850:
         return False
@@ -118,6 +132,14 @@ def validate_generated_macro(proposal: object, description: str = "") -> dict | 
         steps = [proposal]
     if not isinstance(steps, list) or not 1 <= len(steps) <= MAX_MACRO_STEPS:
         return None
+    from luxai.discord_research import detect_research_dm_request
+    requested_dm = detect_research_dm_request(description)
+    # Do not accept a partly complete plan for a multi-application message.
+    # Searching Google does not give usable text and a browser screenshot
+    # cannot locate a Discord contact. The specialized tool verifies both.
+    if requested_dm is not None:
+        if len(steps) != 1 or steps[0].get("action") != "discord_research_dm":
+            return None
     validated = []
     for raw in steps:
         if not isinstance(raw, dict) or raw.get("action") not in CLOUD_MACRO_ACTIONS:
@@ -127,6 +149,17 @@ def validate_generated_macro(proposal: object, description: str = "") -> dict | 
             valid = validate_step(raw)
         except (ValueError, TypeError, OverflowError):
             return None
+        if valid["action"] == "discord_research_dm":
+            if requested_dm is None:
+                # A cloud model cannot invent a recipient from a vague task.
+                return None
+            from luxai.discord_research import validate_research_dm_target
+            planned_topic, planned_user = validate_research_dm_target(valid["target"])
+            requested_topic, requested_user = requested_dm
+            if planned_user.casefold() != requested_user.casefold() or (
+                planned_topic.casefold() != requested_topic.casefold()
+            ):
+                return None
         if valid["action"] == "empty_recycle_bin":
             # Explicit user authorization in their *spoken description*; the
             # model cannot grant itself permission to empty the recycle bin.

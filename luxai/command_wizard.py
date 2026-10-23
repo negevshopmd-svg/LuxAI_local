@@ -19,6 +19,7 @@ from luxai.voice_files import parse_open_user_file
 from luxai.websites import website_plan
 from luxai.action_catalog import CATALOG, validate_step
 from luxai.macro_planner import validate_generated_macro
+from luxai.discord_research import detect_research_dm_request
 
 
 def is_create_command_request(text: str) -> bool:
@@ -38,6 +39,14 @@ def _action_from_description(text: str) -> dict | None:
     """Narrow intent resolver, suitable for an untrusted voice utterance."""
     s = str(text or "").strip()
     t = s.casefold()
+    research_dm = detect_research_dm_request(s)
+    if research_dm is not None:
+        topic, username = research_dm
+        return {"action": "discord_research_dm",
+                "target": topic + "||" + username,
+                "location": "desktop",
+                "steps": [{"action": "discord_research_dm",
+                           "target": topic + "||" + username}]}
     local_steps = parse_action_sequence(s)
     if local_steps:
         return {"action": local_steps[0]["action"], "target": local_steps[0]["target"], "location": "desktop", "steps": local_steps}
@@ -114,6 +123,9 @@ def _describe(plan):
         return f"открыть сайт «{target}» в браузере"
     if action == "key_sequence":
         return "нажать последовательно " + " → ".join(target.upper().split(","))
+    if action == "discord_research_dm":
+        topic, recipient = target.rsplit("||", 1)
+        return f"найти сведения «{topic}» и подготовить сообщение @{recipient} в Discord"
     if action == "visual_click":
         from luxai.visual_click import parse_click_target
         label, clicks = parse_click_target(target)
