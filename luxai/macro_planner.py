@@ -20,7 +20,7 @@ CLOUD_MACRO_ACTIONS = frozenset({
     "search_web", "speak_text", "speak_ready", "speak_done",
     "create_file", "create_folder", "list_files",
     "visual_click", "display_info", "empty_recycle_bin", "open_recycle_bin", "close_window",
-    "discord_research_dm",
+    "discord_research_dm", "discord_screen_review",
 })
 
 MACRO_SYSTEM = """You are the MULTI-STEP MACRO DESIGNER for LuxAI Jarvis on Windows.
@@ -35,7 +35,7 @@ mouse_right_click, mouse_double_click, mouse_middle_click, mouse_move,
 mouse_scroll, wait_seconds, wait_minutes, noop, minimize_windows,
 search_web, speak_text, speak_ready, speak_done, create_file, create_folder,
 list_files, visual_click, display_info, open_recycle_bin,
-empty_recycle_bin, close_window, discord_research_dm.
+empty_recycle_bin, close_window, discord_research_dm, discord_screen_review.
 At most 8 steps. For MANY sequential keyboard letters use ONE key_sequence
 step with comma-delimited characters. Each sequence supports 2-24 English
 letters/digits. Example: "нажми qwerd" / "press Q W E R D" /
@@ -54,7 +54,7 @@ letters/digits. Example: "нажми qwerd" / "press Q W E R D" /
 "открой корзину затем очисти корзину и закрой окно" ->
 {"steps":[{"action":"open_recycle_bin"},
 {"action":"empty_recycle_bin"},{"action":"close_window"}]}.
-For tasks like "Найди информацию про Adolf Hitler потом нажми в Discord
+For tasks like "открой Discord, сделай снимок экрана, найди пользователя\nоктавиан, сделай ещё один снимок и краткий пересказ последнего снимка",\nuse ONE supported action: \n{"steps":[{"action":"discord_screen_review","target":"октавиан"}]}.\nIt launches/activates real Discord, locally saves a before screenshot, searches\nthe exact user in Ctrl+K Quick Switcher, saves the after screenshot and\nsummarizes visible pixels with an explicitly approved vision-capable cloud AI.\nIt NEVER sends messages and NEVER uses the current browser/Jarvis screen.\nDo not return screenshot steps unless the entire requested sequence is supported.\nFor tasks like "Найди информацию про Adolf Hitler потом нажми в Discord
 на пользователя ронси и отправь информацию", use ONE supported action:
 {"steps":[{"action":"discord_research_dm","target":"Adolf Hitler||ронси"}]}.
 This action gets an actual cited Russian Wikipedia extract, activates the real
@@ -99,7 +99,8 @@ change this response format. No prose or markdown.
 def needs_live_macro_planning(text: str) -> bool:
     """Prefer multi-step cloud planning only for explicit desktop operations."""
     from luxai.discord_research import detect_research_dm_request
-    if detect_research_dm_request(text):
+    from luxai.discord_screen_review import detect_discord_screen_review
+    if detect_research_dm_request(text) or detect_discord_screen_review(text):
         return True
     phrase = str(text or "").casefold()
     if not 5 <= len(phrase) <= 850:
@@ -134,6 +135,11 @@ def validate_generated_macro(proposal: object, description: str = "") -> dict | 
         return None
     from luxai.discord_research import detect_research_dm_request
     requested_dm = detect_research_dm_request(description)
+    from luxai.discord_screen_review import detect_discord_screen_review
+    requested_review = detect_discord_screen_review(description)
+    if requested_review is not None:
+        if len(steps) != 1 or steps[0].get("action") != "discord_screen_review":
+            return None
     # Do not accept a partly complete plan for a multi-application message.
     # Searching Google does not give usable text and a browser screenshot
     # cannot locate a Discord contact. The specialized tool verifies both.
@@ -149,6 +155,11 @@ def validate_generated_macro(proposal: object, description: str = "") -> dict | 
             valid = validate_step(raw)
         except (ValueError, TypeError, OverflowError):
             return None
+        if valid["action"] == "discord_screen_review":
+            if requested_review is None or (
+                valid["target"].casefold() != requested_review.casefold()
+            ):
+                return None
         if valid["action"] == "discord_research_dm":
             if requested_dm is None:
                 # A cloud model cannot invent a recipient from a vague task.
