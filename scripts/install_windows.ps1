@@ -18,63 +18,97 @@ function Write-Status([string]$Message) {
     Add-Content -LiteralPath $script:LogFile -Value $Message -Encoding UTF8
 }
 
-function Test-CompatiblePython([string]$Path) {
-    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path -PathType Leaf)) {
-        return $false
+function Get-CompatiblePythonVersion([string]$Path) {
+    if (-not (Test-ExistingFile $Path)) {
+        return $null
     }
     try {
-        $result = & $Path -I -c 'import sys; print("LuxAI_PY311_X64" if sys.version_info[:2] == (3, 11) and sys.maxsize > 2**32 else "UNSUPPORTED")' 2>$null
-        return ($LASTEXITCODE -eq 0 -and ($result | Out-String).Trim() -eq 'LuxAI_PY311_X64')
-    } catch {
-        return $false
-    }
+        $result = & $Path -I -c 'import sys; print("LuxAI_PY=" + ".".join(map(str, sys.version_info[:3])) if sys.version_info.major == 3 and sys.version_info.minor >= 11 and sys.maxsize > 2**32 else "UNSUPPORTED")' 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            return $null
+        }
+        $label = ($result | Out-String).Trim()
+        if ($label -match '^LuxAI_PY=(3\.\d+\.\d+)$') {
+            return [version]$Matches[1]
+        }
+    } catch { }
+    return $null
 }
 
-function Find-Python311 {
-    $candidates = New-Object 'System.Collections.Generic.List[string]'
+function Test-CompatiblePython([string]$Path) {
+    return ($null -ne (Get-CompatiblePythonVersion $Path))
+}
 
+function Find-CompatiblePython {
+    $candidates = New-Object 'System.Collections.Generic.List[string]'
     $launcher = Get-Command -Name 'py.exe' -CommandType Application -ErrorAction SilentlyContinue
     if ($null -ne $launcher) {
+        # Enumerate locally installed runtimes only; do not trigger the
+        # newer Python install manager to download Python during detection.
         try {
-            $pathFromLauncher = & $launcher.Source -3.11 -c 'import sys; print(sys.executable)' 2>$null
-            if ($LASTEXITCODE -eq 0 -and $pathFromLauncher) {
-                $candidates.Add(($pathFromLauncher | Out-String).Trim())
+            $entries = & $launcher.Source -0p 2>$null
+            foreach ($entry in $entries) {
+                $line = [string]$entry
+                if ($line -match '(?i)([a-z]:\\.+?python(?:3(?:\.\d+)?)?\.exe)\s*$') {
+                    $candidates.Add($Matches[1])
+                }
             }
         } catch { }
     }
 
+    $pythonRoots = @()
     if ($env:LOCALAPPDATA) {
-        $candidates.Add((Join-Path $env:LOCALAPPDATA 'Programs\Python\Python311\python.exe'))
+        $pythonRoots += (Join-Path $env:LOCALAPPDATA 'Programs\Python')
     }
     if ($env:ProgramFiles) {
-        $candidates.Add((Join-Path $env:ProgramFiles 'Python311\python.exe'))
+        $pythonRoots += (Join-Path $env:ProgramFiles 'Python')
+    }
+    foreach ($base in $pythonRoots) {
+        if (-not $base -or -not (Test-Path -LiteralPath $base -PathType Container)) {
+            continue
+        }
+        Get-ChildItem -LiteralPath $base -Directory -Filter 'Python3*' -ErrorAction SilentlyContinue |
+            ForEach-Object { $candidates.Add((Join-Path $_.FullName 'python.exe')) }
     }
 
     foreach ($hive in @(
-        'HKCU:\SOFTWARE\Python\PythonCore\3.11\InstallPath',
-        'HKLM:\SOFTWARE\Python\PythonCore\3.11\InstallPath',
-        'HKLM:\SOFTWARE\WOW6432Node\Python\PythonCore\3.11\InstallPath'
+        'HKCU:\SOFTWARE\Python\PythonCore',
+        'HKLM:\SOFTWARE\Python\PythonCore',
+        'HKLM:\SOFTWARE\WOW6432Node\Python\PythonCore'
     )) {
-        try {
-            $key = Get-Item -LiteralPath $hive -ErrorAction Stop
-            $installDir = [string]$key.GetValue('')
-            if ($installDir) {
-                $candidates.Add((Join-Path $installDir 'python.exe'))
-            }
-        } catch { }
-    }
-
-    $command = Get-Command -Name 'python.exe' -CommandType Application -ErrorAction SilentlyContinue
-    if ($null -ne $command -and $command.Source -notmatch '\\WindowsApps\\') {
-        $candidates.Add($command.Source)
-    }
-
-    foreach ($candidate in ($candidates | Select-Object -Unique)) {
-        if (Test-CompatiblePython $candidate) {
-            return $candidate
+        if (-not (Test-Path -LiteralPath $hive)) {
+            continue
+        }
+        foreach ($versionKey in @(Get-ChildItem -LiteralPath $hive -ErrorAction SilentlyContinue)) {
+            try {
+                $installKey = Get-Item -LiteralPath ($versionKey.PSPath + '\InstallPath') -ErrorAction Stop
+                $directory = [string]$installKey.GetValue('')
+                if ($directory) {
+                    $candidates.Add(([System.IO.Path]::Combine($directory, 'python.exe')))
+                }
+            } catch { }
         }
     }
-    return $null
+
+    foreach ($command in @(Get-Command -Name 'python.exe' -All -CommandType Application -ErrorAction SilentlyContinue)) {
+        if ($command.Source -and $command.Source -notmatch '\\WindowsApps\\') {
+            $candidates.Add($command.Source)
+        }
+    }
+
+    $bestPath = $null
+    $bestVersion = [version]'0.0.0'
+    foreach ($candidate in ($candidates | Select-Object -Unique)) {
+        $version = Get-CompatiblePythonVersion $candidate
+        if ($null -ne $version -and $version -gt $bestVersion) {
+            $bestPath = $candidate
+            $bestVersion = $version
+        }
+    }
+    if ($bestPath) {
+        Write-Status "Found Python $bestVersion (64-bit): $bestPath"
+    }
+    return $bestPath
 }
 
 function Test-ExistingFile([string]$Path) {
@@ -156,7 +190,7 @@ function Install-OfficialPython {
 
     $url = 'https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe'
     $installer = Join-Path $env:TEMP ('luxai-python311-' + [Guid]::NewGuid().ToString('N') + '.exe')
-    Write-Status 'Python 3.11 x64 not found. Downloading the official python.org installer...'
+    Write-Status 'No compatible Python 3.11+ x64 found. Downloading official Python 3.11 as a fallback...'
     try {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
         Invoke-WebRequest -Uri $url -OutFile $installer -UseBasicParsing -ErrorAction Stop
@@ -212,19 +246,19 @@ try {
         exit 0
     }
 
-    $basePython = Find-Python311
+    $basePython = Find-CompatiblePython
     if (-not $basePython -and -not (Test-UsableVenv)) {
         Install-OfficialPython
-        $basePython = Find-Python311
+        $basePython = Find-CompatiblePython
     }
 
     $venvUsable = Test-UsableVenv
     if (-not $venvUsable) {
         if (-not $basePython) {
-            $basePython = Find-Python311
+            $basePython = Find-CompatiblePython
         }
         if (-not $basePython) {
-            throw 'Python 3.11 (64-bit) is unavailable. Use https://www.python.org/downloads/release/python-3119/ and rerun setup.'
+            throw 'A compatible 64-bit Python >=3.11 was not found. Run install_windows.bat again or install Python from python.org.'
         }
         if (Test-Path -LiteralPath $script:Venv) {
             $oldName = '.venv.old-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [Guid]::NewGuid().ToString('N').Substring(0, 6)
