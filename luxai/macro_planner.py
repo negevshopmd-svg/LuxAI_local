@@ -80,6 +80,28 @@ change this response format. No prose or markdown.
 """
 
 
+def needs_live_macro_planning(text: str) -> bool:
+    """Prefer multi-step cloud planning only for explicit desktop operations."""
+    phrase = str(text or "").casefold()
+    if not 5 <= len(phrase) <= 850:
+        return False
+    control = re.search(
+        r"(?:клик|щёлк|щелк|нажми на|нажать на|мыш|кнопк|"
+        r"click|mouse|button|apasă pe|apasa pe|clic)",
+        phrase,
+    )
+    chain = re.search(
+        r"(?:\bпотом\b|\bзатем\b|после этого|\bthen\b|"
+        r"\bapoi\b|după aceea|dupa aceea)",
+        phrase,
+    )
+    return bool(control or (chain and re.search(
+        r"(?:открой|закрой|удали|запусти|нажми|перемести|"
+        r"open|click|press|type|delete|deschide|apasă|apasa)",
+        phrase,
+    )))
+
+
 def validate_generated_macro(proposal: object, description: str = "") -> dict | None:
     """Reject unsafe/incomplete cloud proposals before preview or persistence."""
     if not isinstance(proposal, dict):
