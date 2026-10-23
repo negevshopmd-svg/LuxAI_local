@@ -133,6 +133,34 @@ class ScreenshotGateTests(unittest.TestCase):
             pyauto.hotkey.assert_called_once_with("ctrl", "k", interval=0.07)
 
 
+class ActiveChatVerificationTests(unittest.TestCase):
+    def test_sidebar_and_popup_name_is_not_an_open_chat_header(self):
+        from luxai.discord_navigation import _chat_header_ok
+        screenshot = mock.Mock(
+            left=0, top=0, width=1200, height=850,
+        )
+        for point in ((90, 35), (600, 300), (600, 720)):
+            with (
+                self.subTest(point=point),
+                mock.patch("luxai.visual_click.capture_window",
+                           return_value=screenshot),
+                mock.patch("luxai.visual_click.find_visual_target",
+                           return_value=point),
+            ):
+                with self.assertRaisesRegex(ValueError, "header"):
+                    _chat_header_ok(mock.Mock(), 77, "Octavian")
+
+    def test_real_top_main_chat_header_is_accepted(self):
+        from luxai.discord_navigation import _chat_header_ok
+        shot = mock.Mock(left=0, top=0, width=1200, height=850)
+        with (
+            mock.patch("luxai.visual_click.capture_window", return_value=shot),
+            mock.patch("luxai.visual_click.find_visual_target",
+                       return_value=(450, 48)),
+        ):
+            self.assertIs(_chat_header_ok(mock.Mock(), 77, "Octavian"), shot)
+
+
 class DirectMessageDraftTests(unittest.TestCase):
     def test_literal_message_does_not_fetch_wikipedia(self):
         from luxai.discord_contact_vision import VisibleContact
