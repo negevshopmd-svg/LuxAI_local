@@ -271,6 +271,11 @@ class MainWindow(QMainWindow):
         self.home_avatar.toggled.connect(self.sync_animation)
         self.home_top.toggled.connect(self.set_always_on_top)
         self.home_page.screen_assist_button.clicked.connect(self.request_screen_inspection)
+        self.home_page.selection_summary_button.clicked.connect(
+            lambda checked=False: self.run_command(
+                "Жарвис, перескажи выделенный текст"
+            )
+        )
         self.volume.valueChanged.connect(self.sync_volume)
         self.pages.addWidget(self.home_page)
 
