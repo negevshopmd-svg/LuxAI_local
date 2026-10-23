@@ -15,9 +15,15 @@ from pathlib import Path
 from luxai.api_providers import ENV_VARS, provider_config
 
 BASE = Path(__file__).resolve().parents[1]
-SECRET_DIR = BASE / ".luxai_secrets"
-# Keep the legacy OpenAI file name so previously saved keys still work.
-LEGACY_OPENAI_FILE = SECRET_DIR / "openai_key.dpapi"
+# Keep encrypted credentials in the signed-in Windows account's stable app data,
+# independent of Desktop, project ZIP extraction and source updates.
+LEGACY_SECRET_DIR = BASE / ".luxai_secrets"
+SECRET_DIR = (
+    Path(os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local"))
+    / "LuxAI_Local" / "secrets"
+    if sys.platform == "win32" else LEGACY_SECRET_DIR
+)
+LEGACY_OPENAI_FILE = LEGACY_SECRET_DIR / "openai_key.dpapi"
 
 
 def _secret_file(provider: str) -> Path:
@@ -64,20 +70,50 @@ def _win_crypt(data: bytes, encrypt: bool) -> bytes:
         kernel.LocalFree(ctypes.cast(dest.pbData, ctypes.c_void_p))
 
 
-def get_api_key(provider: str = "openai") -> str:
-    """Read only the credential for the selected provider (never auto-guess)."""
+def _legacy_secret_file(provider: str) -> Path:
     provider_config(provider)
-    env = ENV_VARS[provider]
-    supplied = os.environ.get(env, "").strip()
-    if supplied:
-        return supplied
-    try:
-        file = _secret_file(provider)
-        if file.is_file():
-            return _win_crypt(file.read_bytes(), encrypt=False).decode("utf-8").strip()
-    except (OSError, ValueError, UnicodeError, RuntimeError, AttributeError):
-        return ""
+    return LEGACY_SECRET_DIR / f"{provider}_key.dpapi"
+
+
+def _saved_key(provider: str) -> str:
+    """Read new per-user location, then older portable-app location."""
+    for file in (_secret_file(provider), _legacy_secret_file(provider)):
+        try:
+            if file.is_file():
+                key = _win_crypt(file.read_bytes(), encrypt=False).decode("utf-8").strip()
+                if key:
+                    # Move older project-local storage to per-user AppData once
+                    # the key has been successfully decrypted by this user.
+                    if file != _secret_file(provider) and sys.platform == "win32":
+                        try:
+                            store_api_key(key, provider)
+                        except (OSError, RuntimeError, ValueError):
+                            pass  # Legacy file remains readable; do not delete it.
+                    return key
+        except (OSError, ValueError, UnicodeError, RuntimeError, AttributeError):
+            continue
     return ""
+
+
+def key_storage_status(provider: str = "openai") -> str:
+    """Present/missing/unreadable without ever exposing secret values."""
+    provider_config(provider)
+    if os.environ.get(ENV_VARS[provider], "").strip():
+        return "environment"
+    if _saved_key(provider):
+        return "saved"
+    if _secret_file(provider).exists() or _legacy_secret_file(provider).exists():
+        return "unreadable"
+    return "missing"
+
+
+def get_api_key(provider: str = "openai") -> str:
+    """Prefer encrypted key chosen in UI; fall back to an environment key."""
+    provider_config(provider)
+    stored = _saved_key(provider)
+    if stored:
+        return stored
+    return os.environ.get(ENV_VARS[provider], "").strip()
 
 
 def has_api_key(provider: str = "openai") -> bool:
@@ -85,7 +121,7 @@ def has_api_key(provider: str = "openai") -> bool:
 
 
 def store_api_key(key: str, provider: str = "openai") -> None:
-    """Encrypt each provider's key separately with Windows DPAPI."""
+    """DPAPI round-trip verified before replacing the previous saved key."""
     provider_config(provider)
     key = str(key).strip()
     if not key or len(key) > 2048 or any(ord(ch) < 33 or ord(ch) == 127 for ch in key):
@@ -94,10 +130,21 @@ def store_api_key(key: str, provider: str = "openai") -> None:
     SECRET_DIR.mkdir(parents=True, exist_ok=True)
     target = _secret_file(provider)
     staging = target.with_name(target.name + ".tmp")
-    staging.write_bytes(encrypted)
-    staging.replace(target)
+    try:
+        staging.write_bytes(encrypted)
+        actual = _win_crypt(staging.read_bytes(), encrypt=False).decode("utf-8")
+        if actual != key:
+            raise OSError("Encrypted API key could not be recovered after saving")
+        staging.replace(target)
+        if _saved_key(provider) != key:
+            raise OSError("Saved API key verification failed")
+    finally:
+        staging.unlink(missing_ok=True)
 
 
 def clear_api_key(provider: str = "openai") -> None:
-    """Remove a locally stored key; environment keys must be unset separately."""
+    """Delete both app-data and previous-location secrets for this provider."""
     _secret_file(provider).unlink(missing_ok=True)
+    previous = _legacy_secret_file(provider)
+    if previous != _secret_file(provider):
+        previous.unlink(missing_ok=True)

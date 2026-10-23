@@ -425,7 +425,7 @@ class SettingsPanel(QWidget):
         self.api_key_controls_layout.addWidget(self.api_test_button)
         self._row(
             panel, "API-ключ выбранного сервиса",
-            "Проверка доступна до сохранения ключа; тестовый запрос может расходовать квоту.",
+            "Успешная проверка автоматически сохраняет ключ и модель. Запрос может расходовать квоту.",
             self.api_key_controls,
         )
         self.key_status = QLabel("")

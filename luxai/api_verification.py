@@ -104,7 +104,7 @@ def check_api_key_detailed(settings: dict, key: str) -> tuple[bool, str, str | N
                     return (
                         True,
                         f"API работает. Модель «{configured_model}» недоступна; "
-                        f"проверена «{model}». Поле модели исправлено, нажмите «Сохранить настройки».",
+                        f"проверена «{model}». Модель будет сохранена автоматически.",
                         model,
                     )
                 return True, f"API работает: ключ принят, модель «{model}» отвечает.", model
