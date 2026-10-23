@@ -35,9 +35,9 @@ def _log_startup_error(exc: BaseException) -> None:
 
 def _show_failure_dialog(detail: str) -> None:
     message = (
-        "LuxAI nu a putut porni.\\n\\n"
-        "Deschide fisierul:\\n"
-        f"{STARTUP_LOG}\\n\\n"
+        "LuxAI nu a putut porni.\n\n"
+        "Deschide fisierul:\n"
+        f"{STARTUP_LOG}\n\n"
         "Trimite mesajul de eroare pentru diagnostic."
     )
     if os.name == "nt":
