@@ -125,7 +125,9 @@ class UpdaterReliabilityTests(unittest.TestCase):
 
     def test_unicode_output_is_preserved_on_utf8_stream(self):
         raw = io.BytesIO()
-        stream = io.TextIOWrapper(raw, encoding="utf-8", errors="strict")
+        # Disable Windows CRLF conversion: this test verifies Unicode bytes,
+        # not the operating system's preferred line separator.
+        stream = io.TextIOWrapper(raw, encoding="utf-8", errors="strict", newline="\n")
         message = "Fișierele au fost păstrate. Привет!"
         try:
             with mock.patch.object(updater.sys, "stdout", stream):
