@@ -95,7 +95,7 @@ function Test-VenvBasePaths([string]$Directory) {
         if ($line -match '^home\s*=\s*(.+?)\s*$') {
             $sawHome = $true
             $homeDir = $Matches[1].Trim().Trim('"')
-            if (-not (Test-ExistingFile (Join-Path $homeDir 'python.exe'))) {
+            if (-not (Test-ExistingFile ([System.IO.Path]::Combine($homeDir, 'python.exe')))) {
                 return $false
             }
         }
