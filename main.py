@@ -62,7 +62,7 @@ from luxai.ui_screen_assist import ScreenAssistDialog
 from luxai.weather_service import is_weather_question, get_weather_report
 from luxai.voice_desktop import (
     is_dictation_start, is_dictation_stop, dictation_text,
-    wants_screen_read, wants_discord_mic_mute,
+    wants_screen_read, wants_discord_mic_mute, wants_discord_mic_visual_click,
     read_screen_locally, toggle_discord_microphone,
 )
 from luxai.desktop_actions import _type_unicode_windows
@@ -195,6 +195,7 @@ class MainWindow(QMainWindow):
     discord_draft_ready = Signal(int, object, str)
     discord_send_ready = Signal(int, object, str)
     discord_review_ready = Signal(int, object, str)
+    discord_mic_visual_ready = Signal(str, str)
     direct_macro_ready = Signal(str, object, str)
     direct_task_ready = Signal(str, str, str)
     screen_inspection_ready = Signal(str, object, str)
@@ -224,6 +225,7 @@ class MainWindow(QMainWindow):
         self.discord_draft_ready.connect(self._on_discord_draft_ready)
         self.discord_send_ready.connect(self._on_discord_send_ready)
         self.discord_review_ready.connect(self._on_discord_review_ready)
+        self.discord_mic_visual_ready.connect(self._on_discord_mic_visual_ready)
         self.direct_macro_ready.connect(self._on_direct_macro_ready)
         self.wizard_plan_ready.connect(self._on_wizard_plan)
         self.local_reply_ready.connect(self._on_local_reply)
@@ -1861,6 +1863,18 @@ class MainWindow(QMainWindow):
             if saved is not None:
                 self._execute_registered(text, saved)
                 return
+
+            # Preserve longstanding local Discord microphone controls.
+            # Generic macros also match words like "нажми на кнопку" and
+            # must not preempt a known, deterministic local operation.
+            if wants_discord_mic_visual_click(text):
+                self._start_discord_mic_visual(text)
+                return
+            if wants_discord_mic_mute(text):
+                self._current_route = "Discord: глобальная комбинация клавиш"
+                answer = toggle_discord_microphone(self.confirm_action)
+                self._resolved_command(text, answer)
+                return
             if needs_live_macro_planning(text):
                 if not self.online_planner.enabled():
                     self._current_route = "сложные голосовые команды"
@@ -1907,12 +1921,6 @@ class MainWindow(QMainWindow):
                     daemon=True, name="JarvisScreenOCR",
                 ).start()
                 return
-            if wants_discord_mic_mute(text):
-                self._current_route = "Discord: глобальная комбинация клавиш"
-                answer = toggle_discord_microphone(self.confirm_action)
-                self._resolved_command(text, answer)
-                return
-
             choice = button_choice(text)
             if choice:
                 import time
@@ -2532,6 +2540,70 @@ class MainWindow(QMainWindow):
             self._resolved_command(ctx["text"], result)
         else:
             QTimer.singleShot(0, self._next_macro_step)
+
+    def _start_discord_mic_visual(self, text):
+        """Restore a specific local visual command without cloud macro planning."""
+        if not self.online_planner.enabled():
+            self._current_route = "Discord: визуальное управление"
+            self._resolved_command(
+                text, "Для визуального поиска кнопки микрофона в Discord "
+                "нужен включённый AI с поддержкой изображений и API-ключ."
+            )
+            return
+        approved = self.confirm_action(
+            "Открыть окно Discord, сохранить локальный снимок экрана "
+            "в Pictures/LuxAI и передать ОДИН снимок выбранному "
+            "облачному AI для нахождения кнопки микрофона? "
+            "Изображение может содержать личные переписки.\\n\\n"
+            "После распознавания будет выполнен ОДИН клик по кнопке. "
+            "Это переключатель: если микрофон выключен, он включится. "
+            "Продолжить?"
+        )
+        if not approved:
+            self._current_route = "Discord: визуальное управление"
+            self._resolved_command(text, "Визуальное управление микрофоном отменено.")
+            return
+        self.mic_status.setText("Проверяю окно Discord и кнопку микрофона…")
+        threading.Thread(
+            target=self._discord_mic_visual_worker,
+            args=(text,), daemon=True, name="JarvisDiscordMicVisual",
+        ).start()
+
+    def _discord_mic_visual_worker(self, text):
+        try:
+            from luxai.discord_mic_visual import click_discord_microphone_by_screenshot
+            answer = click_discord_microphone_by_screenshot(
+                self.online_planner,
+                cancelled=lambda: (
+                    self._closed or not self._processing or self._active_text != text
+                ),
+            )
+        except (OSError, RuntimeError, ValueError, PermissionError) as exc:
+            if isinstance(exc, ValueError) and (
+                "Control not found" in str(exc) or "unambiguously" in str(exc)
+            ):
+                answer = (
+                    "Не нашёл однозначно кнопку микрофона в окне Discord. "
+                    "Клик не выполнен."
+                )
+            else:
+                answer = (
+                    "Не удалось безопасно нажать кнопку Discord: "
+                    f"{type(exc).__name__}: {str(exc)[:170]}"
+                )
+        except Exception:
+            answer = "Не удалось безопасно выполнить визуальную команду Discord."
+        if not self._closed:
+            try:
+                self.discord_mic_visual_ready.emit(text, answer)
+            except RuntimeError:
+                pass
+
+    def _on_discord_mic_visual_ready(self, text, answer):
+        if self._closed or not self._processing or self._active_text != text:
+            return
+        self._current_route = "Discord: визуальное управление"
+        self._resolved_command(text, answer)
 
     def _direct_macro_worker(self, text):
         try:

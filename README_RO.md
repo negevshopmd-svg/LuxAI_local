@@ -92,3 +92,7 @@ Comenzile de tipul „Откроете Скопт, потом сделайте �
 ### Corecție pentru „найди там пользователя”
 
 Comanda vocală „жарис открой дискорд сделай снимок экрана найди там пользователя старый бог нажми на него потом сделай еще один снимок экрана потом сделай ей краткое расскажи краткое содержание чата” este recunoscută ca un singur flux Discord. Parserul acceptă adverbe după „найди” (de ex. „там”), păstrează numele „старый бог” fără să includă „нажми на него” în acesta și trimite acțiunea către fluxul verificat vizual, nu către un plan AI incomplet. Capturile către AI necesită în continuare acord, iar fluxul nu trimite mesaje.
+
+### Prioritatea comenzilor existente și microfonul Discord
+
+Comenzile locale cunoscute trebuie executate înaintea planificatorului de macrocomenzi. „Выключи микрофон в Discord” continuă să folosească fluxul existent de confirmare și combinația de taste Ctrl+Shift+M (toggle, nu garanție că microfonul se oprește). Pentru comanda „Сделай снимок экрана и нажми на кнопку микрофона в дискорде”, aplicația folosește un flux separat: confirmare, captură a ferestrei procesului Discord, salvare locală în Pictures/LuxAI, transmiterea unei singure imagini către AI-ul vizual ales și clic numai dacă butonul microfonului este recunoscut fără ambiguitate. Comanda nu este transmisă planificatorului generic; dacă verificarea eșuează, nu se execută niciun clic. Nu trimite mesaje. Clicul schimbă starea microfonului și nu poate garanta oprirea sa.

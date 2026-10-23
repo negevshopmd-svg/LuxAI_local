@@ -62,3 +62,9 @@ See the microphone troubleshooting steps in README.md or README_RO.md after upda
 
 - Parse voice phrases such as `найди там пользователя старый бог нажми на него`, separating location adverbs, contact display names and the subsequent click action.
 - Ensure the complete screenshot/search/screenshot/summary request takes the verified Discord visual workflow rather than an unsupported general-cloud plan; add regression tests matching the actual Whisper transcript.
+
+### 0.2.0 — Restore Discord microphone and screenshot command priority
+
+- Fix a regression caused by checking the generic live macro planner before longstanding native Discord microphone commands.
+- Route `Сделай снимок экрана и нажми на кнопку микрофона в дискорде` through a verified, opt-in Discord screenshot/mic-button click rather than an incomplete cloud macro proposal.
+- Preserve and prioritize the old `выключи микрофон в Discord` shortcut, confirmation and truthful toggle-state reporting; add mocked Linux/Windows UI and no-click-on-ambiguity regression tests.
