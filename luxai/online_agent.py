@@ -468,7 +468,7 @@ class OnlinePlanner:
                 timeout, max_tokens=1400,
             )
             parsed = self._read_json_content(self._extract_text(response, provider))
-            proposal = validate_generated_macro(parsed)
+            proposal = validate_generated_macro(parsed, phrase)
             if proposal is None:
                 self.last_error = (
                     "Cloud AI did not provide a complete supported sequence. "
