@@ -31,35 +31,47 @@ class LocalAgent:
         self.last_app = None
 
     def update_config(self, config):
+        old_path = self.config.get("llm_model_path", "")
         self.config = dict(config)
+        if old_path != self.config.get("llm_model_path", ""):
+            self.llm = None
+            self.loaded_path = None
+            self.history.clear()
 
     def _load_llm(self):
-        """The local GGUF backend is optional; unavailable wheels never break Jarvis."""
+        """Resolve local portable GGUF path and keep native code outside Qt."""
+        import importlib.util
+        from luxai.local_models import resolve_model_path, GGUF_MAGIC, MIN_GGUF_BYTES
+        from luxai.gguf_backend import IsolatedGGUF
+
         self._llm_error = None
-        path = str(self.config.get("llm_model_path", "") or "")
-        if not path or not Path(path).is_file():
+        configured = str(self.config.get("llm_model_path", "") or "")
+        model_path = resolve_model_path(configured)
+        if model_path is None:
             self._llm_error = "no_model"
             return None
-        if self.llm is not None and self.loaded_path == path:
+        try:
+            with model_path.open("rb") as source:
+                header = source.read(4)
+            if header != GGUF_MAGIC or model_path.stat().st_size < MIN_GGUF_BYTES:
+                self._llm_error = "invalid_model"
+                return None
+        except OSError:
+            self._llm_error = "invalid_model"
+            return None
+
+        if self.llm is not None and self.loaded_path == str(model_path):
             return self.llm
         try:
-            from llama_cpp import Llama
-        except (ModuleNotFoundError, ImportError):
+            installed = importlib.util.find_spec("llama_cpp") is not None
+        except (ImportError, ValueError):
+            installed = False
+        if not installed:
             self._llm_error = "missing_llama_cpp"
             return None
-        try:
-            model = Llama(
-                model_path=path,
-                n_ctx=1536,
-                n_threads=max(2, min(8, (os.cpu_count() or 4) - 1)),
-                n_batch=128,
-                verbose=False,
-            )
-        except (OSError, ValueError, RuntimeError, TypeError):
-            self._llm_error = "model_load_failed"
-            return None
-        self.llm = model
-        self.loaded_path = path
+
+        self.llm = IsolatedGGUF(str(model_path))
+        self.loaded_path = str(model_path)
         return self.llm
 
     def _llm_unavailable_message(self, text: str) -> str:
@@ -73,6 +85,11 @@ class LocalAgent:
                 "Модуль llama-cpp-python не установлен. Локальный GGUF-чат недоступен, но простые команды работают. Установите модуль в среду .venv.",
                 "Modulul llama-cpp-python nu este instalat. Chatul GGUF local nu este disponibil, dar comenzile simple funcționează. Instalează modulul în mediul .venv.",
                 "The optional llama-cpp-python module is not installed. Local GGUF chat is unavailable, but simple commands still work. Install it into .venv.",
+            ),
+            "invalid_model": (
+                "Файл GGUF повреждён или загружен не полностью. Скопируйте исправный файл в папку models.",
+                "Fișierul GGUF este incomplet sau deteriorat. Copiază un model valid în dosarul models.",
+                "The GGUF file is incomplete or invalid. Copy a valid model into the models folder.",
             ),
             "model_load_failed": (
                 "Не удалось загрузить GGUF-модель. Проверьте её файл, совместимость и память. Простые команды работают.",
