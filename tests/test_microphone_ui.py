@@ -238,6 +238,21 @@ class MicrophoneControlsTests(unittest.TestCase):
         self.assertEqual(window.settings_panel.audio_level.value(), 0)
         window.audio_diagnostics_worker = None
 
+    def test_voice_stop_interrupts_speech_without_requiring_wake_prefix(self):
+        window = self.make_window()
+        window.cfg["prefix_enabled"] = True
+        before = len(window.history)
+        with mock.patch.object(main, "stop_voice_output") as output, \
+             mock.patch.object(window, "run_command") as command:
+            window.handle_voice("Спасибо за внимание!")
+            self.assertEqual(len(window.history), before)
+            command.assert_not_called()
+            window.handle_voice("Стоп!")
+            output.assert_called_once()
+            command.assert_not_called()
+        self.assertGreater(window._speech_generation, 0)
+        self.assertIn("остановлено", window.mic_status.text())
+
     def test_queued_listener_start_after_switch_off_never_loads_a_model(self):
         window = self.make_window()
         self.assertFalse(window.cfg["microphone_enabled"])
