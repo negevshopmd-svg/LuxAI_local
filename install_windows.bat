@@ -9,7 +9,7 @@ echo ================================================
 echo     LuxAI Local - Instalare / Reparare Windows
 echo ================================================
 echo.
-echo Instaleaza Python 3.11, bibliotecile LuxAI si OCR.
+echo Accepta Python 3.11 sau mai nou (64-bit) si instaleaza bibliotecile LuxAI.
 echo Repara automat un .venv copiat de pe alt calculator.
 echo Nu sterge modelele sau configuratia personala.
 echo.

@@ -63,3 +63,27 @@ jobs:
           $launcher = Get-Content run_windows.bat -Raw
           if ($setup -notmatch 'install_windows.ps1') { throw "Setup does not invoke installer" }
           if ($launcher -notmatch 'CheckVenv') { throw "Launcher does not check copied environments" }
+
+  python-compatibility-windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12', '3.13', '3.14']
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          architecture: x64
+      - name: Verify setup recognizes the selected runtime
+        shell: powershell
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\install_windows.ps1 -SelfTest
+          if ($LASTEXITCODE -ne 0) { throw 'Python 3.11+ version detection failed' }
+      - name: Install dependencies for this Python version
+        run: python -m pip install --prefer-binary --disable-pip-version-check -r requirements.txt
+      - name: Verify imports
+        run: python -c "import main; from luxai.voice import VoiceListener; print('LuxAI imports OK')"
