@@ -90,3 +90,10 @@ See the microphone troubleshooting steps in README.md or README_RO.md after upda
 - Require cloud screenshot consent once per application session (not repeatedly per image); local screenshots need no consent. Final message sending still requires confirmation.
 - Implement source-backed three-fact Wikipedia research to a **verified** Notepad window, followed by select-all and copy. Also focus Notepad for ordinary cross-app literal-text macros after browser searches.
 - Add regression tests for the exact user-reported voice transcripts, Discord second-click failure, stale learned shortcuts, privacy decisions, Mars facts and Notepad focus.
+
+### 0.2.0 — Visual Discord microphone requests are idempotent
+
+- Route the actual spoken request `Зайди в Discord и нажми на кнопку микрофона чтобы его выключить` to the screenshot-based GUI handler, even without explicit screenshot wording; never substitute Ctrl+Shift+M for a requested mouse click.
+- Read the button's current visual `muted`/`unmuted`/`unknown` state before acting. Already-muted requests require zero clicks; uncertain state blocks the click. After at most one click, take a fresh screenshot and report the final state only if visibly verified.
+- Preserve plain shortcut and explicit toggle workflows, one-session permission for cloud image uploads and the safety stop for window changes.
+- Add mocked tests for the exact voice transcript, routing priority, no click for already-muted/unknown states, and no false success after uncertain post-click verification.
