@@ -17,40 +17,78 @@ from luxai.discord_research import (
 from luxai.fast_intents import strip_wake_name
 
 
+_STAGE_RE = re.compile(
+    r"\\b(?:после\\s+этого|потом|затем|then|apoi|după\\s+aceea)\\b",
+    re.IGNORECASE,
+)
+_SCREEN_RE = re.compile(r"(?:скрин|снимок|screenshot|captur)", re.IGNORECASE)
+_SUMMARY_RE = re.compile(
+    r"(?:кратк|пересказ|резюм|содержани|описани|опиши|"
+    r"summary|summari|rezumat)", re.IGNORECASE,
+)
+_USER_RE = re.compile(
+    r"(?:\\bнайд\\w*|\\bпоищ\\w*|\\bfind\\b|\\bcaut\\w*)\\s+"
+    r"(?:пользовател\\w*|user(?:name)?|utilizator\\w*)\\s+"
+    r"(?P<name>.+?)"
+    r"(?=\\s+(?:(?:и\\s+)?(?:после\\s+этого|потом|затем|"
+    r"в\\s+переписк\\w*|в\\s+чат\\w*|в\\s+диалог\\w*|"
+    r"сдела\\w*|сними\\w*|откро\\w*|then|apoi|după\\s+aceea))\\b"
+    r"|[,;.!?]|$)",
+    re.IGNORECASE | re.UNICODE,
+)
+_DISCORD_RE = re.compile(
+    r"\\b(?:discord|дискорд\\w*|дискор\\w*|дисси|dessie|дисе|"
+    r"скопт|скорт)\\b", re.IGNORECASE,
+)
+_CHAT_RE = re.compile(
+    r"(?:переписк\\w*|чат\\w*|диалог\\w*)", re.IGNORECASE,
+)
+
+
 def validate_discord_review_user(value: object) -> str:
-    name = str(value or "").strip().lstrip("@")
+    """Support exact usernames AND multiword display names, never free text."""
+    if not isinstance(value, str):
+        raise ValueError("Укажите точное имя пользователя Discord.")
+    name = " ".join(value.strip().strip("@ \\"'«»“”").split())
     if not 2 <= len(name) <= USER_LIMIT or not re.fullmatch(
-        r"[\w.\-]{2,48}", name, flags=re.UNICODE,
+        r"[\\w.\\-]+(?: [\\w.\\-]+){0,3}", name, flags=re.UNICODE,
     ):
         raise ValueError("Укажите точное имя пользователя Discord.")
     return name
 
 
-def detect_discord_screen_review(text: str) -> str | None:
-    """Recognize the entire spoken task, never a standalone screenshot request."""
+def looks_like_discord_screen_review(text: str) -> bool:
+    """Protect full voice task from single-action fallback on poor ASR."""
     phrase = strip_wake_name(str(text or "")).strip()
-    lower = phrase.casefold()
     if not (
-        re.search(r"(?:discord|дискорд|дискорде|дисси|dessie|дисе)", lower)
-        and re.search(r"(?:скрин|снимок|screenshot|captur)", lower)
-        and re.search(r"(?:кратк|пересказ|резюм|summary|summari|rezumat)", lower)
-        and re.search(r"(?:потом|затем|после этого|then|apoi|după aceea|dupa aceea)", lower)
+        _STAGE_RE.search(phrase)
+        and _SCREEN_RE.search(phrase)
+        and _SUMMARY_RE.search(phrase)
+        and _USER_RE.search(phrase)
+        and (_DISCORD_RE.search(phrase) or _CHAT_RE.search(phrase))
     ):
+        return False
+    # This read-only workflow must NEVER absorb commands that send messages.
+    return not bool(re.search(
+        r"\\b(?:отправ\\w*|send|trimite|отосл\\w*)\\b",
+        phrase, re.IGNORECASE,
+    ))
+
+
+def detect_discord_screen_review(text: str) -> str | None:
+    """Recognize a COMPLETE multi-stage task, including ASR word variants."""
+    phrase = strip_wake_name(str(text or "")).strip()
+    if not looks_like_discord_screen_review(phrase):
         return None
-    # This workflow never handles send requests; those require separate
-    # recipient and message confirmation through discord_research_dm.
-    if re.search(r"\b(?:отправ\w*|send|trimite|отосл\w*)\b", lower):
+    if not _DISCORD_RE.search(phrase):
+        # A screenshot request involving a chat app whose name was not
+        # recognized cannot safely be assumed to mean Discord.
         return None
-    found = re.search(
-        r"(?:найди|найти|поищи|find|caută|cauta)\s+"
-        r"(?:пользовател[ья]|user(?:name)?|utilizator(?:ul)?)\s+"
-        r"@?([\w.\-]{2,48})",
-        phrase, re.IGNORECASE | re.UNICODE,
-    )
-    if not found:
+    found = _USER_RE.search(phrase)
+    if found is None:
         return None
     try:
-        return validate_discord_review_user(found.group(1))
+        return validate_discord_review_user(found.group("name"))
     except ValueError:
         return None
 
@@ -161,7 +199,8 @@ def run_discord_screen_review(planner, username: str, *, cancelled=None) -> str:
     choice = find_visual_target(
         planner,
         f"Discord Ctrl+K Quick Switcher: select the ONE visible USER "
-        f"result with exact username @{username}. Reject channels, bots, "
+        f"result with exact Discord username OR display name {username!r}. "
+        "Only select an unambiguous person, not a group, channel or bot. "
         "other names and ambiguous matches. Otherwise found:false.",
         search,
     )
@@ -175,7 +214,8 @@ def run_discord_screen_review(planner, username: str, *, cancelled=None) -> str:
     find_visual_target(
         planner,
         f"Verify that the current Discord DIRECT MESSAGE chat HEADER "
-        f"unambiguously identifies the exact user @{username}. "
+        f"unambiguously identifies the searched user {username!r}, "
+        "including an exact displayed account or display name. "
         "Return the header center only if clearly matched, otherwise found:false.",
         after,
     )
@@ -184,7 +224,7 @@ def run_discord_screen_review(planner, username: str, *, cancelled=None) -> str:
     summary = summarize_discord_capture(planner, after)
     check_cancel()
     return (
-        f"Discord: найден диалог @{username}. "
+        f"Discord: найден диалог с пользователем «{username}». "
         f"Первый снимок сохранён: {first_path}. "
         f"Снимок после поиска сохранён: {last_path}. "
         f"Краткий пересказ второго снимка: {summary}"
