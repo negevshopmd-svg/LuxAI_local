@@ -29,7 +29,8 @@ CHAIN_SPLIT = re.compile(r"\s*(?:[,;]\s*(?=(?:потом|затем|после �
 
 
 def parse_action(text: str) -> dict | None:
-    phrase = strip_wake_name(text).strip().casefold().strip(" .!?")
+    original = strip_wake_name(text).strip().strip(" .!?")
+    phrase = original.casefold()
     phrase = re.sub(r"^(?:пожалуйста|please|te rog)\s+", "", phrase)
     if not phrase:
         return None
