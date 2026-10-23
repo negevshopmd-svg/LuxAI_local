@@ -243,6 +243,15 @@ def execute_desktop_step(raw: dict) -> str:
     step = validate_step(raw)
     action, target = step["action"], step["target"]
 
+    if action == "close_window":
+        if sys.platform != "win32":
+            raise OSError("Closing Windows app windows is Windows-only")
+        from luxai.screen_interact import _valid_external_window, _foreground_hwnd
+        hwnd = _foreground_hwnd()
+        _valid_external_window(hwnd)
+        import pyautogui
+        pyautogui.hotkey("alt", "f4")
+        return "Запрошено закрытие активного окна."
     if action == "display_info":
         from luxai.visual_click import desktop_geometry
         info = desktop_geometry()
