@@ -14,6 +14,7 @@ from luxai.fast_intents import strip_wake_name, has_launch_verb
 from luxai.file_actions import parse_file_intent
 from luxai.steam_games import local_game_intent, GAMES
 from luxai.voice_shortcuts import keyboard_action_plan
+from luxai.voice_actions import parse_action_sequence
 from luxai.voice_files import parse_open_user_file
 from luxai.websites import website_plan
 from luxai.action_catalog import CATALOG, validate_step
@@ -34,6 +35,9 @@ def _action_from_description(text: str) -> dict | None:
     """Narrow intent resolver, suitable for an untrusted voice utterance."""
     s = str(text or "").strip()
     t = s.casefold()
+    local_steps = parse_action_sequence(s)
+    if local_steps:
+        return {"action": local_steps[0]["action"], "target": local_steps[0]["target"], "location": "desktop", "steps": local_steps}
     keyboard = keyboard_action_plan(s)
     if keyboard is not None:
         return keyboard
@@ -98,6 +102,11 @@ def _describe(plan):
         return f"открыть файл «{target}» ({location})"
     if action == "open_website":
         return f"открыть сайт «{target}» в браузере"
+    if plan.get("steps") and len(plan["steps"]) > 1:
+        from luxai.action_catalog import describe_step
+        return " → ".join(describe_step(item) for item in plan["steps"])
+    if action == "press_key":
+        return f"нажать клавишу {target.upper()}"
     if action == "hotkey":
         return f"нажать клавиши {target.upper()}"
     if action == "press_enter":
@@ -117,7 +126,15 @@ def _allowed_plan(plan: dict) -> dict | None:
         "list_files", "time", "minimize_windows",
     }
     action = plan.get("action")
-    if action in {"open_user_file", "open_website", "hotkey", "press_enter",
+    if plan.get("steps"):
+        try:
+            steps = [validate_step(step) for step in plan["steps"]]
+            if not 1 <= len(steps) <= 8:
+                return None
+        except (TypeError, ValueError):
+            return None
+        return {"action": steps[0]["action"], "target": steps[0]["target"], "location": steps[0]["location"], "steps": steps}
+    if action in {"open_user_file", "open_website", "hotkey", "press_key", "press_enter",
                   "save_document"}:
         try:
             step = validate_step(plan)
@@ -198,9 +215,9 @@ class CommandWizard:
             return (
                 f"Запомнил фразу «{self.phrase}». Что нужно делать? "
                 "Например: открыть Telegram или YouTube, открыть файл "
-                "с рабочего стола, нажать Enter или Ctrl+S. "
-                "Сложные цепочки с мышью и паузами можно создать "
-                "в разделе Команды → Новая команда → Действия.",
+                "с рабочего стола, нажать Q или Ctrl+S, кликнуть мышью, "
+                "переместить курсор на 600,350. Можно сказать цепочку "
+                "из нескольких действий через «потом» или «затем».",
                 None, None,
             )
         if self.stage == "action":
@@ -252,8 +269,9 @@ class CommandWizard:
             return (
                 "Не смог безопасно определить действие. "
                 "Попробуйте сказать: открыть Telegram, открыть YouTube в браузере, "
-                "нажать Enter, создать файл или запустить игру. "
-                "Остальные действия доступны в визуальном редакторе.",
+                "нажать Q, кликни, прокрути вниз 3, "
+                "перемести курсор на 600,350 или подожди 2 секунды. "
+                "Другие действия доступны в визуальном редакторе.",
                 None,
             )
         self.plan = verified
