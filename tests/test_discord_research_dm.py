@@ -115,7 +115,7 @@ class DiscordDraftTests(unittest.TestCase):
         with (
             mock.patch.dict(sys.modules, {"pyautogui": pyauto}),
             mock.patch("luxai.discord_research.get_wikipedia_summary",
-                       return_value=("verified text\nИсточник: url", "url")),
+                       return_value=("verified text  Источник: url", "url")),
             mock.patch("luxai.discord_research.find_discord_window",
                        return_value=42),
             mock.patch("luxai.discord_research.focus_discord"),
@@ -131,7 +131,7 @@ class DiscordDraftTests(unittest.TestCase):
         pyauto.hotkey.assert_called_once_with("ctrl", "k", interval=0.07)
         self.assertEqual(type_unicode.call_args_list[0].args, ("@ронси",))
         self.assertEqual(type_unicode.call_args_list[1].args[0],
-                         "verified text\nИсточник: url")
+                         "verified text  Источник: url")
         self.assertEqual(capture.call_count, 2)
         self.assertEqual(locate.call_count, 2)
         self.assertIn("@ронси", locate.call_args_list[0].args[1])
