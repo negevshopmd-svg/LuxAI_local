@@ -20,6 +20,15 @@ def offline_runtime(goal, **kwargs):
 
 
 class DesktopAgentTests(unittest.TestCase):
+    def test_cloud_tool_choice_repairs_only_bare_json_keys(self):
+        runtime = offline_runtime("Research Mars")
+        runtime.planner.enabled.return_value = True
+        runtime.planner._provider.return_value = "openai"
+        runtime.planner._extract_text.return_value = 'Here: {action:"tool",tool:"research",arguments:{query:"Mars"}}'
+        with mock.patch("luxai.secure_keys.get_api_key", return_value="test-key"):
+            decision = CloudTaskDecider(runtime)({"goal": runtime.goal, "history": []})
+        self.assertEqual(decision, {"action": "tool", "tool": "research", "arguments": {"query": "Mars"}})
+
     def test_plain_app_open_is_native_offline_and_requires_visible_window(self):
         runtime = offline_runtime("Please open Discord")
         with (

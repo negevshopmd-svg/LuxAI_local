@@ -569,7 +569,7 @@ class CloudTaskDecider:
         ]
         response = runtime.planner._request(provider, model_for(provider, runtime.config.get("online_model") or None),
                                             get_api_key(provider), messages, min(60, max(10, int(runtime.config.get("online_timeout", 60)))), max_tokens=1000)
-        decision = parse_model_json(runtime.planner._extract_text(response, provider))
+        decision = parse_model_json(runtime.planner._extract_text(response, provider), quote_bare_keys=True)
         if (set(decision) == {"action", "summary"} and decision.get("action") == "finish"
                 and isinstance(decision.get("summary"), str) and decision["summary"].strip()
                 and history and not runtime.verification_attempted
