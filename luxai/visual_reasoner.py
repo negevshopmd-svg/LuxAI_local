@@ -151,14 +151,32 @@ def _choose(planner, goal: str, current, *, previous=None,
                 {"type": "text", "text": question + "\nCURRENT SCREENSHOT follows."},
                 messages[1]["content"][-1],
             ]
-    result = planner._request(
-        provider, model, key, messages,
-        min(85, max(25, int(planner.config.get("online_timeout", 60)))),
-        max_tokens=280,
-    )
-    answer = planner._read_json_content(planner._extract_text(result, provider))
+    answer = None
+    for attempt in range(2):
+        result = planner._request(
+            provider, model, key, messages,
+            min(85, max(25, int(planner.config.get("online_timeout", 60)))),
+            max_tokens=320,
+        )
+        try:
+            answer = planner._read_json_content(
+                planner._extract_text(result, provider)
+            )
+            if isinstance(answer, dict) and answer.get("action") in {
+                "click", "scroll", "open_discord", "search_discord",
+                "observe", "done", "stop",
+            }:
+                break
+        except (ValueError, TypeError):
+            pass
+        if attempt == 0:
+            messages.append({
+                "role": "user",
+                "content": 'Return ONLY one JSON object with double-quoted property '
+                           'names and a supported action. No markdown, prose or code.',
+            })
     if not isinstance(answer, dict):
-        raise ValueError("Visual agent returned no valid decision")
+        raise ValueError("Визуальный AI не вернул понятного действия даже после повторного запроса")
     action = answer.get("action")
     if action not in {
         "click", "scroll", "open_discord", "search_discord",
@@ -205,7 +223,10 @@ def _verify_goal(planner, goal: str, capture) -> bool:
         min(85, max(25, int(planner.config.get("online_timeout", 60)))),
         max_tokens=80,
     )
-    parsed = planner._read_json_content(planner._extract_text(response, provider))
+    try:
+        parsed = planner._read_json_content(planner._extract_text(response, provider))
+    except (ValueError, TypeError):
+        return False
     if not isinstance(parsed, dict) or type(parsed.get("verified")) is not bool:
         return False
     return parsed["verified"] is True
