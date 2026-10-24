@@ -2943,6 +2943,8 @@ class MainWindow(QMainWindow):
                 self._adaptive_hints = (
                     self._adaptive_hints + [f"{choice.mode}: verified"]
                 )[-8:]
+                from luxai.agent_experience import remember
+                remember(text, choice)
         self._current_route = "AI: выбор инструмента → локальный исполнитель"
         self._resolved_command(text, answer)
 
