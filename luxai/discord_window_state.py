@@ -132,12 +132,12 @@ def focus_discord(hwnd: int) -> int:
     # SW_SHOW first covers hidden-to-tray windows; SW_RESTORE covers minimized
     # Electron windows. Process existence alone never reaches success.
     was_hidden = not user32.IsWindowVisible(hwnd)
+    was_minimized = bool(user32.IsIconic(hwnd))
     if was_hidden:
         user32.ShowWindow(hwnd, 5)
-    # SW_RESTORE on a maximized (but already visible) window can UNMAXIMIZE
-    # it. Only restore when it is actually minimized. Repeated open requests
-    # should not move/resize an already usable Discord window.
-    if user32.IsIconic(hwnd):
+    # SW_RESTORE on an already maximized window can UNMAXIMIZE it.
+    # Capture minimized state BEFORE SW_SHOW, which itself can change it.
+    if was_minimized:
         user32.ShowWindow(hwnd, 9)
         if hasattr(user32, "ShowWindowAsync"):
             user32.ShowWindowAsync(hwnd, 9)
