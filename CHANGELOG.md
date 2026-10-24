@@ -132,3 +132,13 @@ See the microphone troubleshooting steps in README.md or README_RO.md after upda
 - Preserve the full intent of Discord recipient-message instructions: reject incomplete open-app-only cloud plans and keep final recipient/text confirmation.
 - Screen-review Quick Switcher also uses the screenshot-validated input to prevent typing into the wrong DM composer.
 - Mock Windows GUI, process, offscreen and tray states in new regressions.
+
+### 0.2.0 — Adaptive tool-first desktop actions
+
+- Fix common non-JSON cloud vision model responses with bounded JSON extraction/format recovery and one corrective retry; uncertain verification still stops instead of claiming success.
+- Fix Windows native HWND argument-width mismatches when identifying and restoring Discord windows on x64 systems.
+- Add a text-first AI tool selector for app opening, local screenshot, Windows settings, bounded GUI reasoning, cloud answers and allowlisted read-only diagnostics. Do not take/upload a screenshot when a local launch or status command is sufficient.
+- Implement standalone local PNG screenshots without any cloud-model requirement.
+- Keep explicit existing file/website actions ahead of generic visual routing and focus the intended app window for GUI tasks. Recognize Steam webhelper and CalculatorApp GUI processes.
+- Store only safe completed tool choices by hashed request, with no raw voice text or image data.
+- Reject arbitrary model-proposed CMD and keep significant side-effect actions within separately confirmed workflows.

@@ -110,12 +110,23 @@ class PiperLanguageVoicesTests(unittest.TestCase):
         ):
             result = self.manager._select_model("ro")
             self.assertEqual(result, self.root / "ro_RO-mihai-medium.onnx")
-            self.assertEqual(download.call_count, 2)
+            def relevant_downloads():
+                expected = ("ro_RO-mihai-medium.onnx",
+                            "ro_RO-mihai-medium.onnx.json")
+                return [
+                    call.args[0].full_url
+                    for call in download.call_args_list
+                    if call.args and hasattr(call.args[0], "full_url")
+                    and call.args[0].full_url.endswith(expected)
+                ]
+            # The patched urllib.request.urlopen is process-global; other
+            # concurrent UI threads may use it during Windows CI. Count
+            # only the two files belonging to this exact test voice.
+            self.assertEqual(len(relevant_downloads()), 2)
             self.assertTrue(voices.VoiceManager._model_matches_language(result, "ro"))
-            # Second use is offline: no redundant downloads.
             download.reset_mock()
             self.assertEqual(self.manager._select_model("ro"), result)
-            download.assert_not_called()
+            self.assertEqual(relevant_downloads(), [])
 
     def test_missing_network_returns_none_and_no_partial_files(self):
         with mock.patch("luxai.voices.urllib.request.urlopen", side_effect=OSError("offline")):
