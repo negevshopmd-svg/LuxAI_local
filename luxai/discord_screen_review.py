@@ -185,8 +185,7 @@ def run_discord_screen_review(planner, username: str, *, cancelled=None) -> str:
     from luxai.visual_click import (
         capture_window, find_visual_target, click_visual_target,
     )
-    from luxai.desktop_actions import _type_unicode_windows
-    import pyautogui
+    from luxai.discord_search_guard import verified_discord_search
 
     username = validate_discord_review_user(username)
 
@@ -204,12 +203,10 @@ def run_discord_screen_review(planner, username: str, *, cancelled=None) -> str:
 
     # Search the actual Discord client, not the previously focused browser
     # or Jarvis itself. Only a uniquely identified contact may be clicked.
-    pyautogui.hotkey("ctrl", "k", interval=0.07)
-    time.sleep(0.22)
-    _type_unicode_windows("@" + username)
-    time.sleep(0.85)
+    search = verified_discord_search(
+        planner, hwnd, "@" + username, cancelled=cancelled,
+    )
     check_cancel()
-    search = capture_window(hwnd)
     choice = find_visual_target(
         planner,
         f"Discord Ctrl+K Quick Switcher: select the ONE visible USER "
