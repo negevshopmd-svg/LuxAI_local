@@ -2941,7 +2941,15 @@ class MainWindow(QMainWindow):
             if choice.mode == "open_app":
                 ok, message = launch_installed_app(choice.target)
                 if not ok:
-                    message += " Окно не подтверждено."
+                    # A missing application can be diagnosed from the real
+                    # desktop without uploading its pixels to the cloud.
+                    # This is evidence for the next task, not a claim that
+                    # opening the app succeeded.
+                    try:
+                        local_photo = capture_desktop_locally()
+                        message += " Окно не подтверждено. " + local_photo
+                    except (OSError, RuntimeError, ValueError):
+                        message += " Окно не подтверждено."
             elif choice.mode == "open_recycle_bin":
                 from luxai.desktop_actions import execute_desktop_step
                 message = execute_desktop_step({"action": "open_recycle_bin"})
