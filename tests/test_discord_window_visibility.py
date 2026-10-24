@@ -7,6 +7,8 @@ from __future__ import annotations
 import ctypes
 from ctypes import wintypes
 import os
+import sys
+import types
 from pathlib import Path
 import tempfile
 import time
@@ -73,10 +75,16 @@ class WindowRestorationTests(unittest.TestCase):
             mock.patch("luxai.screen_interact._window_title", return_value="Discord"),
             mock.patch("luxai.screen_interact._foreground_hwnd",
                        side_effect=lambda: native.foreground),
-            mock.patch("psutil.Process") as process,
+            mock.patch.dict(sys.modules, {
+                "psutil": types.SimpleNamespace(
+                    Process=mock.Mock(
+                        return_value=types.SimpleNamespace(name=lambda: "Discord.exe")
+                    ),
+                    Error=OSError,
+                )
+            }),
             mock.patch("luxai.discord_window_state.time.sleep"),
         ):
-            process.return_value.name.return_value = "Discord.exe"
             return focus_discord(42)
 
     def test_hidden_and_minimized_discord_is_revealed_and_focused(self):
@@ -106,9 +114,15 @@ class WindowRestorationTests(unittest.TestCase):
             mock.patch("luxai.discord_window_state._user32", return_value=fake),
             mock.patch("luxai.screen_interact._window_pid", return_value=900),
             mock.patch("luxai.screen_interact._window_title", return_value="Discord"),
-            mock.patch("psutil.Process") as process,
+            mock.patch.dict(sys.modules, {
+                "psutil": types.SimpleNamespace(
+                    Process=mock.Mock(
+                        return_value=types.SimpleNamespace(name=lambda: "Unknown.exe")
+                    ),
+                    Error=OSError,
+                )
+            }),
         ):
-            process.return_value.name.return_value = "Unknown.exe"
             with self.assertRaisesRegex(ValueError, "не принадлежит"):
                 focus_discord(42)
         self.assertEqual(fake.show_calls, [])
