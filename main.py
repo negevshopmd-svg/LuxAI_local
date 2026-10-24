@@ -256,6 +256,7 @@ class MainWindow(QMainWindow):
         self._last_visual_goal_at = 0.0
         self._adaptive_last_choice = None
         self._adaptive_hints = []
+        self._pending_adaptive_question = None
         self._current_route = ""
         self._closed = False
         self._api_test_running = False
@@ -1493,6 +1494,15 @@ class MainWindow(QMainWindow):
         if is_create_command_request(text):
             self.start_voice_command_wizard()
             return
+        # Continue a previously paused adaptive task once the user provides
+        # its missing detail; a brand-new operational request cancels the
+        # old question instead of silently mixing unrelated commands.
+        pending = getattr(self, "_pending_adaptive_question", None)
+        if pending:
+            from luxai.intent_routing import is_operational_request
+            self._pending_adaptive_question = None
+            if not is_operational_request(text):
+                text = pending + ". Уточнение пользователя: " + text
         self.save_settings()
         # "You missed, try again" is meaningful feedback about the LAST
         # desktop goal, not a new small-talk request. Retry from a NEW image
@@ -2898,6 +2908,11 @@ class MainWindow(QMainWindow):
             self._resolved_command(text, "Не удалось выбрать действие: " + error)
             return
         self._adaptive_last_choice = choice
+        if choice.mode == "ask":
+            self._pending_adaptive_question = text
+            self._current_route = "AI: уточнение цели"
+            self._resolved_command(text, "Уточните: " + choice.target)
+            return
         if choice.mode == "answer":
             # General factual reasoning still uses the user's cloud model,
             # not a canned local refusal about mouse-control permissions.
