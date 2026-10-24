@@ -100,23 +100,31 @@ def detect_discord_screen_review(text: str) -> str | None:
 
 
 def _ensure_discord_visible(cancelled=None) -> int:
-    """Launch installed Discord when needed, then verify its actual window."""
+    """Actually restore a foreground Discord window; launch only as fallback.
+
+    IsWindowVisible and foreground/screen geometry must be checked before
+    returning an HWND to any screenshot or mouse action.
+    """
+    from luxai.discord_window_state import focus_discord as restore
+    from luxai.windows_apps import launch_installed_app
+
+    if cancelled is not None and cancelled():
+        raise RuntimeError("Операция отменена")
     try:
-        return find_discord_window()
-    except ValueError:
-        from luxai.windows_apps import launch_installed_app
-        ok, detail = launch_installed_app("discord")
-        if not ok:
-            raise RuntimeError(detail)
-        for _ in range(24):
-            if cancelled is not None and cancelled():
-                raise RuntimeError("Операция отменена.")
-            try:
-                return find_discord_window()
-            except ValueError:
-                time.sleep(0.25)
-        raise RuntimeError("Discord запущен, но видимое окно не найдено.")
-        
+        hwnd = find_discord_window()
+        restore(hwnd)
+        return hwnd
+    except (OSError, ValueError, RuntimeError):
+        pass
+    ok, detail = launch_installed_app("discord")
+    if not ok:
+        raise RuntimeError(detail)
+    if cancelled is not None and cancelled():
+        raise RuntimeError("Операция отменена")
+    hwnd = find_discord_window()
+    restore(hwnd)
+    return hwnd
+
 
 def _save_capture(capture, label: str) -> Path:
     """Save already-approved window bytes locally, never share paths with AI."""
@@ -177,8 +185,7 @@ def run_discord_screen_review(planner, username: str, *, cancelled=None) -> str:
     from luxai.visual_click import (
         capture_window, find_visual_target, click_visual_target,
     )
-    from luxai.desktop_actions import _type_unicode_windows
-    import pyautogui
+    from luxai.discord_search_guard import verified_discord_search
 
     username = validate_discord_review_user(username)
 
@@ -196,12 +203,10 @@ def run_discord_screen_review(planner, username: str, *, cancelled=None) -> str:
 
     # Search the actual Discord client, not the previously focused browser
     # or Jarvis itself. Only a uniquely identified contact may be clicked.
-    pyautogui.hotkey("ctrl", "k", interval=0.07)
-    time.sleep(0.22)
-    _type_unicode_windows("@" + username)
-    time.sleep(0.85)
+    search = verified_discord_search(
+        planner, hwnd, "@" + username, cancelled=cancelled,
+    )
     check_cancel()
-    search = capture_window(hwnd)
     choice = find_visual_target(
         planner,
         f"Discord Ctrl+K Quick Switcher: select the ONE visible USER "

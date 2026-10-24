@@ -196,6 +196,20 @@ def plan_known_visual_sequence(text: str) -> dict | None:
     return validate_generated_macro({"steps": steps}, text)
 
 
+def is_discord_message_request(text: str) -> bool:
+    """Recognize the *intent* to send, not a memorized command wording.
+
+    Plans for a Discord recipient must never degrade to just open_app.
+    Multi-word display names are resolved later and confirmed visually.
+    """
+    phrase = str(text or "").casefold()
+    return bool(
+        re.search(r"(?:discord|дискорд\w*|дискор\w*)", phrase)
+        and re.search(r"(?:отправ\w*|напиш\w*|пиш\w*|сообщени\w*|enter|send|message)", phrase)
+        and re.search(r"(?:пользовател\w*|юзер\w*|контакт\w*|@)", phrase)
+    )
+
+
 def needs_live_macro_planning(text: str) -> bool:
     """Prefer multi-step cloud planning only for explicit desktop operations."""
     from luxai.discord_research import detect_research_dm_request
@@ -204,10 +218,10 @@ def needs_live_macro_planning(text: str) -> bool:
     from luxai.discord_screen_review import (
         detect_discord_screen_review, looks_like_discord_screen_review,
     )
-    if (detect_research_dm_request(text) or detect_discord_screen_review(text)
+    if (is_discord_message_request(text) or detect_research_dm_request(text)
+            or detect_discord_screen_review(text)
             or looks_like_discord_screen_review(text) or detect_discord_open_dm(text)
             or detect_research_notepad(text)):
-        return True
         return True
     phrase = str(text or "").casefold()
     if not 5 <= len(phrase) <= 850:
@@ -244,11 +258,7 @@ def validate_generated_macro(proposal: object, description: str = "") -> dict | 
     requested_dm = detect_research_dm_request(description)
     # A Discord send must be carried out through the verified message
     # workflow, never by blindly typing into an unverified active window.
-    is_discord_message = bool(
-        re.search(r"(?:discord|дискорд\w*|дискор\w*)", description, re.I)
-        and re.search(r"(?:отправ\w*|напиши|пиши|сообщени\w*|enter|send)", description, re.I)
-        and re.search(r"(?:пользовател\w*|юзер\w*|контакт\w*|@)", description, re.I)
-    )
+    is_discord_message = is_discord_message_request(description)
 
     from luxai.discord_screen_review import (
         detect_discord_screen_review, looks_like_discord_screen_review,

@@ -140,3 +140,9 @@ Feedbackul de tip „ты не попал, давай заново” reia **ult
 **Protecții:** nu execută cod generat de model; nu trimite mesaje, nu șterge fișiere, nu plătește și nu interacționează cu parole prin agentul vizual general. Pentru mesaje Discord rămâne fluxul separat cu verificare de contact și confirmare înainte de trimitere. Doar aplicațiile și acțiunile din instrumentele locale controlate pot fi accesate. Capturile private pot merge la cloud doar după acordul utilizatorului, valabil până la închiderea aplicației. Dacă nu poate verifica rezultatul, se oprește și spune explicit acest lucru.
 
 **Limitări:** identificarea din imagini depinde de modelul vizual selectat și de tema ferestrei (ex. Discord personalizat). „Gândirea” constă în planificarea următorului pas din observații și feedback, nu auto-modificarea codului sau dezvoltarea autonomă de unelte noi.
+
+### Discord în fundal ≠ fereastră vizibilă
+
+Un proces `Discord.exe` pornit NU mai este raportat ca „Discord deschis”. Jarvis verifică HWND-ul ferestrei reale, inclusiv când este ascuns în tray, minimizat sau are coordonate în afara desktopului virtual. Încearcă să-l restaureze și să-l focalizeze; numai după ce este vizibil în dreptunghiul ecranului și activ raportează reușita. Dacă Discord rulează doar ca proces în tray, încearcă protocolul `discord://` și re-verifică fereastra, fără să presupună succesul. Repetarea comenzii de deschidere focalizează aceeași fereastră, nu lansează o copie nouă. Comanda de corecție „он запущен но окно же не открыто” reactivează fereastra Discord dacă ultima sarcină vizuală privea Discord; **nu repetă un mesaj** din cererea precedentă.
+
+Cererile de tip „зайди в Discord и напиши пользователю Старый Бог привет и нажми Enter” sunt recunoscute ca **intenții de mesaj**, nu reduse la lansarea aplicației. Fluxul verifică destinatarul și cere aprobare pentru text înainte să îl expedieze. Dacă un model returnează doar `open_app`, acel plan este respins ca incomplet.

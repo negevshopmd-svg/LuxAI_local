@@ -112,3 +112,12 @@ See the microphone troubleshooting steps in README.md or README_RO.md after upda
 - Enforce maximum 6 GUI actions/9 observations, abort on uncertain target/window, refuse repeating failed clicks on toggles, never claim success merely because the mouse was clicked.
 - Keep Discord messaging and other high-impact tasks routed through their existing dedicated tools and human confirmation; generic agent cannot execute shell, delete files, send messages, submit sensitive forms or payments.
 - Add mocked regression tests for unfamiliar visual commands, user correction, before/after checks, unsafe controls and no false success claims.
+
+### 0.2.0 — Discord background process vs real foreground GUI
+
+- Separate installed/running-process state from Discord window visibility and focus. Enumerate verified Discord.exe top-level HWNDs (including hidden), restore tray/minimized windows, recover off-screen geometry, and confirm actual foreground before screenshots and mouse actions.
+- Launch URI or installed executable only as a fallback if the visible window could not be restored. Never respond „already open” solely because Discord.exe exists.
+- Interpret „он запущен но окно же не открыто” as local window recovery after a Discord task; do not resend or retype earlier messages.
+- Preserve the full intent of Discord recipient-message instructions: reject incomplete open-app-only cloud plans and keep final recipient/text confirmation.
+- Screen-review Quick Switcher also uses the screenshot-validated input to prevent typing into the wrong DM composer.
+- Mock Windows GUI, process, offscreen and tray states in new regressions.

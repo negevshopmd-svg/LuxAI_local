@@ -1494,10 +1494,18 @@ class MainWindow(QMainWindow):
         from luxai.visual_reasoner import is_visual_feedback
         import time
         retry_feedback = ""
-        if is_visual_feedback(text):
-            old = getattr(self, "_last_visual_goal", None)
-            age = time.monotonic() - getattr(self, "_last_visual_goal_at", 0.0)
-            if old and 0 <= age <= 600:
+        window_recovery_app = ""
+        old = getattr(self, "_last_visual_goal", None)
+        age = time.monotonic() - getattr(self, "_last_visual_goal_at", 0.0)
+        if old and 0 <= age <= 600:
+            from luxai.discord_window_state import is_background_window_correction
+            if (is_background_window_correction(text)
+                    and re.search(r"(?:discord|дискорд\w*)", old, re.I)):
+                # User corrected PROCESS existence versus visible WINDOW.
+                # Recover the app window only; never auto-send a message
+                # that happened to be included in the earlier request.
+                window_recovery_app = "discord"
+            elif is_visual_feedback(text):
                 retry_feedback, text = text, old
         if len(self._command_queue) >= 8:
             self.mic_status.setText("Очередь заполнена. Подождите завершения команды.")
@@ -1525,6 +1533,7 @@ class MainWindow(QMainWindow):
         self._command_queue.append({
             "parts": pieces, "answers": [], "routes": [],
             "original_text": text, "visual_feedback": retry_feedback,
+            "window_recovery_app": window_recovery_app,
         })
         self._dispatch_command()
 
@@ -1872,12 +1881,22 @@ class MainWindow(QMainWindow):
                 return
 
             saved = self.command_registry.match(text, prefix)
+            from luxai.macro_planner import is_discord_message_request
             from luxai.visual_reasoner import is_visual_goal
             feedback = self._command_queue[0].get("visual_feedback", "")
             if is_visual_goal(text):
                 import time
                 self._last_visual_goal = text
                 self._last_visual_goal_at = time.monotonic()
+            recovery_app = self._command_queue[0].get("window_recovery_app", "")
+            if recovery_app == "discord":
+                # This is a request to reveal the GUI, not to replay the
+                # previous Discord message or unsafe keyboard actions.
+                from luxai.windows_apps import launch_installed_app
+                ok, result = launch_installed_app("discord")
+                self._current_route = "Discord: проверка видимого окна"
+                self._resolved_command(text, result)
+                return
             if feedback:
                 # Replay the INTENT through a new observe/plan/verify loop,
                 # never replay a stale macro or an unverified click location.
@@ -1912,7 +1931,8 @@ class MainWindow(QMainWindow):
             # richer visual user goal that also requested actual UI work.
             # Manually created custom commands continue to take precedence.
             if saved is not None and not (
-                is_visual_goal(text) and saved.get("learned", False)
+                (is_visual_goal(text) or is_discord_message_request(text))
+                and saved.get("learned", False)
             ):
                 self._execute_registered(text, saved)
                 return
@@ -1933,10 +1953,7 @@ class MainWindow(QMainWindow):
             # retain their stronger safeguards, including send confirmation.
             # DMs and other external-effect instructions must use the
             # atomic/confirmed tools, not general screenshot mouse clicks.
-            discord_message = bool(
-                re.search(r"(?:дискорд|discord)", text, re.I)
-                and re.search(r"(?:отправ|напиши|пиши|сообщени|send|enter)", text, re.I)
-            )
+            discord_message = is_discord_message_request(text)
             if is_visual_goal(text) and not (
                 discord_message
                 or detect_research_dm_request(text)

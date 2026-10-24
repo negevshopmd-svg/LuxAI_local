@@ -237,6 +237,7 @@ class FeedbackRoutingUITests(unittest.TestCase):
         import main
         window = self.make_window()
         phrase = "Нажми в Discord на пользователя Hanzo и отправь привет."
+        window.online_planner.enabled = mock.Mock(return_value=True)
         with (
             mock.patch.object(window, "_start_visual_reasoner") as general,
             mock.patch("main.threading.Thread") as thread,
