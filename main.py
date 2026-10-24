@@ -1953,6 +1953,18 @@ class MainWindow(QMainWindow):
                 self._current_route = "браузер HTTPS"
                 self._resolved_command(text, answer or "Не удалось открыть сайт.")
                 return
+            # Files explicitly named on the user's Desktop/Documents/Downloads
+            # are opened by Windows directly; never reinterpret a file request
+            # as launching Explorer, or ask a cloud model for an arbitrary path.
+            file_plan = parse_open_user_file(text)
+            if file_plan is not None:
+                answer = self.agent.execute_plan(
+                    text, file_plan, confirm_callback=self.confirm_action,
+                )
+                self._current_route = "локальные файлы Windows"
+                self._resolved_command(text, answer or "Не удалось открыть файл.")
+                return
+
             # Novel visual goals are solved by repeated real observations,
             # not by a one-shot macro which cannot see whether a click worked.
             # Dedicated Discord message/contact and sourced-research tools
@@ -2031,18 +2043,6 @@ class MainWindow(QMainWindow):
             if is_screen_inspection_request(text):
                 self._start_screen_inspection(text)
                 return
-            # Files explicitly named on the user's Desktop/Documents/Downloads
-            # are opened by Windows directly; never reinterpret a file request
-            # as launching Explorer, or ask a cloud model for an arbitrary path.
-            file_plan = parse_open_user_file(text)
-            if file_plan is not None:
-                answer = self.agent.execute_plan(
-                    text, file_plan, confirm_callback=self.confirm_action,
-                )
-                self._current_route = "локальные файлы Windows"
-                self._resolved_command(text, answer or "Не удалось открыть файл.")
-                return
-
             # Hotkeys and command-editor capabilities are known locally.
             voice_steps = parse_action_sequence(text)
             keyboard = keyboard_action_plan(text)
