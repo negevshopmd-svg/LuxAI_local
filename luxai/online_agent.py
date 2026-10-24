@@ -266,7 +266,7 @@ class OnlinePlanner:
             # Small harmless model-formatting mistake: keys like
             # {action:"click"} or {verified:true}; values stay JSON parsed.
             candidate = re.sub(
-                r'(?<=\\{|,)\s*([A-Za-z_][A-Za-z_0-9]{0,40})\s*:',
+                r'(?<=[{,])\s*([A-Za-z_][A-Za-z_0-9]{0,40})\s*:',
                 lambda match: '"' + match.group(1) + '":', text[start:],
             )
             try:
