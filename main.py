@@ -1917,6 +1917,25 @@ class MainWindow(QMainWindow):
                 self._start_selection_request(text, selected_mode)
                 return
 
+            # A standalone screenshot is a local OS capability: no cloud
+            # account, model call, or recurring screenshot consent is needed.
+            from luxai.fast_intents import strip_wake_name
+            simple_screen = strip_wake_name(text).casefold().strip(" .,!?:")
+            if re.fullmatch(
+                r"(?:сделай|сними|создай|покажи)?\s*"
+                r"(?:мне\s+)?(?:скриншот|снимок\s+экрана|screenshot)"
+                r"(?:\s+пожалуйста)?",
+                simple_screen,
+            ):
+                from luxai.adaptive_tasks import ToolChoice
+                chosen = ToolChoice("screen_capture")
+                self._adaptive_last_choice = chosen
+                threading.Thread(
+                    target=self._adaptive_exec_worker,
+                    args=(text, chosen), daemon=True, name="JarvisLocalScreenshot",
+                ).start()
+                return
+
             # Previously, local screen inspection matched "найди ... экран"
             # inside compound tasks before opening Discord or another app.
             # Saved exact commands take priority, then the ENTIRE chained
