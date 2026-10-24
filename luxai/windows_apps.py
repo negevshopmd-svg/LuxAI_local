@@ -7,12 +7,15 @@ launches an executable/shortcut discovered on the current user's machine.
 from __future__ import annotations
 
 import glob
+import ctypes
 import os
 from pathlib import Path
 import re
 import shutil
 import subprocess
 import sys
+
+from luxai.win32 import get_user32, hwnd_value, window_on_screen
 
 ALIASES = {
     "файерфокс": "firefox",
@@ -47,6 +50,10 @@ ALIASES = {
     "визуал студия код": "vscode",
     "код студио": "vscode",
     "визуал студио": "visual studio",
+    "windows settings": "settings",
+    "настройки windows": "settings",
+    "setări windows": "settings",
+    "setari windows": "settings",
 }
 EXEC_NAMES = {
     "firefox": ("firefox.exe",),
@@ -55,10 +62,11 @@ EXEC_NAMES = {
     "telegram": ("Telegram.exe",),
     "discord": ("Discord.exe",),
     "spotify": ("Spotify.exe",),
-    "steam": ("Steam.exe",),
+    "steam": ("Steam.exe", "steamwebhelper.exe"),
+    "settings": ("SystemSettings.exe",),
     "notepad": ("notepad.exe",),
     "word": ("WINWORD.EXE",),
-    "calculator": ("calc.exe",),
+    "calculator": ("calc.exe", "Calculator.exe", "CalculatorApp.exe"),
     "explorer": ("explorer.exe",),
     "vscode": ("Code.exe",),
     "visual studio": ("devenv.exe",),
@@ -173,13 +181,86 @@ def resolve_installed_app(name: str) -> Path | None:
     return None
 
 
+def _app_windows(name: str) -> list[int]:
+    from luxai.windows_control import running_pids, _visible_app_windows
+    # Discovery may observe Explorer/system-owned windows without granting the
+    # close operation permission to terminate those protected processes.
+    return _visible_app_windows(running_pids(name, for_discovery=True))
+
+
+def _usable_window(user32, hwnd: int, *, foreground_only: bool) -> bool:
+    return bool(
+        hwnd and user32.IsWindow(hwnd) and user32.IsWindowVisible(hwnd)
+        and not user32.IsIconic(hwnd) and window_on_screen(user32, hwnd)
+        and (not foreground_only or hwnd_value(user32.GetForegroundWindow()) == hwnd)
+    )
+
+
+def find_app_window(name: str, *, foreground_only=True) -> int:
+    """Find a verified app-owned visible HWND, with no screenshots or cloud.
+
+    By default require foreground ownership too, so a follow-up visual task
+    cannot accidentally capture whichever unrelated app happens to be active.
+    A process in the tray or an offscreen/minimized window returns zero.
+    """
+    query = normalized_name(name)
+    if sys.platform != "win32":
+        return 0
+    windows = _app_windows(query)
+    if not windows:
+        return 0
+    user32 = get_user32()
+    active = hwnd_value(user32.GetForegroundWindow())
+    ordered = sorted(windows, key=lambda hwnd: hwnd != active)
+    for hwnd in ordered:
+        if _usable_window(user32, hwnd, foreground_only=foreground_only):
+            return hwnd
+    return 0
+
+
+def activate_app_window(name: str) -> int:
+    """Restore/focus an app-owned HWND and return it only after verification."""
+    query = normalized_name(name)
+    if sys.platform != "win32":
+        return 0
+    if query == "discord":
+        from luxai.discord_window_state import activate_running_discord
+        try:
+            return activate_running_discord()
+        except (OSError, ValueError, RuntimeError):
+            return 0
+    windows = _app_windows(query)
+    if not windows:
+        return 0
+    user32 = get_user32()
+    active = hwnd_value(user32.GetForegroundWindow())
+    for hwnd in sorted(windows, key=lambda value: value != active):
+        if not user32.IsWindow(hwnd):
+            continue
+        if user32.IsIconic(hwnd):
+            user32.ShowWindow(hwnd, 9)  # SW_RESTORE; preserve maximized windows
+        user32.SetForegroundWindow(hwnd)
+        if _usable_window(user32, hwnd, foreground_only=True):
+            return hwnd
+    return 0
+
+
+def _wait_for_app_window(name: str) -> int:
+    import time
+    for _ in range(9):
+        hwnd = activate_app_window(name)
+        if hwnd:
+            return hwnd
+        time.sleep(0.14)
+    return 0
+
+
 def launch_installed_app(name: str, confirmed=None) -> tuple[bool, str]:
-    """Locate, request Windows launch, then verify process presence.
+    """Locate, request Windows launch, then verify an actual usable window.
 
     A successful subprocess.Popen is NOT proof that an application opened.
-    Return verified success only after a known executable's process appears.
+    Return success only for a visible foreground window owned by that app.
     """
-    import time
     query = normalized_name(name)
     if query == "discord" and sys.platform == "win32":
         # Discord may run only in the tray. Never report "opened" merely
@@ -193,6 +274,7 @@ def launch_installed_app(name: str, confirmed=None) -> tuple[bool, str]:
             "discord": "discord://",
             "spotify": "spotify:",
             "steam": "steam://open/main",
+            "settings": "ms-settings:",
         }
         if sys.platform == "win32" and query in known_protocols:
             if confirmed is not None and not confirmed(
@@ -201,9 +283,15 @@ def launch_installed_app(name: str, confirmed=None) -> tuple[bool, str]:
                 return False, "Действие отменено."
             try:
                 os.startfile(known_protocols[query])
-            except (OSError, AttributeError) as exc:
+                hwnd = _wait_for_app_window(query)
+            except (OSError, AttributeError, ValueError, ctypes.ArgumentError) as exc:
                 return False, f"Не удалось запустить «{name}»: {exc}"
-            return True, f"Отправил запрос запуска «{name}» через Windows. Проверьте окно приложения."
+            if hwnd:
+                return True, f"Проверено: окно «{name}» открыто, видно и активно."
+            return False, (
+                f"Запрос запуска «{name}» передан Windows, но видимое "
+                "активное окно не найдено. Приложение может работать в фоне."
+            )
         return False, f"Не нашёл установленную программу «{name}»."
 
     if confirmed is not None and not confirmed(f"Запустить «{name}»?\n{path}"):
@@ -211,8 +299,6 @@ def launch_installed_app(name: str, confirmed=None) -> tuple[bool, str]:
     if sys.platform != "win32":
         return False, "Запуск программ поддерживается только на Windows."
     try:
-        from luxai.windows_control import running_pids
-        was_running = bool(running_pids(query))
         if path.suffix.lower() == ".lnk":
             os.startfile(str(path))
         else:
@@ -224,18 +310,12 @@ def launch_installed_app(name: str, confirmed=None) -> tuple[bool, str]:
                 shell=False,
                 close_fds=True,
             )
-        for _ in range(9):
-            if running_pids(query):
-                return True, (
-                    f"Проверено: процесс «{name}» запущен."
-                    if not was_running else
-                    f"«{name}» уже запущен. Запрос на открытие передан Windows."
-                )
-            time.sleep(0.14)
-        # Do not suggest it opened when process observation has not succeeded.
+        if _wait_for_app_window(query):
+            return True, f"Проверено: окно «{name}» открыто, видно и активно."
+        # A background process/accepted launch request cannot prove a usable GUI.
         return False, (
             f"Запрос на запуск «{name}» отправлен, "
-            "но появление процесса пока не подтверждено."
+            "но видимое активное окно не найдено. Приложение может работать в фоне."
         )
-    except (OSError, ValueError) as error:
+    except (OSError, ValueError, ctypes.ArgumentError) as error:
         return False, f"Windows не удалось запустить «{name}»: {error}"

@@ -142,8 +142,10 @@ class VisualConsentUITests(unittest.TestCase):
             config = Path(directory) / "config.json"
             config.write_text('{"microphone_enabled": false, "tts_enabled": false}',
                               encoding="utf-8")
-            with mock.patch.object(main, "CONFIG", config), \
-                 mock.patch("sounddevice.query_devices", return_value=[]):
+            config_patch = mock.patch.object(main, "CONFIG", config)
+            config_patch.start()
+            self.addCleanup(config_patch.stop)
+            with mock.patch("sounddevice.query_devices", return_value=[]):
                 window = main.MainWindow()
             try:
                 window._processing = True

@@ -1,4 +1,4 @@
-# LuxAI Local 0.2.0 (Windows 10/11, 64-bit)
+# LuxAI Local 0.3.0 (Windows 10/11, 64-bit)
 
 Asistent vocal pentru Windows, cu recunoaștere locală și servicii AI opționale:
 - microfon pornit la lansare (poate fi oprit din interfață)
@@ -6,6 +6,18 @@ Asistent vocal pentru Windows, cu recunoaștere locală și servicii AI opționa
 - detectarea limbii automată (română/rusă/engleză, în funcție de modelul Whisper)
 - răspuns vocal local
 - captură de ecran, OCR opțional și control desktop cu confirmare
+
+## 0.3.0: sarcini adaptive și verificarea rezultatului
+
+Jarvis alege un instrument, observă rezultatul real, ajustează pasul următor și verifică dacă cererea a fost îndeplinită. **„Deschide Discord”** caută și deschide aplicația prin Windows înainte de a folosi capturi; nu cere AI cloud. Deschiderea este confirmată după găsirea unei ferestre vizibile în prim-plan, nu doar a procesului `Discord.exe`. **„Fă o captură de ecran”** salvează local în `Pictures/LuxAI`, fără cheie API.
+
+Pentru sarcini necunoscute activează AI-ul cloud configurat. El poate propune acțiuni în aplicații, analiză vizuală, cercetare și comenzi locale CMD/PowerShell. Executorul local verifică fiecare propunere. Implicit, `agent_auto_shell: true` autorizează comenzile necesare sarcinii curente fără confirmări repetate; execuția rămâne limitată, iar comenzile care modifică starea cer verificarea rezultatului prin citire. Pentru aprobare manuală la fiecare comandă din afara listei de citire, setează `agent_auto_shell: false` în `config.json`. Autorizarea vine din setarea ta, se aplică sarcinii curente și nu ocolește permisiunile Windows sau UAC. Trimiterea mesajelor Discord își păstrează confirmarea separată. Pentru capturi trimise către AI se cere acord o singură dată pe sesiune Jarvis; capturile locale nu cer acord pentru încărcare.
+
+Cererile explicite de oprire, repornire, repaus, blocare și schimbare a temei Windows folosesc operații locale dedicate. Oprirea și repornirea au un interval pentru anulare și nu forțează închiderea aplicațiilor. **Lumina de noapte** deschide pagina corespunzătoare din Setări Windows; Jarvis nu pretinde că a activat filtrul. Pentru **„modul de noapte”** întreabă dacă dorești tema întunecată, Lumina de noapte sau repaus.
+
+Pașii, răspunsurile la întrebări și procedurile cu rezultat verificat se păstrează local în `.luxai_data/agent_memory.json`. Procedura reținută ajută la următoarea cerere, dar rezultatul se verifică din nou. Aprobările CMD, comenzile brute, capturile și înregistrările nu devin proceduri reutilizabile. Dacă un clic s-a executat, dar efectul nu poate fi confirmat, Jarvis anunță acest lucru și nu repetă automat clicul.
+
+Închide Jarvis înainte de actualizare. `Update.bat` descarcă branch-ul `main`; modificările aflate doar într-un branch sau PR ajung în actualizator după integrare. Detaliile sunt în [CHANGELOG.md](CHANGELOG.md).
 
 ## Important
 Recunoașterea Whisper, sinteza Piper și OCR rulează local după descărcarea componentelor necesare. Modelul GGUF pentru conversații este opțional; comenzile rapide nu îl cer. Dacă activezi AI cloud, cererile sunt trimise furnizorului ales și pot consuma cotă. Descărcările inițiale și vremea folosesc internetul. Testul de microfon nu salvează și nu trimite înregistrări.

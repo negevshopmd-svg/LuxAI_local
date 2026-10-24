@@ -108,10 +108,11 @@ def _focus_notepad_window() -> int:
         raise OSError("Notepad workflow is Windows-only")
     import psutil
     from luxai.screen_interact import _foreground_hwnd, _valid_external_window
-    user32 = ctypes.windll.user32
+    from luxai.win32 import WNDENUMPROC, get_user32, hwnd_value
+    user32 = get_user32()
     windows = []
 
-    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    @WNDENUMPROC
     def collect(hwnd, _extra):
         if not user32.IsWindowVisible(hwnd) or user32.GetWindow(hwnd, 4):
             return True
@@ -122,7 +123,7 @@ def _focus_notepad_window() -> int:
         except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
             return True
         if name == "notepad.exe":
-            windows.append(int(hwnd))
+            windows.append(hwnd_value(hwnd))
         return True
 
     user32.EnumWindows(collect, 0)

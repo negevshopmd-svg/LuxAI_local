@@ -48,13 +48,16 @@ class CloudExecutionTests(unittest.TestCase):
                 with mock.patch("luxai.windows_apps.sys.platform", "win32"):
                     with mock.patch("luxai.windows_apps.subprocess.Popen") as popen, mock.patch(
                         "luxai.windows_control.running_pids", return_value={12345},
+                    ), mock.patch(
+                        "luxai.windows_apps._wait_for_app_window", return_value=42,
                     ):
                         denied, result = launch_installed_app("firefox", lambda _: False)
                         self.assertFalse(denied)
                         popen.assert_not_called()
                         allowed, result = launch_installed_app("firefox", lambda _: True)
                         self.assertTrue(allowed)
-                        self.assertIn("запущен", result)
+                        self.assertIn("окно", result)
+                        self.assertIn("активно", result)
                         popen.assert_called_once()
                         self.assertEqual(popen.call_args.args[0], [str(program)])
                         self.assertFalse(popen.call_args.kwargs["shell"])

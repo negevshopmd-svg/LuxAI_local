@@ -14,6 +14,8 @@ import time
 
 import re
 
+from luxai.win32 import WNDENUMPROC, get_user32, hwnd_value
+
 
 def is_background_window_correction(text: str) -> bool:
     """A follow-up saying a process exists but the GUI was never opened."""
@@ -39,7 +41,7 @@ DISCORD_NAMES = frozenset({"discord.exe", "discordptb.exe", "discordcanary.exe"}
 
 
 def _user32():
-    return ctypes.windll.user32
+    return get_user32()
 
 
 def _discord_candidates() -> list[int]:
@@ -48,9 +50,7 @@ def _discord_candidates() -> list[int]:
     import psutil
     user32 = _user32()
     found = []
-    callback = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
-
-    @callback
+    @WNDENUMPROC
     def collect(hwnd, _):
         if user32.GetWindow(hwnd, 4):  # GW_OWNER; exclude floating owned popups
             return True
@@ -66,10 +66,10 @@ def _discord_candidates() -> list[int]:
         user32.GetWindowTextW(hwnd, title, len(title))
         if "discord" not in title.value.casefold():
             return True
-        found.append(int(hwnd))
+        found.append(hwnd_value(hwnd))
         return True
 
-    user32.EnumWindows(callback, 0)
+    user32.EnumWindows(collect, 0)
     return found
 
 

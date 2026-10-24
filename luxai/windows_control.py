@@ -13,6 +13,7 @@ import sys
 import time
 
 from luxai.windows_apps import normalized_name, EXEC_NAMES
+from luxai.win32 import WNDENUMPROC, get_user32, hwnd_value
 
 # Windows Code.exe has no meaningful relation to the OS "code" directory.
 # Only these exact process executable names can be acted on.
@@ -36,7 +37,7 @@ NEVER_CLOSE = {
 # process identity. We can learn its exact binary from a path found locally.
 
 
-def process_names_for_app(name: str) -> set[str]:
+def process_names_for_app(name: str, *, for_discovery=False) -> set[str]:
     query = normalized_name(name)
     names = KNOWN_PROCESSES.get(query, ())
     if not names:
@@ -44,11 +45,11 @@ def process_names_for_app(name: str) -> set[str]:
         discovered = resolve_installed_app(query)
         if discovered is not None and discovered.suffix.casefold() == ".exe":
             names = (discovered.name.casefold(),)
-    return set(names) - NEVER_CLOSE
+    return set(names) if for_discovery else set(names) - NEVER_CLOSE
 
 
-def running_pids(name: str) -> set[int]:
-    names = process_names_for_app(name)
+def running_pids(name: str, *, for_discovery=False) -> set[int]:
+    names = process_names_for_app(name, for_discovery=for_discovery)
     if not names:
         return set()
     try:
@@ -70,25 +71,16 @@ def _visible_app_windows(pids: set[int]) -> list[int]:
         return []
     from ctypes import wintypes
 
-    user32 = ctypes.windll.user32
-    callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
-    user32.EnumWindows.argtypes = (callback_type, wintypes.LPARAM)
-    user32.EnumWindows.restype = wintypes.BOOL
-    user32.IsWindowVisible.argtypes = (wintypes.HWND,)
-    user32.IsWindowVisible.restype = wintypes.BOOL
-    user32.GetWindowThreadProcessId.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.DWORD))
-    user32.GetWindowThreadProcessId.restype = wintypes.DWORD
-    user32.GetWindowTextLengthW.argtypes = (wintypes.HWND,)
-    user32.GetWindowTextLengthW.restype = ctypes.c_int
+    user32 = get_user32()
     windows: list[int] = []
 
-    @callback_type
+    @WNDENUMPROC
     def collect(hwnd, _):
         if user32.IsWindowVisible(hwnd) and user32.GetWindowTextLengthW(hwnd) > 0:
             pid = wintypes.DWORD()
             user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
             if pid.value in pids:
-                windows.append(int(hwnd))
+                windows.append(hwnd_value(hwnd))
         return True
 
     user32.EnumWindows(collect, 0)
@@ -124,11 +116,7 @@ def close_installed_app(name: str, confirmed=None) -> tuple[bool, str]:
         return False, "Действие отменено."
 
     from ctypes import wintypes
-    user32 = ctypes.windll.user32
-    user32.PostMessageW.argtypes = (
-        wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM
-    )
-    user32.PostMessageW.restype = wintypes.BOOL
+    user32 = get_user32()
     sent = 0
     for hwnd in windows:
         if user32.PostMessageW(hwnd, 0x0010, 0, 0):  # WM_CLOSE

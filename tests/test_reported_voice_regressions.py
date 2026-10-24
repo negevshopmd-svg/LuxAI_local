@@ -97,10 +97,10 @@ class RealSpeechRegressionTests(unittest.TestCase):
                 '{"microphone_enabled":false,"tts_enabled":false,'
                 '"online_agent_enabled":false}', encoding="utf-8",
             )
-            with (
-                mock.patch.object(main, "CONFIG", file),
-                mock.patch("sounddevice.query_devices", return_value=[]),
-            ):
+            config_patch = mock.patch.object(main, "CONFIG", file)
+            config_patch.start()
+            self.addCleanup(config_patch.stop)
+            with mock.patch("sounddevice.query_devices", return_value=[]):
                 window = main.MainWindow()
             try:
                 window.command_registry.match = mock.Mock(return_value={

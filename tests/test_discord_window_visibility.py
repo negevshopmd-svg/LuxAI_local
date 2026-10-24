@@ -241,10 +241,10 @@ class SpokenIntentTests(unittest.TestCase):
                 '{"microphone_enabled":false,"tts_enabled":false,'
                 '"online_agent_enabled":false}', encoding="utf-8"
             )
-            with (
-                mock.patch.object(main, "CONFIG", path),
-                mock.patch("sounddevice.query_devices", return_value=[]),
-            ):
+            config_patch = mock.patch.object(main, "CONFIG", path)
+            config_patch.start()
+            self.addCleanup(config_patch.stop)
+            with mock.patch("sounddevice.query_devices", return_value=[]):
                 window = main.MainWindow()
             try:
                 window._last_visual_goal = SEND_REQUEST
