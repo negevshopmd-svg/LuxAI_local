@@ -12,6 +12,29 @@ import os
 import sys
 import time
 
+import re
+
+
+def is_background_window_correction(text: str) -> bool:
+    """A follow-up saying a process exists but the GUI was never opened."""
+    phrase = " ".join(str(text or "").casefold().split())
+    return bool(
+        len(phrase) <= 220
+        and re.search(
+            r"(?:запущ\w*|работа\w*|процесс|фон\w*|already running|"
+            r"background|ruleaz|fundal)",
+            phrase,
+        )
+        and re.search(r"(?:окн\w*|window|fereastr\w*)", phrase)
+        and re.search(
+            r"(?:не\s+откр\w*|не\s+видн\w*|не\s+появ\w*|"
+            r"не\s+актив\w*|not\s+open|not\s+visible|"
+            r"nu\s+(?:e|este)\s+deschis|не\s+на\s+экране)",
+            phrase,
+        )
+    )
+
+
 DISCORD_NAMES = frozenset({"discord.exe", "discordptb.exe", "discordcanary.exe"})
 
 
