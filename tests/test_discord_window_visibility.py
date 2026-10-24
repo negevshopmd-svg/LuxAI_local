@@ -41,6 +41,7 @@ class FakeWindows:
 
     def IsWindow(self, hwnd): return bool(hwnd == 42)
     def IsWindowVisible(self, hwnd): return self.visible
+    def IsIconic(self, hwnd): return self.minimized
     def ShowWindow(self, hwnd, how):
         self.show_calls.append(int(how))
         self.visible = True
@@ -94,6 +95,12 @@ class WindowRestorationTests(unittest.TestCase):
         self.assertIn(5, fake.show_calls)
         self.assertIn(9, fake.show_calls)
         self.assertEqual(fake.foreground, 42)
+
+    def test_second_open_does_not_unmaximize_or_move_visible_discord(self):
+        fake = FakeWindows()
+        self.assertEqual(self._focus(fake), 42)
+        self.assertNotIn(9, fake.show_calls)
+        self.assertFalse(fake.moves)
 
     def test_offscreen_window_is_moved_to_visible_virtual_desktop(self):
         fake = FakeWindows(offscreen=True)
