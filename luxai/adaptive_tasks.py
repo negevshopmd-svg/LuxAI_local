@@ -97,11 +97,14 @@ def run_safe_diagnostic(value: str) -> str:
     if sys.platform != "win32":
         raise OSError("Local Windows diagnostics require Windows")
     argv = _validate_diagnostic(value)
-    result = subprocess.run(
-        argv, capture_output=True, text=True, errors="replace",
-        timeout=14, shell=False,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-    )
+    try:
+        result = subprocess.run(
+            argv, capture_output=True, text=True, errors="replace",
+            timeout=14, shell=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("Windows diagnostic timed out; no command was retried") from exc
     output = (result.stdout or result.stderr or "").strip()
     return (
         f"Windows diagnostic [{argv[0]}], exit {result.returncode}: "
