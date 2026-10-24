@@ -47,6 +47,8 @@ def _discord_candidates() -> list[int]:
         raise OSError("Discord window discovery requires Windows")
     import psutil
     user32 = _user32()
+    user32.GetWindow.argtypes = [wintypes.HWND, ctypes.c_uint]
+    user32.GetWindow.restype = wintypes.HWND
     found = []
     callback = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
 
