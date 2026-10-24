@@ -1912,7 +1912,8 @@ class MainWindow(QMainWindow):
             # richer visual user goal that also requested actual UI work.
             # Manually created custom commands continue to take precedence.
             if saved is not None and not (
-                is_visual_goal(text) and saved.get("learned", False)
+                (is_visual_goal(text) or is_discord_message_request(text))
+                and saved.get("learned", False)
             ):
                 self._execute_registered(text, saved)
                 return
@@ -1933,10 +1934,8 @@ class MainWindow(QMainWindow):
             # retain their stronger safeguards, including send confirmation.
             # DMs and other external-effect instructions must use the
             # atomic/confirmed tools, not general screenshot mouse clicks.
-            discord_message = bool(
-                re.search(r"(?:дискорд|discord)", text, re.I)
-                and re.search(r"(?:отправ|напиши|пиши|сообщени|send|enter)", text, re.I)
-            )
+            from luxai.macro_planner import is_discord_message_request
+            discord_message = is_discord_message_request(text)
             if is_visual_goal(text) and not (
                 discord_message
                 or detect_research_dm_request(text)
