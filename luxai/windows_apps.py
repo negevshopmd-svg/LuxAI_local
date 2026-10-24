@@ -181,6 +181,11 @@ def launch_installed_app(name: str, confirmed=None) -> tuple[bool, str]:
     """
     import time
     query = normalized_name(name)
+    if query == "discord" and sys.platform == "win32":
+        # Discord may run only in the tray. Never report "opened" merely
+        # because its process exists or Windows accepted the URI request.
+        from luxai.discord_window_state import launch_or_activate_discord
+        return launch_or_activate_discord(confirmed=confirmed)
     path = resolve_installed_app(query)
     if path is None:
         known_protocols = {
