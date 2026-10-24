@@ -2899,7 +2899,13 @@ class MainWindow(QMainWindow):
             return
         self._adaptive_last_choice = choice
         if choice.mode == "answer":
-            self._start_local_chat(text)
+            # General factual reasoning still uses the user's cloud model,
+            # not a canned local refusal about mouse-control permissions.
+            history = tuple(dict(msg) for msg in self.agent.history[-4:])
+            threading.Thread(
+                target=self._online_thread, args=(text, history),
+                daemon=True, name="JarvisCloudConversation",
+            ).start()
             return
         if choice.mode == "visual":
             self._start_visual_reasoner(text)
