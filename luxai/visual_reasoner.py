@@ -331,10 +331,20 @@ def run_visual_reasoner(planner, goal: str, *, feedback="", preferred_hwnd=0,
         check()
         capture = capture_window(hwnd)
         check()
-        decision = _choose(
-            planner, goal, capture, previous=previous, history=history,
-            feedback=feedback, observation_index=observations,
-        )
+        try:
+            decision = _choose(
+                planner, goal, capture, previous=previous, history=history,
+                feedback=feedback, observation_index=observations,
+            )
+        except (ValueError, RuntimeError) as exc:
+            if actions:
+                return (
+                    f"Выполнил {actions} визуальных действий, но AI не смог "
+                    "проверить конечный результат по новому снимку. "
+                    "Не повторял клики вслепую. " +
+                    f"Диагностика: {type(exc).__name__}: {str(exc)[:120]}"
+                )
+            raise
         observations += 1
         action = decision["action"]
         reason = str(decision.get("reason", "")).strip()[:160]
