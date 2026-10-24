@@ -149,11 +149,13 @@ class ReviewWorkflowTests(unittest.TestCase):
                        return_value=55) as ensure,
             mock.patch("luxai.discord_screen_review.focus_discord") as focus,
             mock.patch("luxai.visual_click.capture_window",
-                       side_effect=[first, search, last]) as capture,
+                       side_effect=[first, last]) as capture,
             mock.patch("luxai.discord_screen_review._save_capture",
                        side_effect=[Path("first.jpg"), Path("second.jpg")]) as save,
             mock.patch("luxai.discord_screen_review._type_not_real", create=True),
             mock.patch("luxai.desktop_actions._type_unicode_windows") as write,
+            mock.patch("luxai.discord_search_guard.verified_discord_search",
+                       return_value=search) as guarded,
             mock.patch("luxai.visual_click.find_visual_target",
                        side_effect=[(210, 100), (340, 75)]) as locate,
             mock.patch("luxai.visual_click.click_visual_target") as click,
@@ -164,11 +166,13 @@ class ReviewWorkflowTests(unittest.TestCase):
             answer = run_discord_screen_review(planner, "октавиан")
         ensure.assert_called_once()
         focus.assert_called_once_with(55)
-        self.assertEqual(capture.call_count, 3)
+        self.assertEqual(capture.call_count, 2)
         self.assertEqual(save.call_args_list[0].args, (first, "before"))
         self.assertEqual(save.call_args_list[1].args, (last, "after"))
-        gui.hotkey.assert_called_once_with("ctrl", "k", interval=0.07)
-        write.assert_called_once_with("@октавиан")
+        gui.hotkey.assert_not_called()
+        guarded.assert_called_once()
+        self.assertEqual(guarded.call_args.args[:3], (planner, 55, "@октавиан"))
+        write.assert_not_called()
         self.assertEqual(locate.call_count, 2)
         self.assertIn("exact Discord username OR display name 'октавиан'", locate.call_args_list[0].args[1])
         self.assertIn("searched user 'октавиан'", locate.call_args_list[1].args[1])
@@ -189,6 +193,8 @@ class ReviewWorkflowTests(unittest.TestCase):
             mock.patch("luxai.visual_click.capture_window", return_value=capture),
             mock.patch("luxai.discord_screen_review._save_capture", return_value=Path("file.jpg")),
             mock.patch("luxai.desktop_actions._type_unicode_windows") as write,
+            mock.patch("luxai.discord_search_guard.verified_discord_search",
+                       return_value=capture) as guarded,
             mock.patch("luxai.visual_click.find_visual_target", return_value=(300, 120)) as find,
             mock.patch("luxai.visual_click.click_visual_target") as click,
             mock.patch("luxai.discord_screen_review.summarize_discord_capture",
@@ -196,7 +202,9 @@ class ReviewWorkflowTests(unittest.TestCase):
             mock.patch("luxai.discord_screen_review.time.sleep"),
         ):
             result = run_discord_screen_review(planner, "Старый Бог")
-        write.assert_called_once_with("@Старый Бог")
+        write.assert_not_called()
+        guarded.assert_called_once()
+        self.assertEqual(guarded.call_args.args[2], "@Старый Бог")
         self.assertIn("Старый Бог", find.call_args_list[0].args[1])
         self.assertIn("Старый Бог", find.call_args_list[1].args[1])
         click.assert_called_once()
@@ -216,6 +224,8 @@ class ReviewWorkflowTests(unittest.TestCase):
             mock.patch("luxai.discord_screen_review._save_capture",
                        return_value=Path("first.jpg")) as save,
             mock.patch("luxai.desktop_actions._type_unicode_windows") as type_unicode,
+            mock.patch("luxai.discord_search_guard.verified_discord_search",
+                       return_value=mock.Mock(hwnd=55)) as guarded,
             mock.patch("luxai.visual_click.find_visual_target",
                        side_effect=ValueError("Control not found unambiguously")),
             mock.patch("luxai.visual_click.click_visual_target") as click,
@@ -224,9 +234,10 @@ class ReviewWorkflowTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(ValueError, "unambiguously"):
                 run_discord_screen_review(planner, "октавиан")
-        self.assertEqual(capture.call_count, 2)
+        self.assertEqual(capture.call_count, 1)
         save.assert_called_once()
-        type_unicode.assert_called_once_with("@октавиан")
+        type_unicode.assert_not_called()
+        guarded.assert_called_once()
         click.assert_not_called()
         summarize.assert_not_called()
         gui.press.assert_not_called()
