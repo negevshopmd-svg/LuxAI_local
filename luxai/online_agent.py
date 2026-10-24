@@ -244,9 +244,38 @@ class OnlinePlanner:
         if not isinstance(text, str):
             raise ValueError("Empty provider response")
         text = text.strip()
+        if len(text) > 30000:
+            raise ValueError("Provider JSON exceeds size limit")
         if text.startswith("```"):
             text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.IGNORECASE)
-        return json.loads(text)
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            # Some models return a sentence followed by a valid JSON object.
+            # Extract a balanced JSON object rather than treating the entire
+            # provider response as a strict JSON-only payload.
+            start = text.find("{")
+            if start < 0:
+                raise ValueError("AI не вернул объект JSON для действия")
+            try:
+                value, _ = json.JSONDecoder().raw_decode(text[start:])
+                if isinstance(value, dict):
+                    return value
+            except json.JSONDecodeError:
+                pass
+            # Small harmless model-formatting mistake: keys like
+            # {action:"click"} or {verified:true}; values stay JSON parsed.
+            candidate = re.sub(
+                r'(?<=[{,])\s*([A-Za-z_][A-Za-z_0-9]{0,40})\s*:',
+                lambda match: '"' + match.group(1) + '":', text[start:],
+            )
+            try:
+                value, _ = json.JSONDecoder().raw_decode(candidate)
+                if isinstance(value, dict):
+                    return value
+            except json.JSONDecodeError:
+                pass
+            raise ValueError("AI вернул некорректный JSON; действие не выполнено")
 
     @staticmethod
     def _extract_text(response, provider):

@@ -47,8 +47,18 @@ def _discord_candidates() -> list[int]:
         raise OSError("Discord window discovery requires Windows")
     import psutil
     user32 = _user32()
+    user32.GetWindow.argtypes = [wintypes.HWND, ctypes.c_uint]
+    user32.GetWindow.restype = wintypes.HWND
+    user32.GetWindowThreadProcessId.argtypes = [
+        wintypes.HWND, ctypes.POINTER(wintypes.DWORD),
+    ]
+    user32.GetWindowTextW.argtypes = [
+        wintypes.HWND, wintypes.LPWSTR, ctypes.c_int,
+    ]
     found = []
     callback = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    user32.EnumWindows.argtypes = [callback, wintypes.LPARAM]
+    user32.EnumWindows.restype = wintypes.BOOL
 
     @callback
     def collect(hwnd, _):
@@ -119,6 +129,20 @@ def focus_discord(hwnd: int) -> int:
     from luxai.screen_interact import _foreground_hwnd, _window_pid, _window_title
 
     user32 = _user32()
+    for func in ('IsWindow', 'IsWindowVisible', 'IsIconic', 'SetForegroundWindow', 'BringWindowToTop'):
+        native = getattr(user32, func, None)
+        if native is not None:
+            try:
+                native.argtypes = [wintypes.HWND]
+            except (AttributeError, TypeError):
+                pass
+    for name in ("ShowWindow", "ShowWindowAsync"):
+        fn = getattr(user32, name, None)
+        if fn is not None:
+            try:
+                fn.argtypes = [wintypes.HWND, ctypes.c_int]
+            except (AttributeError, TypeError):
+                pass
     if not hwnd or not user32.IsWindow(hwnd):
         raise ValueError("Окно Discord было закрыто.")
     pid = _window_pid(hwnd)

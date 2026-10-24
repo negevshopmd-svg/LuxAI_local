@@ -32,13 +32,15 @@ _DANGER = re.compile(
 )
 _VISUAL_VERBS = re.compile(
     r"(?:наж|клик|щёлк|щелк|тыкн|попад|навед|прокрут|"
-    r"выбер|переключ|откр|зайд|найд|покаж|сдела.{0,10}сним|"
+    r"выбер|переключ|включ|выключ|постав|измен|установ|"
+    r"откр|зайд|найд|покаж|сдела.{0,10}сним|"
     r"click|press|tap|select|scroll|open|navigate|"
     r"apas|alege|deschide|clic)",
     re.I,
 )
 _DESKTOP_NOUNS = re.compile(
     r"(?:дискорд|discord|окно|экран|кнопк|меню|иконк|значок|"
+    r"корзин|ярлык|ночн|цвет|режим|параметр|настройк|рабоч.*стол|"
     r"приложени|чат|переписк|пользовател|поле|вкладк|"
     r"window|screen|button|menu|app|desktop|tab|"
     r"steam|стим|калькулятор|calculator|notepad|блокнот|"
@@ -151,14 +153,32 @@ def _choose(planner, goal: str, current, *, previous=None,
                 {"type": "text", "text": question + "\nCURRENT SCREENSHOT follows."},
                 messages[1]["content"][-1],
             ]
-    result = planner._request(
-        provider, model, key, messages,
-        min(85, max(25, int(planner.config.get("online_timeout", 60)))),
-        max_tokens=280,
-    )
-    answer = planner._read_json_content(planner._extract_text(result, provider))
+    answer = None
+    for attempt in range(2):
+        result = planner._request(
+            provider, model, key, messages,
+            min(85, max(25, int(planner.config.get("online_timeout", 60)))),
+            max_tokens=320,
+        )
+        try:
+            answer = planner._read_json_content(
+                planner._extract_text(result, provider)
+            )
+            if isinstance(answer, dict) and answer.get("action") in {
+                "click", "scroll", "open_discord", "search_discord",
+                "observe", "done", "stop",
+            }:
+                break
+        except (ValueError, TypeError):
+            pass
+        if attempt == 0:
+            messages.append({
+                "role": "user",
+                "content": 'Return ONLY one JSON object with double-quoted property '
+                           'names and a supported action. No markdown, prose or code.',
+            })
     if not isinstance(answer, dict):
-        raise ValueError("Visual agent returned no valid decision")
+        raise ValueError("Визуальный AI не вернул понятного действия даже после повторного запроса")
     action = answer.get("action")
     if action not in {
         "click", "scroll", "open_discord", "search_discord",
@@ -205,7 +225,10 @@ def _verify_goal(planner, goal: str, capture) -> bool:
         min(85, max(25, int(planner.config.get("online_timeout", 60)))),
         max_tokens=80,
     )
-    parsed = planner._read_json_content(planner._extract_text(response, provider))
+    try:
+        parsed = planner._read_json_content(planner._extract_text(response, provider))
+    except (ValueError, TypeError):
+        return False
     if not isinstance(parsed, dict) or type(parsed.get("verified")) is not bool:
         return False
     return parsed["verified"] is True
@@ -220,6 +243,49 @@ def _select_window(goal: str, *, preferred_hwnd=0, cancelled=None):
         focus_discord(hwnd)
         return hwnd
     hwnd = _foreground_hwnd()
+    # Visual tasks must use the actual requested application's window,
+    # not Jarvis or an unrelated foreground app.
+    app_names = {
+        "steam": ("steam", "стим"),
+        "chrome": ("chrome", "хром"),
+        "calculator": ("calculator", "калькулятор"),
+        "telegram": ("telegram", "телеграм"),
+        "notepad": ("notepad", "блокнот"),
+        "settings": ("ночн", "night light", "параметры windows", "настройки windows"),
+    }
+    for app, aliases in app_names.items():
+        if any(alias in goal.casefold() for alias in aliases):
+            from luxai.windows_control import running_pids, _visible_app_windows
+            pids = running_pids(app)
+            if app in {"steam", "calculator", "settings"}:
+                import psutil
+                others = {
+                    "steam": {"steamwebhelper.exe"},
+                    "calculator": {"calculatorapp.exe"},
+                    "settings": {"systemsettings.exe"},
+                }[app]
+                for process in psutil.process_iter(["pid", "name"]):
+                    try:
+                        if str(process.info.get("name", "")).casefold() in others:
+                            pids.add(int(process.pid))
+                    except (psutil.Error, ValueError, TypeError):
+                        continue
+            candidates = _visible_app_windows(pids)
+            if hwnd in candidates:
+                return hwnd
+            if len(candidates) == 1:
+                import ctypes
+                from ctypes import wintypes
+                chosen = candidates[0]
+                ctypes.windll.user32.SetForegroundWindow(wintypes.HWND(chosen))
+                time.sleep(0.22)
+                if _foreground_hwnd() == chosen:
+                    _valid_external_window(chosen)
+                    return chosen
+            raise ValueError(
+                "Не удалось подтвердить активное окно " + app +
+                ". Откройте нужную программу."
+            )
     try:
         _valid_external_window(hwnd)
         return hwnd
@@ -267,10 +333,20 @@ def run_visual_reasoner(planner, goal: str, *, feedback="", preferred_hwnd=0,
         check()
         capture = capture_window(hwnd)
         check()
-        decision = _choose(
-            planner, goal, capture, previous=previous, history=history,
-            feedback=feedback, observation_index=observations,
-        )
+        try:
+            decision = _choose(
+                planner, goal, capture, previous=previous, history=history,
+                feedback=feedback, observation_index=observations,
+            )
+        except (ValueError, RuntimeError) as exc:
+            if actions:
+                return (
+                    f"Выполнил {actions} визуальных действий, но AI не смог "
+                    "проверить конечный результат по новому снимку. "
+                    "Не повторял клики вслепую. " +
+                    f"Диагностика: {type(exc).__name__}: {str(exc)[:120]}"
+                )
+            raise
         observations += 1
         action = decision["action"]
         reason = str(decision.get("reason", "")).strip()[:160]
