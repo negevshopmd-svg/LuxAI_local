@@ -1881,6 +1881,7 @@ class MainWindow(QMainWindow):
                 return
 
             saved = self.command_registry.match(text, prefix)
+            from luxai.macro_planner import is_discord_message_request
             from luxai.visual_reasoner import is_visual_goal
             feedback = self._command_queue[0].get("visual_feedback", "")
             if is_visual_goal(text):
@@ -1952,7 +1953,6 @@ class MainWindow(QMainWindow):
             # retain their stronger safeguards, including send confirmation.
             # DMs and other external-effect instructions must use the
             # atomic/confirmed tools, not general screenshot mouse clicks.
-            from luxai.macro_planner import is_discord_message_request
             discord_message = is_discord_message_request(text)
             if is_visual_goal(text) and not (
                 discord_message
