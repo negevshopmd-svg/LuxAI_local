@@ -134,6 +134,13 @@ def focus_discord(hwnd: int) -> int:
                 native.argtypes = [wintypes.HWND]
             except (AttributeError, TypeError):
                 pass
+    for name in ("ShowWindow", "ShowWindowAsync"):
+        fn = getattr(user32, name, None)
+        if fn is not None:
+            try:
+                fn.argtypes = [wintypes.HWND, ctypes.c_int]
+            except (AttributeError, TypeError):
+                pass
     if not hwnd or not user32.IsWindow(hwnd):
         raise ValueError("Окно Discord было закрыто.")
     pid = _window_pid(hwnd)
