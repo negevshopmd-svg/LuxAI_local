@@ -135,7 +135,7 @@ def _choose(planner, goal: str, current, *, previous=None,
     )
     notes = "; ".join(str(x)[:190] for x in history[-5:]) or "no previous action"
     question = (
-        f"USER GOAL: {goal[:550]}\n"
+        f"USER GOAL: {goal}\n"
         f"USER CORRECTION: {feedback[:180] if feedback else 'none'}\n"
         f"ATTEMPT {observation_index+1}/{MAX_OBSERVATIONS}\n"
         f"PREVIOUS OBSERVATIONS/ACTIONS: {notes}\n"
@@ -193,7 +193,7 @@ def _verify_goal(planner, goal: str, capture) -> bool:
     if provider not in SUPPORTED_VISUAL_PROVIDERS or not planner.enabled():
         raise RuntimeError("Visual verification provider unavailable")
     messages = multimodal_messages(
-        "User's original goal: " + goal[:500] +
+        "User's original goal: " + goal +
         "\\nCheck CURRENT SCREENSHOT ONLY. Does it clearly prove "
         "the intended result is ALREADY achieved? A clicked button or an "
         "open app alone does NOT prove success. For an intended Discord "
@@ -386,7 +386,9 @@ def _run_visual_reasoner(planner, goal: str, *, feedback, preferred_hwnd,
     """One bounded interactive session with fresh post-action observations."""
     if sys.platform != "win32":
         raise OSError("Визуальный агент работает только на Windows")
-    if not isinstance(goal, str) or not 8 <= len(goal) <= 2000:
+    # A trusted adaptive task may include its bounded clarification answers.
+    # The entire goal must reach both models, especially its final clauses.
+    if not isinstance(goal, str) or not 8 <= len(goal) <= (10000 if validated_goal else 2000):
         raise ValueError("Не указан проверяемый визуальный результат")
     if not validated_goal and not is_visual_goal(goal):
         raise ValueError("Не указан проверяемый визуальный результат")

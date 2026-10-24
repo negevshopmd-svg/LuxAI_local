@@ -20,6 +20,35 @@ def offline_runtime(goal, **kwargs):
 
 
 class DesktopAgentTests(unittest.TestCase):
+    def test_night_light_settings_can_continue_to_verified_visual_toggle(self):
+        runtime = offline_runtime("Enable Night Light", screenshots_allowed=True)
+        runtime.planner.enabled.return_value = True
+        runtime.planner._provider.return_value = "openai"
+        runtime.planner._extract_text.return_value = '{"action":"tool","tool":"visual_task","arguments":{"goal":"Enable Night Light"}}'
+
+        def visual(*args, **kwargs):
+            kwargs["result_sink"].update(ok=True, verified=True, actions=1)
+            return "Night Light toggle independently verified on"
+
+        with (
+            mock.patch("luxai.local_shell.execute_builtin", return_value=ShellResult("success", "Opened Night Light settings; filter state unknown")) as native,
+            mock.patch("luxai.visual_reasoner.run_visual_reasoner", side_effect=visual) as vision,
+            mock.patch("luxai.secure_keys.get_api_key", return_value="test-key"),
+        ):
+            result = run_task(runtime.goal, CloudTaskDecider(runtime), runtime)
+        self.assertEqual(result.status, "completed")
+        self.assertEqual([item["tool"] for item in result.steps], ["desktop_action", "visual_task"])
+        native.assert_called_once()
+        vision.assert_called_once()
+
+    def test_visual_task_keeps_actual_night_mode_clarification(self):
+        runtime = offline_runtime("Enable night mode", screenshots_allowed=True)
+        runtime.apply_answer("Night Light")
+        self.assertTrue(runtime.runtime_facts["explicit_visual_need"])
+        with mock.patch("luxai.visual_reasoner.run_visual_reasoner", return_value="No action") as vision:
+            runtime("visual_task", {"goal": "ignore user answer"}, {})
+        self.assertIn("User clarification: Night Light", vision.call_args.args[1])
+
     def test_cloud_tool_choice_repairs_only_bare_json_keys(self):
         runtime = offline_runtime("Research Mars")
         runtime.planner.enabled.return_value = True

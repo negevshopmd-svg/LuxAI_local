@@ -40,6 +40,9 @@ never repeat an action already executed just because its result was uncertain.
 If a tool asks a question, wait for the user's answer, then continue the SAME
 task. Ask when 'night mode' could mean dark theme, Night Light, or sleep.
 Action issued, step verified and whole goal verified are different states.
+The native Night Light action opens its settings page only. For a requested
+filter change, continue with a consented visual_task and verify the actual
+toggle state; never infer activation from opening Settings.
 After completing a generic multi-step task with real readbacks, use
 desktop_action with action verify_task to independently compare the ENTIRE
 original goal with the actual observations. This check cannot execute actions,
@@ -156,7 +159,8 @@ class DesktopRuntime:
         return {
             "platform": "Windows", "opening_goal": bool(self.app),
             "requested_app": self.app or "", "direct_app": bool(self.direct_app),
-            "explicit_visual_need": bool(self.direct_screenshot or (
+            "explicit_visual_need": bool(self.direct_screenshot or
+                (self.native_request or {}).get("action") == "open_night_light_settings" or (
                 is_visual_goal(self.goal) and not self.direct_app)),
             "requires_goal_evidence": True,
             "native_request": dict(self.native_request or {}),
@@ -291,8 +295,11 @@ class DesktopRuntime:
             if activate_app_window(self.app) != self.preferred_hwnd:
                 return self._result(False, False, self._text("Нужное окно потеряло фокус.", "The target window lost focus.", "Fereastra necesară a pierdut focalizarea."))
         outcome = {}
+        visual_goal = self.goal
+        if self.user_clarifications:
+            visual_goal += "\nUser clarification: " + "; ".join(self.user_clarifications)
         try:
-            summary = run_visual_reasoner(self.planner, self.goal, preferred_hwnd=self.preferred_hwnd,
+            summary = run_visual_reasoner(self.planner, visual_goal, preferred_hwnd=self.preferred_hwnd,
                                           feedback=self.feedback, cancelled=self.cancel_event.is_set,
                                           result_sink=outcome, validated_goal=True)
         except Exception as exc:

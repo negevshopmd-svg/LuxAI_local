@@ -19,6 +19,19 @@ GOAL = "Жарвис, зайди в Discord и нажми на микрофон.
 
 
 class ReasoningUnitTests(unittest.TestCase):
+    def test_completion_verifier_receives_goal_clauses_after_500_characters(self):
+        from luxai.visual_reasoner import _verify_goal
+        goal = "Inspect these controls: " + "visible label " * 45 + " and enable Night Light"
+        planner = mock.Mock(config={})
+        planner._provider.return_value = "openai"
+        planner._read_json_content.return_value = {"verified": True}
+        with (
+            mock.patch("luxai.visual_reasoner.multimodal_messages", return_value=[{}, {}]) as pack,
+            mock.patch("luxai.secure_keys.get_api_key", return_value="test-key"),
+        ):
+            self.assertTrue(_verify_goal(planner, goal, mock.Mock()))
+        self.assertIn(goal, pack.call_args.args[0])
+
     def test_click_goal_binds_explicit_app_instead_of_stale_preferred_handle(self):
         from luxai.visual_reasoner import _select_window
         with (
