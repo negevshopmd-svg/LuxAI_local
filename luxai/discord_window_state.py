@@ -57,6 +57,8 @@ def _discord_candidates() -> list[int]:
     ]
     found = []
     callback = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    user32.EnumWindows.argtypes = [callback, wintypes.LPARAM]
+    user32.EnumWindows.restype = wintypes.BOOL
 
     @callback
     def collect(hwnd, _):
