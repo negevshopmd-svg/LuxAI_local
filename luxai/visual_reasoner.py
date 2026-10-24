@@ -255,7 +255,20 @@ def _select_window(goal: str, *, preferred_hwnd=0, cancelled=None):
     for app, aliases in app_names.items():
         if any(alias in goal.casefold() for alias in aliases):
             from luxai.windows_control import running_pids, _visible_app_windows
-            candidates = _visible_app_windows(running_pids(app))
+            pids = running_pids(app)
+            if app in {"steam", "calculator"}:
+                import psutil
+                others = {
+                    "steam": {"steamwebhelper.exe"},
+                    "calculator": {"calculatorapp.exe"},
+                }[app]
+                for process in psutil.process_iter(["pid", "name"]):
+                    try:
+                        if str(process.info.get("name", "")).casefold() in others:
+                            pids.add(int(process.pid))
+                    except (psutil.Error, ValueError, TypeError):
+                        continue
+            candidates = _visible_app_windows(pids)
             if hwnd in candidates:
                 return hwnd
             if len(candidates) == 1:
