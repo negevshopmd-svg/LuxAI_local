@@ -118,6 +118,7 @@ class QtActionTests(unittest.TestCase):
             mic_status=types.SimpleNamespace(setText=mock.Mock()),
             confirm_action=lambda _message: False,
             _online_thread=lambda *_: None,
+            _start_adaptive_task=mock.Mock(),
             _resolved_command=mock.Mock(),
         )
         with mock.patch.object(__import__("threading"), "Thread") as thread:
@@ -126,9 +127,8 @@ class QtActionTests(unittest.TestCase):
         self.assertEqual(fake._processing, True)
         fake.agent.handle_fast.assert_not_called()
         fake._resolved_command.assert_not_called()
-        thread.assert_called_once()
-        self.assertIn("JarvisCloudFirst", str(thread.call_args))
-        self.assertIn("онлайн-планировщик", fake.mic_status.setText.call_args.args[0])
+        thread.assert_not_called()
+        fake._start_adaptive_task.assert_called_once_with("Открой Firefox")
 
     def test_main_dispatch_does_not_use_gguf_to_claim_failed_file_operation(self):
         import types
