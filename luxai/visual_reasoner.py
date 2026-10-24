@@ -241,6 +241,34 @@ def _select_window(goal: str, *, preferred_hwnd=0, cancelled=None):
         focus_discord(hwnd)
         return hwnd
     hwnd = _foreground_hwnd()
+    # Visual tasks must use the actual requested application's window,
+    # not Jarvis or an unrelated foreground app.
+    app_names = {
+        "steam": ("steam", "стим"),
+        "chrome": ("chrome", "хром"),
+        "calculator": ("calculator", "калькулятор"),
+        "telegram": ("telegram", "телеграм"),
+        "notepad": ("notepad", "блокнот"),
+    }
+    for app, aliases in app_names.items():
+        if any(alias in goal.casefold() for alias in aliases):
+            from luxai.windows_control import running_pids, _visible_app_windows
+            candidates = _visible_app_windows(running_pids(app))
+            if hwnd in candidates:
+                return hwnd
+            if len(candidates) == 1:
+                import ctypes
+                from ctypes import wintypes
+                chosen = candidates[0]
+                ctypes.windll.user32.SetForegroundWindow(wintypes.HWND(chosen))
+                time.sleep(0.22)
+                if _foreground_hwnd() == chosen:
+                    _valid_external_window(chosen)
+                    return chosen
+            raise ValueError(
+                "Не удалось подтвердить активное окно " + app +
+                ". Откройте нужную программу."
+            )
     try:
         _valid_external_window(hwnd)
         return hwnd
