@@ -211,7 +211,7 @@ class FeedbackRoutingUITests(unittest.TestCase):
         window = self.make_window()
         phrase = "Жарвис, открой Discord и нажми на иконку настроек канала."
         with (
-            mock.patch.object(window, "_start_visual_reasoner") as run,
+            mock.patch.object(window, "_start_adaptive_task") as run,
             mock.patch.object(window, "_direct_macro_worker") as macro,
         ):
             window.run_command(phrase)
@@ -226,7 +226,7 @@ class FeedbackRoutingUITests(unittest.TestCase):
             "learned": True, "steps": [],
         })
         with (
-            mock.patch.object(window, "_start_visual_reasoner") as visual,
+            mock.patch.object(window, "_start_adaptive_task") as visual,
             mock.patch.object(window, "_execute_registered") as stale,
         ):
             window.run_command(phrase)
