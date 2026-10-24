@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 MODES = frozenset({
     "open_app", "open_recycle_bin", "screen_capture", "visual",
-    "safe_diagnostic", "open_settings", "answer",
+    "safe_diagnostic", "open_settings", "answer", "ask",
 })
 SETTINGS = {
     "night_light": "ms-settings:nightlight",
@@ -57,6 +57,8 @@ def _validate_choice(raw, text: str) -> ToolChoice:
         raise ValueError("Settings page not supported")
     if mode == "safe_diagnostic":
         _validate_diagnostic(target)
+    if mode == "ask" and not 5 <= len(target.strip()) <= 120:
+        raise ValueError("A concise clarification question is required")
     if mode == "screen_capture":
         target = ""
     return ToolChoice(mode, target, str(raw.get("reason", ""))[:150])
@@ -149,7 +151,9 @@ def choose_tool(planner, text: str, *, hints=()) -> ToolChoice:
         "bluetooth, wifi or sound; opens Windows settings page, "
         "then visual interaction may be necessary); "
         "visual (inspect screenshot and interact with visible controls); "
-        "answer (non-operational conversation). "
+        "answer (non-operational conversation); "
+        "ask (only if a required missing detail blocks any tool, target "
+        "is one short clarification question). "
         "Choose open_app for an application launch even if application is "
         "already running; local executor checks fresh visible window state. "
         "Choose visual only when actually navigating a GUI. "
@@ -160,7 +164,7 @@ def choose_tool(planner, text: str, *, hints=()) -> ToolChoice:
         "Do not invent shell commands, paths or unknown tools. "
         "Return ONLY valid JSON: "
         "{\"mode\":\"open_app|open_recycle_bin|screen_capture|"
-        "safe_diagnostic|open_settings|visual|answer\","
+        "safe_diagnostic|open_settings|visual|answer|ask\","
         "\"target\":\"string\",\"reason\":\"brief\"}."
     )
     messages = [
