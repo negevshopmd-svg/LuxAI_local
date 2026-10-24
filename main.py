@@ -66,6 +66,7 @@ from luxai.voice_desktop import (
     read_screen_locally, toggle_discord_microphone,
 )
 from luxai.desktop_actions import _type_unicode_windows
+from luxai.win32 import get_user32
 
 BASE = Path(__file__).resolve().parent
 CONFIG = BASE / "config.json"
@@ -200,8 +201,8 @@ class MainWindow(QMainWindow):
     discord_review_ready = Signal(int, object, str)
     discord_mic_visual_ready = Signal(str, str)
     visual_reasoner_ready = Signal(str, str)
-    adaptive_choice_ready = Signal(str, object, str)
-    adaptive_exec_ready = Signal(str, str, str)
+    adaptive_task_ready = Signal(str, str, object)
+    adaptive_task_progress = Signal(str, str)
     direct_macro_ready = Signal(str, object, str)
     direct_task_ready = Signal(str, str, str)
     screen_inspection_ready = Signal(str, object, str)
@@ -236,8 +237,8 @@ class MainWindow(QMainWindow):
         self.discord_review_ready.connect(self._on_discord_review_ready)
         self.discord_mic_visual_ready.connect(self._on_discord_mic_visual_ready)
         self.visual_reasoner_ready.connect(self._on_visual_reasoner_ready)
-        self.adaptive_choice_ready.connect(self._on_adaptive_choice_ready)
-        self.adaptive_exec_ready.connect(self._on_adaptive_exec_ready)
+        self.adaptive_task_ready.connect(self._on_adaptive_task_ready)
+        self.adaptive_task_progress.connect(self._on_adaptive_progress)
         self.direct_macro_ready.connect(self._on_direct_macro_ready)
         self.wizard_plan_ready.connect(self._on_wizard_plan)
         self.local_reply_ready.connect(self._on_local_reply)
@@ -254,9 +255,9 @@ class MainWindow(QMainWindow):
         self._last_external_hwnd = 0
         self._last_visual_goal = None
         self._last_visual_goal_at = 0.0
-        self._adaptive_last_choice = None
-        self._adaptive_hints = []
-        self._pending_adaptive_question = None
+        self._adaptive_token = None
+        self._adaptive_runtime = None
+        self._pending_agent_task = None
         self._current_route = ""
         self._closed = False
         self._api_test_running = False
@@ -353,6 +354,7 @@ class MainWindow(QMainWindow):
                 target=self._ocr_setup_worker, daemon=True,
                 name="JarvisBundledOCR",
             ).start()
+        QTimer.singleShot(0, self._restore_pending_adaptive_task)
 
     def _ocr_setup_worker(self):
         try:
@@ -1475,6 +1477,10 @@ class MainWindow(QMainWindow):
         text = str(text or "").strip()
         if not text:
             return
+        from luxai.task_intents import is_task_cancel
+        if is_task_cancel(text) and (getattr(self, "_adaptive_runtime", None) or getattr(self, "_pending_agent_task", None)):
+            self._cancel_adaptive_task()
+            return
         if self.dictation_active:
             self._type_voice_chunk(text)
             return
@@ -1494,15 +1500,19 @@ class MainWindow(QMainWindow):
         if is_create_command_request(text):
             self.start_voice_command_wizard()
             return
-        # Continue a previously paused adaptive task once the user provides
-        # its missing detail; a brand-new operational request cancels the
-        # old question instead of silently mixing unrelated commands.
-        pending = getattr(self, "_pending_adaptive_question", None)
-        if pending:
-            from luxai.intent_routing import is_operational_request
-            self._pending_adaptive_question = None
-            if not is_operational_request(text):
-                text = pending + ". Уточнение пользователя: " + text
+        pending = getattr(self, "_pending_agent_task", None)
+        if pending is not None:
+            self._pending_agent_task = None
+            runtime = pending["runtime"]
+            runtime.apply_answer(text)
+            if self._command_queue and not self._command_queue[0]["parts"]:
+                self._finish_command_group()
+            self._command_queue.insert(0, {
+                "parts": [runtime.goal], "answers": [], "routes": [], "original_text": text,
+                "adaptive_resume": {**pending, "clarification": text},
+            })
+            self._dispatch_command()
+            return
         self.save_settings()
         # "You missed, try again" is meaningful feedback about the LAST
         # desktop goal, not a new small-talk request. Retry from a NEW image
@@ -1645,7 +1655,7 @@ class MainWindow(QMainWindow):
             return
         self._last_external_hwnd = target
         try:
-            ctypes.windll.user32.SetForegroundWindow(wintypes.HWND(target))
+            get_user32().SetForegroundWindow(wintypes.HWND(target))
         except (AttributeError, OSError):
             pass
         self.mic_status.setText("Читаю выделенный текст из активного окна…")
@@ -1775,7 +1785,7 @@ class MainWindow(QMainWindow):
         try:
             from ctypes import wintypes
             import ctypes
-            ctypes.windll.user32.SetForegroundWindow(wintypes.HWND(hwnd))
+            get_user32().SetForegroundWindow(wintypes.HWND(hwnd))
         except (AttributeError, OSError):
             pass
 
@@ -1886,10 +1896,18 @@ class MainWindow(QMainWindow):
         if not current["parts"]:
             self._finish_command_group()
             return
+        if getattr(self, "_pending_agent_task", None) and not current.get("adaptive_resume"):
+            # Preserve the waiting task and its runtime until its question has
+            # been answered; queued tasks must not replace that state.
+            return
         text = current["parts"].pop(0)
         self._active_text = text
         self._processing = True
         try:
+            resume = current.pop("adaptive_resume", None)
+            if resume:
+                self._start_adaptive_task(text, runtime=resume["runtime"], task_id=resume["task_id"], clarification=resume["clarification"])
+                return
             prefix = self.cfg.get("wake_prefix", "Jarvis")
             if self.command_registry.disabled_match(text, prefix):
                 self._current_route = "выключенная команда"
@@ -1913,7 +1931,9 @@ class MainWindow(QMainWindow):
                 self._current_route = "Discord: проверка видимого окна"
                 self._resolved_command(text, result)
                 return
-            if feedback:
+            protected_workflow = bool(is_discord_message_request(text) or detect_research_dm_request(text)
+                                      or detect_discord_screen_review(text) or looks_like_discord_screen_review(text))
+            if feedback and not protected_workflow:
                 # Replay the INTENT through a new observe/plan/verify loop,
                 # never replay a stale macro or an unverified click location.
                 self._start_visual_reasoner(text, feedback=feedback)
@@ -1925,25 +1945,6 @@ class MainWindow(QMainWindow):
             selected_mode = selected_text_intent(text)
             if selected_mode is not None:
                 self._start_selection_request(text, selected_mode)
-                return
-
-            # A standalone screenshot is a local OS capability: no cloud
-            # account, model call, or recurring screenshot consent is needed.
-            from luxai.fast_intents import strip_wake_name
-            simple_screen = strip_wake_name(text).casefold().strip(" .,!?:")
-            if re.fullmatch(
-                r"(?:сделай|сними|создай|покажи)?\s*"
-                r"(?:мне\s+)?(?:скриншот|снимок\s+экрана|screenshot)"
-                r"(?:\s+пожалуйста)?",
-                simple_screen,
-            ):
-                from luxai.adaptive_tasks import ToolChoice
-                chosen = ToolChoice("screen_capture")
-                self._adaptive_last_choice = chosen
-                threading.Thread(
-                    target=self._adaptive_exec_worker,
-                    args=(text, chosen), daemon=True, name="JarvisLocalScreenshot",
-                ).start()
                 return
 
             # Previously, local screen inspection matched "найди ... экран"
@@ -1962,6 +1963,19 @@ class MainWindow(QMainWindow):
                 answer = toggle_discord_microphone(self.confirm_action)
                 self._resolved_command(text, answer)
                 return
+            from luxai.task_intents import direct_app_request, screenshot_request, system_request, direct_action_request
+            saved_priority = saved is not None and not saved.get("learned", False)
+            # Named local files and websites are deterministic actions too.
+            # Keep them ahead of the generic "open app" and visual heuristics.
+            local_plan = None if saved_priority else (website_plan(text) or parse_open_user_file(text))
+            if local_plan is not None:
+                answer = self.agent.execute_plan(text, local_plan, confirm_callback=self.confirm_action)
+                self._current_route = "браузер HTTPS" if local_plan["action"] == "open_site" else "локальные файлы Windows"
+                self._resolved_command(text, answer or "Не удалось выполнить локальное открытие.")
+                return
+            if not saved_priority and (direct_app_request(text) or screenshot_request(text) or system_request(text) or direct_action_request(text)):
+                self._start_adaptive_task(text)
+                return
             # Auto-learned one-shot "open app" shortcuts must not shadow a
             # richer visual user goal that also requested actual UI work.
             # Manually created custom commands continue to take precedence.
@@ -1971,29 +1985,6 @@ class MainWindow(QMainWindow):
             ):
                 self._execute_registered(text, saved)
                 return
-            # Keep known HTTPS-site opening local and OFFLINE. A browser
-            # launch is not a reason to upload screenshots or run the
-            # adaptive visual navigator.
-            site = website_plan(text)
-            if site is not None:
-                answer = self.agent.execute_plan(
-                    text, site, confirm_callback=self.confirm_action,
-                )
-                self._current_route = "браузер HTTPS"
-                self._resolved_command(text, answer or "Не удалось открыть сайт.")
-                return
-            # Files explicitly named on the user's Desktop/Documents/Downloads
-            # are opened by Windows directly; never reinterpret a file request
-            # as launching Explorer, or ask a cloud model for an arbitrary path.
-            file_plan = parse_open_user_file(text)
-            if file_plan is not None:
-                answer = self.agent.execute_plan(
-                    text, file_plan, confirm_callback=self.confirm_action,
-                )
-                self._current_route = "локальные файлы Windows"
-                self._resolved_command(text, answer or "Не удалось открыть файл.")
-                return
-
             # Novel visual goals are solved by repeated real observations,
             # not by a one-shot macro which cannot see whether a click worked.
             # Dedicated Discord message/contact and sourced-research tools
@@ -2010,9 +2001,13 @@ class MainWindow(QMainWindow):
                 from luxai.discord_navigation import detect_discord_open_dm
                 from luxai.research_notepad import detect_research_notepad
                 if not detect_discord_open_dm(text) and not detect_research_notepad(text):
-                    self._start_adaptive_task(text)
+                    self._start_visual_reasoner(text)
                     return
             if needs_live_macro_planning(text):
+                from luxai.research_notepad import detect_research_notepad
+                if not protected_workflow and not detect_research_notepad(text):
+                    self._start_adaptive_task(text)
+                    return
                 if not self.online_planner.enabled():
                     self._current_route = "сложные голосовые команды"
                     self._resolved_command(
@@ -2100,15 +2095,6 @@ class MainWindow(QMainWindow):
                 self._resolved_command(text, capabilities)
                 return
 
-            site = website_plan(text)
-            if site is not None:
-                answer = self.agent.execute_plan(
-                    text, site, confirm_callback=self.confirm_action,
-                )
-                self._current_route = "браузер HTTPS"
-                self._resolved_command(text, answer or "Не удалось открыть сайт.")
-                return
-
             quick = routine_reply(text, reply_language(self.cfg, text))
             if quick is not None:
                 self.agent.remember(text, quick)
@@ -2116,9 +2102,11 @@ class MainWindow(QMainWindow):
                 self._resolved_command(text, quick)
                 return
 
-            if self.online_planner.enabled() and is_operational_request(text):
+            from luxai.task_intents import needs_adaptive_task
+            if needs_adaptive_task(text):
                 self._start_adaptive_task(text)
                 return
+
             if self.online_planner.enabled():
                 provider = self.cfg.get("online_provider", "gemini")
                 label = PROVIDERS.get(provider, {}).get("label", provider)
@@ -2366,7 +2354,7 @@ class MainWindow(QMainWindow):
             self.mic_status.setText(f"AI анализирует окно для «{label}»…")
             try:
                 import ctypes
-                ctypes.windll.user32.SetForegroundWindow(hwnd)
+                get_user32().SetForegroundWindow(hwnd)
             except (AttributeError, OSError):
                 pass
             # Let the confirmation dialog disappear before capturing pixels.
@@ -2399,7 +2387,7 @@ class MainWindow(QMainWindow):
                 return
             try:
                 import ctypes
-                ctypes.windll.user32.SetForegroundWindow(hwnd)
+                get_user32().SetForegroundWindow(hwnd)
             except (AttributeError, OSError):
                 pass
             QTimer.singleShot(
@@ -2868,153 +2856,140 @@ class MainWindow(QMainWindow):
             self._visual_upload_consent_session = True
         return bool(approved)
 
-    def _start_adaptive_task(self, text):
-        """Think about the tool BEFORE uploading any desktop image."""
-        from luxai.agent_experience import recall
-        cached = recall(text)
-        if cached is not None:
-            self._on_adaptive_choice_ready(text, cached, "")
-            return
-        if not self.online_planner.enabled():
-            self._safe_local_fallback(text, "Нет ключа для планирования AI")
-            return
-        self.mic_status.setText("AI определяет способ выполнения задачи…")
-        threading.Thread(
-            target=self._adaptive_select_worker,
-            args=(text,), daemon=True, name="JarvisToolSelection",
-        ).start()
+    def _start_visual_reasoner(self, text, feedback=""):
+        self._start_adaptive_task(text, feedback=feedback)
 
-    def _adaptive_select_worker(self, text):
+    def _task_memory(self):
+        from luxai.task_memory import TaskMemory
+        if getattr(self, "_agent_memory", None) is None:
+            self._agent_memory = TaskMemory()
+        return self._agent_memory
+
+    def _restore_pending_adaptive_task(self):
+        """Offer the saved question after restart without replaying actions."""
+        if self._closed or getattr(self, "_pending_agent_task", None) or self._processing:
+            return
         try:
-            from luxai.adaptive_tasks import choose_tool
-            choice = choose_tool(
-                self.online_planner, text,
-                hints=tuple(getattr(self, "_adaptive_hints", ())[-3:]),
-            )
-            error = ""
+            saved = self._task_memory().latest_waiting_task()
+            if not saved:
+                return
+            checkpoint = saved.get("checkpoint", {})
+            question = checkpoint.get("pending_question", "")
+            if not question:
+                return
+            from luxai.desktop_agent import DesktopRuntime
+            runtime = DesktopRuntime(saved["goal"], self.online_planner, self.cfg)
+            runtime.restore_checkpoint(checkpoint)
+            self._pending_agent_task = {"task_id": saved["id"], "runtime": runtime}
+            self._adaptive_runtime = runtime
+            notice = {"ru": "Продолжение сохранённой задачи: ", "en": "Continue the saved task: ",
+                      "ro": "Continuarea sarcinii salvate: "}[reply_language(self.cfg, saved["goal"])]
+            self.append_message("Jarvis", notice + saved["goal"] + "\n" + question, "#a5b9dc")
+            self.mic_status.setText(question)
+        except (ValueError, OSError):
+            # Preserve unreadable memory and keep ordinary commands available.
+            self.mic_status.setText({"ru": "Не удалось прочитать память задач.", "en": "Task memory could not be read.",
+                                     "ro": "Memoria sarcinilor nu a putut fi citită."}[reply_language(self.cfg)])
+
+    def _start_adaptive_task(self, text, *, runtime=None, task_id=None, clarification=None, feedback=""):
+        from luxai.desktop_agent import DesktopRuntime
+        import uuid
+        token = uuid.uuid4().hex
+        self._adaptive_token = token
+        if runtime is None:
+            runtime = DesktopRuntime(text, self.online_planner, self.cfg,
+                                     preferred_hwnd=getattr(self, "_last_external_hwnd", 0),
+                                     screenshots_allowed=getattr(self, "_visual_upload_consent_session", False))
+        self._adaptive_runtime = runtime
+        runtime.feedback = feedback
+        self._current_route = "AI → инструмент → наблюдение → проверка"
+        self.mic_status.setText({"ru": "Планирую следующий проверяемый шаг…", "en": "Planning the next verifiable step…", "ro": "Planific următorul pas verificabil…"}[reply_language(self.cfg, text)])
+        threading.Thread(target=self._adaptive_task_worker,
+                         args=(token, text, runtime, task_id, clarification, feedback),
+                         daemon=True, name="JarvisAdaptiveTask").start()
+
+    def _adaptive_task_worker(self, token, text, runtime, task_id, clarification, feedback):
+        from luxai.desktop_agent import CloudTaskDecider
+        from luxai.task_agent import run_task, TaskResult
+        try:
+            memory = self._task_memory()
+            result = run_task(text, CloudTaskDecider(runtime), runtime, memory=memory,
+                              task_id=task_id, clarification=clarification,
+                              cancelled=lambda: self._closed or self._adaptive_token != token or runtime.cancel_event.is_set(),
+                              progress=lambda event: self.adaptive_task_progress.emit(token, event.get("tool", event.get("event", ""))))
+            if feedback and result.task_id:
+                memory.record_feedback(result.task_id, feedback)
+            if result.verified and runtime.executed_steps:
+                try:
+                    memory.save_procedure(result.task_id, runtime.executed_steps,
+                                          {"kind": "verified_goal", "summary": result.summary}, approved=True)
+                except (ValueError, OSError):
+                    # A verified current result is not undone by an optional
+                    # learning failure. Tool authority is never learned here.
+                    pass
         except Exception as exc:
-            choice, error = None, f"{type(exc).__name__}: {str(exc)[:170]}"
+            result = TaskResult(task_id or "", "failed", f"{type(exc).__name__}: {str(exc)[:300]}")
         if not self._closed:
             try:
-                self.adaptive_choice_ready.emit(text, choice, error)
+                self.adaptive_task_ready.emit(token, text, result)
             except RuntimeError:
                 pass
 
-    def _on_adaptive_choice_ready(self, text, choice, error):
-        if self._closed or not self._processing or self._active_text != text:
-            return
-        if choice is None:
-            self._current_route = "AI: выбор инструмента"
-            self._resolved_command(text, "Не удалось выбрать действие: " + error)
-            return
-        self._adaptive_last_choice = choice
-        if choice.mode == "ask":
-            self._pending_adaptive_question = text
-            self._current_route = "AI: уточнение цели"
-            self._resolved_command(text, "Уточните: " + choice.target)
-            return
-        if choice.mode == "answer":
-            # General factual reasoning still uses the user's cloud model,
-            # not a canned local refusal about mouse-control permissions.
-            history = tuple(dict(msg) for msg in self.agent.history[-4:])
-            threading.Thread(
-                target=self._online_thread, args=(text, history),
-                daemon=True, name="JarvisCloudConversation",
-            ).start()
-            return
-        if choice.mode == "visual":
-            self._start_visual_reasoner(text)
-            return
-        self.mic_status.setText("Выполняю выбранное локальное действие…")
-        threading.Thread(
-            target=self._adaptive_exec_worker,
-            args=(text, choice), daemon=True, name="JarvisLocalTool",
-        ).start()
+    def _on_adaptive_progress(self, token, stage):
+        if token == self._adaptive_token and self._processing and not self._closed:
+            self.mic_status.setText("Jarvis: " + stage)
 
-    def _adaptive_exec_worker(self, text, choice):
-        extra = ""
-        try:
-            from luxai.adaptive_tasks import (
-                run_safe_diagnostic, capture_desktop_locally, SETTINGS,
-            )
-            from luxai.windows_apps import launch_installed_app
-            if choice.mode == "open_app":
-                ok, message = launch_installed_app(choice.target)
-                if not ok:
-                    extra = "failed"
-                    # A missing application can be diagnosed from the real
-                    # desktop without uploading its pixels to the cloud.
-                    # This is evidence for the next task, not a claim that
-                    # opening the app succeeded.
-                    try:
-                        local_photo = capture_desktop_locally()
-                        message += " Окно не подтверждено. " + local_photo
-                    except (OSError, RuntimeError, ValueError):
-                        message += " Окно не подтверждено."
-            elif choice.mode == "open_recycle_bin":
-                from luxai.desktop_actions import execute_desktop_step
-                message = execute_desktop_step({"action": "open_recycle_bin"})
-            elif choice.mode == "safe_diagnostic":
-                message = run_safe_diagnostic(choice.target)
-            elif choice.mode == "screen_capture":
-                message = capture_desktop_locally()
-            elif choice.mode == "open_settings":
-                import os
-                if sys.platform != "win32":
-                    raise OSError("Windows settings available on Windows only")
-                os.startfile(SETTINGS[choice.target])
-                message = "Открыл страницу параметров Windows: " + choice.target
-                # Setting page opening is NOT proof of actually toggling it.
-                extra = "inspect"
-            else:
-                raise ValueError("Unknown local tool")
-        except (OSError, RuntimeError, ValueError, PermissionError) as exc:
-            message = "Действие не выполнено: " + type(exc).__name__ + ": " + str(exc)[:175]
-        if not self._closed:
-            try:
-                self.adaptive_exec_ready.emit(text, message, extra)
-            except RuntimeError:
-                pass
-
-    def _on_adaptive_exec_ready(self, text, answer, extra):
-        if self._closed or not self._processing or self._active_text != text:
+    def _on_adaptive_task_ready(self, token, text, result):
+        if self._closed or token != self._adaptive_token or not self._processing or self._active_text != text:
             return
-        if extra == "inspect":
-            # The model may still need a screenshot to actually toggle the
-            # Night Light control. Consent is requested only at this stage.
-            self._start_visual_reasoner(text)
-            return
-        if extra != "failed" and not answer.startswith("Действие не выполнено"):
-            choice = getattr(self, "_adaptive_last_choice", None)
-            if choice is not None and choice.mode in {
-                "open_app", "safe_diagnostic", "screen_capture", "open_recycle_bin",
-            }:
-                self._adaptive_hints = (
-                    self._adaptive_hints + [f"{choice.mode}: verified"]
-                )[-8:]
-                from luxai.agent_experience import remember
-                remember(text, choice)
-        self._current_route = "AI: выбор инструмента → локальный исполнитель"
+        runtime = self._adaptive_runtime
+        self._adaptive_token = None
+        if runtime and runtime.screenshots_allowed:
+            self._visual_upload_consent_session = True
+        if result.status == "waiting":
+            self._pending_agent_task = {"task_id": result.task_id, "runtime": runtime}
+            if self._command_queue and self._command_queue[0]["parts"]:
+                current = self._command_queue[0]
+                self._command_queue.insert(1, {
+                    "parts": list(current["parts"]), "answers": [], "routes": [],
+                    "original_text": current.get("original_text", ""),
+                })
+                current["parts"].clear()
+            answer = result.question
+        else:
+            self._pending_agent_task = None
+            answer = result.summary
+            if result.status != "completed":
+                observed = next((step.get("summary", "") for step in reversed(result.steps) if step.get("summary")), "")
+                prefix = {
+                    "ru": "Результат пока не подтверждён.", "en": "The result is not yet verified.", "ro": "Rezultatul nu este încă verificat.",
+                }[reply_language(self.cfg, text)]
+                answer = prefix + " " + (observed or answer)
+            self._adaptive_runtime = None
+        if self._command_queue:
+            self._command_queue[0]["outcome_status"] = result.status
         self._resolved_command(text, answer)
 
-    def _start_visual_reasoner(self, text, feedback=""):
-        if not self.online_planner.enabled():
-            self._current_route = "AI: визуальная проверка"
-            self._resolved_command(
-                text, "Для анализа и проверки нового действия нужен "
-                "облачный AI с поддержкой изображений и API-ключ."
-            )
-            return
-        if not self._allow_cloud_screenshots():
-            self._current_route = "AI: визуальная проверка"
-            self._resolved_command(text, "Анализ экрана отменён.")
-            return
-        self.mic_status.setText("AI наблюдает окно и планирует следующий шаг…")
-        threading.Thread(
-            target=self._visual_reasoner_worker,
-            args=(text, feedback),
-            daemon=True, name="JarvisClosedLoopReasoner",
-        ).start()
+    def _cancel_adaptive_task(self):
+        pending = getattr(self, "_pending_agent_task", None)
+        runtime = getattr(self, "_adaptive_runtime", None) or (pending or {}).get("runtime")
+        if runtime:
+            runtime.cancel_event.set()
+        if pending:
+            try:
+                self._task_memory().set_state(pending["task_id"], "cancelled", summary="Cancelled by user")
+            except (ValueError, OSError):
+                pass
+        self._pending_agent_task = None
+        self._adaptive_runtime = None
+        self._adaptive_token = None
+        answer = {"ru": "Задача отменена.", "en": "Task cancelled.", "ro": "Sarcina a fost anulată."}[reply_language(self.cfg)]
+        if self._processing and self._active_text:
+            self._resolved_command(self._active_text, answer)
+        else:
+            self.append_message("Jarvis", answer, "#a5b9dc")
+            self.mic_status.setText(answer)
+            self._dispatch_command()
 
     def _visual_reasoner_worker(self, text, feedback):
         try:
@@ -3318,7 +3293,13 @@ class MainWindow(QMainWindow):
         routes = list(dict.fromkeys(route for route in group["routes"] if route))
         if result:
             self.append_message("Jarvis", result, "#a5b9dc")
-            self.mic_status.setText("Готово: " + (", ".join(routes) or "локально"))
+            status = group.get("outcome_status")
+            if status and status != "completed":
+                self.mic_status.setText({"ru": "Ожидаю ответ." if status == "waiting" else "Выполнение не подтверждено.",
+                                        "en": "Waiting for your answer." if status == "waiting" else "Completion is unverified.",
+                                        "ro": "Aștept răspunsul tău." if status == "waiting" else "Finalizarea nu este verificată."}[reply_language(self.cfg)])
+            else:
+                self.mic_status.setText("Готово: " + (", ".join(routes) or "локально"))
             if self.cfg.get("tts_enabled", True):
                 self._queue_speech(result, reply_language(self.cfg, group.get("original_text", "")))
         QTimer.singleShot(0, self._dispatch_command)
@@ -3455,6 +3436,8 @@ class MainWindow(QMainWindow):
         if self.tray_icon:
             self.tray_icon.hide()
         self._closed = True
+        if getattr(self, "_adaptive_runtime", None):
+            self._adaptive_runtime.cancel_event.set()
         self.stop_speaking()
         try:
             self._speech_queue.put_nowait(None)

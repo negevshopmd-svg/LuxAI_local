@@ -95,7 +95,7 @@ class QtActionTests(unittest.TestCase):
         fake._start_selection_request.assert_called_once_with(spoken, "read")
         fake.online_planner.enabled.assert_not_called()
 
-    def test_main_dispatch_routes_unknown_voice_action_to_gemini_before_local(self):
+    def test_main_dispatch_opens_installed_apps_before_cloud_planning(self):
         import types
         from unittest import mock
         MainWindow = _load_main_class_for_mock_tests()
@@ -118,8 +118,8 @@ class QtActionTests(unittest.TestCase):
             mic_status=types.SimpleNamespace(setText=mock.Mock()),
             confirm_action=lambda _message: False,
             _online_thread=lambda *_: None,
-            _start_adaptive_task=mock.Mock(),
             _resolved_command=mock.Mock(),
+            _start_adaptive_task=mock.Mock(),
         )
         with mock.patch.object(__import__("threading"), "Thread") as thread:
             MainWindow._dispatch_command(fake)

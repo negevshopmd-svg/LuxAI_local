@@ -17,7 +17,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install dependencies for real UI, audio and screen imports
-        run: python -m pip install --quiet "PySide6>=6.7" numpy sounddevice mss Pillow
+        run: python -m pip install --quiet "PySide6>=6.7" numpy sounddevice mss Pillow psutil
       - name: Install Linux libraries for offscreen Qt and audio
         run: |
           sudo apt-get update -qq

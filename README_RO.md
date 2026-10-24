@@ -1,4 +1,4 @@
-# LuxAI Local 0.2.0 (Windows 10/11, 64-bit)
+# LuxAI Local 0.3.0 (Windows 10/11, 64-bit)
 
 Asistent vocal pentru Windows, cu recunoaștere locală și servicii AI opționale:
 - microfon pornit la lansare (poate fi oprit din interfață)
@@ -6,6 +6,18 @@ Asistent vocal pentru Windows, cu recunoaștere locală și servicii AI opționa
 - detectarea limbii automată (română/rusă/engleză, în funcție de modelul Whisper)
 - răspuns vocal local
 - captură de ecran, OCR opțional și control desktop cu confirmare
+
+## 0.3.0: sarcini adaptive și verificarea rezultatului
+
+Jarvis alege un instrument, observă rezultatul real, ajustează pasul următor și verifică dacă cererea a fost îndeplinită. **„Deschide Discord”** caută și deschide aplicația prin Windows înainte de a folosi capturi; nu cere AI cloud. Deschiderea este confirmată după găsirea unei ferestre vizibile în prim-plan, nu doar a procesului `Discord.exe`. **„Fă o captură de ecran”** salvează local în `Pictures/LuxAI`, fără cheie API.
+
+Pentru sarcini necunoscute activează AI-ul cloud configurat. El poate propune acțiuni în aplicații, analiză vizuală, cercetare și comenzi locale CMD/PowerShell. Executorul local verifică fiecare propunere. Implicit, `agent_auto_shell: true` autorizează comenzile necesare sarcinii curente fără confirmări repetate; execuția rămâne limitată, iar comenzile care modifică starea cer verificarea rezultatului prin citire. Pentru aprobare manuală la fiecare comandă din afara listei de citire, setează `agent_auto_shell: false` în `config.json`. Autorizarea vine din setarea ta, se aplică sarcinii curente și nu ocolește permisiunile Windows sau UAC. Trimiterea mesajelor Discord își păstrează confirmarea separată. Pentru capturi trimise către AI se cere acord o singură dată pe sesiune Jarvis; capturile locale nu cer acord pentru încărcare.
+
+Cererile explicite de oprire, repornire, repaus, blocare și schimbare a temei Windows folosesc operații locale dedicate. Oprirea și repornirea au un interval pentru anulare și nu forțează închiderea aplicațiilor. Pentru **Lumina de noapte**, instrumentul nativ deschide pagina din Setări Windows. Cu AI vizual activ și acordul de sesiune pentru capturi, Jarvis poate continua prin interfață și verifică starea butonului; deschiderea paginii singură nu confirmă activarea filtrului. Pentru **„modul de noapte”** întreabă dacă dorești tema întunecată, Lumina de noapte sau repaus.
+
+Pașii, răspunsurile la întrebări și procedurile cu rezultat verificat se păstrează local în `.luxai_data/agent_memory.json`. Procedura reținută ajută la următoarea cerere, dar rezultatul se verifică din nou. Aprobările CMD, comenzile brute, capturile și înregistrările nu devin proceduri reutilizabile. Dacă un clic s-a executat, dar efectul nu poate fi confirmat, Jarvis anunță acest lucru și nu repetă automat clicul.
+
+Închide Jarvis înainte de actualizare. `Update.bat` descarcă branch-ul `main`; modificările aflate doar într-un branch sau PR ajung în actualizator după integrare. Detaliile sunt în [CHANGELOG.md](CHANGELOG.md).
 
 ## Important
 Recunoașterea Whisper, sinteza Piper și OCR rulează local după descărcarea componentelor necesare. Modelul GGUF pentru conversații este opțional; comenzile rapide nu îl cer. Dacă activezi AI cloud, cererile sunt trimise furnizorului ales și pot consuma cotă. Descărcările inițiale și vremea folosesc internetul. Testul de microfon nu salvează și nu trimite înregistrări.
@@ -146,11 +158,3 @@ Feedbackul de tip „ты не попал, давай заново” reia **ult
 Un proces `Discord.exe` pornit NU mai este raportat ca „Discord deschis”. Jarvis verifică HWND-ul ferestrei reale, inclusiv când este ascuns în tray, minimizat sau are coordonate în afara desktopului virtual. Încearcă să-l restaureze și să-l focalizeze; numai după ce este vizibil în dreptunghiul ecranului și activ raportează reușita. Dacă Discord rulează doar ca proces în tray, încearcă protocolul `discord://` și re-verifică fereastra, fără să presupună succesul. Repetarea comenzii de deschidere focalizează aceeași fereastră, nu lansează o copie nouă. Comanda de corecție „он запущен но окно же не открыто” reactivează fereastra Discord dacă ultima sarcină vizuală privea Discord; **nu repetă un mesaj** din cererea precedentă.
 
 Cererile de tip „зайди в Discord и напиши пользователю Старый Бог привет и нажми Enter” sunt recunoscute ca **intenții de mesaj**, nu reduse la lansarea aplicației. Fluxul verifică destinatarul și cere aprobare pentru text înainte să îl expedieze. Dacă un model returnează doar `open_app`, acel plan este respins ca incomplet.
-
-### Planificator adaptiv înainte de captura ecranului
-
-Pentru cereri noi, modelul online selectat (Claude/Anthropic, Gemini sau alt provider configurat) decide instrumentul potrivit **înainte să facă un screenshot**. Dacă utilizatorul cere lansarea unei aplicații, Jarvis folosește mecanismul Windows fără analiză vizuală; la cereri de interfață, se folosește o captură nouă și se verifică rezultatul. „Сделай скриншот” singur salvează un PNG local în `Pictures/LuxAI` și funcționează inclusiv fără model cloud. Dacă sunt necesare capturi trimise modelului, acordul de sesiune rămâne obligatoriu.
-
-Pentru anumite sarcini de sistem există `open_settings` (de exemplu, pagina Night Light, Colors sau Bluetooth) și diagnostic Windows strict numai-citire. Sunt acceptate fără dialog repetitiv doar `whoami`, `hostname`, `systeminfo`, `tasklist`, `ipconfig`, `ipconfig /all`, `ping domeniu`, `nslookup domeniu`. Se execută prin `subprocess` cu `shell=False`. **Nu** se execută comenzi CMD arbitrare generate de AI, nici ștergeri, modificări de securitate sau oprirea calculatorului fără o operație dedicată și controlată. Modelul poate propune un instrument, dar executorul local îi verifică parametrii.
-
-Rezultatele unor operații locale sigure și repetabile pot fi reținute ca **amprente SHA-256 ale formulării**, fără salvarea transcriptului sau a capturilor. Fișierul opțional `~/.luxai_data/tool_history.json` poate fi șters pentru resetarea acestor indicii. Acesta nu constituie auto-antrenare permanentă a modelului și nu memorează macrocomenzi periculoase.

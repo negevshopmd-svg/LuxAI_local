@@ -348,17 +348,17 @@ class LocalAgent:
                 return self._say("Хорошо, окна не тронуты.", "Bine, nu am schimbat ferestrele.", "Okay, windows left as they were.", text)
             try:
                 import ctypes
-                user32 = ctypes.windll.user32
+                from luxai.win32 import WNDENUMPROC, get_user32
+                user32 = get_user32()
                 SW_MINIMIZE = 6
                 minimized = 0
-                callback_type = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
                 def minimize_window(hwnd, _):
                     nonlocal minimized
                     if user32.IsWindowVisible(hwnd) and user32.GetWindowTextLengthW(hwnd) > 0:
                         user32.ShowWindow(hwnd, SW_MINIMIZE)
                         minimized += 1
                     return True
-                user32.EnumWindows(callback_type(minimize_window), 0)
+                user32.EnumWindows(WNDENUMPROC(minimize_window), 0)
                 return self._say(f"Свернул окон: {minimized}.", f"Am minimizat {minimized} ferestre.", f"Minimized {minimized} windows.", text)
             except Exception as exc:
                 return self._say(f"Не удалось свернуть окна: {exc}", f"Nu am putut minimiza ferestrele: {exc}", f"Could not minimize windows: {exc}", text)

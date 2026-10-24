@@ -17,6 +17,7 @@ import time
 from typing import Callable
 
 from luxai.fast_intents import strip_wake_name
+from luxai.win32 import get_user32, hwnd_value
 
 BUTTON_NAMES = {
     "yes": {"yes", "y", "да", "да!", "da", "oui", "так", "ok", "okay", "ок", "confirm", "confirmă", "confirm",
@@ -102,13 +103,13 @@ def classify_button(text: str) -> str | None:
 def _foreground_hwnd() -> int:
     if sys.platform != "win32":
         return 0
-    return int(ctypes.windll.user32.GetForegroundWindow())
+    return hwnd_value(get_user32().GetForegroundWindow())
 
 
 def _window_pid(hwnd: int) -> int:
     from ctypes import wintypes
     process = wintypes.DWORD()
-    ctypes.windll.user32.GetWindowThreadProcessId(
+    get_user32().GetWindowThreadProcessId(
         wintypes.HWND(hwnd), ctypes.byref(process),
     )
     return int(process.value)
@@ -116,23 +117,49 @@ def _window_pid(hwnd: int) -> int:
 
 def _window_title(hwnd: int) -> str:
     from ctypes import wintypes
-    user32 = ctypes.windll.user32
+    user32 = get_user32()
     buf = ctypes.create_unicode_buffer(512)
     user32.GetWindowTextW(wintypes.HWND(hwnd), buf, len(buf))
     return buf.value[:255]
 
 
+def _is_shell_desktop_window(hwnd: int) -> bool:
+    """Recognize the actual Explorer icon host, including titleless WorkerW.
+
+    Windows 10/11 can move SHELLDLL_DefView from Progman into WorkerW. A
+    generic empty-title window is still rejected: both the shell child and
+    Explorer process identity must match before treating it as the desktop.
+    """
+    if not hwnd:
+        return False
+    user32 = get_user32()
+    classname = ctypes.create_unicode_buffer(80)
+    user32.GetClassNameW(hwnd, classname, len(classname))
+    if classname.value not in {"Progman", "WorkerW"}:
+        return False
+    if not user32.FindWindowExW(hwnd, 0, "SHELLDLL_DefView", None):
+        return False
+    import psutil
+    try:
+        return psutil.Process(_window_pid(hwnd)).name().casefold() == "explorer.exe"
+    except (psutil.Error, OSError, ValueError):
+        return False
+
+
 def _valid_external_window(hwnd: int) -> tuple[int, str]:
     if sys.platform != "win32":
         raise OSError("Визуальное управление доступно только на Windows.")
-    if not hwnd or not ctypes.windll.user32.IsWindow(hwnd):
+    user32 = get_user32()
+    if not hwnd or not user32.IsWindow(hwnd):
         raise ValueError("Активное окно не найдено.")
-    if not ctypes.windll.user32.IsWindowVisible(hwnd):
+    if not user32.IsWindowVisible(hwnd):
         raise ValueError("Окно не видно на экране.")
     pid = _window_pid(hwnd)
     if not pid or pid == os.getpid():
         raise ValueError("Перейдите в другую программу: окно Jarvis не сканируется.")
     title = _window_title(hwnd)
+    if not title and _is_shell_desktop_window(hwnd):
+        title = "Windows desktop"
     if not title or RISKY_TITLE.search(title):
         raise ValueError("Защищённое или неизвестное окно не поддерживается.")
     return pid, title
@@ -186,7 +213,7 @@ def _screenshot_png(hwnd: int) -> bytes:
     from ctypes import wintypes
     from PIL import Image
     rect = wintypes.RECT()
-    if not ctypes.windll.user32.GetWindowRect(wintypes.HWND(hwnd), ctypes.byref(rect)):
+    if not get_user32().GetWindowRect(wintypes.HWND(hwnd), ctypes.byref(rect)):
         raise OSError("Не удалось получить координаты окна.")
     with mss.mss() as screen:
         # Clip the target window to the entire virtual desktop so multi-
@@ -268,7 +295,7 @@ def click_inspected_button(
             return "Нажатие отменено."
 
         from ctypes import wintypes
-        user32 = ctypes.windll.user32
+        user32 = get_user32()
         # Revalidate after the modal approval has been dismissed.
         pid_now, title_now = _valid_external_window(snapshot.hwnd)
         if pid_now != snapshot.pid or title_now != snapshot.title:
@@ -288,10 +315,8 @@ def click_inspected_button(
             return "Активное окно изменилось. Клик не выполнен."
         # Windows hit-testing ensures an always-on-top Jarvis panel, toast,
         # browser overlay or any other process is not covering the button.
-        user32.WindowFromPoint.argtypes = (wintypes.POINT,)
-        user32.WindowFromPoint.restype = wintypes.HWND
         hovered = user32.WindowFromPoint(wintypes.POINT(*candidate.center))
-        if not hovered or _window_pid(int(hovered)) != snapshot.pid:
+        if not hovered or _window_pid(hwnd_value(hovered)) != snapshot.pid:
             return "Кнопка закрыта другим окном. Клик не выполнен."
         import pyautogui
         pyautogui.moveTo(*candidate.center, duration=0.12)

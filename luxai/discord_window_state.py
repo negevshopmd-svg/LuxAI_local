@@ -14,6 +14,8 @@ import time
 
 import re
 
+from luxai.win32 import WNDENUMPROC, get_user32, hwnd_value
+
 
 def is_background_window_correction(text: str) -> bool:
     """A follow-up saying a process exists but the GUI was never opened."""
@@ -39,7 +41,7 @@ DISCORD_NAMES = frozenset({"discord.exe", "discordptb.exe", "discordcanary.exe"}
 
 
 def _user32():
-    return ctypes.windll.user32
+    return get_user32()
 
 
 def _discord_candidates() -> list[int]:
@@ -47,20 +49,8 @@ def _discord_candidates() -> list[int]:
         raise OSError("Discord window discovery requires Windows")
     import psutil
     user32 = _user32()
-    user32.GetWindow.argtypes = [wintypes.HWND, ctypes.c_uint]
-    user32.GetWindow.restype = wintypes.HWND
-    user32.GetWindowThreadProcessId.argtypes = [
-        wintypes.HWND, ctypes.POINTER(wintypes.DWORD),
-    ]
-    user32.GetWindowTextW.argtypes = [
-        wintypes.HWND, wintypes.LPWSTR, ctypes.c_int,
-    ]
     found = []
-    callback = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
-    user32.EnumWindows.argtypes = [callback, wintypes.LPARAM]
-    user32.EnumWindows.restype = wintypes.BOOL
-
-    @callback
+    @WNDENUMPROC
     def collect(hwnd, _):
         if user32.GetWindow(hwnd, 4):  # GW_OWNER; exclude floating owned popups
             return True
@@ -76,10 +66,10 @@ def _discord_candidates() -> list[int]:
         user32.GetWindowTextW(hwnd, title, len(title))
         if "discord" not in title.value.casefold():
             return True
-        found.append(int(hwnd))
+        found.append(hwnd_value(hwnd))
         return True
 
-    user32.EnumWindows(callback, 0)
+    user32.EnumWindows(collect, 0)
     return found
 
 
@@ -129,20 +119,6 @@ def focus_discord(hwnd: int) -> int:
     from luxai.screen_interact import _foreground_hwnd, _window_pid, _window_title
 
     user32 = _user32()
-    for func in ('IsWindow', 'IsWindowVisible', 'IsIconic', 'SetForegroundWindow', 'BringWindowToTop'):
-        native = getattr(user32, func, None)
-        if native is not None:
-            try:
-                native.argtypes = [wintypes.HWND]
-            except (AttributeError, TypeError):
-                pass
-    for name in ("ShowWindow", "ShowWindowAsync"):
-        fn = getattr(user32, name, None)
-        if fn is not None:
-            try:
-                fn.argtypes = [wintypes.HWND, ctypes.c_int]
-            except (AttributeError, TypeError):
-                pass
     if not hwnd or not user32.IsWindow(hwnd):
         raise ValueError("Окно Discord было закрыто.")
     pid = _window_pid(hwnd)

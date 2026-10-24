@@ -2,6 +2,18 @@
 
 Voice-controlled Jarvis assistant for Windows 10/11 (64-bit).
 
+## 0.3.0: adaptive desktop tasks
+
+Jarvis chooses a next tool, observes the actual result, adjusts its next step and verifies the outcome. A request such as **“Open Discord”** uses native Windows application discovery first, without taking a screenshot or requiring a cloud model. Opening is confirmed from a visible foreground window, rather than the existence of `Discord.exe`. **“Take a screenshot”** saves a local image in `Pictures/LuxAI` without an AI key.
+
+For unfamiliar tasks, enable the configured cloud AI. It can plan application actions, request visual inspection, research information and propose local CMD/PowerShell commands. Local execution validates each proposal. By default, `agent_auto_shell: true` authorizes commands for the current task without repeated confirmation, while retaining bounded execution and read-only result checks for changing commands. Set `agent_auto_shell: false` in `config.json` to request approval for each command outside the parsed read-only set. This authorization comes from your configuration, is scoped to the current task and does not bypass Windows permissions or UAC. Existing Discord send confirmation remains in place. Cloud screenshot analysis asks permission once per Jarvis session; local captures need no upload permission.
+
+Explicit requests to shut down, restart, sleep, lock or change the Windows dark/light theme use dedicated local operations. Shutdown/restart has a cancellation delay and does not force applications closed. The native **Night Light** operation opens Windows settings. With visual AI enabled and session screenshot permission, Jarvis can continue through the interface and verify the toggle; opening the page alone never confirms activation. Ambiguous **“night mode”** requests are clarified.
+
+Task checkpoints, answers and verified procedure hints are kept locally in `.luxai_data/agent_memory.json`. A remembered procedure guides the next task and still needs fresh checks; it does not preserve shell approval. Raw commands, screenshots and recordings are not saved as reusable procedure data. Jarvis distinguishes a verified result from an action issued without confirmation, so an uncertain click is not automatically repeated.
+
+Close Jarvis before updating. `Update.bat` downloads `main`; a change available only in a feature branch or pull request reaches the updater after merging. See [CHANGELOG.md](CHANGELOG.md) for the changes.
+
 ## 0.2.0: microphone and wireless headset checks
 
 Close Jarvis, run `Update.bat`, and reopen it with `run_windows.bat`. Version 0.2.0 adds an actual capture-status indicator, live microphone level, device refresh, an independent microphone test, and diagnostic export. See [CHANGELOG.md](CHANGELOG.md) for the reliability fixes.

@@ -1,4 +1,4 @@
-LUXAI LOCAL 0.2.0 — ACTUALIZARE
+LUXAI LOCAL 0.3.0 — ACTUALIZARE
 
 Repository: https://github.com/negevshopmd-svg/LuxAI_local
 
@@ -13,3 +13,17 @@ dacă mesajul de eroare cere repararea mediului.
 
 Pentru microfon, căști wireless, instalare și diagnostic, deschide README_RO.md.
 Lista modificărilor este în CHANGELOG.md. Nu publica chei sau date personale.
+
+0.3.0 adaugă planificarea pe pași cu observare și verificare: aplicațiile se
+deschid mai întâi prin Windows, iar capturile locale nu cer AI. Implicit,
+agent_auto_shell: true autorizează CMD/PowerShell pentru sarcina curentă fără
+confirmări repetate, cu limite de execuție și verificarea modificărilor prin
+citire. Pentru confirmare manuală, setează agent_auto_shell: false în
+config.json. Permisiunile Windows și UAC se aplică în continuare.
+Capturile către cloud cer acord o dată pe sesiune. Confirmarea trimiterii
+mesajelor Discord rămâne separată.
+
+Sunt disponibile operații dedicate pentru cereri explicite de alimentare și
+tema Windows. Lumina de noapte deschide Setări Windows, fără să pretindă că
+filtrul a fost activat. Pașii și procedurile verificate se păstrează local în
+.luxai_data/agent_memory.json; aprobările CMD nu sunt învățate.

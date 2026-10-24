@@ -1,3 +1,14 @@
+## 0.3.0 — Adaptive desktop tasks and verified execution
+
+- Introduce an adaptive task loop: choose a tool, observe its result, revise the next step and verify the requested outcome. Open applications through native Windows discovery first; a running process or an issued click is no longer enough to report completion.
+- Local screenshot requests work without an AI key. Visual cloud work retains screenshot permission once per Jarvis session and the dedicated Discord recipient/message checks.
+- Repair Windows callback and window-handle types, including the Discord enumeration error. Require a visible, on-screen foreground application window before confirming native opening.
+- Share strict model JSON parsing, fix invalid JSON examples in visual prompts, and preserve the distinction between an action already issued and an outcome that could not be verified. An uncertain toggle is not clicked again automatically.
+- Add a local CMD/PowerShell executor with parsed read-only commands, bounded output, timeouts and cancellation. The default `agent_auto_shell: true` authorizes proposed commands for the current task without repeated prompts; changing commands still need an independent read-only result check. Set `agent_auto_shell: false` for exact shell/command approval. Neither mode bypasses Windows permissions or UAC; remembered procedures do not store command authority.
+- Add explicitly requested native Windows power actions and dark/light theme changes with state readback. Shutdown/restart requests use a cancellation delay and do not force applications closed. Night Light opens the supported settings page and can continue through the consented visual tool; activation requires observed toggle-state evidence.
+- Store bounded task checkpoints, clarification answers and verified procedure hints in `.luxai_data/agent_memory.json`. Raw shell commands, screenshots, recordings and command approvals are not retained as reusable procedures; every task still needs fresh execution checks.
+
+`Update.bat` installs the contents of `main`. Changes present only in a feature branch or pull request are available through it after merging.
 
 ### 0.2.0 — Post-confirmation Discord send verification
 
