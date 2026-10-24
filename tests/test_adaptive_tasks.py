@@ -28,6 +28,15 @@ class AdaptiveTests(unittest.TestCase):
             _validate_choice({"mode": "open_settings", "target": "unknown"},
                              "Открой параметры")
 
+    def test_clarification_requires_one_explicit_question(self):
+        decision = _validate_choice(
+            {"mode": "ask", "target": "Какую программу открыть?"},
+            "Открой приложение",
+        )
+        self.assertEqual(decision.mode, "ask")
+        with self.assertRaises(ValueError):
+            _validate_choice({"mode": "ask", "target": ""}, "Открой")
+
     def test_safe_readonly_diagnostics_and_no_shell(self):
         self.assertEqual(_validate_diagnostic("whoami"), ["whoami.exe"])
         self.assertEqual(_validate_diagnostic("ipconfig /all"),
