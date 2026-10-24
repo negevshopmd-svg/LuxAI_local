@@ -2841,6 +2841,11 @@ class MainWindow(QMainWindow):
 
     def _start_adaptive_task(self, text):
         """Think about the tool BEFORE uploading any desktop image."""
+        from luxai.agent_experience import recall
+        cached = recall(text)
+        if cached is not None:
+            self._on_adaptive_choice_ready(text, cached, "")
+            return
         if not self.online_planner.enabled():
             self._safe_local_fallback(text, "Нет ключа для планирования AI")
             return
