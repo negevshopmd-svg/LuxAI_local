@@ -2941,6 +2941,7 @@ class MainWindow(QMainWindow):
             if choice.mode == "open_app":
                 ok, message = launch_installed_app(choice.target)
                 if not ok:
+                    extra = "failed"
                     # A missing application can be diagnosed from the real
                     # desktop without uploading its pixels to the cloud.
                     # This is evidence for the next task, not a claim that
@@ -2983,7 +2984,7 @@ class MainWindow(QMainWindow):
             # Night Light control. Consent is requested only at this stage.
             self._start_visual_reasoner(text)
             return
-        if not answer.startswith("Действие не выполнено"):
+        if extra != "failed" and not answer.startswith("Действие не выполнено"):
             choice = getattr(self, "_adaptive_last_choice", None)
             if choice is not None and choice.mode in {
                 "open_app", "safe_diagnostic", "screen_capture", "open_recycle_bin",
