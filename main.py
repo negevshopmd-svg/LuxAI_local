@@ -200,6 +200,8 @@ class MainWindow(QMainWindow):
     discord_review_ready = Signal(int, object, str)
     discord_mic_visual_ready = Signal(str, str)
     visual_reasoner_ready = Signal(str, str)
+    adaptive_choice_ready = Signal(str, object, str)
+    adaptive_exec_ready = Signal(str, str, str)
     direct_macro_ready = Signal(str, object, str)
     direct_task_ready = Signal(str, str, str)
     screen_inspection_ready = Signal(str, object, str)
@@ -234,6 +236,8 @@ class MainWindow(QMainWindow):
         self.discord_review_ready.connect(self._on_discord_review_ready)
         self.discord_mic_visual_ready.connect(self._on_discord_mic_visual_ready)
         self.visual_reasoner_ready.connect(self._on_visual_reasoner_ready)
+        self.adaptive_choice_ready.connect(self._on_adaptive_choice_ready)
+        self.adaptive_exec_ready.connect(self._on_adaptive_exec_ready)
         self.direct_macro_ready.connect(self._on_direct_macro_ready)
         self.wizard_plan_ready.connect(self._on_wizard_plan)
         self.local_reply_ready.connect(self._on_local_reply)
@@ -250,6 +254,8 @@ class MainWindow(QMainWindow):
         self._last_external_hwnd = 0
         self._last_visual_goal = None
         self._last_visual_goal_at = 0.0
+        self._adaptive_last_choice = None
+        self._adaptive_hints = []
         self._current_route = ""
         self._closed = False
         self._api_test_running = False
@@ -1963,7 +1969,7 @@ class MainWindow(QMainWindow):
                 from luxai.discord_navigation import detect_discord_open_dm
                 from luxai.research_notepad import detect_research_notepad
                 if not detect_discord_open_dm(text) and not detect_research_notepad(text):
-                    self._start_visual_reasoner(text)
+                    self._start_adaptive_task(text)
                     return
             if needs_live_macro_planning(text):
                 if not self.online_planner.enabled():
@@ -2081,6 +2087,9 @@ class MainWindow(QMainWindow):
                 self._resolved_command(text, quick)
                 return
 
+            if self.online_planner.enabled() and is_operational_request(text):
+                self._start_adaptive_task(text)
+                return
             if self.online_planner.enabled():
                 provider = self.cfg.get("online_provider", "gemini")
                 label = PROVIDERS.get(provider, {}).get("label", provider)
@@ -2829,6 +2838,108 @@ class MainWindow(QMainWindow):
         if approved:
             self._visual_upload_consent_session = True
         return bool(approved)
+
+    def _start_adaptive_task(self, text):
+        """Think about the tool BEFORE uploading any desktop image."""
+        if not self.online_planner.enabled():
+            self._safe_local_fallback(text, "Нет ключа для планирования AI")
+            return
+        self.mic_status.setText("AI определяет способ выполнения задачи…")
+        threading.Thread(
+            target=self._adaptive_select_worker,
+            args=(text,), daemon=True, name="JarvisToolSelection",
+        ).start()
+
+    def _adaptive_select_worker(self, text):
+        try:
+            from luxai.adaptive_tasks import choose_tool
+            choice = choose_tool(
+                self.online_planner, text,
+                hints=tuple(getattr(self, "_adaptive_hints", ())[-3:]),
+            )
+            error = ""
+        except Exception as exc:
+            choice, error = None, f"{type(exc).__name__}: {str(exc)[:170]}"
+        if not self._closed:
+            try:
+                self.adaptive_choice_ready.emit(text, choice, error)
+            except RuntimeError:
+                pass
+
+    def _on_adaptive_choice_ready(self, text, choice, error):
+        if self._closed or not self._processing or self._active_text != text:
+            return
+        if choice is None:
+            self._current_route = "AI: выбор инструмента"
+            self._resolved_command(text, "Не удалось выбрать действие: " + error)
+            return
+        self._adaptive_last_choice = choice
+        if choice.mode == "answer":
+            self._start_local_chat(text)
+            return
+        if choice.mode == "visual":
+            self._start_visual_reasoner(text)
+            return
+        self.mic_status.setText("Выполняю выбранное локальное действие…")
+        threading.Thread(
+            target=self._adaptive_exec_worker,
+            args=(text, choice), daemon=True, name="JarvisLocalTool",
+        ).start()
+
+    def _adaptive_exec_worker(self, text, choice):
+        extra = ""
+        try:
+            from luxai.adaptive_tasks import (
+                run_safe_diagnostic, capture_desktop_locally, SETTINGS,
+            )
+            from luxai.windows_apps import launch_installed_app
+            if choice.mode == "open_app":
+                ok, message = launch_installed_app(choice.target)
+                if not ok:
+                    message += " Окно не подтверждено."
+            elif choice.mode == "open_recycle_bin":
+                from luxai.desktop_actions import execute_desktop_step
+                message = execute_desktop_step({"action": "open_recycle_bin"})
+            elif choice.mode == "safe_diagnostic":
+                message = run_safe_diagnostic(choice.target)
+            elif choice.mode == "screen_capture":
+                message = capture_desktop_locally()
+            elif choice.mode == "open_settings":
+                import os
+                if sys.platform != "win32":
+                    raise OSError("Windows settings available on Windows only")
+                os.startfile(SETTINGS[choice.target])
+                message = "Открыл страницу параметров Windows: " + choice.target
+                # Setting page opening is NOT proof of actually toggling it.
+                extra = "inspect"
+            else:
+                raise ValueError("Unknown local tool")
+        except (OSError, RuntimeError, ValueError, PermissionError) as exc:
+            message = "Действие не выполнено: " + type(exc).__name__ + ": " + str(exc)[:175]
+        if not self._closed:
+            try:
+                self.adaptive_exec_ready.emit(text, message, extra)
+            except RuntimeError:
+                pass
+
+    def _on_adaptive_exec_ready(self, text, answer, extra):
+        if self._closed or not self._processing or self._active_text != text:
+            return
+        if extra == "inspect":
+            # The model may still need a screenshot to actually toggle the
+            # Night Light control. Consent is requested only at this stage.
+            self._start_visual_reasoner(text)
+            return
+        if not answer.startswith("Действие не выполнено"):
+            choice = getattr(self, "_adaptive_last_choice", None)
+            if choice is not None and choice.mode in {
+                "open_app", "safe_diagnostic", "screen_capture", "open_recycle_bin",
+            }:
+                self._adaptive_hints = (
+                    self._adaptive_hints + [f"{choice.mode}: verified"]
+                )[-8:]
+        self._current_route = "AI: выбор инструмента → локальный исполнитель"
+        self._resolved_command(text, answer)
 
     def _start_visual_reasoner(self, text, feedback=""):
         if not self.online_planner.enabled():
