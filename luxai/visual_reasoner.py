@@ -125,8 +125,9 @@ def _choose(planner, goal: str, current, *, previous=None,
         "permissions, delete files, make payments or enter credentials. "
         "A Discord contact visible in the SIDEBAR is not proof that its chat "
         "is OPEN: check the current conversation HEADER in the main pane. "
-        "Never claim you clicked if you did not. Never claim success solely "
-        "because a click was issued or because the app is already open. "
+        "Never claim you clicked if you did not. A click alone proves no outcome. "
+        "An open app proves success only when the whole user goal is opening "
+        "that app; otherwise verify every requested subsequent control/state. "
         'Return only one valid JSON object, for example '
         '{"action":"click","target":"Settings","direction":"down",'
         '"reason":"The Settings button is visible"}. '
@@ -195,8 +196,10 @@ def _verify_goal(planner, goal: str, capture) -> bool:
     messages = multimodal_messages(
         "User's original goal: " + goal +
         "\\nCheck CURRENT SCREENSHOT ONLY. Does it clearly prove "
-        "the intended result is ALREADY achieved? A clicked button or an "
-        "open app alone does NOT prove success. For an intended Discord "
+        "the intended result is ALREADY achieved? A clicked button alone does "
+        "not prove success. An open app proves success only when the whole "
+        "user goal is opening that app; otherwise verify every requested "
+        "subsequent control/state. For an intended Discord "
         "contact, demand correct name in the actual OPEN CHAT HEADER "
         "at the top of the center pane, NOT in sidebar, composer or search. "
         "For a microphone state request, demand a clearly readable muted/"
@@ -278,17 +281,37 @@ def _goal_application(goal):
     return next(iter(found), None)
 
 
-def _select_window(goal: str, *, preferred_hwnd=0, cancelled=None):
+def _select_window(goal: str, *, preferred_hwnd=0, cancelled=None, native_open_failed=False):
     from luxai.screen_interact import _foreground_hwnd, _valid_external_window
     from luxai.win32 import get_user32
     app = _goal_application(goal)
-    if app == "discord":
+    if native_open_failed:
+        from luxai.task_intents import opening_app
+        from luxai.windows_apps import activate_app_window
+        app = app or opening_app(goal)
+        # A launch can complete late. Accept only independently bound app
+        # ownership; never reuse the old unrelated application or launch again.
+        try:
+            hwnd = activate_app_window(app) if app else 0
+            if hwnd:
+                _valid_external_window(hwnd)
+                if _foreground_hwnd() == hwnd:
+                    return hwnd
+        except PermissionError:
+            raise
+        except (OSError, ValueError, RuntimeError):
+            pass
+        # The trusted task history permits visual fallback after a native
+        # opening failure. Its observation starts at the actual Explorer
+        # desktop, not whichever stale app happened to retain focus.
+        hwnd = _desktop_window()
+    elif app == "discord":
         from luxai.discord_screen_review import _ensure_discord_visible
         from luxai.discord_research import focus_discord
         hwnd = _ensure_discord_visible(cancelled=cancelled)
         focus_discord(hwnd)
         return hwnd
-    if app:
+    elif app:
         from luxai.windows_apps import activate_app_window
         hwnd = activate_app_window(app)
         if not hwnd:
@@ -297,7 +320,7 @@ def _select_window(goal: str, *, preferred_hwnd=0, cancelled=None):
         if _foreground_hwnd() != hwnd:
             raise ValueError("Нужное приложение потеряло фокус.")
         return hwnd
-    if re.search(r"(?:рабоч\w*\s+стол|desktop|корзин|recycle\s*bin|co[șs]\w*\s+de\s+reciclare)", goal, re.I):
+    elif re.search(r"(?:рабоч\w*\s+стол|desktop|корзин|recycle\s*bin|co[șs]\w*\s+de\s+reciclare)", goal, re.I):
         # A remembered application HWND is not the requested desktop. Use
         # the actual shell window and retain every normal capture/click
         # validation. If it cannot become visible, never inspect another app.
@@ -349,7 +372,8 @@ def _follow_action_window(goal: str, previous):
 
 
 def run_visual_reasoner(planner, goal: str, *, feedback="", preferred_hwnd=0,
-                        cancelled=None, result_sink=None, validated_goal=False) -> str:
+                        cancelled=None, result_sink=None, validated_goal=False,
+                        native_open_failed=False) -> str:
     """Run the string API and optionally retain concrete progress for adapters.
 
     ``ok`` means an action was issued or the goal was independently verified;
@@ -357,9 +381,13 @@ def run_visual_reasoner(planner, goal: str, *, feedback="", preferred_hwnd=0,
     must not erase a real click or turn it into a reason to repeat a toggle.
     ``validated_goal`` is for trusted task routing after native discovery;
     it bypasses only the visual-phrase heuristic, never any execution guard.
+    ``native_open_failed`` is host-observed launch history; it permits a
+    verified desktop observation when the target app still cannot be bound.
     """
     if type(validated_goal) is not bool:
         raise TypeError("Validated goal flag must be a boolean")
+    if type(native_open_failed) is not bool:
+        raise TypeError("Native open failure flag must be a boolean")
     if result_sink is not None and not isinstance(result_sink, dict):
         raise TypeError("Visual result sink must be a dictionary")
     outcome = result_sink if result_sink is not None else {}
@@ -368,6 +396,7 @@ def run_visual_reasoner(planner, goal: str, *, feedback="", preferred_hwnd=0,
         summary = _run_visual_reasoner(
             planner, goal, feedback=feedback, preferred_hwnd=preferred_hwnd,
             cancelled=cancelled, outcome=outcome, validated_goal=validated_goal,
+            native_open_failed=native_open_failed,
         )
     except Exception as exc:
         outcome["ok"] = outcome["actions"] > 0
@@ -382,7 +411,7 @@ def run_visual_reasoner(planner, goal: str, *, feedback="", preferred_hwnd=0,
 
 
 def _run_visual_reasoner(planner, goal: str, *, feedback, preferred_hwnd,
-                         cancelled, outcome, validated_goal) -> str:
+                         cancelled, outcome, validated_goal, native_open_failed) -> str:
     """One bounded interactive session with fresh post-action observations."""
     if sys.platform != "win32":
         raise OSError("Визуальный агент работает только на Windows")
@@ -403,7 +432,8 @@ def _run_visual_reasoner(planner, goal: str, *, feedback, preferred_hwnd,
         if cancelled is not None and cancelled():
             raise RuntimeError("Визуальная задача отменена")
     check()
-    hwnd = _select_window(goal, preferred_hwnd=preferred_hwnd, cancelled=cancelled)
+    hwnd = _select_window(goal, preferred_hwnd=preferred_hwnd, cancelled=cancelled,
+                          native_open_failed=native_open_failed)
     history = []
     previous = None
     observations = 0

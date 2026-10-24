@@ -20,6 +20,18 @@ def offline_runtime(goal, **kwargs):
 
 
 class DesktopAgentTests(unittest.TestCase):
+    def test_failed_native_open_does_not_capture_previously_active_application(self):
+        runtime = offline_runtime("Open ExampleApp", preferred_hwnd=987, screenshots_allowed=True)
+        with mock.patch("luxai.windows_apps.launch_installed_app", return_value=(False, "Application not found")):
+            opening = runtime("open_app", {"target": "ExampleApp"}, {})
+        self.assertEqual(runtime.preferred_hwnd, 0)
+        with mock.patch("luxai.visual_reasoner.run_visual_reasoner", return_value="No action") as visual:
+            runtime("visual_task", {"goal": runtime.goal}, {"history": [
+                {"tool": "open_app", "ok": opening.ok, "verified": opening.verified, "executed": True},
+            ]})
+        self.assertTrue(visual.call_args.kwargs["native_open_failed"])
+        self.assertEqual(visual.call_args.kwargs["preferred_hwnd"], 0)
+
     def test_night_light_settings_can_continue_to_verified_visual_toggle(self):
         runtime = offline_runtime("Enable Night Light", screenshots_allowed=True)
         runtime.planner.enabled.return_value = True

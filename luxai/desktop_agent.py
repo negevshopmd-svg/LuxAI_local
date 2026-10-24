@@ -268,8 +268,9 @@ class DesktopRuntime:
         target = normalized_name(args.get("target", args.get("name", "")))
         ok, detail = launch_installed_app(target)
         hwnd = find_app_window(target) if ok else 0
-        if hwnd:
-            self.preferred_hwnd = hwnd
+        # An unrelated window remembered before the request is not a target
+        # for native-discovery fallback.
+        self.preferred_hwnd = hwnd or 0
         return self._result(ok, bool(ok and hwnd), detail, kind="native_window" if hwnd else "native_open_attempt",
                             data={"application": target, "hwnd": hwnd}, satisfied=bool(self.direct_app and self.direct_app == target))
 
@@ -298,10 +299,13 @@ class DesktopRuntime:
         visual_goal = self.goal
         if self.user_clarifications:
             visual_goal += "\nUser clarification: " + "; ".join(self.user_clarifications)
+        native = next((item for item in reversed(context.get("history", []))
+                       if item.get("tool") == "open_app" and item.get("executed", True)), None)
+        fallback = {"native_open_failed": True} if native and not (native.get("ok") and native.get("verified")) else {}
         try:
             summary = run_visual_reasoner(self.planner, visual_goal, preferred_hwnd=self.preferred_hwnd,
                                           feedback=self.feedback, cancelled=self.cancel_event.is_set,
-                                          result_sink=outcome, validated_goal=True)
+                                          result_sink=outcome, validated_goal=True, **fallback)
         except Exception as exc:
             if outcome.get("actions", 0):
                 summary = self._text("Действие отправлено, но результат не подтверждён: ", "Action issued; outcome remains unverified: ", "Acțiunea a fost executată, dar rezultatul nu este confirmat: ") + str(exc)[:200]

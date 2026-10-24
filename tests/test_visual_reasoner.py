@@ -31,6 +31,8 @@ class ReasoningUnitTests(unittest.TestCase):
         ):
             self.assertTrue(_verify_goal(planner, goal, mock.Mock()))
         self.assertIn(goal, pack.call_args.args[0])
+        self.assertIn("An open app proves success only when the whole user goal is opening that app", pack.call_args.args[0])
+        self.assertIn("otherwise verify every requested subsequent control/state", pack.call_args.args[0])
 
     def test_click_goal_binds_explicit_app_instead_of_stale_preferred_handle(self):
         from luxai.visual_reasoner import _select_window
@@ -61,6 +63,66 @@ class ReasoningUnitTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 _select_window("Click Steam Store", preferred_hwnd=42)
         valid.assert_not_called()
+
+    def test_observed_native_failure_falls_back_to_verified_desktop_for_known_or_unknown_app(self):
+        from luxai.visual_reasoner import _select_window
+        for goal, app in (("Open Steam", "steam"), ("Open Aurora", "aurora"), ("Open Discord", "discord")):
+            with (
+                self.subTest(goal=goal),
+                mock.patch("luxai.windows_apps.activate_app_window", return_value=0) as activate,
+                mock.patch("luxai.visual_reasoner._desktop_window", return_value=81) as desktop,
+                mock.patch("luxai.screen_interact._foreground_hwnd", return_value=81),
+                mock.patch("luxai.screen_interact._valid_external_window", return_value=(100, "Windows desktop")) as valid,
+                mock.patch("luxai.discord_screen_review._ensure_discord_visible") as relaunch,
+            ):
+                self.assertEqual(_select_window(goal, preferred_hwnd=42, native_open_failed=True), 81)
+            activate.assert_called_once_with(app)
+            desktop.assert_called_once()
+            valid.assert_called_once_with(81)
+            relaunch.assert_not_called()
+
+    def test_late_native_window_can_be_verified_before_using_desktop_fallback(self):
+        from luxai.visual_reasoner import _select_window
+        with (
+            mock.patch("luxai.windows_apps.activate_app_window", return_value=84),
+            mock.patch("luxai.visual_reasoner._desktop_window") as desktop,
+            mock.patch("luxai.screen_interact._foreground_hwnd", return_value=84),
+            mock.patch("luxai.screen_interact._valid_external_window", return_value=(200, "Steam")),
+        ):
+            self.assertEqual(_select_window("Open Steam", preferred_hwnd=42, native_open_failed=True), 84)
+        desktop.assert_not_called()
+
+    def test_desktop_fallback_keeps_original_compound_goal_for_post_action_verification(self):
+        goal = "Open Steam and click Store"
+        desktop = SimpleNamespace(hwnd=81, pid=100)
+        steam = SimpleNamespace(hwnd=84, pid=200)
+        with (
+            mock.patch("luxai.visual_reasoner.sys.platform", "win32"),
+            mock.patch("luxai.windows_apps.activate_app_window", return_value=0),
+            mock.patch("luxai.visual_reasoner._desktop_window", return_value=81),
+            mock.patch("luxai.screen_interact._foreground_hwnd", side_effect=[81, 84]),
+            mock.patch("luxai.screen_interact._valid_external_window", side_effect=lambda hwnd: (100, "Windows desktop") if hwnd == 81 else (200, "Steam")),
+            mock.patch("luxai.windows_apps.find_app_window", return_value=84),
+            mock.patch("luxai.visual_reasoner.capture_window", side_effect=[desktop, RuntimeError("New window focused"), steam]),
+            mock.patch("luxai.visual_reasoner._choose", side_effect=[{"action": "click", "target": "Steam icon"}, {"action": "done"}]),
+            mock.patch("luxai.visual_reasoner.find_visual_target", return_value=(100, 200)),
+            mock.patch("luxai.visual_reasoner.click_visual_target") as click,
+            mock.patch("luxai.visual_reasoner._verify_goal", return_value=False) as verify,
+            mock.patch("luxai.visual_reasoner.time.sleep"),
+        ):
+            planner, outcome = mock.Mock(), {}
+            run_visual_reasoner(planner, goal, preferred_hwnd=42, validated_goal=True,
+                                native_open_failed=True, result_sink=outcome)
+        click.assert_called_once()
+        verify.assert_called_once_with(planner, goal, steam)
+        self.assertTrue(outcome["ok"])
+        self.assertFalse(outcome["verified"])
+
+    def test_native_open_failure_flag_does_not_bypass_visual_danger_gate(self):
+        with mock.patch("luxai.visual_reasoner.sys.platform", "win32"), mock.patch("luxai.visual_reasoner._select_window") as select:
+            with self.assertRaises(PermissionError):
+                run_visual_reasoner(mock.Mock(), "Delete all files", validated_goal=True, native_open_failed=True)
+        select.assert_not_called()
 
     def test_desktop_and_recycle_bin_are_visual_goals_in_supported_languages(self):
         for phrase in ("нажми пожалуйста на корзину", "click Recycle Bin on desktop",
