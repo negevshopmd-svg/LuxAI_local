@@ -121,6 +121,13 @@ def focus_discord(hwnd: int) -> int:
     from luxai.screen_interact import _foreground_hwnd, _window_pid, _window_title
 
     user32 = _user32()
+    for func in ('IsWindow', 'IsWindowVisible', 'IsIconic', 'SetForegroundWindow', 'BringWindowToTop'):
+        native = getattr(user32, func, None)
+        if native is not None:
+            try:
+                native.argtypes = [wintypes.HWND]
+            except (AttributeError, TypeError):
+                pass
     if not hwnd or not user32.IsWindow(hwnd):
         raise ValueError("Окно Discord было закрыто.")
     pid = _window_pid(hwnd)
