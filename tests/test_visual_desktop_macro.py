@@ -87,6 +87,193 @@ class VisualTargetRules(unittest.TestCase):
             })
 
 
+
+class PhysicalPixelClickTests(unittest.TestCase):
+    """No real desktop access: simulate mixed-DPI, crops, and mouse events."""
+
+    def test_full_image_preserves_1920_width_with_sharp_compression(self):
+        import io
+        from PIL import Image
+        from luxai.visual_click import _encode_visual_image
+        image = Image.new("RGB", (1920, 1080), "white")
+        iw, ih, data = _encode_visual_image(image)
+        self.assertEqual((iw, ih), (1920, 1080))
+        self.assertLess(len(data), 1_200_000)
+        with Image.open(io.BytesIO(data)) as decoded:
+            self.assertEqual(decoded.size, (iw, ih))
+
+    def test_precise_locator_uses_independent_second_pass_and_real_offsets(self):
+        from dataclasses import replace
+        from luxai.visual_click import find_visual_target
+        screen = sample_capture()
+        # First-pass estimated desktop pixel = -1920 + 1536, 20 + 756
+        candidate = (-384, 776)
+        detail = replace(screen, left=-515, top=650, width=300, height=260,
+                         image_width=600, image_height=520, jpeg=b"detail")
+        planner = mock.Mock()
+        planner._provider.return_value = "openai"
+        planner.enabled.return_value = True
+        planner.config = {"online_model": "gpt-4.1-mini", "online_timeout": 50}
+        planner._request.side_effect = [object(), object()]
+        planner._extract_text.side_effect = [
+            '{"found":true,"x":800,"y":700}',
+            '{"found":true,"x":480,"y":490}',
+        ]
+        planner._read_json_content.side_effect = json.loads
+        with (
+            mock.patch("luxai.secure_keys.get_api_key", return_value="test-key"),
+            mock.patch("luxai.visual_click.capture_window_region",
+                       return_value=detail) as crop,
+        ):
+            result = find_visual_target(planner, "Mic", screen, precise=True)
+        crop.assert_called_once_with(screen, candidate)
+        self.assertEqual(result, (-371, 777))
+        self.assertEqual(planner._request.call_count, 2)
+        request = planner._request.call_args.args[3]
+        self.assertIn("FRESH MAGNIFIED PHYSICAL-PIXEL CROP",
+                      request[1]["content"][0]["text"])
+        self.assertIn("left=-515", request[1]["content"][0]["text"])
+
+    def test_precise_locator_rejects_conflicting_control_after_zoom(self):
+        from dataclasses import replace
+        from luxai.visual_click import find_visual_target
+        capture = sample_capture()
+        detail = replace(capture, left=-1100, top=300, width=440,
+                         height=330, image_width=880, image_height=660)
+        planner = mock.Mock()
+        planner._provider.return_value = "openai"
+        planner.enabled.return_value = True
+        planner.config = {}
+        planner._request.side_effect = [object(), object()]
+        planner._extract_text.side_effect = [
+            '{"found":true,"x":500,"y":500}',
+            '{"found":true,"x":850,"y":850}',
+        ]
+        planner._read_json_content.side_effect = json.loads
+        with (
+            mock.patch("luxai.secure_keys.get_api_key", return_value="test"),
+            mock.patch("luxai.visual_click.capture_window_region",
+                       return_value=detail),
+        ):
+            with self.assertRaisesRegex(ValueError, "differs"):
+                find_visual_target(planner, "Settings", capture, precise=True)
+
+    def test_region_uses_native_negative_monitor_coords_not_resized_jpeg(self):
+        from PIL import Image
+        from luxai.visual_click import capture_window_region
+        source = sample_capture()
+        raw = mock.Mock()
+        raw.size = (200, 140)
+        raw.rgb = Image.new("RGB", raw.size, "#2a5ac1").tobytes()
+        screen = mock.MagicMock()
+        screen.__enter__.return_value = screen
+        screen.monitors = [{
+            "left": -1920, "top": 0, "width": 3840, "height": 1080
+        }]
+        screen.grab.return_value = raw
+        with (
+            mock.patch("luxai.visual_click.sys.platform", "win32"),
+            mock.patch("luxai.visual_click._require_same_capture_window") as same,
+            mock.patch("mss.mss", return_value=screen),
+        ):
+            roi = capture_window_region(
+                source, (-1750, 930), width=200, height=140,
+            )
+        self.assertEqual((roi.left, roi.top, roi.width, roi.height),
+                         (-1850, 860, 200, 140))
+        self.assertEqual((roi.image_width, roi.image_height), (400, 280))
+        same.assert_called_once()
+        screen.grab.assert_called_once_with({
+            "left": -1850, "top": 860, "width": 200, "height": 140,
+        })
+
+    def test_move_between_capture_and_click_is_rejected(self):
+        from luxai.visual_click import _require_same_capture_window
+        shot = sample_capture()
+        with (
+            mock.patch("luxai.screen_interact._valid_external_window",
+                       return_value=(shot.pid, shot.title)),
+            mock.patch("luxai.screen_interact._foreground_hwnd",
+                       return_value=shot.hwnd),
+            mock.patch("luxai.visual_click._visible_window_bounds",
+                       return_value=(-1913, 20, 1920, 1080)),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "moved or resized"):
+                _require_same_capture_window(shot, desktop_geometry())
+
+    def test_native_click_keeps_negative_physical_pixels_and_checks_owner(self):
+        from luxai.visual_click import click_visual_target
+        import sys
+        shot = sample_capture()
+        user32 = mock.Mock()
+        user32.GetForegroundWindow.return_value = shot.hwnd
+        user32.WindowFromPoint.return_value = 777
+        user32.SetCursorPos.return_value = True
+        screen = mock.MagicMock()
+        screen.__enter__.return_value.monitors = [{
+            "left": -1920, "top": 0, "width": 3840, "height": 1080
+        }]
+        with (
+            mock.patch("luxai.visual_click.sys.platform", "win32"),
+            mock.patch("luxai.visual_click._require_same_capture_window"),
+            mock.patch("luxai.win32.get_user32", return_value=user32),
+            mock.patch("luxai.screen_interact._window_pid", return_value=shot.pid),
+            mock.patch.dict(sys.modules, {"pyautogui": mock.Mock()}),
+            mock.patch("mss.mss", return_value=screen),
+            mock.patch("luxai.visual_click.time.sleep"),
+        ):
+            click_visual_target(shot, (-500, 720), 1)
+        user32.SetCursorPos.assert_called_once_with(-500, 720)
+        self.assertEqual(user32.mouse_event.call_count, 2)
+        self.assertEqual(user32.mouse_event.call_args_list[0].args[0], 0x0002)
+        self.assertEqual(user32.mouse_event.call_args_list[1].args[0], 0x0004)
+
+    def test_click_refuses_control_hidden_by_other_process(self):
+        from luxai.visual_click import click_visual_target
+        import sys
+        shot = sample_capture()
+        user32 = mock.Mock()
+        user32.GetForegroundWindow.return_value = shot.hwnd
+        user32.WindowFromPoint.return_value = 771
+        screen = mock.MagicMock()
+        screen.__enter__.return_value.monitors = [{
+            "left": -1920, "top": 0, "width": 3840, "height": 1080
+        }]
+        with (
+            mock.patch("luxai.visual_click.sys.platform", "win32"),
+            mock.patch("luxai.visual_click._require_same_capture_window"),
+            mock.patch("luxai.win32.get_user32", return_value=user32),
+            mock.patch("luxai.screen_interact._window_pid", return_value=999),
+            mock.patch.dict(sys.modules, {"pyautogui": mock.Mock()}),
+            mock.patch("mss.mss", return_value=screen),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "covered"):
+                click_visual_target(shot, (-500, 720), 1)
+        user32.SetCursorPos.assert_not_called()
+        user32.mouse_event.assert_not_called()
+
+    def test_dwm_physical_frame_overrides_dpi_virtualized_getwindowrect(self):
+        import ctypes
+        from luxai.visual_click import _visible_window_bounds
+        desktop = {"left": -1920, "top": 0, "width": 3840, "height": 2160}
+        def dwm_attribute(hwnd, key, out, n):
+            self.assertEqual(key, 9)
+            rect = out._obj
+            rect.left, rect.top, rect.right, rect.bottom = -1700, 110, -300, 1010
+            return 0
+        dwm = mock.Mock()
+        dwm.DwmGetWindowAttribute.side_effect = dwm_attribute
+        win = mock.Mock()
+        with (
+            mock.patch.object(ctypes, "windll", create=True,
+                              new=mock.Mock(dwmapi=dwm)),
+            mock.patch("luxai.win32.get_user32", return_value=win),
+        ):
+            self.assertEqual(_visible_window_bounds(123, desktop),
+                             (-1700, 110, 1400, 900))
+        win.GetWindowRect.assert_not_called()
+
+
 class MacroPlanningTests(unittest.TestCase):
     def test_complex_russian_request_routes_through_full_macro(self):
         self.assertTrue(needs_live_macro_planning(
