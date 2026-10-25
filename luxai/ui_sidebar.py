@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtGui import QPainter
+from luxai.icons import icon, set_button_icon
 from luxai.ui_i18n import tr, normalize_language
 from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
@@ -10,41 +11,26 @@ from PySide6.QtWidgets import (
 
 
 class BrandMark(QWidget):
-    """Vector logo, avoiding external image and icon dependencies."""
+    """The same scalable Jarvis mark used by the window and system tray."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedSize(48, 48)
 
     def paintEvent(self, event):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor("#244e91"))
-        p.drawEllipse(1, 1, 46, 46)
-        p.setBrush(QColor("#3f85f1"))
-        p.drawEllipse(7, 7, 34, 34)
-        p.setPen(QPen(QColor("#ffffff"), 5, Qt.PenStyle.SolidLine,
-                      Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
-        # Abstract lightning-shaped J mark, matching the reference's look.
-        from PySide6.QtCore import QPointF
-        from PySide6.QtGui import QPainterPath
-        path = QPainterPath(QPointF(27, 15))
-        path.lineTo(QPointF(19, 25))
-        path.lineTo(QPointF(29, 25))
-        path.lineTo(QPointF(23, 33))
-        p.drawPath(path)
+        painter = QPainter(self)
+        icon("jarvis", size=48).paint(painter, self.rect())
 
 
 class NavigationSidebar(QFrame):
     page_selected = Signal(int)
 
     PAGES = [
-        ("⌂", "Главная"),
-        ("☷", "Команды"),
-        ("▦", "Дополнения"),
-        ("▣", "Jarvis AI"),
-        ("☷", "Настройки"),
+        ("house", "Главная"),
+        ("list-checks", "Команды"),
+        ("blocks", "Дополнения"),
+        ("bot", "Jarvis AI"),
+        ("settings", "Настройки"),
     ]
 
     def __init__(self, parent=None):
@@ -71,11 +57,14 @@ class NavigationSidebar(QFrame):
         column.addSpacing(23)
 
         self.nav_buttons = []
-        for idx, (glyph, label) in enumerate(self.PAGES):
-            button = QPushButton(f"{glyph}    {label}")
+        for idx, (icon_name, label) in enumerate(self.PAGES):
+            button = QPushButton(label)
             button.setObjectName("Nav")
             button.setProperty("active", idx == 0)
+            button.setProperty("collapsed", False)
+            set_button_icon(button, icon_name, size=21)
             button.setToolTip(label)
+            button.setAccessibleName(label)
             button.setCursor(Qt.CursorShape.PointingHandCursor)
             button.setMinimumHeight(45)
             button.clicked.connect(lambda checked=False, i=idx: self.page_selected.emit(i))
@@ -83,8 +72,9 @@ class NavigationSidebar(QFrame):
             self.nav_buttons.append(button)
         column.addStretch()
 
-        self.collapse = QPushButton("◁   Свернуть")
+        self.collapse = QPushButton("Свернуть")
         self.collapse.setObjectName("Nav")
+        set_button_icon(self.collapse, "panel-left-close", size=21, role="muted")
         self.collapse.setMinimumHeight(42)
         self.collapse.clicked.connect(self.toggle_collapsed)
         column.addWidget(self.collapse)
@@ -92,6 +82,7 @@ class NavigationSidebar(QFrame):
     def set_active(self, index):
         for i, button in enumerate(self.nav_buttons):
             button.setProperty("active", i == index)
+            set_button_icon(button, self.PAGES[i][0], size=21)
             button.style().unpolish(button)
             button.style().polish(button)
             button.update()
@@ -104,8 +95,21 @@ class NavigationSidebar(QFrame):
 
     def set_language(self, language):
         self._language = normalize_language(language)
-        for (icon, title), button in zip(self.PAGES, self.nav_buttons):
+        for (icon_name, title), button in zip(self.PAGES, self.nav_buttons):
             label = tr(title, self._language)
             button.setToolTip(label)
-            button.setText(icon if self._collapsed else f"{icon}    {label}")
-        self.collapse.setText("▷" if self._collapsed else f"◁   {tr('Свернуть', self._language)}")
+            button.setAccessibleName(label)
+            button.setProperty("collapsed", self._collapsed)
+            button.setText("" if self._collapsed else label)
+            set_button_icon(button, icon_name, size=21)
+            button.style().unpolish(button)
+            button.style().polish(button)
+        caption = ({"ru": "Развернуть", "en": "Expand", "ro": "Extinde"}[self._language]
+                   if self._collapsed else tr("Свернуть", self._language))
+        self.collapse.setText("" if self._collapsed else caption)
+        self.collapse.setToolTip(caption)
+        self.collapse.setAccessibleName(caption)
+        self.collapse.setProperty("collapsed", self._collapsed)
+        set_button_icon(self.collapse, "panel-left-open" if self._collapsed else "panel-left-close", size=21, role="muted")
+        self.collapse.style().unpolish(self.collapse)
+        self.collapse.style().polish(self.collapse)

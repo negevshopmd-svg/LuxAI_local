@@ -1,6 +1,6 @@
 """Luxify-style configurable action picker with readable, non-overlapping rows.
 
-The window is a frameless, dark PySide6 dialog (no bright Windows title bar).
+The window is a frameless PySide6 dialog that follows the application theme.
 Each action is a separate two-line widget, never a multi-line QPushButton.
 """
 from __future__ import annotations
@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from luxai.ui_i18n import tr, get_ui_language, translate_widgets
+from luxai.icons import icon, set_button_icon, set_label_icon
 from luxai.action_catalog import CATALOG, CATEGORIES, HOTKEYS, SINGLE_KEYS, validate_step
 from luxai.command_registry import APP_TARGETS
 from luxai.file_actions import ALLOWED_LOCATIONS
@@ -30,74 +31,28 @@ LOCATION_LABELS = {
     "desktop": "Рабочий стол", "documents": "Документы",
     "downloads": "Загрузки",
 }
-CATEGORY_ICONS = {
-    "Запуск": "↗", "Клавиши": "⌨", "Мышь": "◉", "Программа": "◷",
-    "Озвучка": "♬", "Звук": "♪", "Система": "▣", "Браузер": "◎",
-    "Файлы": "▤",
-}
+CATEGORY_ICONS = dict(CATEGORIES)
 
+# Colors come from the application's dark/light stylesheet. Keep local rules
+# to geometry so dialogs and vector icons use the same theme as the main UI.
 PICKER_CSS = """
-QDialog#ActionPickerDialog {
-    background: #192231;
-    color: #f3f5fc;
-    border: 1px solid #3b4960;
+QDialog#ActionPickerDialog { border-radius: 14px; }
+QWidget#PickerActionArea, QScrollArea#ActionScroll, QWidget#PickerBody {
+    background: transparent; border: none;
 }
-QWidget#PickerActionArea, QScrollArea#ActionScroll,
-QWidget#PickerBody {
-    background: transparent;
-    border: none;
-}
-QLabel { color: #eaf0fa; background: transparent; }
-QLabel#PickerSubtitle, QLabel#ActionHint { color: #aab8cd; }
-QLabel#PickerGroup { color: #aebbd0; font-size: 12px; font-weight: 700; }
-QLabel#TileTitle { color: #f4f7ff; font-size: 14px; font-weight: 600; }
-QLabel#TileDescription { color: #aebbcf; font-size: 12px; }
-QLabel#TileIcon {
-    background: #28354b; border-radius: 10px;
-    color: #dbe9ff; font-size: 19px;
-}
-QFrame#ActionTile {
-    background: transparent; border: 1px solid transparent;
-    border-radius: 12px;
-}
-QFrame#ActionTile:hover { background: #29364c; }
-QFrame#ActionTile[chosen="true"] {
-    background: #2a4163; border: 1px solid #448aff;
-}
-QFrame#ActionTile:disabled { background: transparent; }
-QLabel#TileTitle:disabled, QLabel#TileDescription:disabled {
-    color: #8794a8;
-}
-QListWidget#ActionCategories {
-    background: transparent; border: none; color: #cbd5e4;
-    outline: none; font-size: 13px;
-}
+QLabel#PickerGroup { font-size: 12px; font-weight: 700; }
+QLabel#TileTitle { font-size: 14px; font-weight: 600; }
+QLabel#TileDescription { font-size: 12px; }
+QLabel#TileIcon { border-radius: 10px; }
+QFrame#ActionTile { border-radius: 12px; }
+QListWidget#ActionCategories { border: none; outline: none; font-size: 13px; }
 QListWidget#ActionCategories::item {
     border-radius: 10px; padding: 10px 8px; margin: 2px;
 }
-QListWidget#ActionCategories::item:selected {
-    background: #344966; color: white;
-}
-QListWidget#ActionCategories::item:hover { background: #293850; }
-QLineEdit#ActionSearch {
-    background: #252e3f; color: #f3f5fb;
-    border: 1px solid #3b4960;
-    border-radius: 10px; padding: 10px;
-}
-QPushButton#PickerClose {
-    background: transparent; border: none;
-    font-size: 22px; color: #d9e4f8;
-}
-QPushButton#PickerClose:hover { background: #384760; }
-QPushButton#Primary {
-    background: #397af0; border: none; color: white;
-    border-radius: 10px; padding: 10px 24px;
-}
-QPushButton#Primary:disabled { background: #354461; color: #8c9db8; }
-QPushButton#PickerCancel {
-    background: #303b4e; color: #f1f5fd;
-    border: 1px solid #41506b; border-radius: 10px; padding: 10px 21px;
-}
+QLineEdit#ActionSearch { border-radius: 10px; padding: 10px; }
+QPushButton#PickerClose { border: none; padding: 5px; }
+QPushButton#Primary { border-radius: 10px; padding: 10px 24px; }
+QPushButton#PickerCancel { border-radius: 10px; padding: 10px 21px; }
 """
 
 
@@ -119,11 +74,13 @@ class ActionTile(QFrame):
         outer.setContentsMargins(12, 9, 11, 9)
         outer.setSpacing(12)
 
-        icon = QLabel(CATEGORY_ICONS.get(details["category"], "◈"))
-        icon.setObjectName("TileIcon")
-        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        icon.setFixedSize(35, 35)
-        outer.addWidget(icon, 0, Qt.AlignmentFlag.AlignVCenter)
+        mark = QLabel()
+        mark.setObjectName("TileIcon")
+        mark.setProperty("jarvisIconBoxSize", 35)
+        mark.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        set_label_icon(mark, details.get("icon", CATEGORY_ICONS.get(details["category"], "layers-3")), size=20, role="accent")
+        mark.setFixedSize(35, 35)
+        outer.addWidget(mark, 0, Qt.AlignmentFlag.AlignVCenter)
 
         text = QVBoxLayout()
         text.setSpacing(3)
@@ -171,20 +128,20 @@ class ActionOptionsDialog(QDialog):
         self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
         self.setMinimumWidth(500)
         self.resize(550, 320)
-        self.setStyleSheet(
-            "QDialog#ActionOptionsDialog{background:#1c2738;color:#f1f5fb;"
-            "border:1px solid #3b4d67;}QLabel{color:#f1f5fb;}"
-        )
         layout = QVBoxLayout(self)
         layout.setContentsMargins(23, 20, 23, 20)
         layout.setSpacing(14)
         header = QHBoxLayout()
         small_title = QLabel("Настроить действие")
-        small_title.setStyleSheet("color:#9fb2ce;font-weight:600;")
+        small_title.setObjectName("Muted")
+        small_title.setStyleSheet("font-weight:600;")
         header.addWidget(small_title)
         header.addStretch()
-        close = QPushButton("×")
+        close = QPushButton()
         close.setObjectName("PickerClose")
+        set_button_icon(close, "x", size=18)
+        close.setToolTip(tr("Закрыть"))
+        close.setAccessibleName(tr("Закрыть"))
         close.setFixedSize(32, 32)
         close.clicked.connect(self.reject)
         header.addWidget(close)
@@ -287,6 +244,7 @@ class ActionOptionsDialog(QDialog):
             row = QHBoxLayout()
             row.addWidget(self.target, 1)
             self.browse = QPushButton("Обзор…")
+            set_button_icon(self.browse, "folder-open")
             self.browse.clicked.connect(self._browse_audio)
             row.addWidget(self.browse)
             form.addRow("Аудиофайл", row)
@@ -332,10 +290,12 @@ class ActionOptionsDialog(QDialog):
         buttons = QHBoxLayout()
         buttons.addStretch()
         cancel = QPushButton("Отмена")
+        set_button_icon(cancel, "x")
         cancel.clicked.connect(self.reject)
         buttons.addWidget(cancel)
         save = QPushButton("Добавить" if not step else "Применить")
         save.setObjectName("Primary")
+        set_button_icon(save, "check", role="white")
         save.clicked.connect(self._accept)
         buttons.addWidget(save)
         layout.addLayout(buttons)
@@ -397,14 +357,13 @@ class ActionPicker(QDialog):
         root.setContentsMargins(24, 20, 24, 18)
         root.setSpacing(13)
         header = QHBoxLayout()
-        icon = QLabel("＋")
-        icon.setFixedSize(46, 46)
-        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        icon.setStyleSheet(
-            "background:#293e61;color:white;font-size:23px;"
-            "border-radius:11px;"
-        )
-        header.addWidget(icon)
+        mark = QLabel()
+        mark.setObjectName("TileIcon")
+        mark.setProperty("jarvisIconBoxSize", 46)
+        mark.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        set_label_icon(mark, "plus", size=24, role="accent")
+        mark.setFixedSize(46, 46)
+        header.addWidget(mark)
         heading = QVBoxLayout()
         heading.setSpacing(3)
         title = QLabel("Добавить действие")
@@ -415,7 +374,10 @@ class ActionPicker(QDialog):
         sub.setWordWrap(True)
         heading.addWidget(sub)
         header.addLayout(heading, 1)
-        close = QPushButton("×")
+        close = QPushButton()
+        set_button_icon(close, "x", size=19)
+        close.setToolTip(tr("Закрыть"))
+        close.setAccessibleName(tr("Закрыть"))
         close.setFixedSize(34, 34)
         close.setObjectName("PickerClose")
         close.clicked.connect(self.reject)
@@ -425,8 +387,11 @@ class ActionPicker(QDialog):
         self.search = QLineEdit()
         self.search.setObjectName("ActionSearch")
         self.search.setPlaceholderText(
-            "⌕   Поиск: «открыть», «клавиши», «громкость»…"
+            "Поиск: «открыть», «клавиши», «громкость»…"
         )
+        search_icon = self.search.addAction(icon("search", size=17), QLineEdit.ActionPosition.LeadingPosition)
+        search_icon.setProperty("jarvisIcon", "search")
+        search_icon.setProperty("jarvisIconRole", "muted")
         self.search.textChanged.connect(self._refresh_items)
         root.addWidget(self.search)
 
@@ -435,9 +400,13 @@ class ActionPicker(QDialog):
         self.category_list = QListWidget()
         self.category_list.setObjectName("ActionCategories")
         self.category_list.setFixedWidth(190)
+        self.category_list.setIconSize(QSize(19, 19))
         self.category_list.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
         for name, icon_name in CATEGORIES:
-            entry = QListWidgetItem(f"{icon_name}   {tr(name)}")
+            entry = QListWidgetItem(tr(name))
+            entry.setIcon(icon(icon_name, size=19))
+            entry.setData(Qt.ItemDataRole.UserRole + 60, icon_name)
+            entry.setData(Qt.ItemDataRole.UserRole + 61, "default")
             entry.setData(Qt.ItemDataRole.UserRole, name)
             entry.setSizeHint(QSize(170, 43))
             self.category_list.addItem(entry)
@@ -461,16 +430,19 @@ class ActionPicker(QDialog):
         root.addLayout(body, 1)
 
         footer = QHBoxLayout()
-        empty = QPushButton("＋  Пустое действие")
+        empty = QPushButton("Пустое действие")
+        set_button_icon(empty, "plus")
         empty.clicked.connect(self._add_empty)
         footer.addWidget(empty)
         footer.addStretch()
         cancel = QPushButton("Отмена")
+        set_button_icon(cancel, "x")
         cancel.setObjectName("PickerCancel")
         cancel.clicked.connect(self.reject)
         footer.addWidget(cancel)
         self.add_button = QPushButton("Добавить")
         self.add_button.setObjectName("Primary")
+        set_button_icon(self.add_button, "plus", role="white")
         self.add_button.setEnabled(False)
         self.add_button.clicked.connect(self._add_selected)
         footer.addWidget(self.add_button)

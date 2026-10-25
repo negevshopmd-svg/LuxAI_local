@@ -33,16 +33,36 @@ SCREEN_READ = re.compile(
     re.I,
 )
 DISCORD_MIC = re.compile(
-    r"(?:(?:дискорд|discord).{0,65}(?:микрофон|микроф|звук\s+микрофона)"
-    r"|(?:микрофон|микроф).{0,65}(?:дискорд|discord))",
+    r"(?:(?:дискорд|discord).{0,65}(?:микрофон|микроф|звук\s+микрофона|microphone|\bmic\b|microfon\w*)"
+    r"|(?:микрофон|микроф|microphone|\bmic\b|microfon\w*).{0,65}(?:дискорд|discord))",
     re.I,
 )
 DISCORD_MUTE = re.compile(
     # Whisper frequently produces "выключу" instead of "выключи".
     r"\b(?:выключ\w*|отключ\w*|заглуш\w*|замьют\w*|замут\w*|mute|"
-    r"приглуш\w*)\b",
+    r"приглуш\w*|закр\w*\s+(?:(?:мой|его)\s+)?микрофон\w*|"
+    r"turn\s+off|disable|opre(?:ște|ste)|dezactiveaz[ăa])\b",
     re.I,
 )
+DISCORD_UNMUTE = re.compile(
+    r"\b(?:включ\w*|размут\w*|размьют\w*|unmute|enable|turn\s+on|porne(?:ște|ste)|activeaz[ăa])\b",
+    re.I,
+)
+DISCORD_MESSAGE_OPERATION = re.compile(
+    r"\b(?:отправ\w*|напиш\w*|напис\w*|send|write|message|text|scrie(?:-i)?|scriei|trimite(?:-i)?|удали|delete|сообщени\w*)\b",
+    re.I,
+)
+
+
+def _mic_non_action_context(phrase):
+    if re.match(r"(?:как\b|how\s+(?:can\s+i|do\s+i|to|should\s+i)\b|cum\s+(?:pot|se|s[ăa])\b)", phrase):
+        return True
+    return bool(re.search(
+        r"\b(?:не\s+(?:закр\w*|выключ\w*|отключ\w*|включ\w*)|"
+        r"(?:do\s+not|don['’]t)\s+(?:mute|unmute|disable|enable|turn\s+(?:off|on))|"
+        r"nu\s+(?:opri|oprește|opreste|porni|pornește|porneste|activa|dezactiva))\b",
+        phrase,
+    ))
 
 
 def is_dictation_start(text: str) -> bool:
@@ -89,10 +109,9 @@ def discord_mic_visual_mode(text: str) -> str | None:
     phrase = strip_wake_name(text).casefold().strip()
     if not 14 <= len(phrase) <= 320 or not DISCORD_MIC.search(phrase):
         return None
-    if re.search(
-        r"\b(?:отправ\w*|напиши|send|trimite|удали|delete|сообщени\w*)\b",
-        phrase,
-    ):
+    if DISCORD_MESSAGE_OPERATION.search(phrase):
+        return None
+    if _mic_non_action_context(phrase):
         return None
     button = re.search(
         r"(?:\bкнопк\w*|\bзначок\w*|\bиконк\w*|"
@@ -120,6 +139,8 @@ def discord_mic_visual_mode(text: str) -> str | None:
         # "Выключи микрофон" describes a desired STATE; a shortcut
         # alone is a toggle and can accidentally enable it.
         return "mute"
+    elif not pressing and DISCORD_UNMUTE.search(phrase):
+        return "unmute"
     else:
         return None
     if re.search(
@@ -145,7 +166,9 @@ def wants_discord_mic_mute(text: str) -> bool:
     """Legacy keyboard shortcut ONLY for requests with no GUI button press."""
     if wants_discord_mic_visual_click(text):
         return False
-    phrase = strip_wake_name(text)
+    phrase = strip_wake_name(text).casefold().strip()
+    if DISCORD_MESSAGE_OPERATION.search(phrase) or _mic_non_action_context(phrase):
+        return False
     return bool(DISCORD_MIC.search(phrase) and DISCORD_MUTE.search(phrase))
 
 

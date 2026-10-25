@@ -20,9 +20,11 @@ from PySide6.QtWidgets import (
 from luxai.voices import available_voices
 from luxai.voice_presets import VOICE_PRESETS
 from luxai.ui_i18n import LANGUAGES, get_ui_language, tr, translate_widgets
+from luxai.icons import icon, set_button_icon, set_label_icon
 
 
 class SettingsPanel(QWidget):
+    SECTION_ICONS = ("mic", "volume-2", "list-checks", "palette", "bot", "audio-lines", "monitor")
     SECTIONS = (
         ("Голосовой ввод", "Микрофон, распознавание и обращение"),
         ("Озвучка", "Голос ассистента и громкость"),
@@ -78,6 +80,7 @@ class SettingsPanel(QWidget):
 
         save = QPushButton("Сохранить настройки")
         save.setObjectName("Primary")
+        set_button_icon(save, "save", role="white")
         save.clicked.connect(self.on_save)
         self.body_layout.addWidget(save)
         self.body_layout.addStretch()
@@ -99,11 +102,13 @@ class SettingsPanel(QWidget):
             button = QPushButton(title)
             button.setObjectName("SettingsNav")
             button.setProperty("selected", idx == 0)
+            set_button_icon(button, self.SECTION_ICONS[idx], role="accent" if idx == 0 else "default")
             button.clicked.connect(lambda checked=False, i=idx: self._jump(i))
             side.addWidget(button)
             self.section_buttons.append(button)
         side.addStretch()
         reset = QPushButton("Сбросить поиск")
+        set_button_icon(reset, "search-x")
         reset.clicked.connect(lambda: self.search.clear())
         side.addWidget(reset)
         root.addWidget(sidebar)
@@ -113,7 +118,6 @@ class SettingsPanel(QWidget):
         frame = QFrame()
         frame.setObjectName("SettingsCard")
         frame.setStyleSheet(
-            "QFrame#SettingsCard {background:#1b2029; border:1px solid #303744; border-radius:15px;}"
             "QFrame#SettingsCard QLabel {background:transparent; border:0;}"
             "QFrame#SettingsCard QCheckBox {background:transparent; border:0;}"
         )
@@ -121,8 +125,15 @@ class SettingsPanel(QWidget):
         col.setContentsMargins(18, 17, 18, 18)
         col.setSpacing(12)
         heading = QLabel(title)
-        heading.setStyleSheet("font-size:18px; font-weight:700; color:#f4f6fb;")
-        col.addWidget(heading)
+        heading.setStyleSheet("font-size:18px; font-weight:700;")
+        heading_row = QHBoxLayout()
+        heading_row.setSpacing(10)
+        heading_icon = QLabel()
+        set_label_icon(heading_icon, self.SECTION_ICONS[len(self.sections)], size=21, role="accent")
+        heading_row.addWidget(heading_icon)
+        heading_row.addWidget(heading)
+        heading_row.addStretch()
+        col.addLayout(heading_row)
         hint = QLabel(subtitle)
         hint.setObjectName("Muted")
         hint.setWordWrap(True)
@@ -144,7 +155,7 @@ class SettingsPanel(QWidget):
             hint = QLabel(subtitle)
             hint.setObjectName("Muted")
             hint.setWordWrap(True)
-            hint.setStyleSheet("font-size:11px; color:#a2a9b7;")
+            hint.setStyleSheet("font-size:11px;")
             labels.addWidget(hint)
         line.addLayout(labels, 3)
         if isinstance(control, QWidget):
@@ -162,6 +173,25 @@ class SettingsPanel(QWidget):
         idx = widget.findData(selected)
         widget.setCurrentIndex(max(0, idx))
         return widget
+
+    @staticmethod
+    def _status_row(layout, label, name, *, role="muted"):
+        """Keep status text selectable and accessible beside its SVG icon."""
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        indicator = QLabel()
+        set_label_icon(indicator, name, size=17, role=role)
+        row.addWidget(indicator, 0, Qt.AlignmentFlag.AlignTop)
+        row.addWidget(label, 1)
+        layout.addLayout(row)
+        return indicator
+
+    @staticmethod
+    def _combo_icon(combo, index, name, *, role="default"):
+        # Shared icon refresh recolors these items without changing userData.
+        combo.setItemData(index, name, Qt.ItemDataRole.UserRole + 60)
+        combo.setItemData(index, role, Qt.ItemDataRole.UserRole + 61)
+        combo.setItemIcon(index, icon(name, color="#24996c" if role == "success" else "#3978f6", size=18))
 
     @staticmethod
     def _toggle(checked):
@@ -234,15 +264,19 @@ class SettingsPanel(QWidget):
         self._row(panel, "Уровень микрофона", "Говорите: шкала должна двигаться.", self.audio_level)
         self.audio_status = QLabel(tr("Микрофон выключен"))
         self.audio_status.setWordWrap(True)
-        panel.addWidget(self.audio_status)
+        self.audio_status_icon = self._status_row(panel, self.audio_status, "mic-off")
         self.audio_feedback = QLabel("")
         self.audio_feedback.setWordWrap(True)
         panel.addWidget(self.audio_feedback)
         self.refresh_mics = QPushButton("Обновить устройства")
+        set_button_icon(self.refresh_mics, "refresh-cw")
         self.refresh_mics.clicked.connect(lambda: self.refresh_microphone_devices())
         self.test_microphone = QPushButton("Проверить микрофон")
+        set_button_icon(self.test_microphone, "stethoscope")
         self.restart_microphone = QPushButton("Перезапустить микрофон")
+        set_button_icon(self.restart_microphone, "rotate-cw")
         self.export_diagnostics = QPushButton("Сохранить диагностику")
+        set_button_icon(self.export_diagnostics, "download")
         for pair in ((self.refresh_mics, self.test_microphone), (self.restart_microphone, self.export_diagnostics)):
             controls = QHBoxLayout()
             for button in pair:
@@ -276,6 +310,7 @@ class SettingsPanel(QWidget):
             selected = -1
         self.mic_device.clear()
         self.mic_device.addItem(tr("По умолчанию"), -1)
+        self._combo_icon(self.mic_device, 0, "mic")
         self.mic_device.setItemData(0, {"name": "", "hostapi": ""}, Qt.ItemDataRole.UserRole + 1)
         self._microphone_metadata = {-1: {"name": "", "hostapi": ""}}
         error = ""
@@ -288,6 +323,7 @@ class SettingsPanel(QWidget):
                 host_name = str(hosts[device["hostapi"]]["name"])
                 self._microphone_metadata[index] = {"name": str(device["name"]), "hostapi": host_name}
                 self.mic_device.addItem(f"{device['name']} — {host_name}", index)
+                self._combo_icon(self.mic_device, self.mic_device.count() - 1, "mic")
                 self.mic_device.setItemData(self.mic_device.count() - 1, self._microphone_metadata[index], Qt.ItemDataRole.UserRole + 1)
             if name:
                 matches = [i for i, item in self._microphone_metadata.items()
@@ -303,6 +339,7 @@ class SettingsPanel(QWidget):
             unavailable_index = self.cfg.get("microphone_device", -1) if selected is None else selected
             position = self.mic_device.count()
             self.mic_device.addItem(tr("Недоступен") + ": " + (name or str(unavailable_index)), unavailable_index)
+            self._combo_icon(self.mic_device, position, "mic-off", role="muted")
             self.mic_device.setItemData(position, {"name": name, "hostapi": host}, Qt.ItemDataRole.UserRole + 1)
         self.mic_device.setCurrentIndex(position)
         if hasattr(self, "audio_status"):
@@ -324,13 +361,13 @@ class SettingsPanel(QWidget):
         }
         for lang, preset in VOICE_PRESETS.items():
             voice_id = preset["id"]
-            state = "✓" if voice_id in installed else "↓"
-            voices.append((f"{state}  {labels[lang]}", voice_id))
+            voices.append((labels[lang], voice_id))
         preset_ids = {item["id"] for item in VOICE_PRESETS.values()}
         for voice in installed.values():
             if voice["id"] not in preset_ids:
                 voices.append((voice["name"], voice["id"]))
         self.voice_id = self._combo(voices, self.cfg.get("voice_id", ""))
+        self.refresh_voice_status()
         self.response_language = self._combo(
             [("Автоматически — как язык распознавания", "auto"),
              ("Русский", "ru"), ("English", "en"), ("Română", "ro")],
@@ -353,13 +390,14 @@ class SettingsPanel(QWidget):
         self.voice_id.currentIndexChanged.connect(voice_changed)
         self._row(
             panel, "Голос ассистента",
-            "✓ установлен, ↓ загрузится при первом использовании. "
+            "Голоса со значком загрузки загрузятся при первом использовании. "
             "Голос выбирается по языку ответа, а не по языку интерфейса.",
             self.voice_id,
         )
         self.voice_volume = self._slider(self.cfg.get("voice_volume", 80), 0, 100)
         self._row(panel, "Громкость", "0–100%, применяется к озвучке.", self.voice_volume)
-        preview = QPushButton("▶  Прослушать пример")
+        preview = QPushButton("Прослушать пример")
+        set_button_icon(preview, "play")
         preview.clicked.connect(self.on_test_voice)
         panel.addWidget(preview)
 
@@ -369,12 +407,14 @@ class SettingsPanel(QWidget):
         known = {preset["id"] for preset in VOICE_PRESETS.values()}
         for index in range(self.voice_id.count()):
             voice_id = self.voice_id.itemData(index)
-            if voice_id not in known:
+            if not voice_id:
+                self._combo_icon(self.voice_id, index, "audio-lines")
                 continue
-            label = self.voice_id.itemText(index)
-            name = label.split("  ", 1)[-1]
-            status = "✓" if voice_id in installed else "↓"
-            self.voice_id.setItemText(index, f"{status}  {name}")
+            if voice_id not in known and voice_id not in installed:
+                continue
+            ready = voice_id in installed
+            self._combo_icon(self.voice_id, index, "check-circle-2" if ready else "download",
+                             role="success" if ready else "muted")
 
     def _build_commands(self):
         panel = self._section(
@@ -507,6 +547,7 @@ class SettingsPanel(QWidget):
         self.api_key_controls_layout.setSpacing(7)
         self.api_key_controls_layout.addWidget(self.api_key_entry, 1)
         self.api_test_button = QPushButton("Проверить ключ")
+        set_button_icon(self.api_test_button, "key-round")
         self.api_test_button.setMinimumWidth(130)
         self.api_test_button.setToolTip(
             "Проверить введённый или сохранённый ключ. Тест использует небольшую часть квоты API."
@@ -524,7 +565,7 @@ class SettingsPanel(QWidget):
         self.key_status = QLabel("")
         self.key_status.setObjectName("Muted")
         self.key_status.setWordWrap(True)
-        panel.addWidget(self.key_status)
+        self.key_status_icon = self._status_row(panel, self.key_status, "key-round")
 
         self.online_timeout = QSpinBox()
         self.online_timeout.setRange(35, 120)
@@ -542,9 +583,11 @@ class SettingsPanel(QWidget):
 
         buttons = QHBoxLayout()
         self.provider_keys_button = QPushButton("Получить ключ")
+        set_button_icon(self.provider_keys_button, "external-link")
         self.provider_keys_button.clicked.connect(self._open_provider_keys)
         buttons.addWidget(self.provider_keys_button)
         delete_button = QPushButton("Удалить ключ")
+        set_button_icon(delete_button, "trash-2", role="danger")
         delete_button.clicked.connect(self._clear_key)
         buttons.addWidget(delete_button)
         panel.addLayout(buttons)
@@ -593,7 +636,7 @@ class SettingsPanel(QWidget):
         self.model_health = QLabel("")
         self.model_health.setObjectName("Muted")
         self.model_health.setWordWrap(True)
-        panel.addWidget(self.model_health)
+        self.model_health_icon = self._status_row(panel, self.model_health, "circle-alert")
         self._selected_local_model()
         self._row(
             panel, "Локальная модель ИИ",
@@ -601,13 +644,16 @@ class SettingsPanel(QWidget):
             self.model_label,
         )
         choose = QPushButton("Выбрать локальную модель .gguf")
+        set_button_icon(choose, "folder-open")
         choose.clicked.connect(self.on_pick_model)
         panel.addWidget(choose)
         refresh = QPushButton("Обновить список моделей")
+        set_button_icon(refresh, "refresh-cw")
         refresh.clicked.connect(self.refresh_local_models)
         panel.addWidget(refresh)
         if self.on_install_local_ai is not None:
             install = QPushButton("Установить локальный AI-движок (llama-cpp-python)")
+            set_button_icon(install, "package-plus")
             install.clicked.connect(self.on_install_local_ai)
             panel.addWidget(install)
 
@@ -617,9 +663,12 @@ class SettingsPanel(QWidget):
         self.model_select.blockSignals(True)
         self.model_select.clear()
         self.model_select.addItem("— Модель не выбрана —", "")
+        self._combo_icon(self.model_select, 0, "bot", role="muted")
         found = available_models()
         for item in found:
             self.model_select.addItem(format_model(item), item["path"])
+            self._combo_icon(self.model_select, self.model_select.count() - 1,
+                             "bot" if item["valid"] else "circle-alert")
             if not item["valid"]:
                 index = self.model_select.count() - 1
                 self.model_select.model().item(index).setEnabled(False)
@@ -634,6 +683,7 @@ class SettingsPanel(QWidget):
             path = Path(str(selected))
             if path.is_file():
                 self.model_select.addItem(path.name + " (external)", str(path.resolve()))
+                self._combo_icon(self.model_select, self.model_select.count() - 1, "bot")
                 self.model_select.setCurrentIndex(self.model_select.count() - 1)
         self.model_select.blockSignals(False)
         return len(found)
@@ -647,7 +697,9 @@ class SettingsPanel(QWidget):
         if hasattr(self, "model_health"):
             from luxai.local_models import model_status
             ready, status = model_status(str(current))
-            self.model_health.setText(("✓  " if ready else "⚠  ") + status)
+            self.model_health.setText(status)
+            set_label_icon(self.model_health_icon, "check-circle-2" if ready else "circle-alert",
+                           size=17, role="success" if ready else "muted")
 
     def refresh_local_models(self):
         """Rescan files after user copies a model or chooses one externally."""
@@ -674,6 +726,7 @@ class SettingsPanel(QWidget):
 
     def _on_key_text_changed(self, text):
         if text.strip():
+            set_label_icon(self.key_status_icon, "key-round", size=17, role="accent")
             if text.strip().startswith("sk-orca-") and self.online_provider.currentData() != "orcarouter":
                 self.key_status.setText(
                     tr("Похоже, это ключ OrcaRouter. Выберите «OrcaRouter (orcarouter.ai)» "
@@ -689,12 +742,16 @@ class SettingsPanel(QWidget):
     def set_test_busy(self, busy):
         self.api_test_button.setEnabled(not busy)
         self.api_test_button.setText(tr("Проверка…" if busy else "Проверить ключ"))
+        set_button_icon(self.api_test_button, "refresh-cw" if busy else "key-round")
         if busy:
+            set_label_icon(self.key_status_icon, "refresh-cw", size=17, role="accent")
             self.key_status.setText(tr("Проверка ключа и выбранной модели через API…"))
 
     def show_test_result(self, message, valid):
         self.set_test_busy(False)
-        self.key_status.setText(("✓ " if valid else "✕ ") + message)
+        self.key_status.setText(message)
+        set_label_icon(self.key_status_icon, "check-circle-2" if valid else "x-circle",
+                       size=17, role="success" if valid else "danger")
 
     def _refresh_provider_keys_button(self):
         provider = self.online_provider.currentData()
@@ -733,12 +790,14 @@ class SettingsPanel(QWidget):
             "ro": (f"Cheia {name} este salvată", f"Introdu cheia {name}"),
         }
         statuses = {
-            "ru": (f"✓ Ключ {name} найден на этом компьютере.", f"Ключ {name} пока не установлен."),
-            "en": (f"✓ {name} key found on this computer.", f"{name} key not configured yet."),
-            "ro": (f"✓ Cheia {name} a fost găsită pe calculator.", f"Cheia {name} nu este configurată."),
+            "ru": (f"Ключ {name} найден на этом компьютере.", f"Ключ {name} пока не установлен."),
+            "en": (f"{name} key found on this computer.", f"{name} key not configured yet."),
+            "ro": (f"Cheia {name} a fost găsită pe calculator.", f"Cheia {name} nu este configurată."),
         }
         self.api_key_entry.setPlaceholderText(placeholders[language][0 if stored else 1])
         self.key_status.setText(statuses[language][0 if stored else 1])
+        set_label_icon(self.key_status_icon, "check-circle-2" if stored else "key-round",
+                       size=17, role="success" if stored else "muted")
 
     def _build_synthesis(self):
         panel = self._section("Синтез речи", "Локальный Piper или голос Windows (если установлен нужный язык).")
@@ -780,6 +839,7 @@ class SettingsPanel(QWidget):
         ocr_row.setSpacing(5)
         ocr_row.addWidget(self.tesseract_path, 1)
         select_ocr = QPushButton("Обзор")
+        set_button_icon(select_ocr, "folder-open")
         select_ocr.clicked.connect(self._select_tesseract)
         ocr_row.addWidget(select_ocr)
         self._row(
@@ -792,7 +852,7 @@ class SettingsPanel(QWidget):
         self.ocr_status = QLabel("OCR проверяется и устанавливается автоматически…")
         self.ocr_status.setObjectName("Muted")
         self.ocr_status.setWordWrap(True)
-        panel.addWidget(self.ocr_status)
+        self.ocr_status_icon = self._status_row(panel, self.ocr_status, "image")
         info = QLabel("Параметры сохраняются в config.json. Для смены микрофона перезапускается распознавание.")
         info.setObjectName("Muted")
         info.setWordWrap(True)
@@ -804,6 +864,8 @@ class SettingsPanel(QWidget):
                   "en": ("Ready: ", "Unavailable: "),
                   "ro": ("Gata: ", "Indisponibil: ")}
         self.ocr_status.setText(titles[language][0 if success else 1] + str(message))
+        set_label_icon(self.ocr_status_icon, "check-circle-2" if success else "circle-alert",
+                       size=17, role="success" if success else "muted")
 
     def _select_tesseract(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -821,6 +883,7 @@ class SettingsPanel(QWidget):
         self.scroll.verticalScrollBar().setValue(section.y())
         for i, button in enumerate(self.section_buttons):
             button.setProperty("selected", i == index)
+            set_button_icon(button, self.SECTION_ICONS[i], role="accent" if i == index else "default")
             button.style().unpolish(button)
             button.style().polish(button)
 

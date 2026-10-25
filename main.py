@@ -9,7 +9,7 @@ from PySide6.QtGui import QFontDatabase, QFont, QAction
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QCheckBox, QLineEdit, QTextEdit, QFileDialog, QMessageBox,
-    QComboBox, QStackedWidget, QFrame, QSlider, QSizePolicy, QSystemTrayIcon, QMenu, QStyle
+    QComboBox, QStackedWidget, QFrame, QSlider, QSizePolicy, QSystemTrayIcon, QMenu
 )
 
 from luxai.agent import LocalAgent
@@ -21,6 +21,7 @@ from luxai.settings_panel import SettingsPanel
 from luxai.ui_home import HomePage
 from luxai.ui_sidebar import NavigationSidebar
 from luxai.styles import build_styles
+from luxai.icons import icon, refresh_icons, set_button_icon, set_label_icon
 from luxai.ui_i18n import get_ui_language, set_ui_language, translate_widgets, tr, normalize_language
 from luxai.response_language import reply_language
 from luxai.online_agent import OnlinePlanner
@@ -212,6 +213,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Jarvis")
+        self.setWindowIcon(icon("jarvis"))
         self.resize(1120, 720)
         self.setMinimumSize(900, 600)
         self.cfg = load_config()
@@ -258,6 +260,7 @@ class MainWindow(QMainWindow):
         self._adaptive_token = None
         self._adaptive_runtime = None
         self._pending_agent_task = None
+        self._pending_discord_message = None
         self._current_route = ""
         self._closed = False
         self._api_test_running = False
@@ -313,7 +316,9 @@ class MainWindow(QMainWindow):
         self.mic_status = QLabel("●  Локальный режим")
         self.mic_status.setStyleSheet("color:#8ea2c2;padding-right:8px;")
         header.addWidget(self.mic_status)
-        self.header_mic_button = QPushButton("◉" if self.cfg.get("microphone_enabled", True) else "◌")
+        self.header_mic_button = QPushButton()
+        set_button_icon(self.header_mic_button, "mic" if self.cfg.get("microphone_enabled", True) else "mic-off", size=21)
+        self.header_mic_button.setAccessibleName("Включить или выключить микрофон")
         self.header_mic_button.setObjectName("HeaderMic")
         self.header_mic_button.setFixedSize(42, 40)
         self.header_mic_button.setToolTip("Включить или выключить микрофон")
@@ -503,6 +508,7 @@ class MainWindow(QMainWindow):
         cloud_box.addWidget(self.cloud_details)
         self.cloud_check_button = QPushButton("Проверить облачный AI")
         self.cloud_check_button.setObjectName("Primary")
+        set_button_icon(self.cloud_check_button, "cloud-check", role="white")
         self.cloud_check_button.clicked.connect(lambda: self._start_cloud_check(force=True))
         cloud_box.addWidget(self.cloud_check_button)
         layout.addWidget(cloud_frame)
@@ -525,6 +531,7 @@ class MainWindow(QMainWindow):
             row.addLayout(col, 1)
             button = QPushButton("Запустить")
             button.setObjectName("Primary")
+            set_button_icon(button, {"Снимок экрана": "camera", "Распознавание текста (OCR)": "scan-text", "Выбрать локальную AI-модель": "brain-circuit"}[name], role="white")
             button.clicked.connect(action)
             row.addWidget(button)
             box.addLayout(row)
@@ -553,6 +560,7 @@ class MainWindow(QMainWindow):
         row.addWidget(self.command, 1)
         self.send = QPushButton("Отправить")
         self.send.setObjectName("Primary")
+        set_button_icon(self.send, "send", role="white")
         self.send.clicked.connect(self.submit_command)
         row.addWidget(self.send)
         box.addLayout(row)
@@ -799,7 +807,7 @@ class MainWindow(QMainWindow):
             mic_enabled = self.cfg.get("microphone_enabled", True)
             self.header_mic_button.blockSignals(True)
             self.header_mic_button.setChecked(mic_enabled)
-            self.header_mic_button.setText("◉" if mic_enabled else "◌")
+            set_button_icon(self.header_mic_button, "mic" if mic_enabled else "mic-off", size=21)
             self.header_mic_button.blockSignals(False)
         if self.tray_icon:
             if self.cfg.get("minimize_to_tray", False) and QSystemTrayIcon.isSystemTrayAvailable():
@@ -953,6 +961,11 @@ class MainWindow(QMainWindow):
         app = QApplication.instance()
         if app is not None:
             app.setStyleSheet(build_styles(theme, accent))
+        refresh_icons(self, theme, accent)
+        if app is not None:
+            for window in app.topLevelWidgets():
+                if window is not self:
+                    refresh_icons(window, theme, accent)
 
         # SettingsPanel has a local frame style; keep it synchronized too.
         if hasattr(self, "settings_panel"):
@@ -1005,15 +1018,17 @@ class MainWindow(QMainWindow):
     def _setup_tray(self):
         if not QSystemTrayIcon.isSystemTrayAvailable():
             return
-        self.tray_icon = QSystemTrayIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon), self
-        )
+        self.tray_icon = QSystemTrayIcon(icon("jarvis"), self)
         self.tray_icon.setToolTip("Jarvis")
         menu = QMenu(self)
         show_action = QAction("Открыть Jarvis", self)
+        show_action.setProperty("jarvisIcon", "app-window")
+        show_action.setIcon(icon("app-window"))
         show_action.triggered.connect(self.show_from_tray)
         menu.addAction(show_action)
         quit_action = QAction("Выход", self)
+        quit_action.setProperty("jarvisIcon", "log-out")
+        quit_action.setIcon(icon("log-out"))
         quit_action.triggered.connect(self.quit_from_tray)
         menu.addAction(quit_action)
         self._tray_show_action = show_action
@@ -1123,9 +1138,14 @@ class MainWindow(QMainWindow):
             self.settings_panel.audio_feedback.clear()
         live = event in ("listening", "speech_started", "transcribing", "no_speech", "transcription_error", "input_warning")
         error = event in ("error", "input_stalled", "input_silent", "probe_silent", "probe_clipped")
-        self.header_mic_button.setText("◉" if live else "!" if error else "…" if event in ("loading_model", "model_ready", "testing", "waiting_for_capture") else "◌")
+        waiting = event in ("loading_model", "model_ready", "testing", "waiting_for_capture")
+        glyph = "circle-alert" if error else "audio-lines" if event in ("speech_started", "transcribing") else "mic" if live else "loader-circle" if waiting else "mic-off"
+        role = "danger" if error else "success" if live else "warning" if waiting else "muted"
+        set_button_icon(self.header_mic_button, glyph, size=21, role=role)
+        if hasattr(self.settings_panel, "audio_status_icon"):
+            set_label_icon(self.settings_panel.audio_status_icon, glyph, size=18, role=role)
         self.header_mic_button.setToolTip(message)
-        self.header_mic_button.setStyleSheet("color:" + ("#ef7777" if error else "#80c99b" if live else "#d8ba70") + ";")
+        self.header_mic_button.setAccessibleName(message)
         if event in ("stopped", "error", "input_stalled"):
             self._on_audio_level(0)
 
@@ -1478,6 +1498,9 @@ class MainWindow(QMainWindow):
         if not text:
             return
         from luxai.task_intents import is_task_cancel
+        if getattr(self, "_pending_discord_message", None) is not None:
+            self._continue_discord_message(text)
+            return
         if is_task_cancel(text) and (getattr(self, "_adaptive_runtime", None) or getattr(self, "_pending_agent_task", None)):
             self._cancel_adaptive_task()
             return
@@ -1561,6 +1584,67 @@ class MainWindow(QMainWindow):
             "original_text": text, "visual_feedback": retry_feedback,
             "window_recovery_app": window_recovery_app,
         })
+        self._dispatch_command()
+
+    def _ask_discord_message_details(self, text, details):
+        """Keep a high-level send task while asking only for missing data."""
+        self._pending_discord_message = {
+            "source": text, "recipient": details.get("recipient", ""),
+            "message": details.get("message", ""), "missing": list(details["missing"]),
+        }
+        field = details["missing"][0]
+        language = reply_language(self.cfg, text)
+        if field == "recipient":
+            question = {"ru": "Кому написать в Discord? Назовите пользователя или его отображаемое имя.",
+                        "en": "Who should receive the Discord message? Say their username or display name.",
+                        "ro": "Cui să-i scriu în Discord? Spune numele utilizatorului sau numele afișat."}[language]
+        else:
+            question = {"ru": "Какой точный текст отправить пользователю {name}?",
+                        "en": "What exact message should I send to {name}?",
+                        "ro": "Ce mesaj exact să-i trimit lui {name}?"}[language].format(name=details["recipient"])
+        if self._command_queue:
+            current = self._command_queue[0]
+            if current["parts"]:
+                self._command_queue.insert(1, {"parts": list(current["parts"]), "answers": [], "routes": [],
+                                               "original_text": current.get("original_text", text)})
+                current["parts"].clear()
+            current["outcome_status"] = "waiting"
+        self._current_route = "Discord: уточнение сообщения"
+        self._resolved_command(text, question)
+
+    def _continue_discord_message(self, answer):
+        from luxai.macro_planner import discord_message_details
+        from luxai.discord_screen_review import validate_discord_review_user
+        from luxai.discord_research import validate_discord_plain_message
+        from luxai.task_intents import is_task_cancel
+        pending = self._pending_discord_message
+        if is_task_cancel(answer):
+            self._pending_discord_message = None
+            self.append_message("Jarvis", {"ru": "Сообщение не отправлено. Задача отменена.",
+                                           "en": "Message not sent. Task cancelled.",
+                                           "ro": "Mesajul nu a fost trimis. Sarcina a fost anulată."}[reply_language(self.cfg, pending["source"])], "#a5b9dc")
+            self._dispatch_command()
+            return
+        details = {"recipient": pending["recipient"], "message": pending["message"]}
+        corrected = discord_message_details(answer)
+        if corrected and not corrected["cancelled"]:
+            for key in details:
+                if corrected.get(key):
+                    details[key] = corrected[key]
+        else:
+            field = pending["missing"][0]
+            try:
+                details[field] = validate_discord_review_user(answer) if field == "recipient" else validate_discord_plain_message(answer)
+            except ValueError:
+                pass
+        details["missing"] = [key for key in ("recipient", "message") if not details[key]]
+        details["cancelled"] = bool(corrected and corrected["cancelled"])
+        source = pending["source"] + "\nUser clarification: " + answer
+        self._pending_discord_message = None
+        if self._command_queue and not self._command_queue[0]["parts"]:
+            self._finish_command_group()
+        self._command_queue.insert(0, {"parts": [source], "answers": [], "routes": [],
+                                       "original_text": pending["source"], "discord_message_details": details})
         self._dispatch_command()
 
     def _type_voice_chunk(self, spoken):
@@ -1896,7 +1980,7 @@ class MainWindow(QMainWindow):
         if not current["parts"]:
             self._finish_command_group()
             return
-        if getattr(self, "_pending_agent_task", None) and not current.get("adaptive_resume"):
+        if (getattr(self, "_pending_agent_task", None) or getattr(self, "_pending_discord_message", None)) and not current.get("adaptive_resume"):
             # Preserve the waiting task and its runtime until its question has
             # been answered; queued tasks must not replace that state.
             return
@@ -1908,6 +1992,19 @@ class MainWindow(QMainWindow):
             if resume:
                 self._start_adaptive_task(text, runtime=resume["runtime"], task_id=resume["task_id"], clarification=resume["clarification"])
                 return
+            clarified_message = current.pop("discord_message_details", None)
+            if clarified_message:
+                if clarified_message.get("cancelled"):
+                    self._resolved_command(text, {"ru": "Сообщение не отправлено.", "en": "Message not sent.", "ro": "Mesajul nu a fost trimis."}[reply_language(self.cfg, text)])
+                elif clarified_message["missing"]:
+                    self._ask_discord_message_details(text, clarified_message)
+                else:
+                    from luxai.macro_planner import validate_generated_macro
+                    plan = validate_generated_macro({"steps": [{"action": "discord_send_text", "target": clarified_message["recipient"] + "||" + clarified_message["message"]}]}, text)
+                    if plan is None:
+                        raise ValueError("Discord message details could not be validated")
+                    self._run_saved_steps(text, plan["steps"])
+                return
             prefix = self.cfg.get("wake_prefix", "Jarvis")
             if self.command_registry.disabled_match(text, prefix):
                 self._current_route = "выключенная команда"
@@ -1915,7 +2012,7 @@ class MainWindow(QMainWindow):
                 return
 
             saved = self.command_registry.match(text, prefix)
-            from luxai.macro_planner import is_discord_message_request
+            from luxai.macro_planner import is_discord_message_request, discord_message_details
             from luxai.visual_reasoner import is_visual_goal
             feedback = self._command_queue[0].get("visual_feedback", "")
             if is_visual_goal(text):
@@ -1933,6 +2030,15 @@ class MainWindow(QMainWindow):
                 return
             protected_workflow = bool(is_discord_message_request(text) or detect_research_dm_request(text)
                                       or detect_discord_screen_review(text) or looks_like_discord_screen_review(text))
+            message = discord_message_details(text)
+            manual_saved = saved is not None and not saved.get("builtin", False) and not saved.get("learned", False)
+            if message and not manual_saved and not (detect_research_dm_request(text) or detect_discord_screen_review(text) or looks_like_discord_screen_review(text)):
+                if message["cancelled"]:
+                    self._resolved_command(text, {"ru": "Сообщение не отправлено.", "en": "Message not sent.", "ro": "Mesajul nu a fost trimis."}[reply_language(self.cfg, text)])
+                    return
+                if message["missing"]:
+                    self._ask_discord_message_details(text, message)
+                    return
             if feedback and not protected_workflow:
                 # Replay the INTENT through a new observe/plan/verify loop,
                 # never replay a stale macro or an unverified click location.
@@ -1942,7 +2048,7 @@ class MainWindow(QMainWindow):
 
             # Real text highlighting lives in the active application's
             # selection, not in a screenshot. Copy it before model routing.
-            selected_mode = selected_text_intent(text)
+            selected_mode = None if is_discord_message_request(text) else selected_text_intent(text)
             if selected_mode is not None:
                 self._start_selection_request(text, selected_mode)
                 return
@@ -1955,10 +2061,10 @@ class MainWindow(QMainWindow):
             # Preserve longstanding local Discord microphone controls.
             # Generic macros also match words like "нажми на кнопку" and
             # must not preempt a known, deterministic local operation.
-            if wants_discord_mic_visual_click(text):
+            if not protected_workflow and wants_discord_mic_visual_click(text):
                 self._start_discord_mic_visual(text)
                 return
-            if wants_discord_mic_mute(text):
+            if not protected_workflow and wants_discord_mic_mute(text):
                 self._current_route = "Discord: глобальная комбинация клавиш"
                 answer = toggle_discord_microphone(self.confirm_action)
                 self._resolved_command(text, answer)
@@ -1967,21 +2073,21 @@ class MainWindow(QMainWindow):
             saved_priority = saved is not None and not saved.get("learned", False)
             # Named local files and websites are deterministic actions too.
             # Keep them ahead of the generic "open app" and visual heuristics.
-            local_plan = None if saved_priority else (website_plan(text) or parse_open_user_file(text))
+            local_plan = None if saved_priority or protected_workflow else (website_plan(text) or parse_open_user_file(text))
             if local_plan is not None:
                 answer = self.agent.execute_plan(text, local_plan, confirm_callback=self.confirm_action)
                 self._current_route = "браузер HTTPS" if local_plan["action"] == "open_site" else "локальные файлы Windows"
                 self._resolved_command(text, answer or "Не удалось выполнить локальное открытие.")
                 return
-            if not saved_priority and (direct_app_request(text) or screenshot_request(text) or system_request(text) or direct_action_request(text)):
+            if not saved_priority and not protected_workflow and (direct_app_request(text) or screenshot_request(text) or system_request(text) or direct_action_request(text)):
                 self._start_adaptive_task(text)
                 return
             # Auto-learned one-shot "open app" shortcuts must not shadow a
             # richer visual user goal that also requested actual UI work.
             # Manually created custom commands continue to take precedence.
             if saved is not None and not (
-                (is_visual_goal(text) or is_discord_message_request(text))
-                and saved.get("learned", False)
+                ((is_visual_goal(text) or is_discord_message_request(text)) and saved.get("learned", False))
+                or (protected_workflow and not manual_saved)
             ):
                 self._execute_registered(text, saved)
                 return
@@ -2630,10 +2736,10 @@ class MainWindow(QMainWindow):
                     ctx is None or ctx is not response["context"]):
                 return
             response["approved"] = bool(self.confirm_action(
-                "Discord: имя, которое вы произнесли: "
-                f"«{response['spoken']}».\\n"
+                "⚠ Discord: имя, которое вы произнесли: "
+                f"«{response['spoken']}».\n"
                 "На снимке найден отдельный пользователь: "
-                f"«{response['displayed']}».\\n\\n"
+                f"«{response['displayed']}».\n\n"
                 "Это ТОТ ЖЕ САМЫЙ человек? Нажмите Да только "
                 "после личной проверки имени. При Нет Jarvis "
                 "не откроет беседу и ничего не отправит."
@@ -2694,6 +2800,7 @@ class MainWindow(QMainWindow):
             self._finish_visual_macro()
             return
         preview = (
+            "⚠ "
             f"Получатель Discord: @{draft.username}\n"
             f"Подготовленный текст:\n\n{draft.message}\n\n"
             "Перед отправкой Jarvis проверит имя адресата и поле сообщения "
@@ -2846,7 +2953,7 @@ class MainWindow(QMainWindow):
         if getattr(self, "_visual_upload_consent_session", False):
             return True
         approved = self.confirm_action(
-            "Разрешить отправку снимков окон выбранному облачному AI "
+            "⚠ Разрешить отправку снимков окон выбранному облачному AI "
             "для визуальных команд до закрытия Jarvis? Изображения могут "
             "содержать личные сообщения и другие данные. Локальные снимки "
             "не отправляются. Отправка сообщений по-прежнему требует "
@@ -3082,7 +3189,7 @@ class MainWindow(QMainWindow):
     def _direct_macro_worker(self, text):
         try:
             from luxai.macro_planner import (
-                validate_generated_macro, plan_known_visual_sequence,
+                validate_generated_macro, plan_known_visual_sequence, detect_discord_text_request,
             )
             review_user = detect_discord_screen_review(text)
             from luxai.discord_navigation import detect_discord_open_dm
@@ -3090,10 +3197,15 @@ class MainWindow(QMainWindow):
             open_user = detect_discord_open_dm(text)
             facts_topic = detect_research_notepad(text)
             parsed = detect_research_dm_request(text)
+            requested_text = detect_discord_text_request(text)
             known = None
             if not review_user and not parsed and not open_user and not facts_topic:
                 known = plan_known_visual_sequence(text)
-            if facts_topic:
+            if requested_text:
+                person, content = requested_text
+                proposal = validate_generated_macro({"steps": [{"action": "discord_send_text", "target": person + "||" + content}]}, text)
+                error = "" if proposal else "Не удалось подтвердить пользователя или точный текст сообщения."
+            elif facts_topic:
                 proposal = validate_generated_macro(
                     {"steps": [{"action": "research_notepad_facts", "target": facts_topic}]},
                     text,
@@ -3151,6 +3263,16 @@ class MainWindow(QMainWindow):
         steps = proposal.get("steps", [])
         if not steps:
             self._resolved_command(text, "AI не нашёл допустимых действий.")
+            return
+        from luxai.macro_planner import detect_discord_text_request, validate_generated_macro
+        requested_message = detect_discord_text_request(text)
+        if (requested_message and len(steps) == 1 and steps[0].get("action") == "discord_send_text"
+                and steps[0].get("target") == "||".join(requested_message)
+                and validate_generated_macro(proposal, text) is not None):
+            # The user already requested this exact recipient and message.
+            # The dedicated executor still verifies the contact and requests
+            # final send approval after showing the actual prepared draft.
+            self._run_saved_steps(text, steps)
             return
         summary = "\n".join(
             f"{i}. {describe_step(step)}" for i, step in enumerate(steps, 1)
@@ -3375,17 +3497,23 @@ class MainWindow(QMainWindow):
         if not risk and not self.cfg.get("confirm_all_actions", False):
             return True
         dialog = QMessageBox(self)
+        dialog.setIconPixmap(icon("circle-alert" if risk else "circle-help", color="#e5bd69" if risk else "#3978f6").pixmap(40, 40))
+        display_description = str(description)
+        if display_description.startswith("⚠"):
+            display_description = display_description[1:].lstrip()
         russian = self.cfg.get("language") == "ru"
         dialog.setWindowTitle("Подтвердите действие" if russian else "Confirmă acțiunea")
         if russian:
-            dialog.setText(f"Джарвис хочет выполнить действие:\n\n{description}\n\nСкажите «да» или «нет», либо нажмите кнопку.")
+            dialog.setText(f"Джарвис хочет выполнить действие:\n\n{display_description}\n\nСкажите «да» или «нет», либо нажмите кнопку.")
             dialog.setInformativeText("Голосовое подтверждение доступно, пока микрофон включён.")
         else:
-            dialog.setText(f"Jarvis dorește să execute:\n\n{description}\n\nSpune „da” sau „nu” ori alege un buton.")
+            dialog.setText(f"Jarvis dorește să execute:\n\n{display_description}\n\nSpune „da” sau „nu” ori alege un buton.")
             dialog.setInformativeText("Răspuns vocal disponibil cât timp microfonul este activ.")
         dialog.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         dialog.button(QMessageBox.StandardButton.Yes).setText("Да" if russian else "Da")
         dialog.button(QMessageBox.StandardButton.No).setText("Нет" if russian else "Nu")
+        set_button_icon(dialog.button(QMessageBox.StandardButton.Yes), "check", role="success")
+        set_button_icon(dialog.button(QMessageBox.StandardButton.No), "x", role="muted")
         dialog.setDefaultButton(QMessageBox.StandardButton.No)
         self.pending_confirmation_dialog = dialog
         self.pending_confirmation_result = None
@@ -3480,7 +3608,18 @@ def load_project_font():
     return loaded
 
 def main():
+    if sys.platform == "win32":
+        # Give the taskbar its own identity instead of grouping with Python.
+        try:
+            import ctypes
+            identify = ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID
+            identify.argtypes = [ctypes.c_wchar_p]
+            identify.restype = ctypes.c_long
+            identify("LuxAI.Jarvis.Desktop")
+        except (AttributeError, OSError):
+            pass
     app = QApplication(sys.argv)
+    app.setWindowIcon(icon("jarvis"))
     app.setStyle("Fusion")
     app.setFont(QFont("Segoe UI", 10))
     app.setStyleSheet(build_styles())

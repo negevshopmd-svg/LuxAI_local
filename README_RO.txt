@@ -1,5 +1,10 @@
 LUXAI LOCAL 0.3.0 — ACTUALIZARE
 
+0.3.1: PICTOGRAME NOI ȘI COMENZI DISCORD NATURALE
+Pictogramele SVG Lucide sunt incluse în proiect și funcționează offline, pe teme deschise/întunecate și ecrane HiDPI. Jarvis are o emblemă nouă pentru fereastră și bara de sistem. Licența ISC este în luxai/assets/icons/lucide/.
+Poți spune „Scrie-i lui Hanzo în Discord salut”. Jarvis pregătește singur pașii, verifică destinatarul și arată textul pentru aprobarea finală. Dacă lipsește numele sau mesajul, întreabă și continuă sarcina. Ferestrele ascunse de serviciu nu mai sunt numărate ca ferestre Discord suplimentare vizibile.
+
+
 Repository: https://github.com/negevshopmd-svg/LuxAI_local
 
 Închide Jarvis, rulează Update.bat din folderul instalat, apoi run_windows.bat.

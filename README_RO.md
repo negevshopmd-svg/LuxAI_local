@@ -1,4 +1,4 @@
-# LuxAI Local 0.3.0 (Windows 10/11, 64-bit)
+# LuxAI Local 0.3.1 (Windows 10/11, 64-bit)
 
 Asistent vocal pentru Windows, cu recunoaștere locală și servicii AI opționale:
 - microfon pornit la lansare (poate fi oprit din interfață)
@@ -6,6 +6,12 @@ Asistent vocal pentru Windows, cu recunoaștere locală și servicii AI opționa
 - detectarea limbii automată (română/rusă/engleză, în funcție de modelul Whisper)
 - răspuns vocal local
 - captură de ecran, OCR opțional și control desktop cu confirmare
+
+## 0.3.1: pictograme noi și comenzi Discord naturale
+
+Pictogramele din meniuri, comenzi, setări și dialoguri folosesc acum SVG-uri Lucide incluse în proiect, cu aceeași formă pe Windows 10/11 și culori adaptate temei. Jarvis are și o emblemă nouă pentru fereastră și bara de sistem. Pachetul funcționează offline; licența ISC și sursa sunt în `luxai/assets/icons/lucide/`.
+
+Poți spune **„Scrie-i lui Hanzo în Discord salut”** sau **„А ты можешь написать в дискорде пользователю Hanzo привет”**. Jarvis construiește pașii de deschidere, alegere a contactului, pregătire și trimitere. Dacă lipsește numele sau mesajul, întreabă și continuă sarcina. Destinatarul este verificat, iar textul pregătit este arătat pentru aprobarea finală. Ferestrele ascunse de serviciu ale Discord nu mai sunt tratate ca aplicații suplimentare deschise.
 
 ## 0.3.0: sarcini adaptive și verificarea rezultatului
 

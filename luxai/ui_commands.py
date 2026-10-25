@@ -7,10 +7,10 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QSize
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QDialogButtonBox, QFormLayout, QFrame,
-    QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
+    QHeaderView, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
     QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -18,6 +18,8 @@ from luxai.command_registry import APP_TARGETS, CommandRegistry
 from luxai.file_actions import ALLOWED_LOCATIONS
 from luxai.steam_games import GAMES
 from luxai.ui_i18n import tr, get_ui_language, translate_widgets
+from luxai.icons import icon, set_button_icon, set_item_icon
+from luxai.action_catalog import CATALOG
 
 
 ACTION_CHOICES = [
@@ -78,9 +80,13 @@ class CommandsPage(QWidget):
         self.tree = QTreeWidget()
         self.tree.setObjectName("CommandTree")
         self.tree.setHeaderLabels(["Название команды", "Состояние"])
+        self.tree.header().setStretchLastSection(False)
+        self.tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.tree.header().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.tree.setRootIsDecorated(True)
         self.tree.setAlternatingRowColors(False)
         self.tree.setIndentation(18)
+        self.tree.setIconSize(QSize(18, 18))
         self.tree.itemSelectionChanged.connect(self._selection_changed)
         self.tree.itemDoubleClicked.connect(lambda *_: self.execute_selected())
         left_col.addWidget(self.tree, 1)
@@ -95,26 +101,35 @@ class CommandsPage(QWidget):
         side_col.setSpacing(9)
         self.search = QLineEdit()
         self.search.setPlaceholderText("Поиск команд")
+        search_icon = self.search.addAction(icon("search", size=17), QLineEdit.ActionPosition.LeadingPosition)
+        search_icon.setProperty("jarvisIcon", "search")
+        search_icon.setProperty("jarvisIconRole", "muted")
         self.search.textChanged.connect(self._filter)
         side_col.addWidget(self.search)
-        add = QPushButton("＋  Новая команда")
+        add = QPushButton("Новая команда")
         add.setObjectName("Primary")
+        set_button_icon(add, "plus", role="white")
         add.clicked.connect(self.new_command)
         side_col.addWidget(add)
-        add_voice = QPushButton("🎙  Создать голосом")
+        add_voice = QPushButton("Создать голосом")
+        set_button_icon(add_voice, "mic")
         add_voice.setToolTip("Jarvis спросит фразу и действие, затем сохранит команду.")
         add_voice.clicked.connect(lambda _checked=False: self.voice_create_requested.emit())
         side_col.addWidget(add_voice)
         self.edit = QPushButton("Изменить выбранную")
+        set_button_icon(self.edit, "pencil")
         self.edit.clicked.connect(self.edit_selected)
         side_col.addWidget(self.edit)
         self.toggle = QPushButton("Выключить команду")
+        set_button_icon(self.toggle, "power")
         self.toggle.clicked.connect(self.toggle_selected)
         side_col.addWidget(self.toggle)
         self.remove = QPushButton("Удалить выбранную")
+        set_button_icon(self.remove, "trash-2", role="danger")
         self.remove.clicked.connect(self.delete_selected)
         side_col.addWidget(self.remove)
-        self.run_button = QPushButton("▶  Выполнить сейчас")
+        self.run_button = QPushButton("Выполнить сейчас")
+        set_button_icon(self.run_button, "play", role="accent")
         self.run_button.clicked.connect(self.execute_selected)
         side_col.addWidget(self.run_button)
         side_col.addStretch()
@@ -141,12 +156,28 @@ class CommandsPage(QWidget):
             if not group_items:
                 continue
             header = QTreeWidgetItem([f"{tr(category, self.interface_language)}  ({len(group_items)})", ""])
+            category_icon = {
+                "Приложения": "app-window", "Windows": "monitor", "Игры Steam": "gamepad-2",
+                "Файлы": "folder", "Мои команды": "list-checks", "Выученные команды": "sparkles",
+            }.get(category, "folder")
+            set_item_icon(header, category_icon, widget=self.tree, column=0, role="muted")
             header.setFlags(header.flags() & ~Qt.ItemFlag.ItemIsSelectable)
             self.tree.addTopLevelItem(header)
             for entry in group_items:
                 item = QTreeWidgetItem([
-                    entry["title"], "●" if entry["enabled"] else "○",
+                    entry["title"], "",
                 ])
+                action_icon = CATALOG.get(entry["action"], {}).get("icon", "list-checks")
+                set_item_icon(item, action_icon, widget=self.tree, column=0)
+                status_icon = "circle-check" if entry["enabled"] else "circle-minus"
+                status_role = "success" if entry["enabled"] else "muted"
+                state_text = {
+                    "ru": ("Включена", "Выключена"), "en": ("Enabled", "Disabled"),
+                    "ro": ("Activată", "Dezactivată"),
+                }[self.interface_language][0 if entry["enabled"] else 1]
+                set_item_icon(item, status_icon, widget=self.tree, column=1, role=status_role)
+                item.setData(1, Qt.ItemDataRole.AccessibleTextRole, state_text)
+                item.setToolTip(1, state_text)
                 item.setData(0, Qt.ItemDataRole.UserRole, entry["id"])
                 item.setToolTip(0, ", ".join(entry["phrases"]))
                 header.addChild(item)

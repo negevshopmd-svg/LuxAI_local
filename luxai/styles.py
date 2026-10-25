@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
+
+from PySide6.QtCore import QUrl
 
 
 DARK = {
@@ -52,6 +55,27 @@ QWidget {
 QMainWindow, QWidget#MainContent {
     background: $bg;
 }
+QDialog {
+    background: $bg;
+}
+QListWidget, QTreeWidget {
+    background: $surface;
+    color: $text;
+    border: 1px solid $border;
+    border-radius: 10px;
+    outline: 0;
+}
+QListWidget::item, QTreeWidget::item {
+    padding: 7px 8px;
+    border: none;
+}
+QListWidget::item:hover, QTreeWidget::item:hover {
+    background: $hover;
+}
+QListWidget::item:selected, QTreeWidget::item:selected {
+    background: $selection;
+    color: $text;
+}
 QLabel {
     background: transparent;
 }
@@ -81,6 +105,11 @@ QPushButton#Nav[active="true"] {
     color: $text;
     padding-left: 6px;
     font-weight: 600;
+}
+QPushButton#Nav[collapsed="true"], QPushButton#Nav[active="true"][collapsed="true"] {
+    text-align: center;
+    padding: 10px 0;
+    border-left: none;
 }
 QFrame#HomeCard {
     background: $surface;
@@ -122,6 +151,39 @@ QLabel#PageTitle {
 }
 QLabel#Muted {
     color: $muted;
+}
+QLabel#PickerSubtitle, QLabel#ActionHint, QLabel#PickerGroup, QLabel#TileDescription {
+    color: $muted;
+    background: transparent;
+}
+QLabel#TileIcon {
+    background: $selection;
+    border-radius: 10px;
+}
+QFrame#ActionTile {
+    background: $surface;
+    border: 1px solid $border;
+    border-radius: 12px;
+}
+QFrame#ActionTile:hover {
+    background: $hover;
+    border-color: $accent;
+}
+QFrame#ActionTile[chosen="true"] {
+    background: $selection;
+    border-color: $accent;
+}
+QListWidget#ActionCategories {
+    background: transparent;
+    border: none;
+}
+QListWidget#ActionCategories::item:selected {
+    background: $selection;
+    color: $text;
+}
+QPushButton#PickerClose:hover {
+    background: $hover;
+    color: $text;
 }
 QPushButton {
     background: $control;
@@ -169,6 +231,54 @@ QLineEdit, QTextEdit, QComboBox, QSpinBox {
 }
 QLineEdit:focus, QTextEdit:focus, QComboBox:focus {
     border-color: $accent;
+}
+QComboBox {
+    padding-right: 29px;
+}
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 27px;
+    border: none;
+    background: transparent;
+}
+QComboBox::down-arrow {
+    image: url("$chevron_down");
+    width: 14px;
+    height: 14px;
+}
+QSpinBox, QDoubleSpinBox {
+    padding-right: 25px;
+}
+QSpinBox::up-button, QDoubleSpinBox::up-button {
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    width: 23px;
+    border: none;
+    background: transparent;
+}
+QSpinBox::down-button, QDoubleSpinBox::down-button {
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    width: 23px;
+    border: none;
+    background: transparent;
+}
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
+    image: url("$chevron_up");
+    width: 12px;
+    height: 12px;
+}
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
+    image: url("$chevron_down");
+    width: 12px;
+    height: 12px;
+}
+QTreeView::branch:closed:has-children {
+    image: url("$chevron_right");
+}
+QTreeView::branch:open:has-children {
+    image: url("$chevron_down");
 }
 QCheckBox {
     color: $text;
@@ -231,4 +341,13 @@ QPushButton#HeaderMic:checked {
 """
     for key, value in p.items():
         css = css.replace("$" + key, value)
-    return css.replace("$accent", accent)
+    css = css.replace("$accent", accent)
+    # Qt URLs preserve spaces and Unicode paths on Windows installations.
+    arrow_theme = "light" if theme == "light" else "dark"
+    icon_root = Path(__file__).resolve().parent / "assets" / "icons" / "ui"
+    for direction in ("down", "up", "right"):
+        # QSS image loaders expect a quoted local filename. Passing file://
+        # makes Qt SVG treat it as a relative "file:/..." path on Linux.
+        url = QUrl.fromLocalFile(str(icon_root / f"chevron-{direction}-{arrow_theme}.svg")).toLocalFile().replace("\\", "/")
+        css = css.replace("$chevron_" + direction, url)
+    return css
