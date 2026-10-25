@@ -34,10 +34,10 @@ _ACTION_WORD = (
     r"закро\w*|удал\w*|отправ\w*|выбер\w*|прокрут\w*|"
     r"измен\w*|покаж\w*|провер\w*|исправ\w*|сверн\w*|разверн\w*|"
     r"очист\w*|перезагруз\w*|перезапуст\w*|заблокир\w*|исслед\w*|"
-    r"скача\w*|установ\w*|выполн\w*|"
+    r"скача\w*|установ\w*|выполн\w*|скаж\w*|расскаж\w*|"
     r"open|launch|start|run|click|press|find|search|take|create|read|"
     r"wait|write|type|move|copy|close|delete|send|select|scroll|change|resize|"
-    r"show|check|fix|minimize|maximize|restart|reboot|lock|research|analyze|analyse|"
+    r"show|tell|say|check|fix|minimize|maximize|restart|reboot|lock|research|analyze|analyse|"
     r"deschide|pornește|porneste|apasă|apasa|caută|cauta|fă|fa|"
     r"creează|creeaza|citește|citeste|așteaptă|asteapta|scrie|mută|muta|"
     r"copiază|copiaza|închide|inchide|șterge|sterge|trimite|alege|"
@@ -129,6 +129,49 @@ def opening_app(text: str) -> str | None:
     """Return an INITIAL requested app open, never an app named by a click."""
     parsed = _app_parts(text)
     return parsed[0] if parsed is not None else None
+
+
+def steam_self_nickname_request(text: str) -> bool:
+    """An implicit request to inspect the signed-in Steam user's nickname.
+
+    A user can say "Можешь зайти в Steam и сказать какой у меня ник" without
+    having to dictate an additional screenshot/read-screen step. This is a
+    request for the current account identity, not to change or look up others.
+    """
+    value = _text(text).casefold()
+    if not 8 <= len(value) <= 400:
+        return False
+    if not re.search(r"(?<!\w)(?:steam|стим(?:е|а|у|ом)?)(?!\w)", value):
+        return False
+    if re.search(
+        r"(?:^|\b)(?:как(?:\s+мне)?\s+(?:узнать|поменять|изменить|"
+        r"how\s+(?:do\s+i|to)\s+(?:find|change)|"
+        r"cum\s+(?:pot|se)\s+(?:schimb|afl))|"
+        r"отправ\w*|напиш\w*|send\b|message\b|удал\w*)", value,
+    ):
+        return False
+    name = re.search(
+        r"(?<!\w)(?:ник(?:нейм|\s*н[еэ]йм)?|никн[еэ]йм|одник|"
+        r"nickname|user\s*name|username|nume(?:le)?\s+(?:de\s+)?utilizator|"
+        r"pseudonim)(?!\w)", value,
+    )
+    owner = re.search(
+        r"(?:\bу\s+меня\b|\bмой\b|\bмоего\b|\bмои\b|"
+        r"\bmy\b|\bmine\b|\bmeu\b|\bmea\b|\bme\\b|"
+        r"\bмой\s+аккаунт\b|\bмоего\s+аккаунта\b|\bсво[йе]\b)",
+        value,
+    )
+    if not (name and owner):
+        return False
+    # Distinguish an actual request to report the nickname from a description
+    # or a how-to question; this also accepts the exact "какой у меня ..." form.
+    return bool(re.search(
+        r"(?:скаж\w*|расскаж\w*|покаж\w*|узнай|узнать|назови|"
+        r"какой\b|как(?:ой|ое)\s+у\s+меня\b|"
+        r"tell\b|say\b|show\b|what(?:'s|\s+is)?\b|"
+        r"spune\b|zi\b|arată\b|arata\b|care\b|află\b|afla\b)", value,
+    ))
+
 
 
 def screenshot_request(text: str) -> bool:
