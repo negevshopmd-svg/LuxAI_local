@@ -2081,6 +2081,15 @@ class MainWindow(QMainWindow):
                 answer = toggle_discord_microphone(self.confirm_action)
                 self._resolved_command(text, answer)
                 return
+            # Native keyboard and mouse commands always use local Windows
+            # tools, never the cloud task planner. No approval prompt for
+            # explicitly spoken, allowlisted input; still require a separate
+            # external window to be active.
+            local_steps = parse_action_sequence(text)
+            local_keyboard = keyboard_action_plan(text)
+            if not protected_workflow and (local_steps is not None or local_keyboard is not None):
+                self._run_direct_input(text, local_steps if local_steps is not None else [local_keyboard])
+                return
             from luxai.task_intents import (
                 direct_app_request, screenshot_request, system_request,
                 direct_action_request, steam_self_nickname_request,
@@ -2111,6 +2120,21 @@ class MainWindow(QMainWindow):
                 or (protected_workflow and not manual_saved)
             ):
                 self._execute_registered(text, saved)
+                return
+            # A spoken request to click a named Discord user uses the
+            # existing exact-contact/header-verified workflow, never a
+            # generic mouse guess or an unrelated planner response.
+            from luxai.discord_navigation import detect_discord_open_dm
+            known_contact = detect_discord_open_dm(text)
+            if known_contact and not protected_workflow:
+                if not self.online_planner.enabled():
+                    self._resolved_command(text, "Для поиска пользователя Discord нужен AI с изображениями.")
+                    return
+                self.mic_status.setText("Проверяю пользователя Discord…")
+                threading.Thread(
+                    target=self._direct_macro_worker, args=(text,),
+                    daemon=True, name="JarvisDiscordVerifiedContact",
+                ).start()
                 return
             # Novel visual goals are solved by repeated real observations,
             # not by a one-shot macro which cannot see whether a click worked.
@@ -2194,28 +2218,7 @@ class MainWindow(QMainWindow):
             if is_screen_inspection_request(text):
                 self._start_screen_inspection(text)
                 return
-            # Hotkeys and command-editor capabilities are known locally.
-            voice_steps = parse_action_sequence(text)
-            keyboard = keyboard_action_plan(text)
-            if voice_steps is not None or keyboard is not None:
-                # Only target the currently focused external application.
-                if self.isActiveWindow():
-                    answer = (
-                        "Выберите окно другой программы и повторите команду. "
-                        "В окно самого Jarvis клавиши не отправляются."
-                    )
-                else:
-                    steps = voice_steps if voice_steps is not None else [keyboard]
-                    if len(steps) > 1:
-                        self._current_route = "локальные голосовые действия"
-                        self._run_saved_steps(text, steps)
-                        return
-                    answer = self.agent.execute_plan(
-                        text, steps[0], confirm_callback=self.confirm_action,
-                    ) or "Действие не выполнено."
-                self._current_route = "локальная клавиатура и мышь"
-                self._resolved_command(text, answer)
-                return
+            # Native input was routed before adaptive/cloud planning above.
             capabilities = command_capabilities_reply(text)
             if capabilities is not None:
                 self._current_route = "каталог действий"
@@ -3189,6 +3192,47 @@ class MainWindow(QMainWindow):
             return
         self._current_route = "Steam: прочитано из окна аккаунта"
         self._resolved_command(text, answer)
+
+    def _run_direct_input(self, text, steps):
+        """Act on explicitly spoken keyboard/mouse input without prompts.
+
+        This only accepts local validated keyboard/mouse operations and a
+        currently focused external application. It cannot authorize a cloud
+        screenshot, a Discord message, scripts, deletion or shutdown.
+        """
+        from luxai.action_catalog import validate_step
+        from luxai.screen_interact import _valid_external_window, _foreground_hwnd
+        allowed = {
+            "press_key", "key_sequence", "hotkey", "press_enter",
+            "save_document", "type_text", "mouse_click", "mouse_right_click",
+            "mouse_double_click", "mouse_middle_click", "mouse_move",
+            "mouse_scroll", "wait_seconds",
+        }
+        try:
+            if not 1 <= len(steps) <= 8:
+                raise ValueError("Invalid input sequence")
+            safe = [validate_step(step) for step in steps]
+            if any(step["action"] not in allowed for step in safe):
+                raise PermissionError("This action needs its dedicated tool")
+            hwnd = _foreground_hwnd()
+            _valid_external_window(hwnd)
+            if self.isActiveWindow():
+                raise RuntimeError("Сначала выберите окно другой программы.")
+        except (OSError, RuntimeError, ValueError, PermissionError) as exc:
+            self._current_route = "Windows: локальные клавиши и мышь"
+            self._resolved_command(text, "Не удалось отправить ввод: " + str(exc)[:145])
+            return
+        self._current_route = "Windows: локальные клавиши и мышь"
+        if len(safe) > 1:
+            self._run_saved_steps(text, safe)
+            return
+        self.agent.last_execution_success = False
+        # These actions have no mandatory approval in the execution allowlist.
+        # Never use a universal 'approve anything' callback.
+        result = self.agent.execute_plan(
+            text, safe[0], confirm_callback=lambda _: False,
+        ) or "Не удалось выполнить ввод."
+        self._resolved_command(text, result)
 
     def _start_discord_mic_visual(self, text):
         """Restore a specific local visual command without cloud macro planning."""

@@ -1,4 +1,9 @@
-LUXAI LOCAL 0.3.3 — ACTUALIZARE
+LUXAI LOCAL 0.3.4 — ACTUALIZARE
+
+0.3.4: MICROFON DISCORD SI CONTROL TASTATURA / MOUSE
+Pentru microfonul Discord, Jarvis face o captura marita suplimentara si corecteaza pozitia clicului in interiorul butonului. Daca localizarea nu este sigura, nu apasa. Comenzile simple de taste si mouse folosesc direct instrumentele locale Windows, fara planificator AI.
+Click pe un utilizator Discord este rutat prin verificarea numelui contactului. Se pastreaza aprobarea pentru capturi trimise online si pentru actiuni cu consecinte importante.
+Instalare: inchide Jarvis, ruleaza Update.bat, apoi run_windows.bat.
 
 0.3.3: NUMELE CONTULUI STEAM, FĂRĂ COMENZI PAS CU PAS
 Poți spune «Можешь зайти в Steam и сказать какой у меня ник?». Jarvis deschide sau activează automat Steam, cere acordul pentru analiza capturilor de ecran, citește numele utilizatorului conectat din bara contului și îl verifică pe o a doua imagine mărită. Nu citește numele prietenilor sau ale altor utilizatori. Nu este nevoie să dictezi «fă screenshot». Ai nevoie de un AI online cu funcții vizuale și cheie API. Pentru instalare, închide Jarvis, rulează Update.bat și pornește run_windows.bat.

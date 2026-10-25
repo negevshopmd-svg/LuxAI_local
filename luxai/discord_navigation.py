@@ -29,7 +29,7 @@ def detect_discord_open_dm(text: str) -> str | None:
         lower,
     ):
         return None
-    if not re.search(r"(?:нажм\w*|откро\w*|найд\w*|выбер\w*|перейд\w*)", lower):
+    if not re.search(r"(?:нажм\w*|жми|жать|откро\w*|найд\w*|выбер\w*|перейд\w*)", lower):
         return None
     match = re.search(
         r"(?:пользовател[ья]|юзера|контакт|user)\s+"
@@ -38,8 +38,14 @@ def detect_discord_open_dm(text: str) -> str | None:
     )
     if match is None:
         return None
+    # The location phrase is not part of a user's display name:
+    # "жми на пользователя R0nfsy в дискорде" -> "R0nfsy".
+    candidate = re.sub(
+        r"\s+(?:в|на|in)\s+(?:discord|дискорд\w*|дискор\w*)$",
+        "", match.group("name").strip(" .,!?;"), flags=re.I,
+    )
     try:
-        return validate_discord_review_user(match.group("name"))
+        return validate_discord_review_user(candidate)
     except ValueError:
         return None
 

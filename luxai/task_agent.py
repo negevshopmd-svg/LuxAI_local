@@ -21,7 +21,7 @@ MAX_STEPS = 12
 MAX_SECONDS = 300.0
 MAX_GOAL = 2000
 MAX_CONSECUTIVE_FAILURES = 3
-TOOLS = ("open_app", "screenshot", "visual_task", "research", "shell", "desktop_action")
+TOOLS = ("open_app", "screenshot", "visual_task", "research", "shell", "desktop_action", "desktop_input")
 TOOL_MANIFEST = [
     {"name": "open_app", "description": "Open an installed application natively and verify its window.",
      "arguments": {"target": "application name (or use the name alias)"},
@@ -38,6 +38,9 @@ TOOL_MANIFEST = [
                    "purpose": "relationship to the user goal",
                    "verification": {"command": "read-only result check", "expect": "expected output text",
                                     "shell": "optional: cmd or powershell; defaults to the command shell"}}},
+    {"name": "desktop_input", "description": "Press explicitly requested allowed keys or mouse buttons locally, without a confirmation dialog. Only use when a named keyboard/mouse action is present in the original user goal. For controls you must SEE, use visual_task and request screenshot consent. Never type or send messages with this tool.",
+     "arguments": {"action": "press_key, key_sequence, hotkey, press_enter, mouse_click, mouse_right_click, mouse_double_click, mouse_middle_click, mouse_move or mouse_scroll",
+                   "target": "exact key/combination or mouse coordinates; blank for a click"}},
     {"name": "desktop_action", "description": "Run a supported native desktop action and verify its effect.",
      "arguments": {"action": "an action advertised by runtime_facts.native_actions"},
      "optional_arguments": {"target": "action target", "location": "supported action location",

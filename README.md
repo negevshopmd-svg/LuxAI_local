@@ -2,6 +2,16 @@
 
 Voice-controlled Jarvis assistant for Windows 10/11 (64-bit).
 
+## 0.3.4: Discord mic accuracy and desktop controls
+
+Microphone buttons in customized Discord are localized again using a fresh, enlarged native-resolution crop. The click lands slightly below the icon's detected center, within the same mic button, and the resulting state is checked. Uncertain positions are rejected.
+
+Voice requests for W, Q, allowed hotkeys and mouse actions are routed to Windows input rather than an online planning response. Opening a Discord user's conversation uses verified search and chat-header checks. The adaptive agent can also run input actions that are explicitly part of the user's request.
+
+Local input runs against a foreground external window. Sending screenshots to cloud AI and consequential actions still follow the existing safeguards.
+
+Upgrade normally with `Update.bat`.
+
 ## 0.3.3: natural Steam nickname requests
 
 Say **“Можешь зайти в Steam и сказать, какой у меня ник?”** (or **“Can you open Steam and tell me my nickname?”**). Jarvis automatically activates/opens the installed Steam desktop window, obtains the usual screenshot-analysis consent, inspects the signed-in account bar, zooms the identified name at native resolution and checks the answer before reporting it. You no longer have to dictate the intermediate screenshot steps. Friends, chat participants, unrelated profile pages and invisible/background windows are rejected; no Steam account changes or messages are performed. Requires a configured vision-capable online AI and permission to send the window images. The existing `Update.bat` installs this version directly from `main`.
