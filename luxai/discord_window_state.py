@@ -44,6 +44,67 @@ def _user32():
     return get_user32()
 
 
+def _window_class(user32, hwnd):
+    function = getattr(user32, "GetClassNameW", None)
+    if function is None:
+        return ""
+    value = ctypes.create_unicode_buffer(256)
+    try:
+        function(hwnd, value, len(value))
+    except (AttributeError, OSError, ValueError, ctypes.ArgumentError):
+        return ""
+    return value.value.casefold()
+
+
+def _window_cloaked(hwnd):
+    """DWM-hidden windows are not visible on the current Windows desktop."""
+    loader = getattr(ctypes, "WinDLL", None)
+    if loader is None:
+        return False
+    try:
+        query = loader("dwmapi").DwmGetWindowAttribute
+        query.argtypes = (wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD)
+        query.restype = ctypes.c_long
+        value = wintypes.DWORD()
+        result = query(hwnd, 14, ctypes.byref(value), ctypes.sizeof(value))  # DWMWA_CLOAKED
+        return result == 0 and bool(value.value)
+    except (AttributeError, OSError, ValueError, ctypes.ArgumentError):
+        # Older/mocked systems without DWM still retain all normal HWND,
+        # process, geometry and foreground validation before interaction.
+        return False
+
+
+def _is_helper_window(user32, hwnd):
+    """Reject Electron support frames without excluding a tray main window."""
+    if _window_class(user32, hwnd) in {
+        "chrome_messagewindow", "chrome_renderwidgethosthwnd",
+        "intermediate d3d window", "tooltips_class32",
+    }:
+        return True
+    # Electron capture/notification helpers can have the title 'Discord'.
+    # Their extended style, rather than their shared process name, identifies
+    # them as non-activating/tool windows. Do not add these APIs to user32's
+    # shared signature table from here or change another caller's ABI.
+    function = getattr(user32, "GetWindowLongPtrW", None) or getattr(user32, "GetWindowLongW", None)
+    if function is not None:
+        try:
+            if isinstance(function, ctypes._CFuncPtr):
+                function.argtypes = (wintypes.HWND, ctypes.c_int)
+                function.restype = ctypes.c_ssize_t
+            style = int(function(hwnd, -20))  # GWL_EXSTYLE
+            if style & (0x00000080 | 0x08000000):  # TOOLWINDOW | NOACTIVATE
+                return True
+        except (AttributeError, OSError, ValueError, TypeError, ctypes.ArgumentError):
+            pass
+    if user32.IsIconic(hwnd):
+        # Minimized main windows can report only their tiny icon rectangle.
+        return False
+    rect = wintypes.RECT()
+    if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+        return True
+    return int(rect.right) - int(rect.left) < 80 or int(rect.bottom) - int(rect.top) < 70
+
+
 def _discord_candidates() -> list[int]:
     if sys.platform != "win32":
         raise OSError("Discord window discovery requires Windows")
@@ -66,6 +127,8 @@ def _discord_candidates() -> list[int]:
         user32.GetWindowTextW(hwnd, title, len(title))
         if "discord" not in title.value.casefold():
             return True
+        if _is_helper_window(user32, hwnd):
+            return True
         found.append(hwnd_value(hwnd))
         return True
 
@@ -74,15 +137,45 @@ def _discord_candidates() -> list[int]:
 
 
 def find_discord_window() -> int:
-    """Return an unambiguous REAL Discord top-level HWND, even when hidden."""
+    """Select the actual visible Discord GUI before considering tray frames.
+
+    Electron's hidden support HWNDs are not separate Discord applications.
+    Multiple genuinely displayed main windows remain ambiguous unless the
+    user has put one in the foreground; never choose an arbitrary account.
+    """
     windows = list(dict.fromkeys(_discord_candidates()))
-    if len(windows) == 1:
-        return windows[0]
-    if len(windows) > 1:
-        from luxai.screen_interact import _foreground_hwnd
-        active = _foreground_hwnd()
-        if active in windows:
+    if windows:
+        user32 = _user32()
+        available = [hwnd for hwnd in windows if not _window_cloaked(hwnd)]
+        active = hwnd_value(user32.GetForegroundWindow())
+        displayed = [hwnd for hwnd in available
+                     if user32.IsWindowVisible(hwnd) and not user32.IsIconic(hwnd)
+                     and _window_on_screen(user32, hwnd)]
+        if active in displayed:
             return active
+        if len(displayed) == 1:
+            return displayed[0]
+        if len(displayed) > 1:
+            raise ValueError("Найдено несколько окон Discord. Выберите нужное окно.")
+        visible = [hwnd for hwnd in available if user32.IsWindowVisible(hwnd)]
+        if active in visible:
+            return active
+        if len(visible) == 1:
+            return visible[0]
+        if not visible and len(available) == 1:
+            return available[0]
+        if not visible:
+            # Some versions retain a hidden Chrome_WidgetWin_0 support
+            # window beside their Chrome_WidgetWin_1 main frame in the tray.
+            main = [hwnd for hwnd in available
+                    if _window_class(user32, hwnd) == "chrome_widgetwin_1"]
+            if len(main) == 1 and all(
+                _window_class(user32, hwnd) in {"chrome_widgetwin_0", "chrome_widgetwin_1"}
+                for hwnd in available
+            ):
+                return main[0]
+        if not available:
+            raise ValueError("Окно Discord скрыто Windows или находится на другом рабочем столе.")
         raise ValueError(
             "Найдено несколько окон Discord. Выберите нужное окно."
         )

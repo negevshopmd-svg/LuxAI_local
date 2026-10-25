@@ -203,11 +203,164 @@ def is_discord_message_request(text: str) -> bool:
     Multi-word display names are resolved later and confirmed visually.
     """
     phrase = str(text or "").casefold()
+    # Capability phrasing ("можешь написать", "can you message") is an
+    # operational request. Explanations and reading someone else's message
+    # remain ordinary conversation, never permission to send.
+    from luxai.fast_intents import strip_wake_name
+    instruction = _QUOTED_MESSAGE.sub("", phrase)
+    start = strip_wake_name(instruction).strip()
+    if re.match(r"(?:как\b|how\s+(?:can\s+i|do\s+i|to|should\s+i)\b|cum\s+(?:pot|se|s[ăa])\b)", start):
+        return False
+    writing = re.search(r"\b(?:напиш\w*|напис\w*|пиш\w*|отправ\w*|отосл\w*|send|write|message|text|scrie(?:-i)?|scriei|scrii|trimite(?:-i)?|trimitei)\b", instruction)
+    if re.search(r"\b(?:прочитай|прочти|прочесть|читай|read|citește|citeste)\b", start) and not re.search(r"\b(?:напиш\w*|напис\w*|отправ\w*|send|write|scrie(?:-i)?|trimite(?:-i)?)\b", start):
+        return False
     return bool(
-        re.search(r"(?:discord|дискорд\w*|дискор\w*)", phrase)
-        and re.search(r"(?:отправ\w*|напиш\w*|пиш\w*|сообщени\w*|enter|send|message)", phrase)
-        and re.search(r"(?:пользовател\w*|юзер\w*|контакт\w*|@)", phrase)
+        re.search(r"(?:discord|дискорд\w*|дискор\w*)", instruction)
+        and writing
     )
+
+
+_QUOTED_MESSAGE = re.compile(r'"([^"\n]+)"|«([^»\n]+)»|“([^”\n]+)”|\'([^\'\n]+)\'')
+_DISCORD_PLACEMENT = re.compile(r"\b(?:в|на|in|on|pe|în)\s+(?:discord|дискорд\w*|дискор\w*)\b", re.I)
+_MESSAGE_LABEL = re.compile(r"\b(?:сообщени[ея]|текст(?:ом)?|(?:a\s+)?(?:discord\s+)?message|text|(?:un\s+)?mesaj(?:ul)?(?:\s+cu\s+textul)?|textul)\s*[:,-]?\s*", re.I)
+_GREETING = re.compile(r"\b(?:привет\w*|здравствуй\w*|доброе\s+утро|добрый\s+(?:день|вечер)|спасибо|пока|как\s+дела|hi|hello|hey|thanks|thank\s+you|good\s+(?:morning|night)|salut|bun[ăa]|mersi|mul[țt]umesc|ceau)\b", re.I)
+_WRITE = r"(?:напиш\w*|напис\w*|отправ\w*|отосл\w*|write|type|send|message|text|scrie(?:-i)?|scriei|scrii|trimite(?:-i)?|trimitei)"
+_NEXT_INSTRUCTION = re.compile(r"\s*[,;]?\s+(?:(?:и|and|și|si)\s+)?(?:после\s+этого|потом|затем|then|apoi|" + _WRITE + r")\b", re.I)
+_GENERIC_RECIPIENTS = frozenset({"друг", "мой друг", "моему другу", "друга", "другу", "ему", "ей", "пользователь", "пользователю", "контакт", "friend", "my friend", "him", "her", "user", "contact", "prieten", "prietenul meu", "prietenului meu", "utilizator", "lui"})
+_RESEARCH_INSTRUCTION = re.compile(r"\b(?:найд\w*|find|research|caut\w*|cerceteaz\w*)\b.{0,55}(?:информац|факт|information|facts|informaț|informati)", re.I)
+
+
+def _message_tail(value: str, *, quoted=False) -> str:
+    value = value.strip()
+    if not quoted:
+        # These are execution instructions, not part of the dictated message.
+        value = re.sub(r"\s*[,;]?\s+(?:(?:и|потом|затем|and|then|apoi|și|si)\s+){0,3}(?:нажм\w*|нажать|жми|press|hit|apas[ăa])\s+(?:на\s+)?(?:клавиш\w*\s+|the\s+)?(?:enter|энтер|ввод)(?:\s+(?:чтобы|to|pentru(?:\s+a)?)\s+(?:отправ\w*|send|trimite)(?:\s+(?:его|это|сообщение|it|message|mesajul))?)?\s*[.!]?\s*$", "", value, flags=re.I)
+        value = re.sub(r"\s*[,;]?\s+(?:и|потом|затем|and|then|apoi|și|si)\s+(?:отправь|send\s+it|trimite(?:-l)?)\s*[.!]?\s*$", "", value, flags=re.I)
+        value = value.rstrip(" .")
+    return value.strip()
+
+
+def _recipient_tail(phrase: str):
+    """Return only a user-supplied name region, never a model's guess."""
+    markers = (
+        r"\b(?:пользовател[юя]|юзер[ау]|контакт[ау]?|(?:(?:моему|моего)\s+)?друг[уа])\s+",
+        r"\b(?:(?:my\s+)?friend|user|contact)\s+",
+        r"\b(?:utilizatorului|utilizatorul|utilizator|prietenului(?:\s+meu)?|prietenul(?:\s+meu)?|lui|către|catre)\s+",
+        r"@(?=[\w.\-])",
+    )
+    for pattern in markers:
+        found = re.search(pattern, phrase, re.I)
+        if found:
+            return phrase[found.end():]
+    # Bare username requests are common: "напиши Hanzo ...", "message
+    # Hanzo ...". Strip the platform placement before finding that region.
+    found = re.search(r"\b" + _WRITE + r"\s+(?:(?:a\s+)?(?:discord\s+)?message\s+)?(?:(?:to|lui|către|catre)\s+)?", phrase, re.I)
+    return phrase[found.end():] if found else ""
+
+
+def _supported_message_trailer(phrase):
+    quoted = list(_QUOTED_MESSAGE.finditer(phrase))
+    if not quoted or (len(quoted) == 1 and _GREETING.search(phrase[quoted[-1].end():])):
+        return True
+    suffix = _DISCORD_PLACEMENT.sub(" ", phrase[quoted[-1].end():])
+    suffix = re.sub(r"\b(?:пожалуйста|please|te\s+rog(?:\s+frumos)?)\b", "", suffix, flags=re.I).strip(" ,;.!?")
+    return not suffix or _message_tail("_ " + suffix) == "_"
+
+
+def discord_message_details(text: str) -> dict | None:
+    """Resolve concise send requests into explicit data or missing fields.
+
+    The existing verified Discord action owns contact selection, drafting and
+    final send approval. This parser only avoids asking the user to dictate
+    every GUI step. Ambiguous names/messages stay missing instead of invented.
+    """
+    if not is_discord_message_request(text):
+        return None
+    from luxai.fast_intents import strip_wake_name
+    from luxai.discord_research import validate_discord_text_target
+    phrase = strip_wake_name(str(text or "")).strip()
+    result = {"recipient": "", "message": "", "missing": [], "cancelled": False}
+    instruction = _QUOTED_MESSAGE.sub("", phrase)
+    if re.search(r"\b(?:не\s+(?:пиши|напиши|писать|отправ\w*)|(?:do\s+not|don['’]t|never)\s+(?:send|write|message|text)|nu\s+(?:scrie|trimite))\b", instruction, re.I):
+        result["cancelled"] = True
+        return result
+    research = _RESEARCH_INSTRUCTION.search(instruction)
+    write = re.search(r"\b" + _WRITE + r"\b", instruction, re.I)
+    if research and (write is None or research.start() < write.start()):
+        # A research-and-send request owns its sourced workflow. Conversely,
+        # research words inside the literal message remain message data.
+        return None
+    if not _supported_message_trailer(phrase):
+        # Do not silently discard an additional requested action after the
+        # quoted body. The full guarded planner must resolve the whole task.
+        return None
+    if not 5 <= len(phrase) <= 2000 or any(ord(c) < 32 for c in phrase):
+        result["missing"] = ["recipient", "message"]
+        return result
+
+    quoted = list(_QUOTED_MESSAGE.finditer(phrase))
+    quoted_body = quoted[-1] if quoted else None
+    # A quoted display name followed by a greeting is the recipient rather
+    # than the body: «Старый Бог» привет. Two quotes use the last as body.
+    quoted_name = bool(len(quoted) == 1 and _GREETING.search(phrase[quoted_body.end():]))
+    prefix = phrase[:quoted_body.start()] if quoted_body and not quoted_name else phrase
+    tail = _recipient_tail(prefix)
+    tail = tail.strip()
+    recipient, body = "", ""
+    body_is_quoted = bool(quoted_body and not quoted_name)
+    if body_is_quoted:
+        body = next(value for value in quoted_body.groups() if value is not None)
+        recipient = _MESSAGE_LABEL.split(tail, maxsplit=1)[0].strip(" ,:;.!?«»\"“”'")
+        recipient = _NEXT_INSTRUCTION.split(recipient, maxsplit=1)[0].strip(" ,:;.!?")
+    else:
+        # Delimited message labels/colon support arbitrary exact text, while
+        # common greeting boundaries support short natural voice commands.
+        delimiter = _MESSAGE_LABEL.search(tail)
+        greeting = _GREETING.search(tail)
+        colon = re.search(r"\s*:\s*", tail)
+        boundary = min((item for item in (delimiter, greeting, colon) if item), key=lambda item: item.start(), default=None)
+        if boundary:
+            recipient = tail[:boundary.start()].strip(" ,:;.!?«»\"“”'")
+            recipient = _NEXT_INSTRUCTION.split(recipient, maxsplit=1)[0].strip(" ,:;.!?")
+            body = tail[boundary.start():] if boundary is greeting else tail[boundary.end():]
+        else:
+            step = _NEXT_INSTRUCTION.search(tail)
+            if step:
+                recipient = tail[:step.start()].strip(" ,:;.!?«»\"“”'")
+                rest = tail[step.start():]
+                found = re.search(r"\b" + _WRITE + r"\s+(?:(?:ему|ей|им|him|her|them)\s+)?(?:(?:сообщени[ея]|message|text|mesaj(?:ul)?)\s*[:,-]?\s*)?(?P<body>.+)", rest, re.I)
+                body = found["body"] if found else ""
+            elif len(tail.split()) <= 4:
+                recipient = tail.strip(" ,:;.!?«»\"“”'")
+    body = _message_tail(body, quoted=body_is_quoted)
+    # Platform placement belongs to the instruction/name prefix. Never strip
+    # it from the message: "выключи микрофон в Discord" is literal content.
+    recipient = " ".join(_DISCORD_PLACEMENT.sub(" ", recipient).split()).strip(" ,:;.!?")
+    # Generic references require an actual name; they cannot silently become
+    # a Discord username or trigger sending to the currently open chat.
+    if recipient.casefold() in _GENERIC_RECIPIENTS:
+        recipient = ""
+    from luxai.discord_screen_review import validate_discord_review_user
+    from luxai.discord_research import validate_discord_plain_message
+    try:
+        result["recipient"] = validate_discord_review_user(recipient)
+    except ValueError:
+        result["missing"].append("recipient")
+    try:
+        result["message"] = validate_discord_plain_message(body)
+    except ValueError:
+        result["missing"].append("message")
+    if not result["missing"]:
+        # Retain the existing catalog validators as the execution boundary.
+        validate_discord_text_target(result["recipient"] + "||" + result["message"])
+    return result
+
+
+def detect_discord_text_request(text: str) -> tuple[str, str] | None:
+    details = discord_message_details(text)
+    if details is None or details["cancelled"] or details["missing"]:
+        return None
+    return details["recipient"], details["message"]
 
 
 def needs_live_macro_planning(text: str) -> bool:
@@ -259,22 +412,30 @@ def validate_generated_macro(proposal: object, description: str = "") -> dict | 
     # A Discord send must be carried out through the verified message
     # workflow, never by blindly typing into an unverified active window.
     is_discord_message = is_discord_message_request(description)
+    message_details = discord_message_details(description) if is_discord_message else None
+    if message_details and message_details.get("cancelled"):
+        return None
+    if is_discord_message and not _supported_message_trailer(description):
+        return None
+    literal_complete = bool(message_details and not message_details["missing"])
+    if literal_complete:
+        requested_dm = None
 
     from luxai.discord_screen_review import (
         detect_discord_screen_review, looks_like_discord_screen_review,
     )
-    requested_review = detect_discord_screen_review(description)
+    requested_review = None if is_discord_message else detect_discord_screen_review(description)
     from luxai.discord_navigation import detect_discord_open_dm
-    requested_open = detect_discord_open_dm(description)
+    requested_open = None if is_discord_message else detect_discord_open_dm(description)
     from luxai.research_notepad import detect_research_notepad
-    requested_facts = detect_research_notepad(description)
+    requested_facts = None if is_discord_message else detect_research_notepad(description)
     if requested_facts is not None:
         if len(steps) != 1 or steps[0].get("action") != "research_notepad_facts":
             return None
     if requested_open is not None:
         if len(steps) != 1 or steps[0].get("action") != "discord_open_dm":
             return None
-    if looks_like_discord_screen_review(description) and requested_review is None:
+    if not is_discord_message and looks_like_discord_screen_review(description) and requested_review is None:
         # Do not accept an invented app or a partial plan when speech-to-text
         # fails to identify the actual application and intended contact.
         return None
@@ -325,6 +486,14 @@ def validate_generated_macro(proposal: object, description: str = "") -> dict | 
             source = description.casefold()
             if who.casefold() not in source or msg.casefold() not in source:
                 return None
+            # A substring of a nickname or a literal message is not the same
+            # user instruction. Complete local parses bind the entire fields;
+            # other cloud proposals still require standalone source wording.
+            if not re.search(r"(?<!\w)" + re.escape(who.casefold()) + r"(?!\w)", source):
+                return None
+            if message_details and not message_details["missing"]:
+                if who.casefold() != message_details["recipient"].casefold() or msg.casefold() != message_details["message"].casefold():
+                    return None
         if valid["action"] == "discord_research_dm":
             if requested_dm is None:
                 # A cloud model cannot invent a recipient from a vague task.

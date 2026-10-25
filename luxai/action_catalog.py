@@ -11,16 +11,16 @@ import re
 from urllib.parse import urlsplit
 
 CATEGORIES = [
-    ("Все действия", "▦"),
-    ("Запуск", "↗"),
-    ("Клавиши", "⌨"),
-    ("Мышь", "◉"),
-    ("Программа", "◷"),
-    ("Озвучка", "♬"),
-    ("Звук", "♪"),
-    ("Система", "▣"),
-    ("Браузер", "◎"),
-    ("Файлы", "▤"),
+    ("Все действия", "layers-3"),
+    ("Запуск", "rocket"),
+    ("Клавиши", "keyboard"),
+    ("Мышь", "mouse-pointer-2"),
+    ("Программа", "app-window"),
+    ("Озвучка", "audio-lines"),
+    ("Звук", "music-2"),
+    ("Система", "monitor"),
+    ("Браузер", "globe"),
+    ("Файлы", "folder"),
 ]
 
 # id, category, title, short description, available
@@ -83,10 +83,34 @@ _ACTIONS = [
     ("time", "Программа", "Сказать текущее время", "Называет текущее время", True),
 ]
 
+# Presentation metadata stays separate from the execution and parameter schema.
+ACTION_ICONS = {
+    "open_app": "app-window", "launch_game": "gamepad-2", "run_file": "file-code-2",
+    "discord_research_dm": "file-search", "discord_screen_review": "monitor-check",
+    "discord_open_dm": "user-round", "discord_send_text": "message-square",
+    "research_notepad_facts": "notebook-pen", "open_user_file": "file-text",
+    "open_website": "globe", "run_cmd": "terminal", "run_powershell": "terminal",
+    "type_text": "text-cursor-input", "press_enter": "corner-down-left", "save_document": "save",
+    "mouse_double_click": "mouse-pointer-click", "mouse_right_click": "mouse",
+    "mouse_click": "mouse-pointer-2", "visual_click": "scan-eye", "close_window": "x",
+    "display_info": "monitor", "open_recycle_bin": "trash-2", "empty_recycle_bin": "trash-2",
+    "mouse_scroll": "mouse", "mouse_move": "move", "mouse_hold": "mouse",
+    "noop": "minus", "wait_seconds": "clock-3", "wait_minutes": "hourglass",
+    "tray_minimize": "panel-bottom-close", "speak_ready": "circle-check", "speak_done": "check-check",
+    "play_mp3": "music-2", "play_wav": "file-audio", "volume_up": "volume-2",
+    "volume_down": "volume-1", "app_volume": "sliders-horizontal", "mouse_middle_click": "mouse",
+    "mouse_right_hold": "mouse", "monitor_on": "monitor", "monitor_off": "monitor-off",
+    "lock_screen": "lock-keyhole", "sleep_pc": "moon", "minimize_windows": "panels-top-left",
+    "search_web": "search", "open_first_result": "external-link", "create_file": "file-plus-2",
+    "create_folder": "folder-plus", "list_files": "folder-open", "time": "clock-3",
+}
+_CATEGORY_ICONS = dict(CATEGORIES)
+
 CATALOG = {
     action: {
         "id": action, "category": category, "title": title,
         "description": description, "available": available,
+        "icon": ACTION_ICONS.get(action, _CATEGORY_ICONS[category]),
     }
     for action, category, title, description, available in _ACTIONS
 }

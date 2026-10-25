@@ -1,3 +1,11 @@
+## 0.3.1 — New icons and concise Discord requests
+
+- Replace font symbols and emoji with bundled Lucide SVG icons across navigation, commands, settings and dialogs. Add a Jarvis window/taskbar/tray emblem, theme-aware colors, crisp HiDPI rendering and consistent control arrows. No runtime icon downloads or icon-font dependencies.
+- Keep command names readable beside the new icons, and retain selections, drafts, device choices and callbacks when changing themes or languages.
+- Ignore hidden Electron helper windows when choosing Discord's main window. Preserve tray restoration and ask for a window only when separate real Discord windows remain ambiguous.
+- Recognize short requests such as “А ты можешь написать в дискорде пользователю Hanzo привет”. Build the verified contact/draft/send workflow automatically; ask only for a missing name or exact message and resume the same task.
+- Preserve literal message content and final draft approval. A message mentioning microphone controls cannot execute those controls. Recognize “закрой микрофон в Discord” and allow its visual state verification after clarification.
+
 ## 0.3.0 — Adaptive desktop tasks and verified execution
 
 - Introduce an adaptive task loop: choose a tool, observe its result, revise the next step and verify the requested outcome. Open applications through native Windows discovery first; a running process or an issued click is no longer enough to report completion.

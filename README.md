@@ -2,6 +2,12 @@
 
 Voice-controlled Jarvis assistant for Windows 10/11 (64-bit).
 
+## 0.3.1: new icons and natural Discord requests
+
+The interface includes local Lucide SVG icons, a new Jarvis emblem, and icons that adapt to dark/light themes and high-DPI displays. The icon pack works offline; its source revision and ISC license are bundled in `luxai/assets/icons/lucide/`.
+
+Say **“Send Hanzo a Discord message: hello”** or **“А ты можешь написать в дискорде пользователю Hanzo привет”**. Jarvis builds the window/contact/draft/send workflow; missing recipient or message details are clarified without asking you to dictate clicks. It verifies the contact and requests final approval for the actual draft before sending. Hidden Discord/Electron helper windows no longer count as extra visible app windows.
+
 ## 0.3.0: adaptive desktop tasks
 
 Jarvis chooses a next tool, observes the actual result, adjusts its next step and verifies the outcome. A request such as **“Open Discord”** uses native Windows application discovery first, without taking a screenshot or requiring a cloud model. Opening is confirmed from a visible foreground window, rather than the existence of `Discord.exe`. **“Take a screenshot”** saves a local image in `Pictures/LuxAI` without an AI key.

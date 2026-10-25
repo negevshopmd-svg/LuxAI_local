@@ -429,6 +429,11 @@ for _line in _DATA.splitlines():
 
 _language = "ru"
 
+TRANSLATIONS["Голоса со значком загрузки загрузятся при первом использовании. Голос выбирается по языку ответа, а не по языку интерфейса."] = (
+    "Voices with a download icon download on first use. Voice follows reply language, not interface language.",
+    "Vocile cu pictograma de descărcare se descarcă la prima utilizare. Vocea urmează limba răspunsului, nu limba interfeței.",
+)
+
 
 def get_ui_language():
     return _language
@@ -513,6 +518,7 @@ def translate_widgets(root: QWidget, language=None):
             if suffix.strip() in ("сек", "sec", "s"):
                 widget.setSuffix(" sec" if language == "en" else (" s" if language == "ro" else " сек"))
         _translate_property(widget, "tooltip", widget.toolTip, widget.setToolTip, language)
+        _translate_property(widget, "accessible", widget.accessibleName, widget.setAccessibleName, language)
         # Only local dialogs have translated window titles, not dynamic content.
         if widget.isWindow():
             _translate_property(widget, "windowtitle", widget.windowTitle, widget.setWindowTitle, language)

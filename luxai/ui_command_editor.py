@@ -7,9 +7,10 @@ from PySide6.QtWidgets import (
     QListWidgetItem, QMessageBox, QPushButton, QVBoxLayout, QWidget,
 )
 
-from luxai.action_catalog import CATALOG, describe_step, validate_step
+from luxai.action_catalog import CATALOG, CATEGORIES, describe_step, validate_step
 from luxai.ui_i18n import get_ui_language, translate_widgets, tr
 from luxai.ui_action_picker import ActionPicker, ActionOptionsDialog
+from luxai.icons import icon, set_button_icon
 
 
 class CommandEditor(QDialog):
@@ -19,6 +20,7 @@ class CommandEditor(QDialog):
         super().__init__(parent)
         self.original = dict(command or {})
         self.setWindowTitle("Новая команда" if command is None else "Изменить команду")
+        self.setWindowIcon(icon("jarvis"))
         self.setObjectName("CommandEditorDialog")
         self.resize(805, 660)
         self.setMinimumSize(680, 540)
@@ -47,7 +49,10 @@ class CommandEditor(QDialog):
         title.setObjectName("PageTitle")
         header.addWidget(title)
         header.addStretch()
-        close = QPushButton("×")
+        close = QPushButton()
+        set_button_icon(close, "x")
+        close.setToolTip("Закрыть")
+        close.setAccessibleName("Закрыть")
         close.setFixedWidth(38)
         close.clicked.connect(self.reject)
         header.addWidget(close)
@@ -98,20 +103,25 @@ class CommandEditor(QDialog):
 
         controls = QVBoxLayout()
         controls.setSpacing(9)
-        self.add_button = QPushButton("＋  Добавить действие")
+        self.add_button = QPushButton("Добавить действие")
         self.add_button.setObjectName("Primary")
+        set_button_icon(self.add_button, "plus", role="white")
         self.add_button.clicked.connect(self.add_action)
         controls.addWidget(self.add_button)
         self.edit_button = QPushButton("Изменить")
+        set_button_icon(self.edit_button, "pencil")
         self.edit_button.clicked.connect(self.edit_action)
         controls.addWidget(self.edit_button)
-        self.up_button = QPushButton("↑  Выше")
+        self.up_button = QPushButton("Выше")
+        set_button_icon(self.up_button, "arrow-up")
         self.up_button.clicked.connect(lambda: self.move_action(-1))
         controls.addWidget(self.up_button)
-        self.down_button = QPushButton("↓  Ниже")
+        self.down_button = QPushButton("Ниже")
+        set_button_icon(self.down_button, "arrow-down")
         self.down_button.clicked.connect(lambda: self.move_action(1))
         controls.addWidget(self.down_button)
         self.delete_button = QPushButton("Удалить")
+        set_button_icon(self.delete_button, "trash-2", role="danger")
         self.delete_button.clicked.connect(self.remove_action)
         controls.addWidget(self.delete_button)
         controls.addStretch()
@@ -133,25 +143,24 @@ class CommandEditor(QDialog):
         footer = QHBoxLayout()
         footer.addStretch()
         cancel = QPushButton("Отмена")
+        set_button_icon(cancel, "x")
         cancel.clicked.connect(self.reject)
         footer.addWidget(cancel)
         save = QPushButton("Сохранить команду")
         save.setObjectName("Primary")
+        set_button_icon(save, "save", role="white")
         save.clicked.connect(self._validate_accept)
         footer.addWidget(save)
         root.addLayout(footer)
         self.setStyleSheet("""
-            QDialog#CommandEditorDialog {background:#151c29; color:#e9eef8;}
             QListWidget#CommandActionsList {
-                background:#1e2839; border:1px solid #354258;
                 border-radius:12px; padding:8px;
             }
             QListWidget#CommandActionsList::item {
-                background:#252f42; margin:2px; border-radius:8px;
-                padding:12px; color:#f3f6ff;
+                margin:2px; border-radius:8px; padding:12px;
             }
             QListWidget#CommandActionsList::item:selected {
-                background:#314c78; border:1px solid #4386ff;
+                border:1px solid #4386ff;
             }
         """)
         self._refresh_steps()
@@ -166,6 +175,10 @@ class CommandEditor(QDialog):
                 target = str(step["target"])
                 description += ": " + (target[:45] + "..." if len(target) > 48 else target)
             item = QListWidgetItem(f"{i}.  {description}")
+            name = dict(CATEGORIES).get(CATALOG[step["action"]]["category"], "list-checks")
+            item.setIcon(icon(name, color="#3978f6", size=18))
+            item.setData(Qt.ItemDataRole.UserRole + 60, name)
+            item.setData(Qt.ItemDataRole.UserRole + 61, "accent")
             self.actions_list.addItem(item)
         if self._legacy:
             note = QListWidgetItem(

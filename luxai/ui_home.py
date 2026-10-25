@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QCheckBox, QFrame, QHBoxLayout, QLabel, QProgressBar, QPushButton, QScrollArea, QSlider, QTextEdit,
     QVBoxLayout, QWidget,
 )
+from luxai.icons import set_button_icon, set_label_icon
 
 
 class ToggleSwitch(QCheckBox):
@@ -117,15 +118,23 @@ class OrbVisual(QWidget):
             painter.drawEllipse(int(x-r), int(y-r), int(2*r), int(2*r))
 
 
-def _card(title):
+def _card(title, icon_name):
     frame = QFrame()
     frame.setObjectName("HomeCard")
     layout = QVBoxLayout(frame)
     layout.setContentsMargins(20, 18, 20, 18)
     layout.setSpacing(12)
+    heading = QHBoxLayout()
+    heading.setSpacing(10)
+    mark = QLabel()
+    mark.setProperty("jarvisIconBoxSize", 23)
+    set_label_icon(mark, icon_name, size=21, role="accent")
+    mark.setFixedSize(23, 23)
+    heading.addWidget(mark)
     title_label = QLabel(title)
     title_label.setObjectName("HomeCardTitle")
-    layout.addWidget(title_label)
+    heading.addWidget(title_label, 1)
+    layout.addLayout(heading)
     return frame, layout
 
 
@@ -147,7 +156,7 @@ class HomePage(QWidget):
         left.setContentsMargins(0, 0, 0, 0)
         left.setSpacing(18)
 
-        history_card, history_layout = _card("История команд")
+        history_card, history_layout = _card("История команд", "history")
         self.home_history = QTextEdit()
         self.home_history.setObjectName("HomeHistory")
         self.home_history.setReadOnly(True)
@@ -155,23 +164,26 @@ class HomePage(QWidget):
         history_layout.addWidget(self.home_history, 1)
         left.addWidget(history_card, 3)
 
-        control_card, control_layout = _card("Панель управления")
+        control_card, control_layout = _card("Панель управления", "sliders-horizontal")
         self.home_prefix = self._switch_row(
-            control_layout, "Режим префикса", config.get("prefix_enabled", False)
+            control_layout, "Режим префикса", config.get("prefix_enabled", False), "audio-lines"
         )
         self.home_quiet = self._switch_row(
-            control_layout, "Тихий режим", not config.get("tts_enabled", True)
+            control_layout, "Тихий режим", not config.get("tts_enabled", True), "volume-x"
         )
         self.home_avatar = self._switch_row(
-            control_layout, "Анимация аватара", config.get("ui_animations", True)
+            control_layout, "Анимация аватара", config.get("ui_animations", True), "sparkles"
         )
         self.home_top = self._switch_row(
-            control_layout, "Окно поверх", config.get("always_on_top", False)
+            control_layout, "Окно поверх", config.get("always_on_top", False), "pin"
         )
 
         volume = QHBoxLayout()
         volume.setContentsMargins(0, 4, 0, 0)
         volume.setSpacing(12)
+        volume_mark = QLabel()
+        set_label_icon(volume_mark, "volume-2", size=18, role="muted")
+        volume.addWidget(volume_mark)
         volume_name = QLabel("Громкость")
         volume_name.setObjectName("HomeRowLabel")
         volume.addWidget(volume_name)
@@ -196,8 +208,10 @@ class HomePage(QWidget):
         self.microphone_level.setAccessibleName("Уровень микрофона")
         control_layout.addWidget(self.microphone_level)
         self.microphone_test_button = QPushButton("Проверить микрофон")
+        set_button_icon(self.microphone_test_button, "mic", role="muted")
         control_layout.addWidget(self.microphone_test_button)
-        self.screen_assist_button = QPushButton("▣  Посмотреть кнопки на экране")
+        self.screen_assist_button = QPushButton("Посмотреть кнопки на экране")
+        set_button_icon(self.screen_assist_button, "scan-eye", role="muted")
         self.screen_assist_button.setObjectName("ScreenAssistButton")
         self.screen_assist_button.setToolTip(
             "Показать локальный снимок и кнопки Да/Нет активной программы. "
@@ -205,7 +219,8 @@ class HomePage(QWidget):
         )
         self.screen_assist_button.setMinimumHeight(36)
         control_layout.addWidget(self.screen_assist_button)
-        self.selection_summary_button = QPushButton("▤  Пересказать выделенный текст")
+        self.selection_summary_button = QPushButton("Пересказать выделенный текст")
+        set_button_icon(self.selection_summary_button, "file-text", role="muted")
         self.selection_summary_button.setObjectName("SelectedTextSummaryButton")
         self.selection_summary_button.setToolTip(
             "Выделите текст в браузере или Word. Затем нажмите здесь "
@@ -228,9 +243,12 @@ class HomePage(QWidget):
         root.addWidget(self.avatar, 5)
 
     @staticmethod
-    def _switch_row(layout, title, checked):
+    def _switch_row(layout, title, checked, icon_name):
         row = QHBoxLayout()
         row.setSpacing(12)
+        mark = QLabel()
+        set_label_icon(mark, icon_name, size=18, role="muted")
+        row.addWidget(mark)
         name = QLabel(title)
         name.setObjectName("HomeRowLabel")
         row.addWidget(name, 1)

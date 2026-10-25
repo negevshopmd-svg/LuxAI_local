@@ -8,12 +8,13 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
-    QDialog, QHBoxLayout, QLabel, QListWidget, QPushButton,
+    QDialog, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton,
     QVBoxLayout, QWidget,
 )
 
 from luxai.screen_interact import ScreenInspection, classify_button
 from luxai.ui_i18n import get_ui_language, translate_widgets, tr
+from luxai.icons import icon, set_button_icon
 
 
 class ScreenAssistDialog(QDialog):
@@ -23,20 +24,14 @@ class ScreenAssistDialog(QDialog):
     def __init__(self, snapshot: ScreenInspection, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Jarvis | Просмотр экрана")
+        self.setWindowIcon(icon("jarvis"))
         self.setObjectName("ScreenAssistDialog")
         self.setModal(False)
         self.resize(960, 690)
         self.setMinimumSize(690, 460)
         self.setStyleSheet(
-            "QDialog#ScreenAssistDialog{background:#141b2b;color:#edf4ff;}"
-            "QLabel{color:#edf4ff;background:transparent;}"
-            "QListWidget{background:#222e42;color:#edf4ff;"
-            "border:1px solid #40506a;border-radius:9px;padding:8px;}"
-            "QPushButton{background:#263e66;color:#f1f5ff;"
-            "border:1px solid #4265a6;border-radius:9px;"
-            "padding:10px;font-weight:600;}"
-            "QPushButton:disabled{color:#6f7b8d;background:#263044;}"
-            "QPushButton:hover{background:#3460a3;}"
+            "QListWidget{border-radius:9px;padding:8px;}"
+            "QPushButton{padding:10px;font-weight:600;}"
         )
         outer = QVBoxLayout(self)
         outer.setContentsMargins(18, 18, 18, 18)
@@ -52,8 +47,9 @@ class ScreenAssistDialog(QDialog):
         self.preview = QLabel("Снимок экрана недоступен.")
         self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.preview.setMinimumSize(360, 225)
+        self.preview.setObjectName("ScreenPreview")
         self.preview.setStyleSheet(
-            "background:#101723;border:1px solid #38475e;border-radius:9px;"
+            "border:1px solid #6d7c96;border-radius:9px;"
         )
         main.addWidget(self.preview, 3)
         side = QVBoxLayout()
@@ -70,20 +66,25 @@ class ScreenAssistDialog(QDialog):
             "Защищённые окна и непонятные кнопки не нажимаются."
         )
         hint.setWordWrap(True)
-        hint.setStyleSheet("color:#9fb6dc;font-size:12px;")
+        hint.setObjectName("Muted")
+        hint.setStyleSheet("font-size:12px;")
         outer.addWidget(hint)
 
         actions = QHBoxLayout()
         self.yes_button = QPushButton("Нажать Да")
+        set_button_icon(self.yes_button, "check-circle-2", role="success")
         self.yes_button.clicked.connect(lambda: self.click_requested.emit("yes"))
         actions.addWidget(self.yes_button)
         self.no_button = QPushButton("Нажать Нет")
+        set_button_icon(self.no_button, "x-circle")
         self.no_button.clicked.connect(lambda: self.click_requested.emit("no"))
         actions.addWidget(self.no_button)
         self.refresh_button = QPushButton("Обновить снимок")
+        set_button_icon(self.refresh_button, "refresh-cw")
         self.refresh_button.clicked.connect(self.refresh_requested.emit)
         actions.addWidget(self.refresh_button)
         close = QPushButton("Закрыть")
+        set_button_icon(close, "x")
         close.clicked.connect(self.close)
         actions.addWidget(close)
         outer.addLayout(actions)
@@ -109,9 +110,12 @@ class ScreenAssistDialog(QDialog):
         for item in snapshot.buttons:
             kind = classify_button(item.label)
             if kind in ("yes", "no"):
-                self.button_list.addItem(
-                    f"{item.label}  —  ({item.center[0]}, {item.center[1]})"
-                )
+                row = QListWidgetItem(f"{item.label}  —  ({item.center[0]}, {item.center[1]})")
+                name = "check-circle-2" if kind == "yes" else "x-circle"
+                row.setIcon(icon(name, color="#3978f6", size=18))
+                row.setData(Qt.ItemDataRole.UserRole + 60, name)
+                row.setData(Qt.ItemDataRole.UserRole + 61, "success" if kind == "yes" else "default")
+                self.button_list.addItem(row)
         yes_count = sum(
             1 for b in snapshot.buttons if classify_button(b.label) == "yes"
         )

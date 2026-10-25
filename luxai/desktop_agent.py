@@ -156,10 +156,11 @@ class DesktopRuntime:
     def runtime_facts(self):
         from luxai.local_shell import capabilities
         from luxai.visual_reasoner import is_visual_goal
+        from luxai.voice_desktop import wants_discord_mic_visual_click
         return {
             "platform": "Windows", "opening_goal": bool(self.app),
             "requested_app": self.app or "", "direct_app": bool(self.direct_app),
-            "explicit_visual_need": bool(self.direct_screenshot or
+            "explicit_visual_need": bool(self.direct_screenshot or wants_discord_mic_visual_click(self.goal) or
                 (self.native_request or {}).get("action") == "open_night_light_settings" or (
                 is_visual_goal(self.goal) and not self.direct_app)),
             "requires_goal_evidence": True,
