@@ -35,11 +35,11 @@ class QtActionTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
-    def test_home_has_selected_text_summary_button(self):
+    def test_home_has_no_selected_text_summary_button(self):
         from luxai.ui_home import HomePage
         home = HomePage({"voice_volume": 80})
-        self.assertTrue(home.selection_summary_button.isEnabled())
-        self.assertIn("Пересказать выделенный текст", home.selection_summary_button.text())
+        self.assertFalse(hasattr(home, "selection_summary_button"))
+        # The separate voice command route remains covered below.
         home.close()
 
     def test_selected_text_summary_routes_before_cloud_and_screen_ocr(self):
@@ -228,12 +228,13 @@ class QtActionTests(unittest.TestCase):
             self.assertFalse(fake.dictation_active)
             send.assert_called_once()
 
-    def test_home_has_functional_screen_assist_entrypoint(self):
+    def test_screen_assist_still_exists_without_home_button(self):
         from luxai.ui_home import HomePage
         home = HomePage({"voice_volume": 80})
-        self.assertIsNotNone(home.screen_assist_button)
-        self.assertTrue(home.screen_assist_button.isEnabled())
-        self.assertIn("кнопки", home.screen_assist_button.text())
+        self.assertFalse(hasattr(home, "screen_assist_button"))
+        MainWindow = _load_main_class_for_mock_tests()
+        self.assertTrue(callable(MainWindow.request_screen_inspection))
+        # The ScreenAssistDialog behavior is independently exercised below.
         home.close()
 
     def test_screen_preview_displays_buttons_and_emits_selection(self):
