@@ -415,13 +415,6 @@ class MainWindow(QMainWindow):
         self.home_quiet.toggled.connect(self.sync_quiet)
         self.home_avatar.toggled.connect(self.sync_animation)
         self.home_top.toggled.connect(self.set_always_on_top)
-        self.home_page.screen_assist_button.clicked.connect(self.request_screen_inspection)
-        self.home_page.selection_summary_button.clicked.connect(
-            lambda checked=False: self.run_command(
-                "Жарвис, перескажи выделенный текст"
-            )
-        )
-        self.home_page.microphone_test_button.clicked.connect(self.test_microphone)
         self.volume.valueChanged.connect(self.sync_volume)
         self.pages.addWidget(self.home_page)
 
@@ -1214,7 +1207,6 @@ class MainWindow(QMainWindow):
 
     def _set_diagnostic_controls(self, enabled):
         self.settings_panel.test_microphone.setEnabled(enabled)
-        self.home_page.microphone_test_button.setEnabled(enabled)
         self.settings_panel.export_diagnostics.setEnabled(enabled)
 
     def _on_diagnostic_level(self, rms):
