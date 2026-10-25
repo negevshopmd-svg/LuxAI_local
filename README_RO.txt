@@ -1,4 +1,8 @@
-LUXAI LOCAL 0.3.7 — ACTUALIZARE
+LUXAI LOCAL 0.3.7a — ACTUALIZARE
+
+0.3.7a: MINI-PATCH PENTRU PAGINA PRINCIPALA
+Au fost eliminate doar cele trei butoane suplimentare din «Главная»: «Проверить микрофон», «Посмотреть кнопки на экране», «Пересказать выделенный текст». Functiile nu sunt sterse: testarea microfonului ramane in Setari, iar celelalte doua instrumente raman disponibile prin comenzile Jarvis. Panoul pastreaza comutatoarele, volumul si informatia microfonului.
+Instalare: inchide Jarvis, ruleaza Update.bat si redeschide run_windows.bat.
 
 0.3.7: APEL DISCORD DIN PRIMA SI BUTOANELE DIN PANOU
 Când recunoașterea vocală scrie «Ханзо», iar numele real de pe Discord este «Hanzo», Jarvis acceptă doar transliterarea complet identică pentru apelurile vocale, apoi verifică în continuare numele real din antetul conversației. Nu schimbă regulile de trimitere a mesajelor și nu acceptă nume asemănătoare.

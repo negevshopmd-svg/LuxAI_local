@@ -216,29 +216,6 @@ class HomePage(QWidget):
         self.microphone_level.setFormat("%p%")
         self.microphone_level.setAccessibleName("Уровень микрофона")
         control_layout.addWidget(self.microphone_level)
-        self.microphone_test_button = QPushButton("Проверить микрофон")
-        set_button_icon(self.microphone_test_button, "mic", role="muted")
-        control_layout.addWidget(self.microphone_test_button)
-        self.screen_assist_button = QPushButton("Посмотреть кнопки на экране")
-        set_button_icon(self.screen_assist_button, "scan-eye", role="muted")
-        self.screen_assist_button.setObjectName("ScreenAssistButton")
-        self.screen_assist_button.setToolTip(
-            "Показать локальный снимок и кнопки Да/Нет активной программы. "
-            "Можно также сказать: «Жарвис, покажи кнопки на экране»."
-        )
-        self.screen_assist_button.setMinimumHeight(36)
-        control_layout.addWidget(self.screen_assist_button)
-        self.selection_summary_button = QPushButton("Пересказать выделенный текст")
-        set_button_icon(self.selection_summary_button, "file-text", role="muted")
-        self.selection_summary_button.setObjectName("SelectedTextSummaryButton")
-        self.selection_summary_button.setToolTip(
-            "Выделите текст в браузере или Word. Затем нажмите здесь "
-            "или скажите: «Жарвис, перескажи выделенное». "
-            "Jarvis копирует выделенный текст, возвращает прежний буфер "
-            "обмена и делает краткий пересказ на русском."
-        )
-        self.selection_summary_button.setMinimumHeight(36)
-        control_layout.addWidget(self.selection_summary_button)
         control_layout.addStretch(1)
         left.addWidget(control_card, 2)
 

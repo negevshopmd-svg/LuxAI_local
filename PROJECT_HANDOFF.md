@@ -4,7 +4,7 @@
 >
 > Repository: https://github.com/negevshopmd-svg/LuxAI_local  
 > OS: Windows 10/11, 64-bit. Python + PySide6. UI and voice responses primarily Russian, with Romanian/English support.  
-> Updated for the **0.3.7 work**, 2026-10-25. \`Update.bat\` installs the code merged into \`main\`, NOT an open PR.  
+> Updated for the **0.3.7a work**, 2026-10-25. \`Update.bat\` installs the code merged into \`main\`, NOT an open PR.  
 > Do NOT include real API keys, private logs, screen captures, model binaries, user audio, or personal paths in Git history.
 
 ## 1. What this project is
@@ -30,6 +30,7 @@ LuxAI Local is a Windows desktop Jarvis assistant. It listens for voice commands
 - **0.3.2:** clearer screenshots, 2-pass native high-resolution visual target detection; real physical Windows coordinates (DPI/multiple monitors) and stale-window checks.
 - **0.3.3:** natural Steam self-nickname interpretation and a dedicated Steam account-bar screenshot reader.
 - **0.3.4:** Discord microphone close-up targeting, direct local keyboard/mouse commands, named Discord contact navigation, extra tests.
+- **0.3.7a:** HomePage removes the three extra action buttons but RETAINS all four toggles, volume and mic meters. MainWindow no longer wires removed buttons; microphone diagnostics remain in Settings; screen inspection/selected-text commands remain available. Regression test: `tests/test_patch_037a_home_cleanup.py`.
 - **0.3.7:** first-attempt Discord voice calls handle strict whole-name Cyrillic speech to Latin display transliteration only within call confirmation; verified actual DM header still required. Home UI switches use full painted QCheckBox hitButton area. Tests: `tests/test_037_discord_alias_home_switch.py`.
 - **0.3.6:** dedicated one-command voice calling of explicitly named Discord users with verified individual DM, voice-only phone button, exactly one click and fresh call-state confirmation; see `luxai/discord_call_visual.py` and `tests/test_036_discord_call.py`.
 - **0.3.5:** planned/fixed Discord headphones (deafen) state observation using before/after screenshots plus enlarged verification; Steam nickname command priority regression and project handoff documentation. **Verify \`version.txt\` and GitHub Actions before claiming the release is merged.**
@@ -141,7 +142,7 @@ Never use a random Steam community page or a friend's chat profile for the user'
 ## 9. Testing and release checklist
 
 - Run \`python -m unittest discover -s tests\` with correct packages installed. On headless Linux for UI tests use \`QT_QPA_PLATFORM=offscreen\`; GitHub Actions config sets up required libs.
-- Newly relevant tests: `tests/test_037_discord_alias_home_switch.py`, `tests/test_036_discord_call.py`, `tests/test_035_audio_steam.py`, `tests/test_steam_profile_visual.py`, `tests/test_discord_mic_priority.py`, `tests/test_release_034.py`, `tests/test_visual_reasoner.py`, `tests/test_visual_desktop_macro.py`, `tests/test_task_routing.py`, `tests/test_voice_actions.py`.
+- Newly relevant tests: `tests/test_patch_037a_home_cleanup.py`, `tests/test_037_discord_alias_home_switch.py`, `tests/test_036_discord_call.py`, `tests/test_035_audio_steam.py`, `tests/test_steam_profile_visual.py`, `tests/test_discord_mic_priority.py`, `tests/test_release_034.py`, `tests/test_visual_reasoner.py`, `tests/test_visual_desktop_macro.py`, `tests/test_task_routing.py`, `tests/test_voice_actions.py`.
 - GitHub Actions \`.github/workflows/routing-check.yml\` exercises Linux PySide6/voice/action unit tests, Windows Python 3.11–3.14 and Windows installer/local GGUF probes. Also has Python 3.15/3.16 checks with different support guarantees.
 - Verify both **passed** and **failed** job outputs; do not call a PR ready because the first job passed.
 - Release procedure: branch from \`main\`; edit smallest set of files; add regression tests; update \`version.txt\`, README, CHANGELOG if used; open PR; run all required CI; merge after green; check \`main/version.txt\`, merge SHA, then verify post-merge CI where possible.
