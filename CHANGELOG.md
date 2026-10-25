@@ -1,3 +1,10 @@
+## 0.3.5 — Discord headphones state and Steam routing
+
+- Dedicated state-aware Discord headphones/deafen action with fresh before/after screenshots and enlarged red-slash verification when required; no blind repeat clicks.
+- Preserve full natural Steam nickname queries as a single open-and-read operation rather than sending them to generic desktop planning.
+- Add PROJECT_HANDOFF.md with module map, architecture, troubleshooting, tests and guidance for continuing the project in a new chat.
+- Add offline regression tests for state transitions, ambiguous verification and natural voice routing.
+
 ## 0.3.1 — New icons and concise Discord requests
 
 - Replace font symbols and emoji with bundled Lucide SVG icons across navigation, commands, settings and dialogs. Add a Jarvis window/taskbar/tray emblem, theme-aware colors, crisp HiDPI rendering and consistent control arrows. No runtime icon downloads or icon-font dependencies.
