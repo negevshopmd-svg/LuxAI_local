@@ -29,7 +29,7 @@ def detect_discord_open_dm(text: str) -> str | None:
         lower,
     ):
         return None
-    if not re.search(r"(?:нажм\w*|откро\w*|найд\w*|выбер\w*|перейд\w*)", lower):
+    if not re.search(r"(?:нажм\w*|жми|жать|откро\w*|найд\w*|выбер\w*|перейд\w*)", lower):
         return None
     match = re.search(
         r"(?:пользовател[ья]|юзера|контакт|user)\s+"
