@@ -275,6 +275,25 @@ class DiscordMicPriorityUITests(unittest.TestCase):
         self.assertIn("отменено", resolved.call_args.args[1])
         thread.assert_not_called()
 
+    def test_missed_mic_feedback_resumes_dedicated_discord_visual_target(self):
+        import main
+        import time
+        window = self.make_window()
+        original = "Жарвис, выключи микрофон в Discord"
+        window._last_visual_goal = original
+        window._last_visual_goal_at = time.monotonic()
+        with (
+            mock.patch.object(window, "_start_discord_mic_visual") as mic,
+            mock.patch.object(window, "_start_visual_reasoner") as generic,
+            mock.patch.object(window, "_start_adaptive_task") as adaptive,
+        ):
+            window.run_command(
+                "Кликни по микрофону, ты опять не попал, надо правее."
+            )
+        mic.assert_called_once_with(original)
+        generic.assert_not_called()
+        adaptive.assert_not_called()
+
     def test_plain_mute_never_hits_toggle_or_old_macro(self):
         import main
         window = self.make_window()
