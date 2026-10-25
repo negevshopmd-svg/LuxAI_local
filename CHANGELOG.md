@@ -1,3 +1,11 @@
+## 0.3.6 — One-command Discord voice calls
+
+- Recognize explicit Russian/Romanian/English requests to call one named Discord user without dictating opening, contact selection or phone clicks.
+- Open verified DM before finding the current voice-call handset; use a two-pass pixel-accurate location and one click, then confirm ringing or active call controls from a new screenshot.
+- Do not call group/video targets, a mismatched user, or an uncertain call state; no blind retries and no synthetic success claims.
+- Add end-to-end mocked intent, routing and click verification tests.
+- Update PROJECT_HANDOFF.md to document the new workflow.
+
 ## 0.3.5 — Discord headphones state and Steam routing
 
 - Dedicated state-aware Discord headphones/deafen action with fresh before/after screenshots and enlarged red-slash verification when required; no blind repeat clicks.
