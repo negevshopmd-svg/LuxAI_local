@@ -2874,7 +2874,7 @@ class MainWindow(QMainWindow):
         try:
             label, count = parse_click_target(step["target"])
             screenshot = capture_window(hwnd)
-            point = find_visual_target(self.online_planner, label, screenshot)
+            point = find_visual_target(self.online_planner, label, screenshot, precise=True)
             result = {"capture": screenshot, "point": point, "count": count, "label": label}
             error = ""
         except Exception as exc:

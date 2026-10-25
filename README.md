@@ -2,6 +2,12 @@
 
 Voice-controlled Jarvis assistant for Windows 10/11 (64-bit).
 
+## 0.3.2: sharper screenshots and precise mouse targeting
+
+When an explicitly approved visual action needs a mouse click, Jarvis now uses a clearer screenshot and a second fresh, magnified full-resolution screenshot of the target region. It maps the result back to physical desktop pixels, including multi-monitor layouts with negative coordinates, and checks the target window is unchanged and not covered before clicking. If the two image analyses disagree, it cancels the click rather than guessing; actions still require post-click verification.
+
+To upgrade, close Jarvis, run `Update.bat` and restart with `run_windows.bat`. This updater obtains `main` directly; no GitHub Release or ZIP is required.
+
 ## 0.3.1: new icons and natural Discord requests
 
 The interface includes local Lucide SVG icons, a new Jarvis emblem, and icons that adapt to dark/light themes and high-DPI displays. The icon pack works offline; its source revision and ISC license are bundled in `luxai/assets/icons/lucide/`.

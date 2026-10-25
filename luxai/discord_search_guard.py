@@ -39,7 +39,7 @@ def verified_discord_search(planner, hwnd: int, query: str, *, replace=False,
         "COMPOSER, Discord left sidebar search, or any chat textbox. "
         "If the popup is absent, hidden or uncertain return found:false. "
         "Do not infer from what was previously clicked.",
-        shot,
+        shot, precise=True,
     )
     # Even a misleading model-produced coordinate must not be able to
     # select the bottom DM editor. An overlay search must be above it.

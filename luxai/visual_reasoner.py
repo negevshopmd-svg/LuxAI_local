@@ -549,7 +549,7 @@ def _run_visual_reasoner(planner, goal: str, *, feedback, preferred_hwnd,
                     "Повторный клик по тому же элементу заблокирован. "
                     "После первого клика желаемый результат не подтверждён."
                 )
-            point = find_visual_target(planner, label, capture)
+            point = find_visual_target(planner, label, capture, precise=True)
             check()
             click_visual_target(capture, point, 1)
             record_action(f"Clicked visible control {label!r} once; outcome is not yet verified.")
