@@ -34,7 +34,7 @@ _ACTION_WORD = (
     r"закро\w*|удал\w*|отправ\w*|выбер\w*|прокрут\w*|"
     r"измен\w*|покаж\w*|провер\w*|исправ\w*|сверн\w*|разверн\w*|"
     r"очист\w*|перезагруз\w*|перезапуст\w*|заблокир\w*|исслед\w*|"
-    r"скача\w*|установ\w*|выполн\w*|скаж\w*|расскаж\w*|"
+    r"скача\w*|установ\w*|выполн\w*|скаж\w*|сказ\w*|расскаж\w*|"
     r"open|launch|start|run|click|press|find|search|take|create|read|"
     r"wait|write|type|move|copy|close|delete|send|select|scroll|change|resize|"
     r"show|tell|say|check|fix|minimize|maximize|restart|reboot|lock|research|analyze|analyse|"
@@ -157,7 +157,7 @@ def steam_self_nickname_request(text: str) -> bool:
     )
     owner = re.search(
         r"(?:\bу\s+меня\b|\bмой\b|\bмоего\b|\bмои\b|"
-        r"\bmy\b|\bmine\b|\bmeu\b|\bmea\b|\bme\\b|"
+        r"\bmy\b|\bmine\b|\bmeu\b|\bmea\b|"
         r"\bмой\s+аккаунт\b|\bмоего\s+аккаунта\b|\bсво[йе]\b)",
         value,
     )
