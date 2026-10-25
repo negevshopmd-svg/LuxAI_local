@@ -190,7 +190,7 @@ class MicrophonePrecisionTests(unittest.TestCase):
                 click_discord_microphone_by_screenshot(mock.Mock(), mode="mute")
         click.assert_not_called()
 
-    def test_closeup_detects_already_muted_before_click(self):
+    def test_unknown_overview_state_uses_closeup_to_toggle_once(self):
         capture = image_capture()
         with (
             mock.patch("luxai.discord_screen_review._ensure_discord_visible", return_value=45),
@@ -200,7 +200,8 @@ class MicrophonePrecisionTests(unittest.TestCase):
             mock.patch("luxai.visual_click.capture_window_region", return_value=capture),
             mock.patch("luxai.discord_mic_visual.inspect_discord_microphone",
                        side_effect=[("unknown", (1215, 633)),
-                                    ("muted", (1215, 640))]),
+                                    ("muted", (1215, 640)),
+                                    ("unmuted", (1215, 640))]),
             mock.patch("luxai.visual_click.click_visual_target") as click,
         ):
             outcome = click_discord_microphone_by_screenshot(mock.Mock(), mode="toggle")
