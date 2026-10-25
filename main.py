@@ -201,6 +201,7 @@ class MainWindow(QMainWindow):
     discord_send_ready = Signal(int, object, str)
     discord_review_ready = Signal(int, object, str)
     discord_mic_visual_ready = Signal(str, str)
+    steam_profile_ready = Signal(str, str)
     visual_reasoner_ready = Signal(str, str)
     adaptive_task_ready = Signal(str, str, object)
     adaptive_task_progress = Signal(str, str)
@@ -238,6 +239,7 @@ class MainWindow(QMainWindow):
         self.discord_send_ready.connect(self._on_discord_send_ready)
         self.discord_review_ready.connect(self._on_discord_review_ready)
         self.discord_mic_visual_ready.connect(self._on_discord_mic_visual_ready)
+        self.steam_profile_ready.connect(self._on_steam_profile_ready)
         self.visual_reasoner_ready.connect(self._on_visual_reasoner_ready)
         self.adaptive_task_ready.connect(self._on_adaptive_task_ready)
         self.adaptive_task_progress.connect(self._on_adaptive_progress)
@@ -2040,6 +2042,10 @@ class MainWindow(QMainWindow):
                     self._ask_discord_message_details(text, message)
                     return
             if feedback and not protected_workflow:
+                from luxai.task_intents import steam_self_nickname_request
+                if steam_self_nickname_request(text):
+                    self._start_steam_profile_lookup(text)
+                    return
                 # A correction like "you missed the mic, further right" must
                 # keep the dedicated Discord microphone workflow. The generic
                 # visual planner cannot verify microphone toggle state, and
@@ -2075,7 +2081,16 @@ class MainWindow(QMainWindow):
                 answer = toggle_discord_microphone(self.confirm_action)
                 self._resolved_command(text, answer)
                 return
-            from luxai.task_intents import direct_app_request, screenshot_request, system_request, direct_action_request
+            from luxai.task_intents import (
+                direct_app_request, screenshot_request, system_request,
+                direct_action_request, steam_self_nickname_request,
+            )
+            # The goal explicitly requests the signed-in Steam nickname.
+            # A screenshot is an implicit observation step, not a separate
+            # command the user must dictate. Never degrade to plain open_app.
+            if not protected_workflow and steam_self_nickname_request(text):
+                self._start_steam_profile_lookup(text)
+                return
             saved_priority = saved is not None and not saved.get("learned", False)
             # Named local files and websites are deterministic actions too.
             # Keep them ahead of the generic "open app" and visual heuristics.
@@ -3132,6 +3147,47 @@ class MainWindow(QMainWindow):
         if self._closed or not self._processing or self._active_text != text:
             return
         self._current_route = "AI: наблюдение → действие → проверка"
+        self._resolved_command(text, answer)
+
+    def _start_steam_profile_lookup(self, text):
+        """Native Steam activation followed by consented visual account read."""
+        self._current_route = "Steam: проверка своего аккаунта"
+        if not self.online_planner.enabled():
+            self._resolved_command(
+                text, "Для чтения имени в Steam требуется онлайн AI с анализом изображений."
+            )
+            return
+        if not self._allow_cloud_screenshots():
+            self._resolved_command(text, "Анализ окна Steam отменён.")
+            return
+        self.mic_status.setText("Открываю Steam и проверяю имя аккаунта…")
+        threading.Thread(
+            target=self._steam_profile_worker,
+            args=(text,), daemon=True, name="JarvisSteamOwnProfile",
+        ).start()
+
+    def _steam_profile_worker(self, text):
+        try:
+            from luxai.steam_profile_visual import read_own_steam_nickname
+            result = read_own_steam_nickname(
+                self.online_planner,
+                cancelled=lambda: self._closed or not self._processing
+                or self._active_text != text,
+            )
+        except (OSError, RuntimeError, ValueError, PermissionError) as exc:
+            result = "Не удалось подтвердить ник в Steam: " + str(exc)[:180]
+        except Exception:
+            result = "Не удалось безопасно проверить ник в окне Steam."
+        if not self._closed:
+            try:
+                self.steam_profile_ready.emit(text, result)
+            except RuntimeError:
+                pass
+
+    def _on_steam_profile_ready(self, text, answer):
+        if self._closed or not self._processing or self._active_text != text:
+            return
+        self._current_route = "Steam: прочитано из окна аккаунта"
         self._resolved_command(text, answer)
 
     def _start_discord_mic_visual(self, text):

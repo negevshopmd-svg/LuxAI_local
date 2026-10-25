@@ -22,13 +22,13 @@ _POLITE = re.compile(
 )
 _OPEN = re.compile(
     r"^(?:открой|открыть|открывай|откроешь|запусти|запустить|"
-    r"запускай|включи|включить|зайди(?:\s+в)?|перейди\s+в|"
+    r"запускай|включи|включить|(?:зайди|зайти)(?:\s+в)?|перейди\s+в|"
     r"open|launch|start|run|go\s+(?:to|into)|"
     r"deschide(?:-mi)?|deschizi|pornește|porneste|pornești|pornesti|"
     r"lansează|lanseaza|intră\s+în|intra\s+in)\b\s+", re.I,
 )
 _ACTION_WORD = (
-    r"откро\w*|запуст\w*|включ\w*|выключ\w*|перейд\w*|зайд\w*|"
+    r"откро\w*|запуст\w*|включ\w*|выключ\w*|перейд\w*|зайд\w*|зайт\w*|"
     r"наж\w*|клик\w*|найд\w*|сдела\w*|созда\w*|прочит\w*|"
     r"подожд\w*|напиш\w*|введ\w*|перемест\w*|скопир\w*|"
     r"закро\w*|удал\w*|отправ\w*|выбер\w*|прокрут\w*|"
@@ -50,7 +50,7 @@ _CLAUSE = re.compile(
     r"(?:\s*[,;]\s*|\s+)(?:потом|затем|после\s+этого|then|apoi|"
     r"după\s+aceea|dupa\s+aceea)\b|"
     r"(?:\s*[,;]\s*(?:(?:и|а|но|and|but|și|si)\s+)?|\s+(?:и|а|но|and|but|și|si)\s+)"
-    r"(?=(?:(?:не|don't|do\s+not|nu)\s+)?(?:" + _ACTION_WORD + r")\b)", re.I,
+    r"(?=(?:(?:не|don't|do\s+not|nu)\s+)?(?:" + _ACTION_WORD + r"|сказ\w*|скаж\w*|расскаж\w*|tell|say|spune(?:-mi)?)\b)", re.I,
 )
 _APP_PREFIX = re.compile(
     r"^(?:(?:окно|приложение|программу|программа)(?:\s+приложения)?|"
@@ -129,6 +129,54 @@ def opening_app(text: str) -> str | None:
     """Return an INITIAL requested app open, never an app named by a click."""
     parsed = _app_parts(text)
     return parsed[0] if parsed is not None else None
+
+
+def steam_self_nickname_request(text: str) -> bool:
+    """An implicit request to inspect the signed-in Steam user's nickname.
+
+    A user can say "Можешь зайти в Steam и сказать какой у меня ник" without
+    having to dictate an additional screenshot/read-screen step. This is a
+    request for the current account identity, not to change or look up others.
+    """
+    value = _text(text).casefold()
+    if not 8 <= len(value) <= 400:
+        return False
+    if not re.search(r"(?<!\w)(?:steam|стим(?:е|а|у|ом)?)(?!\w)", value):
+        return False
+    if re.search(
+        r"(?<!\w)(?:друг\w*|подруг\w*|приятел\w*|friend\w*|"
+        r"other\s+(?:person|user|account)|alt(?:ui|cuiva)\s+utilizator)(?!\w)", value,
+    ):
+        return False
+    if re.search(
+        r"(?:^|\b)(?:как(?:\s+мне)?\s+(?:узнать|поменять|изменить|"
+        r"how\s+(?:do\s+i|to)\s+(?:find|change)|"
+        r"cum\s+(?:pot|se)\s+(?:schimb|afl))|"
+        r"отправ\w*|напиш\w*|send\b|message\b|удал\w*)", value,
+    ):
+        return False
+    name = re.search(
+        r"(?<!\w)(?:ник(?:нейм|\s*н[еэ]йм)?|никн[еэ]йм|одник|"
+        r"nickname|user\s*name|username|nume(?:le)?\s+(?:(?:meu|mea)\s+)?(?:de\s+)?utilizator|"
+        r"pseudonim)(?!\w)", value,
+    )
+    owner = re.search(
+        r"(?:\bу\s+меня\b|\bмой\b|\bмоего\s+аккаунта\b|\bмои\b|"
+        r"\bmy\b|\bmine\b|\bmeu\b|\bmea\b|"
+        r"\bмой\s+аккаунт\b|\bмоего\s+аккаунта\b|\bсво[йе]\b)",
+        value,
+    )
+    if not (name and owner):
+        return False
+    # Distinguish an actual request to report the nickname from a description
+    # or a how-to question; this also accepts the exact "какой у меня ..." form.
+    return bool(re.search(
+        r"(?:скаж\w*|сказ\w*|расскаж\w*|покаж\w*|узнай|узнать|назови|"
+        r"какой\b|как(?:ой|ое)\s+у\s+меня\b|"
+        r"tell\b|say\b|show\b|what(?:'s|\s+is)?\b|"
+        r"spune\b|zi\b|arată\b|arata\b|care\b|află\b|afla\b)", value,
+    ))
+
 
 
 def screenshot_request(text: str) -> bool:
