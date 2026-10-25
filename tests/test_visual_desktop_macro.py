@@ -199,7 +199,9 @@ class PhysicalPixelClickTests(unittest.TestCase):
                        return_value=(-1913, 20, 1920, 1080)),
         ):
             with self.assertRaisesRegex(RuntimeError, "moved or resized"):
-                _require_same_capture_window(shot, desktop_geometry())
+                _require_same_capture_window(shot, {
+                    "left": -1920, "top": 0, "width": 3840, "height": 1080,
+                })
 
     def test_native_click_keeps_negative_physical_pixels_and_checks_owner(self):
         from luxai.visual_click import click_visual_target
