@@ -2,6 +2,10 @@
 
 Voice-controlled Jarvis assistant for Windows 10/11 (64-bit).
 
+## 0.3.3: natural Steam nickname requests
+
+Say **“Можешь зайти в Steam и сказать, какой у меня ник?”** (or **“Can you open Steam and tell me my nickname?”**). Jarvis automatically activates/opens the installed Steam desktop window, obtains the usual screenshot-analysis consent, inspects the signed-in account bar, zooms the identified name at native resolution and checks the answer before reporting it. You no longer have to dictate the intermediate screenshot steps. Friends, chat participants, unrelated profile pages and invisible/background windows are rejected; no Steam account changes or messages are performed. Requires a configured vision-capable online AI and permission to send the window images. The existing `Update.bat` installs this version directly from `main`.
+
 ## 0.3.2: sharper screenshots and precise mouse targeting
 
 When an explicitly approved visual action needs a mouse click, Jarvis now uses a clearer screenshot and a second fresh, magnified full-resolution screenshot of the target region. It maps the result back to physical desktop pixels, including multi-monitor layouts with negative coordinates, and checks the target window is unchanged and not covered before clicking. If the two image analyses disagree, it cancels the click rather than guessing; actions still require post-click verification.
