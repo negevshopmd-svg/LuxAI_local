@@ -201,6 +201,7 @@ class MainWindow(QMainWindow):
     discord_send_ready = Signal(int, object, str)
     discord_review_ready = Signal(int, object, str)
     discord_mic_visual_ready = Signal(str, str)
+    discord_headphones_ready = Signal(str, str)
     steam_profile_ready = Signal(str, str)
     visual_reasoner_ready = Signal(str, str)
     adaptive_task_ready = Signal(str, str, object)
@@ -239,6 +240,7 @@ class MainWindow(QMainWindow):
         self.discord_send_ready.connect(self._on_discord_send_ready)
         self.discord_review_ready.connect(self._on_discord_review_ready)
         self.discord_mic_visual_ready.connect(self._on_discord_mic_visual_ready)
+        self.discord_headphones_ready.connect(self._on_discord_headphones_ready)
         self.steam_profile_ready.connect(self._on_steam_profile_ready)
         self.visual_reasoner_ready.connect(self._on_visual_reasoner_ready)
         self.adaptive_task_ready.connect(self._on_adaptive_task_ready)
@@ -1566,6 +1568,11 @@ class MainWindow(QMainWindow):
             word.strip() for word in self.cfg.get("command_chain_words", "и затем, потом").split(",")
             if word.strip()
         ]
+        from luxai.task_intents import steam_self_nickname_request
+        from luxai.discord_headphones_visual import discord_headphones_mode
+        if steam_self_nickname_request(text) or discord_headphones_mode(text):
+            # The app-open + observation part is ONE indivisible goal.
+            connectors = []
         if needs_live_macro_planning(text):
             # Preserve multi-step intent even when cloud AI is disabled:
             # never execute the first standalone screenshot and lose the rest.
@@ -2032,6 +2039,17 @@ class MainWindow(QMainWindow):
                 return
             protected_workflow = bool(is_discord_message_request(text) or detect_research_dm_request(text)
                                       or detect_discord_screen_review(text) or looks_like_discord_screen_review(text))
+            # The current account-bar audio state and the own Steam
+            # nickname have dedicated observe/verify tools. Keep the ENTIRE
+            # compound request before cloud and saved short-action routing.
+            from luxai.task_intents import steam_self_nickname_request
+            from luxai.discord_headphones_visual import discord_headphones_mode
+            if not protected_workflow and steam_self_nickname_request(text):
+                self._start_steam_profile_lookup(text)
+                return
+            if not protected_workflow and discord_headphones_mode(text):
+                self._start_discord_headphones_visual(text)
+                return
             message = discord_message_details(text)
             manual_saved = saved is not None and not saved.get("builtin", False) and not saved.get("learned", False)
             if message and not manual_saved and not (detect_research_dm_request(text) or detect_discord_screen_review(text) or looks_like_discord_screen_review(text)):
@@ -3150,6 +3168,43 @@ class MainWindow(QMainWindow):
         if self._closed or not self._processing or self._active_text != text:
             return
         self._current_route = "AI: наблюдение → действие → проверка"
+        self._resolved_command(text, answer)
+
+    def _start_discord_headphones_visual(self, text):
+        if not self.online_planner.enabled():
+            self._resolved_command(text, "Для проверки наушников Discord нужен AI с изображениями.")
+            return
+        if not self._allow_cloud_screenshots():
+            self._resolved_command(text, "Анализ окна Discord отменён.")
+            return
+        self._current_route = "Discord: проверка состояния наушников"
+        self.mic_status.setText("Проверяю наушники Discord…")
+        threading.Thread(
+            target=self._discord_headphones_worker,
+            args=(text,), daemon=True, name="JarvisDiscordHeadphones",
+        ).start()
+
+    def _discord_headphones_worker(self, text):
+        try:
+            from luxai.discord_headphones_visual import discord_headphones_mode, set_discord_headphones
+            answer = set_discord_headphones(
+                self.online_planner, mode=discord_headphones_mode(text) or "off",
+                cancelled=lambda: self._closed or not self._processing or self._active_text != text,
+            )
+        except (OSError, RuntimeError, ValueError, PermissionError) as exc:
+            answer = "Не удалось проверить наушники Discord: " + str(exc)[:180]
+        except Exception:
+            answer = "Не удалось безопасно проверить наушники Discord."
+        if not self._closed:
+            try:
+                self.discord_headphones_ready.emit(text, answer)
+            except RuntimeError:
+                pass
+
+    def _on_discord_headphones_ready(self, text, answer):
+        if self._closed or not self._processing or self._active_text != text:
+            return
+        self._current_route = "Discord: состояние наушников проверено"
         self._resolved_command(text, answer)
 
     def _start_steam_profile_lookup(self, text):
