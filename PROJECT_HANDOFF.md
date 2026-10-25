@@ -140,7 +140,7 @@ Never use a random Steam community page or a friend's chat profile for the user'
 ## 9. Testing and release checklist
 
 - Run \`python -m unittest discover -s tests\` with correct packages installed. On headless Linux for UI tests use \`QT_QPA_PLATFORM=offscreen\`; GitHub Actions config sets up required libs.
-- Newly relevant tests: \`tests/test_036_discord_call.py`, `tests/test_035_audio_steam.py\`, \`tests/test_steam_profile_visual.py\`, \`tests/test_discord_mic_priority.py\`, \`tests/test_release_034.py\`, \`tests/test_visual_reasoner.py\`, \`tests/test_visual_desktop_macro.py\`, \`tests/test_task_routing.py\`, \`tests/test_voice_actions.py\`.
+- Newly relevant tests: `tests/test_036_discord_call.py`, `tests/test_035_audio_steam.py`, `tests/test_steam_profile_visual.py`, `tests/test_discord_mic_priority.py`, `tests/test_release_034.py`, `tests/test_visual_reasoner.py`, `tests/test_visual_desktop_macro.py`, `tests/test_task_routing.py`, `tests/test_voice_actions.py`.
 - GitHub Actions \`.github/workflows/routing-check.yml\` exercises Linux PySide6/voice/action unit tests, Windows Python 3.11–3.14 and Windows installer/local GGUF probes. Also has Python 3.15/3.16 checks with different support guarantees.
 - Verify both **passed** and **failed** job outputs; do not call a PR ready because the first job passed.
 - Release procedure: branch from \`main\`; edit smallest set of files; add regression tests; update \`version.txt\`, README, CHANGELOG if used; open PR; run all required CI; merge after green; check \`main/version.txt\`, merge SHA, then verify post-merge CI where possible.
