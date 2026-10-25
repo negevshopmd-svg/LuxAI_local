@@ -448,11 +448,15 @@ class FeedbackRoutingUITests(unittest.TestCase):
         window._last_visual_goal = GOAL
         window._last_visual_goal_at = time.monotonic()
         with (
-            mock.patch.object(window, "_start_visual_reasoner") as run,
+            mock.patch.object(window, "_start_discord_mic_visual") as mic,
+            mock.patch.object(window, "_start_visual_reasoner") as generic,
             mock.patch.object(window, "_start_local_chat") as chat,
         ):
             window.run_command("Ты не попал. Давай заново.")
-        run.assert_called_once_with(GOAL, feedback="Ты не попал. Давай заново.")
+        # Microphone state changes have a dedicated verified click workflow.
+        # Feedback must re-observe it, never fall into generic desktop chat.
+        mic.assert_called_once_with(GOAL)
+        generic.assert_not_called()
         chat.assert_not_called()
 
     def test_unknown_visual_goal_routes_to_repeated_observation(self):

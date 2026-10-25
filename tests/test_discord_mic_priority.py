@@ -275,6 +275,25 @@ class DiscordMicPriorityUITests(unittest.TestCase):
         self.assertIn("отменено", resolved.call_args.args[1])
         thread.assert_not_called()
 
+    def test_missed_mic_feedback_resumes_dedicated_discord_visual_target(self):
+        import main
+        import time
+        window = self.make_window()
+        original = "Жарвис, выключи микрофон в Discord"
+        window._last_visual_goal = original
+        window._last_visual_goal_at = time.monotonic()
+        with (
+            mock.patch.object(window, "_start_discord_mic_visual") as mic,
+            mock.patch.object(window, "_start_visual_reasoner") as generic,
+            mock.patch.object(window, "_start_adaptive_task") as adaptive,
+        ):
+            window.run_command(
+                "Кликни по микрофону, ты опять не попал, надо правее."
+            )
+        mic.assert_called_once_with(original)
+        generic.assert_not_called()
+        adaptive.assert_not_called()
+
     def test_plain_mute_never_hits_toggle_or_old_macro(self):
         import main
         window = self.make_window()
@@ -289,6 +308,134 @@ class DiscordMicPriorityUITests(unittest.TestCase):
         keyboard.assert_not_called()
         learned.assert_not_called()
         thread.assert_not_called()
+
+
+
+class DiscordMicPixelTargetTests(unittest.TestCase):
+    """Regression: custom bottom-right account panel on a 1368x683 desktop."""
+
+    @staticmethod
+    def screenshot(*, left=0, top=0, width=1368, height=683):
+        import io
+        from PIL import Image, ImageDraw
+        from luxai.visual_click import VisualCapture
+
+        image = Image.new("RGB", (width, height), "#172033")
+        draw = ImageDraw.Draw(image)
+        # Fake bottom user bar and a small microphone icon near the RIGHT.
+        draw.rectangle((max(0, width - 375), height - 72,
+                        width - 5, height - 4), fill="#112443")
+        icon_x, icon_y = width - 153, height - 42
+        draw.ellipse((icon_x - 6, icon_y - 10, icon_x + 6, icon_y + 5),
+                     fill="#ffffff")
+        draw.line((icon_x, icon_y + 5, icon_x, icon_y + 12),
+                  fill="#ffffff", width=2)
+        data = io.BytesIO()
+        image.save(data, format="JPEG", quality=85)
+        return VisualCapture(
+            hwnd=25, pid=50, title="Discord", left=left, top=top,
+            width=width, height=height,
+            image_width=width, image_height=height, jpeg=data.getvalue(),
+        )
+
+    def test_crop_preserves_actual_screen_coordinates_at_right_edge(self):
+        from luxai.discord_mic_visual import microphone_panel_capture
+        from luxai.visual_click import validate_visual_point
+        original = self.screenshot(left=160, top=75)
+        crop = microphone_panel_capture(original)
+        self.assertEqual(crop.left, original.left)
+        self.assertEqual(crop.width, original.width)
+        self.assertGreater(crop.top, original.top)
+        self.assertGreater(crop.image_width, original.image_width)
+        target_x = original.left + 1215
+        target_y = original.top + 641
+        normalized_x = (target_x - crop.left) / crop.width * 1000
+        normalized_y = (target_y - crop.top) / crop.height * 1000
+        actual = validate_visual_point(
+            {"found": True, "x": normalized_x, "y": normalized_y}, crop,
+        )
+        self.assertLessEqual(abs(actual[0] - target_x), 1)
+        self.assertLessEqual(abs(actual[1] - target_y), 1)
+        self.assertGreater(normalized_x, 850)
+
+    def test_cropped_image_uses_bottom_bar_without_changing_window_identity(self):
+        from PIL import Image
+        import io
+        from luxai.discord_mic_visual import microphone_panel_capture
+        source = self.screenshot(left=-1368, top=60)
+        crop = microphone_panel_capture(source)
+        with Image.open(io.BytesIO(crop.jpeg)) as output:
+            self.assertEqual(output.size, (crop.image_width, crop.image_height))
+        self.assertEqual((crop.hwnd, crop.pid, crop.title),
+                         (source.hwnd, source.pid, source.title))
+        self.assertEqual((crop.left, crop.top + crop.height),
+                         (source.left, source.top + source.height))
+
+    def test_locator_asks_for_cropped_mic_near_user_name_and_gear(self):
+        import json
+        from luxai.discord_mic_visual import (
+            microphone_panel_capture, inspect_discord_microphone,
+        )
+        screenshot = self.screenshot()
+        crop = microphone_panel_capture(screenshot)
+        x = 1215 / crop.width * 1000
+        y = (641 - crop.top) / crop.height * 1000
+        planner = mock.Mock()
+        planner._provider.return_value = "openai"
+        planner.enabled.return_value = True
+        planner.config = {"online_model": "gpt-4.1-mini", "online_timeout": 60}
+        planner._extract_text.return_value = json.dumps({
+            "found": True, "x": x, "y": y, "state": "unmuted",
+        })
+        planner._read_json_content.side_effect = json.loads
+        with mock.patch("luxai.secure_keys.get_api_key",
+                        return_value="test-only-key"):
+            state, point = inspect_discord_microphone(planner, screenshot)
+        self.assertEqual(state, "unmuted")
+        self.assertLessEqual(abs(point[0] - 1215), 1)
+        self.assertLessEqual(abs(point[1] - 641), 1)
+        prompt = planner._request.call_args.args[3]
+        self.assertIn("MAGNIFIED BOTTOM STRIP", prompt[1]["content"][0]["text"])
+        self.assertIn("RIGHT", prompt[1]["content"][0]["text"])
+        self.assertIn("account-bar MIC", prompt[0]["content"])
+
+    def test_toggle_does_not_claim_success_if_mic_stays_unmuted(self):
+        with (
+            mock.patch("luxai.discord_screen_review._ensure_discord_visible",
+                       return_value=45),
+            mock.patch("luxai.discord_screen_review.focus_discord"),
+            mock.patch("luxai.discord_screen_review._save_capture"),
+            mock.patch("luxai.visual_click.capture_window"),
+            mock.patch("luxai.discord_mic_visual.inspect_discord_microphone",
+                       side_effect=[("unmuted", (1215, 641)),
+                                    ("unmuted", (1215, 641))]),
+            mock.patch("luxai.visual_click.click_visual_target") as click,
+            mock.patch("luxai.discord_mic_visual.time.sleep"),
+        ):
+            outcome = click_discord_microphone_by_screenshot(
+                mock.Mock(), mode="toggle",
+            )
+        click.assert_called_once()
+        self.assertIn("не изменилось", outcome)
+
+    def test_after_click_other_mic_icon_is_not_verification(self):
+        with (
+            mock.patch("luxai.discord_screen_review._ensure_discord_visible",
+                       return_value=45),
+            mock.patch("luxai.discord_screen_review.focus_discord"),
+            mock.patch("luxai.discord_screen_review._save_capture"),
+            mock.patch("luxai.visual_click.capture_window"),
+            mock.patch("luxai.discord_mic_visual.inspect_discord_microphone",
+                       side_effect=[("unmuted", (1215, 641)),
+                                    ("muted", (1170, 641))]),
+            mock.patch("luxai.visual_click.click_visual_target") as click,
+            mock.patch("luxai.discord_mic_visual.time.sleep"),
+        ):
+            outcome = click_discord_microphone_by_screenshot(
+                mock.Mock(), mode="mute",
+            )
+        click.assert_called_once()
+        self.assertIn("подтвердить не удалось", outcome)
 
 
 if __name__ == "__main__":
