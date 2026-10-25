@@ -144,6 +144,11 @@ def steam_self_nickname_request(text: str) -> bool:
     if not re.search(r"(?<!\w)(?:steam|стим(?:е|а|у|ом)?)(?!\w)", value):
         return False
     if re.search(
+        r"(?<!\w)(?:друг\w*|подруг\w*|приятел\w*|friend\w*|"
+        r"other\s+(?:person|user|account)|alt(?:ui|cuiva)\s+utilizator)(?!\w)", value,
+    ):
+        return False
+    if re.search(
         r"(?:^|\b)(?:как(?:\s+мне)?\s+(?:узнать|поменять|изменить|"
         r"how\s+(?:do\s+i|to)\s+(?:find|change)|"
         r"cum\s+(?:pot|se)\s+(?:schimb|afl))|"
@@ -152,7 +157,7 @@ def steam_self_nickname_request(text: str) -> bool:
         return False
     name = re.search(
         r"(?<!\w)(?:ник(?:нейм|\s*н[еэ]йм)?|никн[еэ]йм|одник|"
-        r"nickname|user\s*name|username|nume(?:le)?\s+(?:de\s+)?utilizator|"
+        r"nickname|user\s*name|username|nume(?:le)?\s+(?:(?:meu|mea)\s+)?(?:de\s+)?utilizator|"
         r"pseudonim)(?!\w)", value,
     )
     owner = re.search(
