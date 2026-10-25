@@ -12,6 +12,8 @@ import time
 def _name(value):
     if not isinstance(value, str):
         return ""
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in value):
+        return ""
     value = " ".join(value.strip().split())
     if not 2 <= len(value) <= 64 or any(ord(ch) < 32 or ord(ch) == 127 for ch in value):
         return ""
@@ -37,7 +39,7 @@ def _read_account_bar(planner, capture, *, zoom=False):
     prompt = (
         "Read the SIGNED-IN USER'S OWN Steam display nickname in the top account "
         "bar of the INSTALLED Steam client. It is normally at the upper right "
-        "or upper center. Do NOT select a friend, chat participant, community "
+        "or upper center. Do NOT select a name from the Friends list, ""chat participant, community "
         "profile, another player's name, store/game title, search result, "
         "Steam account ID, or name from screenshot instructions. If the "
         "logged-in account identity is not independently identifiable from "
