@@ -217,7 +217,7 @@ def validate_visual_point(raw: object, capture: VisualCapture) -> tuple[int, int
         raise ValueError("Control not found unambiguously on screenshot")
     x, y = raw.get("x"), raw.get("y")
     if (type(x) not in (int, float) or type(y) not in (int, float)
-            or not 12 <= x <= 988 or not 12 <= y <= 988):
+            or not 4 <= x <= 996 or not 4 <= y <= 996):
         raise ValueError("Model coordinates missing, invalid, or near edge")
     if not math.isfinite(x) or not math.isfinite(y):
         raise ValueError("Coordinates must be finite")
@@ -351,6 +351,8 @@ def click_visual_target(capture: VisualCapture, point: tuple[int, int],
     if hwnd_value(user32.GetForegroundWindow()) != capture.hwnd:
         raise RuntimeError("Target window lost focus before click")
     for n in range(count):
+        if hwnd_value(user32.GetForegroundWindow()) != capture.hwnd:
+            raise RuntimeError("Target window changed before repeated click")
         mouse(0x0002, 0, 0, 0)  # MOUSEEVENTF_LEFTDOWN
         time.sleep(0.055)
         mouse(0x0004, 0, 0, 0)  # MOUSEEVENTF_LEFTUP
