@@ -132,13 +132,15 @@ class HeadphonesScreenshotTests(unittest.TestCase):
             mock.patch("luxai.visual_click.capture_window"),
             mock.patch("luxai.visual_click.capture_window_region"),
             mock.patch("luxai.discord_headphones_visual.inspect_discord_headphones",
-                       side_effect=[("on", (1507, 885)), ("on", (1507, 885))]),
+                       side_effect=[("on", (1507, 885)), ("on", (1507, 885)),
+                                    ("on", (1507, 885))]),
             mock.patch("luxai.visual_click.click_visual_target") as click,
             mock.patch("luxai.discord_headphones_visual.time.sleep"),
         ):
             answer = set_discord_headphones(mock.Mock(), mode="off")
         click.assert_called_once()
-        self.assertIn("не удалось подтвердить", answer)
+        self.assertIn("не изменилось", answer)
+        self.assertNotIn("Discord выключены.", answer)
 
 
 class VisualRoutingTests(unittest.TestCase):
