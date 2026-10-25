@@ -2,6 +2,14 @@
 
 Voice-controlled Jarvis assistant for Windows 10/11 (64-bit).
 
+## 0.3.5: verified Discord headphones, Steam intent routing and project handoff
+
+Natural “Выключи наушники в дискорде” uses a dedicated state-aware headphones/deafen action. Jarvis reads the current bottom account bar icon (including the red diagonal slash), clicks at most once if the requested state differs, and checks a fresh screenshot. If the broad screenshot is unclear, a new full-resolution close-up verifies the change instead of triggering a second click.
+
+“Открой Steam и скажи какой у меня там никнейм” is routed as one complete task to the existing consented Steam self-profile reader, ahead of generic desktop planning.
+
+The repository now contains [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md): complete architecture, file map, commands, test/release process and instructions for continuing in another chat. Update with `Update.bat` after this release is merged.
+
 ## 0.3.4: Discord mic accuracy and desktop controls
 
 Microphone buttons in customized Discord are localized again using a fresh, enlarged native-resolution crop. The click lands slightly below the icon's detected center, within the same mic button, and the resulting state is checked. Uncertain positions are rejected.
