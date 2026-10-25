@@ -34,10 +34,10 @@ _ACTION_WORD = (
     r"закро\w*|удал\w*|отправ\w*|выбер\w*|прокрут\w*|"
     r"измен\w*|покаж\w*|провер\w*|исправ\w*|сверн\w*|разверн\w*|"
     r"очист\w*|перезагруз\w*|перезапуст\w*|заблокир\w*|исслед\w*|"
-    r"скача\w*|установ\w*|выполн\w*|скаж\w*|сказ\w*|расскаж\w*|"
+    r"скача\w*|установ\w*|выполн\w*|"
     r"open|launch|start|run|click|press|find|search|take|create|read|"
     r"wait|write|type|move|copy|close|delete|send|select|scroll|change|resize|"
-    r"show|tell|say|check|fix|minimize|maximize|restart|reboot|lock|research|analyze|analyse|"
+    r"show|check|fix|minimize|maximize|restart|reboot|lock|research|analyze|analyse|"
     r"deschide|pornește|porneste|apasă|apasa|caută|cauta|fă|fa|"
     r"creează|creeaza|citește|citeste|așteaptă|asteapta|scrie|mută|muta|"
     r"copiază|copiaza|închide|inchide|șterge|sterge|trimite|alege|"
@@ -50,7 +50,7 @@ _CLAUSE = re.compile(
     r"(?:\s*[,;]\s*|\s+)(?:потом|затем|после\s+этого|then|apoi|"
     r"după\s+aceea|dupa\s+aceea)\b|"
     r"(?:\s*[,;]\s*(?:(?:и|а|но|and|but|și|si)\s+)?|\s+(?:и|а|но|and|but|și|si)\s+)"
-    r"(?=(?:(?:не|don't|do\s+not|nu)\s+)?(?:" + _ACTION_WORD + r")\b)", re.I,
+    r"(?=(?:(?:не|don't|do\s+not|nu)\s+)?(?:" + _ACTION_WORD + r"|сказ\w*|скаж\w*|расскаж\w*|tell|say|spune(?:-mi)?)\b)", re.I,
 )
 _APP_PREFIX = re.compile(
     r"^(?:(?:окно|приложение|программу|программа)(?:\s+приложения)?|"
