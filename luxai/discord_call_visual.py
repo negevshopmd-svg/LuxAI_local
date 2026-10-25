@@ -42,7 +42,7 @@ def detect_discord_call_request(text: str) -> str | None:
         r"(?:apel|sun)|(?:не\s+(?:надо\s+)?|dont\s+|don't\s+|"
         r"nu\s+)(?:звони|позвони|call|suna|sună|apel)|"
         r"видео\w*|video\s*call|screen\s*share|трансляци\w*|"
-        r"группов\w*|group\s*call|"
+        r"групп\w*|group\s*call|номер\s+телефона|phone\s+number|"
         r"напиши|отправ\w*|send\s+(?:a\s+)?message|"
         r"сообщени\w*|message\s+|"
         r"потом|затем|after\s+that|then\s+)", lowered,
