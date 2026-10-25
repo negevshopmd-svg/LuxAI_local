@@ -27,6 +27,15 @@ class ToggleSwitch(QCheckBox):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
+    def hitButton(self, pos):
+        """Use the entire PAINTED switch as the click target.
+
+        QCheckBox's default style hit-test can be restricted to its small
+        indicator even though this custom control paints a 54px-wide pill.
+        This made clicking the right half silently do nothing.
+        """
+        return self.isEnabled() and self.rect().contains(pos)
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)

@@ -2,6 +2,14 @@
 
 Voice-controlled Jarvis assistant for Windows 10/11 (64-bit).
 
+## 0.3.7: first-attempt Discord name matching and reliable control toggles
+
+Discord voice calls now handle a **strict, full-name Cyrillic speech transcription to Latin displayed nickname** (for example Russian ASR "Ханзо" vs the Discord display "Hanzo" or "Khanzo"). This exception is **only for calling**; it never broadens message sending or accepts approximate/fuzzy names. The actual open one-to-one DM header must still be verified before accessing the phone button. Ambiguous and unrelated users remain blocked.
+
+All four custom Qt switches on the home control panel (prefix, quiet mode, avatar animation, always on top) now accept the **first click anywhere on their entire painted 54×28 surface**, including the right-hand knob. This fixes QCheckBox's smaller default indicator-only hit-test. Tests cover the actual mouse event delivery and preservation of config state.
+
+Run `Update.bat` after merging to `main`; see `tests/test_037_discord_alias_home_switch.py`.
+
 ## 0.3.6: natural Discord voice calls
 
 Say **“Позвони пользователю Hanzo в Discord”**, **“Sună-l pe Hanzo în Discord”**, or **“Call Hanzo on Discord”**. Jarvis now understands this as one voice-call request: it opens/activates Discord, finds and verifies the individual DM contact, identifies the voice PHONE handset (not the adjacent video-camera button) in the current DM header using a fresh native-resolution zoom, clicks it at most once, and checks the actual ringing/connected call UI before reporting success.

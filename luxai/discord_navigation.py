@@ -73,7 +73,8 @@ def _chat_header_ok(planner, hwnd: int, displayed: str):
 
 
 def open_discord_contact(planner, spoken: str, *,
-                         confirm_candidate=None, cancelled=None) -> str:
+                         confirm_candidate=None, cancelled=None,
+                         verified_identity=None) -> str:
     """Locate, open and recheck an individual DM without composing or sending."""
     from luxai.visual_click import capture_window, click_visual_target
     from luxai.discord_search_guard import verified_discord_search
@@ -122,6 +123,10 @@ def open_discord_contact(planner, spoken: str, *,
         check()
         try:
             _chat_header_ok(planner, hwnd, displayed)
+            if verified_identity is not None:
+                # Only pass back the actual visible name AFTER the
+                # opened conversation header confirms this identity.
+                verified_identity(displayed)
             return f"Discord: открыт и проверен личный чат «{displayed}»."
         except (ValueError, RuntimeError) as exc:
             if attempt:

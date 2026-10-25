@@ -1,3 +1,9 @@
+## 0.3.7 — Discord voice-call name verification and home UI toggles
+
+- Strictly match Cyrillic ASR transcriptions to complete Latin displayed names for **calls only** (e.g. "Ханзо" to "Hanzo"), while requiring the actual individual chat header to confirm the account. Other contacts and partial matches are rejected; message rules remain unchanged.
+- The full 54×28 region of custom home-page ToggleSwitch controls now responds to a single click, not only the QCheckBox style indicator.
+- Regression tests cover mismatched account rejection, verified name propagation and mouse clicks at multiple positions on all four switches.
+
 ## 0.3.6 — One-command Discord voice calls
 
 - Recognize explicit Russian/Romanian/English requests to call one named Discord user without dictating opening, contact selection or phone clicks.
