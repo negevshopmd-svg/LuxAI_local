@@ -145,6 +145,7 @@ def call_discord_user(planner, username: str, *, cancelled=None) -> str:
     from luxai.discord_screen_review import _ensure_discord_visible
     from luxai.discord_research import focus_discord
     from luxai.visual_click import capture_window, click_visual_target
+    from luxai.discord_contact_vision import exact_voice_transliteration
 
     username = validate_discord_review_user(username)
 
@@ -155,16 +156,26 @@ def call_discord_user(planner, username: str, *, cancelled=None) -> str:
     check()
     # This existing workflow checks the *individual* account and current
     # opened chat header, not a search result or friend's call history.
-    open_discord_contact(planner, username, cancelled=cancelled)
+    checked_identity = []
+    open_discord_contact(
+        planner, username,
+        confirm_candidate=lambda said, shown: exact_voice_transliteration(said, shown),
+        verified_identity=checked_identity.append,
+        cancelled=cancelled,
+    )
+    # A safe transliterated alias ("Ханзо" -> "Hanzo") is not sufficient
+    # without the individual *opened* chat header. The navigation workflow
+    # supplies that actual display name only after its header check.
+    displayed = checked_identity[0] if checked_identity else username
     check()
     hwnd = _ensure_discord_visible(cancelled=cancelled)
     focus_discord(hwnd)
     check()
-    shot = _chat_header_ok(planner, hwnd, username)
-    before = _observe_call_state(planner, shot, username)
+    shot = _chat_header_ok(planner, hwnd, displayed)
+    before = _observe_call_state(planner, shot, displayed)
     check()
     if before in ("ringing", "active"):
-        return f"Discord: звонок с «{username}» уже идёт."
+        return f"Discord: звонок с «{displayed}» уже идёт."
     if before != "idle":
         return "Discord: состояние звонка неясно. Не стал нажимать телефон."
 
@@ -173,8 +184,8 @@ def call_discord_user(planner, username: str, *, cancelled=None) -> str:
     # Re-observe after potentially slow cloud detection: it is unsafe to
     # click a stale header when the window or call state has changed.
     focus_discord(hwnd)
-    recent = _chat_header_ok(planner, hwnd, username)
-    if _observe_call_state(planner, recent, username) != "idle":
+    recent = _chat_header_ok(planner, hwnd, displayed)
+    if _observe_call_state(planner, recent, displayed) != "idle":
         return "Discord: состояние окна изменилось. Не стал начинать новый звонок."
     refreshed_point = _locate_voice_call_button(planner, recent)
     if abs(point[0] - refreshed_point[0]) > 32 or abs(point[1] - refreshed_point[1]) > 24:
@@ -186,13 +197,13 @@ def call_discord_user(planner, username: str, *, cancelled=None) -> str:
     focus_discord(hwnd)
     after = capture_window(hwnd)
     try:
-        state = _observe_call_state(planner, after, username)
+        state = _observe_call_state(planner, after, displayed)
     except (ValueError, RuntimeError):
         state = "unknown"
     check()
     if state == "ringing":
-        return f"Discord: вызов «{username}» начат, ожидаю ответа."
+        return f"Discord: вызов «{displayed}» начат, ожидаю ответа."
     if state == "active":
-        return f"Discord: звонок с «{username}» активен."
+        return f"Discord: звонок с «{displayed}» активен."
     return ("Discord: нажал на кнопку звонка, но начало вызова "
             "не подтверждено. Повторно не нажимал.")
