@@ -25,6 +25,48 @@ def same_discord_name(spoken: str, displayed: str) -> bool:
     return clean(spoken) == clean(displayed)
 
 
+def exact_voice_transliteration(spoken: str, displayed: str) -> bool:
+    """Strictly match Cyrillic ASR spelling to the SAME Latin display name.
+
+    For a voice CALL only: never treat similar spelling, partial names or
+    arbitrary Unicode lookalikes as identity proof. Final active-chat header
+    verification remains mandatory. Do not use for sending messages.
+    """
+    left = str(spoken or "").strip().lstrip("@").casefold()
+    right = str(displayed or "").strip().lstrip("@").casefold()
+    if not (4 <= len(left) <= 32 and 4 <= len(right) <= 32):
+        return False
+    cyrillic = re.compile(r"[а-яё0-9._-]{4,32}\Z")
+    latin = re.compile(r"[a-z0-9._-]{4,32}\Z")
+    if cyrillic.fullmatch(left) and latin.fullmatch(right):
+        source, target = left, right
+    elif cyrillic.fullmatch(right) and latin.fullmatch(left):
+        source, target = right, left
+    else:
+        return False
+    if not re.search(r"[а-яё]", source):
+        return False
+    letters = {
+        "а":"a", "б":"b", "в":"v", "г":"g", "д":"d", "е":"e", "ё":"yo",
+        "ж":"zh", "з":"z", "и":"i", "й":"y", "к":"k", "л":"l", "м":"m",
+        "н":"n", "о":"o", "п":"p", "р":"r", "с":"s", "т":"t", "у":"u",
+        "ф":"f", "ц":"ts", "ч":"ch", "ш":"sh", "щ":"shch", "ы":"y",
+        "э":"e", "ю":"yu", "я":"ya", "ь":"", "ъ":"",
+    }
+    # Russian ASR "Ханзо" can mean displayed "Hanzo" or "Khanzo".
+    # Compare exact full spellings, not Levenshtein/fuzzy substrings.
+    variants = {""}
+    for symbol in source:
+        if symbol == "х":
+            choices = ("h", "kh")
+        else:
+            choices = (letters.get(symbol, symbol),)
+        variants = {base + piece for base in variants for piece in choices}
+        if len(variants) > 32:
+            return False
+    return target in variants
+
+
 def search_alias(spoken: str) -> str | None:
     """Conservative Latin prefix for a fallback search, never an identity proof."""
     table = {
