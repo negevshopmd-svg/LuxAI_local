@@ -1,4 +1,8 @@
-LUXAI LOCAL 0.3.4 — ACTUALIZARE
+LUXAI LOCAL 0.3.5 — ACTUALIZARE
+
+0.3.5: CONFIRMAREA CASTILOR DISCORD, STEAM SI GHID PROIECT
+Comenzile pentru castile Discord folosesc acum verificarea starii (pictograma barata/nebarata), o singura apasare si o captura noua; daca este neclar, se verifica zona marita. Comanda «Открой Steam и скажи какой у меня там никнейм» este pastrata ca o singura cerere de deschidere si citire a propriului cont. PROJECT_HANDOFF.md documenteaza intregul proiect pentru continuarea in alt chat.
+Instalare: inchide Jarvis, ruleaza Update.bat, apoi run_windows.bat.
 
 0.3.4: MICROFON DISCORD SI CONTROL TASTATURA / MOUSE
 Pentru microfonul Discord, Jarvis face o captura marita suplimentara si corecteaza pozitia clicului in interiorul butonului. Daca localizarea nu este sigura, nu apasa. Comenzile simple de taste si mouse folosesc direct instrumentele locale Windows, fara planificator AI.
