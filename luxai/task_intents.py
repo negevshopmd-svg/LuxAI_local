@@ -161,7 +161,7 @@ def steam_self_nickname_request(text: str) -> bool:
         r"pseudonim)(?!\w)", value,
     )
     owner = re.search(
-        r"(?:\bу\s+меня\b|\bмой\b|\bмоего\b|\bмои\b|"
+        r"(?:\bу\s+меня\b|\bмой\b|\bмоего\s+аккаунта\b|\bмои\b|"
         r"\bmy\b|\bmine\b|\bmeu\b|\bmea\b|"
         r"\bмой\s+аккаунт\b|\bмоего\s+аккаунта\b|\bсво[йе]\b)",
         value,
@@ -171,7 +171,7 @@ def steam_self_nickname_request(text: str) -> bool:
     # Distinguish an actual request to report the nickname from a description
     # or a how-to question; this also accepts the exact "какой у меня ..." form.
     return bool(re.search(
-        r"(?:скаж\w*|расскаж\w*|покаж\w*|узнай|узнать|назови|"
+        r"(?:скаж\w*|сказ\w*|расскаж\w*|покаж\w*|узнай|узнать|назови|"
         r"какой\b|как(?:ой|ое)\s+у\s+меня\b|"
         r"tell\b|say\b|show\b|what(?:'s|\s+is)?\b|"
         r"spune\b|zi\b|arată\b|arata\b|care\b|află\b|afla\b)", value,
