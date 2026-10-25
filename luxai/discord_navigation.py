@@ -41,7 +41,7 @@ def detect_discord_open_dm(text: str) -> str | None:
     # The location phrase is not part of a user's display name:
     # "жми на пользователя R0nfsy в дискорде" -> "R0nfsy".
     candidate = re.sub(
-        r"\\s+(?:в|на|in)\\s+(?:discord|дискорд\\w*|дискор\\w*)$",
+        r"\s+(?:в|на|in)\s+(?:discord|дискорд\w*|дискор\w*)$",
         "", match.group("name").strip(), flags=re.I,
     )
     try:
