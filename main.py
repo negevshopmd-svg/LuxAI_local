@@ -2121,6 +2121,21 @@ class MainWindow(QMainWindow):
             ):
                 self._execute_registered(text, saved)
                 return
+            # A spoken request to click a named Discord user uses the
+            # existing exact-contact/header-verified workflow, never a
+            # generic mouse guess or an unrelated planner response.
+            from luxai.discord_navigation import detect_discord_open_dm
+            known_contact = detect_discord_open_dm(text)
+            if known_contact and not protected_workflow:
+                if not self.online_planner.enabled():
+                    self._resolved_command(text, "Для поиска пользователя Discord нужен AI с изображениями.")
+                    return
+                self.mic_status.setText("Проверяю пользователя Discord…")
+                threading.Thread(
+                    target=self._direct_macro_worker, args=(text,),
+                    daemon=True, name="JarvisDiscordVerifiedContact",
+                ).start()
+                return
             # Novel visual goals are solved by repeated real observations,
             # not by a one-shot macro which cannot see whether a click worked.
             # Dedicated Discord message/contact and sourced-research tools
