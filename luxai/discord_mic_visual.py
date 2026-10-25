@@ -175,6 +175,12 @@ def click_discord_microphone_by_screenshot(planner, *, mode="toggle", cancelled=
             raise ValueError("Discord mic state differs on fresh closeup; no click")
         if close_state != "unknown":
             initial_state = close_state
+        if desired_state is not None and initial_state == desired_state:
+            return ("Микрофон Discord уже " +
+                    ("выключен" if mode == "mute" else "включён") +
+                    " (по увеличенному снимку). Ничего не нажимал.")
+        if desired_state is not None and initial_state == "unknown":
+            return "Состояние микрофона неясно даже после увеличения. Не нажимал."
         # The vision result sometimes identifies the upper part of the glyph.
         # Aim a few physical pixels BELOW the marked center, still within the
         # same mic button, never shifting toward the arrow or headphones.
