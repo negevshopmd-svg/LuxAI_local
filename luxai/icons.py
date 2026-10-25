@@ -30,12 +30,10 @@ _ALIASES = {
 
 
 def _context(widget=None):
-    node = widget
-    while node is not None:
-        theme = node.property("jarvisIconTheme")
-        if theme:
-            return str(theme), str(node.property("jarvisIconAccent") or _accent)
-        node = node.parent()
+    # The application applies a single theme across all top-level windows.
+    # Qt parent traversal and repeated reads of unset dynamic properties
+    # during bulk tree-icon refresh can corrupt references on Linux/PySide6.
+    # refresh_icons updates these values before repainting any items.
     return _theme, _accent
 
 
