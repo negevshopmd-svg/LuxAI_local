@@ -1,3 +1,10 @@
+## 0.3.7a — Home panel cleanup (mini-patch)
+
+- Remove the three redundant Home buttons: "Проверить микрофон", "Посмотреть кнопки на экране", and "Пересказать выделенный текст".
+- Keep microphone diagnostics via Settings and keep screen inspection and selection-summary functionality via existing commands.
+- Remove obsolete MainWindow signal connections and diagnostics references. Preserve all four toggles, volume, mic status and level.
+- Add Qt regressions for clean Home construction and settings microphone diagnostics.
+
 ## 0.3.7 — Discord voice-call name verification and home UI toggles
 
 - Strictly match Cyrillic ASR transcriptions to complete Latin displayed names for **calls only** (e.g. "Ханзо" to "Hanzo"), while requiring the actual individual chat header to confirm the account. Other contacts and partial matches are rejected; message rules remain unchanged.
