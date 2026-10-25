@@ -10,7 +10,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from PySide6.QtCore import QRectF, QSize, Qt
-from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
+from PySide6.QtGui import QColor, QIcon, QIconEngine, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import QComboBox, QLabel, QListWidget, QTreeWidget, QWidget
 
@@ -30,10 +30,12 @@ _ALIASES = {
 
 
 def _context(widget=None):
-    # The application applies a single theme across all top-level windows.
-    # Qt parent traversal and repeated reads of unset dynamic properties
-    # during bulk tree-icon refresh can corrupt references on Linux/PySide6.
-    # refresh_icons updates these values before repainting any items.
+    node = widget
+    while node is not None:
+        theme = node.property("jarvisIconTheme")
+        if theme:
+            return str(theme), str(node.property("jarvisIconAccent") or _accent)
+        node = node.parent()
     return _theme, _accent
 
 
@@ -61,35 +63,45 @@ def _svg(name):
     return path.read_bytes()
 
 
-def _rasterize(renderer, size, scale, opacity):
-    """Rasterize an SVG using Qt's standard paint and pixmap classes."""
-    pixels = max(1, round(size * scale))
-    pixmap = QPixmap(pixels, pixels)
-    pixmap.setDevicePixelRatio(scale)
-    pixmap.fill(Qt.GlobalColor.transparent)
-    painter = QPainter(pixmap)
-    try:
+class _SvgEngine(QIconEngine):
+    def __init__(self, svg):
+        super().__init__()
+        self.svg = svg
+
+    def clone(self):
+        return _SvgEngine(self.svg)
+
+    def paint(self, painter, rect, mode, state):
+        renderer = QSvgRenderer(self.svg)
+        painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setOpacity(opacity)
-        renderer.render(painter, QRectF(0, 0, size, size))
-    finally:
+        if mode == QIcon.Mode.Disabled:
+            painter.setOpacity(painter.opacity() * 0.4)
+        side = min(rect.width(), rect.height())
+        bounds = QRectF(rect.x() + (rect.width() - side) / 2,
+                        rect.y() + (rect.height() - side) / 2, side, side)
+        renderer.render(painter, bounds)
+        painter.restore()
+
+    def pixmap(self, size, mode, state):
+        return self.scaledPixmap(size, mode, state, 1.0)
+
+    def scaledPixmap(self, size, mode, state, scale):
+        pixmap = QPixmap(max(1, round(size.width() * scale)), max(1, round(size.height() * scale)))
+        pixmap.setDevicePixelRatio(scale)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        self.paint(painter, QRectF(0, 0, size.width(), size.height()).toRect(), mode, state)
         painter.end()
-    return pixmap
+        return pixmap
+
+    def actualSize(self, size, mode, state):
+        return size
 
 
-@lru_cache(maxsize=192)
+@lru_cache(maxsize=384)
 def _colored_icon(name, color):
-    svg = _svg(name).replace(b"currentColor", color.encode("ascii"))
-    renderer = QSvgRenderer(svg)
-    if not renderer.isValid():
-        raise ValueError(f"Unable to render SVG icon: {name}")
-    # Qt's native pixmap engine safely manages copies and widget lifetimes.
-    value = QIcon()
-    for size in (20, 24, 48, 64):
-        for scale in (1.0, 2.0):
-            value.addPixmap(_rasterize(renderer, size, scale, 1.0), QIcon.Mode.Normal)
-            value.addPixmap(_rasterize(renderer, size, scale, 0.4), QIcon.Mode.Disabled)
-    return value
+    return QIcon(_SvgEngine(_svg(name).replace(b"currentColor", color.encode("ascii"))))
 
 
 def icon(name, *, color=None, size=20):

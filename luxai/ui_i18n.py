@@ -463,13 +463,11 @@ def tr(source, language=None):
 
 
 def _translate_property(obj, attribute, getter, setter, language):
+    old_original = obj.property("_i18n_original_" + attribute)
+    previous = obj.property("_i18n_display_" + attribute)
     current = getter()
     if not isinstance(current, str) or not current:
         return
-    # Most controls have no tooltip/accessible label. Avoid repeatedly
-    # querying unset Qt dynamic properties during offscreen UI setup.
-    old_original = obj.property("_i18n_original_" + attribute)
-    previous = obj.property("_i18n_display_" + attribute)
     # Handle dynamic label changes after the last translation without
     # mistaking translated strings for new Russian source text.
     source = old_original if old_original is not None and current == previous else current
