@@ -1,4 +1,9 @@
-LUXAI LOCAL 0.3.6 — ACTUALIZARE
+LUXAI LOCAL 0.3.7 — ACTUALIZARE
+
+0.3.7: APEL DISCORD DIN PRIMA SI BUTOANELE DIN PANOU
+Când recunoașterea vocală scrie «Ханзо», iar numele real de pe Discord este «Hanzo», Jarvis acceptă doar transliterarea complet identică pentru apelurile vocale, apoi verifică în continuare numele real din antetul conversației. Nu schimbă regulile de trimitere a mesajelor și nu acceptă nume asemănătoare.
+Cele patru comutatoare din panoul principal răspund acum la primul clic pe întreaga suprafață vizibilă, inclusiv în jumătatea dreaptă. Testele includ evenimente reale de mouse Qt.
+Pentru instalare: închide Jarvis, rulează Update.bat, apoi run_windows.bat.
 
 0.3.6: APELURI VOCALE DISCORD DINTR-O COMANDA
 Comanda «Позвони Hanzo в Discord» sau «Suna-l pe Hanzo in Discord» deschide automat conversatia privata verificata si apasa o singura data pe telefonul pentru apel vocal, nu pe camera video. Dupa clic, verificarea citeste dintr-o imagine noua starea «apeleaza» sau «apel activ». Daca nu poate confirma destinatarul, pozitia sau starea apelului, nu repeta clicul. Necesita AI online cu imagini si acordul existent pentru capturi.
