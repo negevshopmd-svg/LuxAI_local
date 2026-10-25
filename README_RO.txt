@@ -1,4 +1,8 @@
-LUXAI LOCAL 0.3.5 — ACTUALIZARE
+LUXAI LOCAL 0.3.6 — ACTUALIZARE
+
+0.3.6: APELURI VOCALE DISCORD DINTR-O COMANDA
+Comanda «Позвони Hanzo в Discord» sau «Suna-l pe Hanzo in Discord» deschide automat conversatia privata verificata si apasa o singura data pe telefonul pentru apel vocal, nu pe camera video. Dupa clic, verificarea citeste dintr-o imagine noua starea «apeleaza» sau «apel activ». Daca nu poate confirma destinatarul, pozitia sau starea apelului, nu repeta clicul. Necesita AI online cu imagini si acordul existent pentru capturi.
+Instalare: inchide Jarvis, ruleaza Update.bat, apoi run_windows.bat.
 
 0.3.5: CONFIRMAREA CASTILOR DISCORD, STEAM SI GHID PROIECT
 Comenzile pentru castile Discord folosesc acum verificarea starii (pictograma barata/nebarata), o singura apasare si o captura noua; daca este neclar, se verifica zona marita. Comanda «Открой Steam и скажи какой у меня там никнейм» este pastrata ca o singura cerere de deschidere si citire a propriului cont. PROJECT_HANDOFF.md documenteaza intregul proiect pentru continuarea in alt chat.

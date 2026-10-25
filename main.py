@@ -202,6 +202,7 @@ class MainWindow(QMainWindow):
     discord_review_ready = Signal(int, object, str)
     discord_mic_visual_ready = Signal(str, str)
     discord_headphones_ready = Signal(str, str)
+    discord_call_ready = Signal(str, str)
     steam_profile_ready = Signal(str, str)
     visual_reasoner_ready = Signal(str, str)
     adaptive_task_ready = Signal(str, str, object)
@@ -241,6 +242,7 @@ class MainWindow(QMainWindow):
         self.discord_review_ready.connect(self._on_discord_review_ready)
         self.discord_mic_visual_ready.connect(self._on_discord_mic_visual_ready)
         self.discord_headphones_ready.connect(self._on_discord_headphones_ready)
+        self.discord_call_ready.connect(self._on_discord_call_ready)
         self.steam_profile_ready.connect(self._on_steam_profile_ready)
         self.visual_reasoner_ready.connect(self._on_visual_reasoner_ready)
         self.adaptive_task_ready.connect(self._on_adaptive_task_ready)
@@ -1570,7 +1572,9 @@ class MainWindow(QMainWindow):
         ]
         from luxai.task_intents import steam_self_nickname_request
         from luxai.discord_headphones_visual import discord_headphones_mode
-        if steam_self_nickname_request(text) or discord_headphones_mode(text):
+        from luxai.discord_call_visual import detect_discord_call_request
+        if (steam_self_nickname_request(text) or discord_headphones_mode(text)
+                or detect_discord_call_request(text)):
             # The app-open + observation part is ONE indivisible goal.
             connectors = []
         if needs_live_macro_planning(text):
@@ -2044,6 +2048,14 @@ class MainWindow(QMainWindow):
             # compound request before cloud and saved short-action routing.
             from luxai.task_intents import steam_self_nickname_request
             from luxai.discord_headphones_visual import discord_headphones_mode
+            from luxai.discord_call_visual import detect_discord_call_request
+            # Calling an explicitly named user is a single compound goal:
+            # verified DM -> phone in header -> exactly one click -> call UI.
+            if not protected_workflow:
+                call_target = detect_discord_call_request(text)
+                if call_target is not None:
+                    self._start_discord_call_visual(text, call_target)
+                    return
             if not protected_workflow and steam_self_nickname_request(text):
                 self._start_steam_profile_lookup(text)
                 return
@@ -3168,6 +3180,45 @@ class MainWindow(QMainWindow):
         if self._closed or not self._processing or self._active_text != text:
             return
         self._current_route = "AI: наблюдение → действие → проверка"
+        self._resolved_command(text, answer)
+
+    def _start_discord_call_visual(self, text, username):
+        """Initiate one explicit voice call via the verified individual DM."""
+        self._current_route = "Discord: голосовой звонок"
+        if not self.online_planner.enabled():
+            self._resolved_command(text, "Для звонка через интерфейс Discord нужен AI с поддержкой изображений.")
+            return
+        if not self._allow_cloud_screenshots():
+            self._resolved_command(text, "Звонок Discord отменён: анализ снимков не разрешён.")
+            return
+        self.mic_status.setText("Ищу пользователя Discord и кнопку голосового вызова…")
+        threading.Thread(
+            target=self._discord_call_visual_worker, args=(text, username),
+            daemon=True, name="JarvisDiscordVoiceCall",
+        ).start()
+
+    def _discord_call_visual_worker(self, text, username):
+        try:
+            from luxai.discord_call_visual import call_discord_user
+            answer = call_discord_user(
+                self.online_planner, username,
+                cancelled=lambda: self._closed or not self._processing
+                or self._active_text != text,
+            )
+        except (OSError, RuntimeError, ValueError, PermissionError) as exc:
+            answer = "Не удалось безопасно начать звонок Discord: " + str(exc)[:180]
+        except Exception:
+            answer = "Не удалось безопасно проверить звонок Discord."
+        if not self._closed:
+            try:
+                self.discord_call_ready.emit(text, answer)
+            except RuntimeError:
+                pass
+
+    def _on_discord_call_ready(self, text, answer):
+        if self._closed or not self._processing or self._active_text != text:
+            return
+        self._current_route = "Discord: проверка голосового вызова"
         self._resolved_command(text, answer)
 
     def _start_discord_headphones_visual(self, text):

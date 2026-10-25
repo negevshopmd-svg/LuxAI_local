@@ -2,6 +2,12 @@
 
 Voice-controlled Jarvis assistant for Windows 10/11 (64-bit).
 
+## 0.3.6: natural Discord voice calls
+
+Say **“Позвони пользователю Hanzo в Discord”**, **“Sună-l pe Hanzo în Discord”**, or **“Call Hanzo on Discord”**. Jarvis now understands this as one voice-call request: it opens/activates Discord, finds and verifies the individual DM contact, identifies the voice PHONE handset (not the adjacent video-camera button) in the current DM header using a fresh native-resolution zoom, clicks it at most once, and checks the actual ringing/connected call UI before reporting success.
+
+If the DM, button or state cannot be verified, Jarvis stops without blindly retrying or inventing a successful call. Requires a vision-capable cloud AI and the existing screenshot consent. A live call is only initiated when the user explicitly requests it. See `luxai/discord_call_visual.py` and `tests/test_036_discord_call.py`. Upgrading with the existing `Update.bat` works after merging to `main`.
+
 ## 0.3.5: verified Discord headphones, Steam intent routing and project handoff
 
 Natural “Выключи наушники в дискорде” uses a dedicated state-aware headphones/deafen action. Jarvis reads the current bottom account bar icon (including the red diagonal slash), clicks at most once if the requested state differs, and checks a fresh screenshot. If the broad screenshot is unclear, a new full-resolution close-up verifies the change instead of triggering a second click.
