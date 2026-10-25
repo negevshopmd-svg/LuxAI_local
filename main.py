@@ -2040,9 +2040,15 @@ class MainWindow(QMainWindow):
                     self._ask_discord_message_details(text, message)
                     return
             if feedback and not protected_workflow:
-                # Replay the INTENT through a new observe/plan/verify loop,
-                # never replay a stale macro or an unverified click location.
-                self._start_visual_reasoner(text, feedback=feedback)
+                # A correction like "you missed the mic, further right" must
+                # keep the dedicated Discord microphone workflow. The generic
+                # visual planner cannot verify microphone toggle state, and
+                # never receives this authority merely from a retry phrase.
+                # Re-inspect a FRESH account-bar crop; never shift a stale x/y.
+                if wants_discord_mic_visual_click(text):
+                    self._start_discord_mic_visual(text)
+                else:
+                    self._start_visual_reasoner(text, feedback=feedback)
                 return
 
 
