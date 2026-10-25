@@ -15,8 +15,13 @@ from luxai.task_agent import ToolResult
 
 SYSTEM = """You plan one next step for Jarvis, an actual Windows desktop assistant.
 The LOCAL EXECUTOR can open installed apps, take LOCAL screenshots, inspect and
-click visible controls with a vision model, research facts, run locally permitted
-CMD/PowerShell commands, and execute native Windows actions. You do not execute
+click visible controls with a vision model, and use native keyboard/mouse actions
+through desktop_input when the user explicitly asked for that action. Ordinary
+key presses/clicks do not need a confirmation dialog; never invent an input or
+use them to send messages, modify security, or bypass restricted tools. For a
+screen-dependent button use consented visual_task, not a guessed coordinate.
+It can also research facts, run locally permitted CMD/PowerShell commands, and
+execute native Windows actions. You do not execute
 these yourself: use the tools. Do not claim 'I cannot take screenshots/use a
 mouse/control Windows' when the runtime advertises the corresponding tool.
 Think about the user's whole goal, choose a tool, observe its real result,
@@ -391,6 +396,60 @@ class DesktopRuntime:
             if name in requested and (type(args.get(name)) is not type(requested[name]) or args.get(name) != requested[name]):
                 return False
         return True
+
+    def _tool_desktop_input(self, args, context):
+        """Execute only a mouse/key step literally requested by the user.
+
+        The cloud may order those already-mentioned steps, but cannot invent
+        keys, mouse positions, text entry or permission by reasoning alone.
+        """
+        self._arguments(args, {"action", "target"})
+        from luxai.action_catalog import validate_step
+        from luxai.voice_actions import parse_action_sequence
+        from luxai.task_intents import _app_parts
+        from luxai.screen_interact import _valid_external_window, _foreground_hwnd
+        from luxai.desktop_actions import execute_desktop_step
+
+        allowed = {
+            "press_key", "press_enter", "key_sequence", "hotkey",
+            "mouse_click", "mouse_right_click", "mouse_double_click",
+            "mouse_middle_click", "mouse_move", "mouse_scroll",
+        }
+        action = args.get("action")
+        if action not in allowed:
+            raise PermissionError("This action requires another dedicated tool")
+        step = validate_step({"action": action, "target": args.get("target", "")})
+        requested = parse_action_sequence(self.goal)
+        if requested is None:
+            parsed = _app_parts(self.goal)
+            if parsed and parsed[1]:
+                tail = re.sub(
+                    r"^[\s,;]*(?:(?:и|and|then|apoi|și|si)\s+)?",
+                    "", parsed[1], flags=re.I,
+                )
+                requested = parse_action_sequence(tail)
+        if not requested or step not in requested:
+            raise PermissionError("Mouse/key action was not explicitly specified by user")
+        if sum(1 for old in self.executed_steps
+               if old.get("tool") == "desktop_input"
+               and old.get("arguments", {}).get("action") == step["action"]
+               and old.get("arguments", {}).get("target", "") == step["target"]) >= requested.count(step):
+            raise PermissionError("This input step already ran; no blind replay")
+        if self.app:
+            from luxai.windows_apps import activate_app_window
+            hwnd = activate_app_window(self.app)
+            if not hwnd or (self.preferred_hwnd and hwnd != self.preferred_hwnd):
+                raise RuntimeError("Requested application window not active")
+        else:
+            hwnd = _foreground_hwnd()
+        _valid_external_window(hwnd)
+        if _foreground_hwnd() != hwnd:
+            raise RuntimeError("Input window is no longer foreground")
+        summary = execute_desktop_step(step)
+        # A key was issued; that alone is not independent proof of a GUI goal.
+        return self._result(True, False, summary,
+                            kind="native_input_issued", data={"action": action},
+                            satisfied=False)
 
     def _tool_desktop_action(self, args, context):
         self._arguments(args, {"action", "target", "location", "enabled", "delay_seconds"})
