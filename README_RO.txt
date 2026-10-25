@@ -1,4 +1,8 @@
-LUXAI LOCAL 0.3.0 — ACTUALIZARE
+LUXAI LOCAL 0.3.2 — ACTUALIZARE
+
+0.3.2: CAPTURI MAI CLARE ȘI CLICURI MAI PRECISE
+Captura pentru comenzi vizuale are calitate mai bună. Înainte de clic, Jarvis face o a doua captură la rezoluția reală, mărită pe zona butonului, apoi convertește poziția la coordonatele fizice ale ecranului. Sunt gestionate ferestre mutate, mai multe monitoare și scalarea DPI. Dacă localizările nu coincid sau butonul este acoperit, nu apasă. După clic verifică rezultatul, fără să declare succes doar pentru că a trimis un clic.
+Actualizează prin Update.bat din folderul existent, cu Jarvis închis.
 
 0.3.1: PICTOGRAME NOI ȘI COMENZI DISCORD NATURALE
 Pictogramele SVG Lucide sunt incluse în proiect și funcționează offline, pe teme deschise/întunecate și ecrane HiDPI. Jarvis are o emblemă nouă pentru fereastră și bara de sistem. Licența ISC este în luxai/assets/icons/lucide/.
