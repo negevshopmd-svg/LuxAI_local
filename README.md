@@ -2,6 +2,12 @@
 
 Voice-controlled Jarvis assistant for Windows 10/11 (64-bit).
 
+## 0.3.7a: Home panel cleanup (mini-patch)
+
+The Home (“Главная”) control panel no longer displays the three extra buttons for microphone testing, viewing on-screen buttons or summarizing selected text. Those tools are **not deleted**: microphone diagnostics remain in Settings; screen inspection and selected-text summary remain accessible through existing voice commands and tools. Prefix mode, quiet mode, avatar animation, always-on-top, volume and microphone meters remain untouched.
+
+Install this minor patch with `Update.bat` once merged to main.
+
 ## 0.3.7: first-attempt Discord name matching and reliable control toggles
 
 Discord voice calls now handle a **strict, full-name Cyrillic speech transcription to Latin displayed nickname** (for example Russian ASR "Ханзо" vs the Discord display "Hanzo" or "Khanzo"). This exception is **only for calling**; it never broadens message sending or accepts approximate/fuzzy names. The actual open one-to-one DM header must still be verified before accessing the phone button. Ambiguous and unrelated users remain blocked.
