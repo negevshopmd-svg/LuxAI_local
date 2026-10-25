@@ -213,7 +213,7 @@ def run_discord_screen_review(planner, username: str, *, cancelled=None) -> str:
         f"result with exact Discord username OR display name {username!r}. "
         "Only select an unambiguous person, not a group, channel or bot. "
         "other names and ambiguous matches. Otherwise found:false.",
-        search,
+        search, precise=True,
     )
     check_cancel()
     click_visual_target(search, choice, 1)
