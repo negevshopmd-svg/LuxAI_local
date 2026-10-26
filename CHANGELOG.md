@@ -1,3 +1,11 @@
+## 0.3.7g — updater storage cleanup, startup voice preparation and version label
+
+- Close the new Windows updater batch automatically after success; retain readable failures and nonzero exit status. The final pause already parsed by a legacy launcher can occur once during migration.
+- Keep ordinary code rollback only in temporary staging, remove recognized legacy updater backups/bootstrap files after successful updates or already-current checks, and preserve originals only for incomplete rollback recovery. Never delete unrelated files or traverse linked backup paths.
+- Prepare the configured Piper reply voice on the existing speech worker at startup, including silent first synthesis and playback library imports; reuse the model for the first reply, serialize inference and respect quiet mode/cancellation. Fix the Windows fallback cancellation-token argument.
+- Show the installed version below the sidebar collapse button, readable in both themes, sidebar widths and HiDPI layouts.
+- Add regressions for startup speech/cache reuse, sidebar placement and updater cleanup/rollback and batch completion behavior.
+
 ## 0.3.7f — cloud API recovery and settings regression fixes
 
 - Honor the configured API verification timeout and retry explicit HTTP 502/503/504 once at the identical endpoint within the request time budget. Never retry authentication, quota, redirect or timeout failures. Diagnose temporary service outages separately from invalid credentials.

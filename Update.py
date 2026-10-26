@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -12,7 +13,6 @@ import tempfile
 import urllib.error
 import urllib.request
 import zipfile
-from datetime import datetime
 from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 
@@ -172,8 +172,116 @@ def _atomic_copy(source: Path, destination: Path) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def _is_link(path: Path) -> bool:
+    """Include Windows junctions/reparse points on Python 3.11 as well."""
+    return path.is_symlink() or bool(
+        getattr(path.lstat(), "st_file_attributes", 0) & 0x400
+    )
+
+
+def _tree_has_links(directory: Path) -> bool:
+    if _is_link(directory):
+        return True
+    for parent, directories, files in os.walk(directory, followlinks=False):
+        if any(_is_link(Path(parent) / name) for name in directories + files):
+            return True
+    return False
+
+
+_LEGACY_BACKUP_NAME = re.compile(
+    r"\d{8}-\d{6}(?:-\d{6})?-(?:[a-f0-9]{12}|initial)\Z"
+)
+
+
+def _legacy_manifest(path: Path) -> set[str] | None:
+    if not path.is_file() or _is_link(path) or path.stat().st_size > 4 * 1024 * 1024:
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or set(data) != {"overwritten", "new"}:
+            return None
+        for entries in (data["overwritten"], data["new"]):
+            if not isinstance(entries, list) or len(entries) > MAX_ARCHIVE_FILES:
+                return None
+            for value in entries:
+                if not isinstance(value, str):
+                    return None
+                relative = PurePosixPath(value.replace("\\", "/"))
+                if (not relative.parts or relative.is_absolute() or ".." in relative.parts
+                        or any(":" in part for part in relative.parts)):
+                    return None
+        return {PurePosixPath(value.replace("\\", "/")).as_posix()
+                for value in data["overwritten"]}
+    except (OSError, ValueError, TypeError):
+        return None
+
+
+def cleanup_legacy_backups() -> None:
+    """Remove only backups made by earlier LuxAI updaters, never user folders.
+
+    A recognized name plus its valid transaction manifest identifies modern
+    backups. Pre-0.2 backups lacked manifests; require their old timestamp
+    format and application code, and reject any preserved personal files.
+    Never traverse a symlink, junction, or other Windows reparse point.
+    """
+    removed = 0
+    try:
+        if BACKUP_ROOT.is_dir() and not _is_link(BACKUP_ROOT):
+            for saved in list(BACKUP_ROOT.iterdir()):
+                if not _LEGACY_BACKUP_NAME.fullmatch(saved.name):
+                    continue
+                if not saved.is_dir() or _tree_has_links(saved):
+                    continue
+                manifest = saved.with_name(saved.name + ".manifest.json")
+                expected = _legacy_manifest(manifest)
+                actual = {path.relative_to(saved).as_posix()
+                          for path in saved.rglob("*") if path.is_file()}
+                if expected is None:
+                    if manifest.exists() or re.fullmatch(
+                        r"\d{8}-\d{6}-(?:[a-f0-9]{12}|initial)", saved.name
+                    ) is None:
+                        continue
+                    if not (saved / "main.py").is_file() or any(
+                        is_preserved(Path(value)) for value in actual
+                    ):
+                        continue
+                elif not actual.issubset(expected):
+                    # An extra user file was placed inside this backup.
+                    continue
+                shutil.rmtree(saved)
+                if expected is not None:
+                    manifest.unlink()
+                removed += 1
+            # A previous interrupted cleanup may leave only the manifest.
+            for manifest in BACKUP_ROOT.glob("*.manifest.json"):
+                name = manifest.name.removesuffix(".manifest.json")
+                if (_LEGACY_BACKUP_NAME.fullmatch(name)
+                        and not (BACKUP_ROOT / name).exists()
+                        and _legacy_manifest(manifest) is not None):
+                    manifest.unlink()
+            try:
+                BACKUP_ROOT.rmdir()
+            except OSError:
+                pass  # Unknown/user files in this directory are retained.
+        data = ROOT / ".luxai_data"
+        bootstrap = data / "updater-bootstrap"
+        if (data.is_dir() and not _is_link(data)
+                and bootstrap.is_dir() and not _is_link(bootstrap)):
+            previous = bootstrap / "Update.py.previous"
+            if previous.is_file() and not _is_link(previous):
+                previous.unlink()
+            try:
+                bootstrap.rmdir()
+            except OSError:
+                pass
+    except OSError as exc:
+        report(f"Nu am putut elimina toate copiile vechi ale updaterului: {type(exc).__name__}.")
+    if removed:
+        report(f"Copii vechi ale updaterului eliminate: {removed}.")
+
+
 @contextmanager
-def file_transaction(files: list[tuple[Path, Path]], backup: Path):
+def file_transaction(files: list[tuple[Path, Path]], backup: Path | None = None):
     """Restore replaced code and remove new code if any update step fails.
 
     Package installation is a separate operation: pip cannot roll back all
@@ -181,41 +289,63 @@ def file_transaction(files: list[tuple[Path, Path]], backup: Path):
     explicitly direct the user to the installer to repair the environment.
     """
     destinations = [(src, rel, _destination(rel)) for src, rel in files]
-    originals = set()
-    for _, rel, dest in destinations:
-        if dest.is_file():
-            saved = backup / rel
-            saved.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(dest, saved)
-            originals.add(rel)
-    backup.mkdir(parents=True, exist_ok=True)
-    (backup.parent / (backup.name + ".manifest.json")).write_text(json.dumps({
-        "overwritten": [str(rel) for rel in sorted(originals)],
-        "new": [str(rel) for _, rel, _ in destinations if rel not in originals],
-    }, indent=2), encoding="utf-8")
-    applied = []
+    managed = backup is None
+    backup = Path(tempfile.mkdtemp(prefix="luxai_rollback_")) if managed else backup
+    retain = False
     try:
-        for src, rel, dest in destinations:
-            _atomic_copy(src, dest)
-            applied.append((rel, dest))
-        yield
-    except BaseException as failure:
-        errors = []
-        for rel, dest in reversed(applied):
-            try:
-                if rel in originals:
-                    _atomic_copy(backup / rel, dest)
-                else:
-                    dest.unlink(missing_ok=True)
-            except OSError as exc:
-                errors.append(f"{rel}: {type(exc).__name__}")
-        if errors:
-            report(f"Restaurarea automată nu este completă. Backup: {backup}")
-            report("; ".join(errors))
-            raise RuntimeError(f"Restaurare incompletă; fișierele originale sunt în {backup}") from failure
-        else:
+        originals = set()
+        for _, rel, dest in destinations:
+            if dest.is_file():
+                saved = backup / rel
+                saved.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(dest, saved)
+                originals.add(rel)
+        backup.mkdir(parents=True, exist_ok=True)
+        applied = []
+        try:
+            for src, rel, dest in destinations:
+                _atomic_copy(src, dest)
+                applied.append((rel, dest))
+            yield
+        except BaseException as failure:
+            errors = []
+            for rel, dest in reversed(applied):
+                try:
+                    if rel in originals:
+                        _atomic_copy(backup / rel, dest)
+                    else:
+                        dest.unlink(missing_ok=True)
+                except OSError as exc:
+                    errors.append(f"{rel}: {type(exc).__name__}")
+            if errors:
+                retain = True
+                if managed:
+                    # Preserve recovery data only for the exceptional case
+                    # where Windows prevented restoring the old installation.
+                    recovery = ROOT / ".luxai_data" / "update-recovery"
+                    try:
+                        data = recovery.parent
+                        if (data.exists() and _is_link(data)) or (recovery.exists() and _is_link(recovery)):
+                            raise OSError("Recovery directory is a local link")
+                        recovery.mkdir(parents=True, exist_ok=True)
+                        target = recovery / backup.name
+                        shutil.move(str(backup), str(target))
+                        backup = target
+                    except OSError:
+                        # Keep the original temp directory if moving recovery
+                        # files also failed; never discard the only originals.
+                        pass
+                report(f"Restaurarea automată nu este completă. Recuperare: {backup}")
+                report("; ".join(errors))
+                raise RuntimeError(f"Restaurare incompletă; fișierele originale sunt în {backup}") from failure
             report("Fișierele programului au fost restaurate la versiunea anterioară.")
-        raise
+            raise
+    finally:
+        if not retain:
+            try:
+                shutil.rmtree(backup)
+            except OSError:
+                report("Nu am putut elimina toate fișierele temporare ale actualizării.")
 
 
 def write_update_state(latest_sha: str) -> None:
@@ -391,13 +521,14 @@ def perform_update() -> int:
             if not upgrade_dependencies():
                 return 1
             ensure_local_ai_backend()
+            cleanup_legacy_backups()
             return 0
     except Exception as e:
         report(f"Nu pot verifica GitHub: {e}")
         return 1
 
     # Update proceeds automatically without an interactive confirmation.
-    report("Actualizarea pornește automat. Fișierele suprascrise vor avea backup.")
+    report("Actualizarea pornește automat. Recuperarea în caz de eroare folosește doar fișiere temporare.")
 
     with tempfile.TemporaryDirectory(prefix="luxai_update_") as temp:
         tempdir = Path(temp)
@@ -428,10 +559,8 @@ def perform_update() -> int:
             if not files:
                 raise RuntimeError("Nu am găsit fișiere de proiect pentru actualizare.")
 
-            stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-            backup = BACKUP_ROOT / f"{stamp}-{(current_sha[:12] if current_sha else 'initial')}"
             report(f"Aplic {len(files)} fișiere...")
-            with file_transaction(files, backup):
+            with file_transaction(files):
                 # Direct dependencies are rechecked against the index, even when
                 # already installed. Stay within requirements and Python markers.
                 if not upgrade_dependencies():
@@ -472,17 +601,14 @@ def perform_update() -> int:
 
                 write_update_state(latest_sha)
             report("Actualizare instalată cu succes.")
-            if backup.exists():
-                report(f"Backup pentru fișierele suprascrise: {backup}")
-            else:
-                report("Nu au existat fișiere existente care să necesite backup.")
-            report("Nu am șters niciun fișier local.")
+            cleanup_legacy_backups()
+            report("Nu păstrez backupuri permanente ale fișierelor programului.")
             report("Folderul models și config.json au fost păstrate.")
             report("Pornește Lux AI cu run_windows.bat.")
             return 0
         except Exception as e:
             report(f"Actualizarea a eșuat: {e}")
-            report("Datele personale au fost păstrate. Verifică mesajele de restaurare și folderul backups.")
+            report("Datele personale au fost păstrate. Verifică mesajele de restaurare de mai sus.")
             return 1
 
 

@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 
 from luxai.agent import LocalAgent
 from luxai.voice import VoiceListener, speak
-from luxai.voices import stop_speaking as stop_voice_output
+from luxai.voices import stop_speaking as stop_voice_output, warm_up_voice
 from luxai.voice_rules import is_stop_speech_command, is_hallucinated_outro
 from luxai.screen import capture_screen, read_screen_text
 from luxai.settings_panel import SettingsPanel
@@ -3709,6 +3709,14 @@ class MainWindow(QMainWindow):
                 pass
 
     def _speech_loop(self):
+        # Prepare the same voice instance used for replies on this worker,
+        # without delaying construction of the interface or playing a greeting.
+        if self.cfg.get("tts_enabled", True):
+            try:
+                warm_up_voice(dict(self.cfg))
+            except Exception:
+                # Normal playback retains its own error/fallback reporting.
+                pass
         while True:
             task = self._speech_queue.get()
             if task is None:

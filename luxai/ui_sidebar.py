@@ -1,13 +1,26 @@
 """Navigation rail for Jarvis. The main window owns page selection."""
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPainter
 from luxai.icons import icon, set_button_icon
 from luxai.ui_i18n import tr, normalize_language
 from PySide6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
+    QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
 )
+
+VERSION_FILE = Path(__file__).resolve().parents[1] / "version.txt"
+
+
+def application_version() -> str:
+    """Read the installed version independently of the process directory."""
+    try:
+        value = VERSION_FILE.read_text(encoding="utf-8-sig").strip()
+        return value if value and len(value) <= 32 and not any(c.isspace() for c in value) else "—"
+    except (OSError, UnicodeError):
+        return "—"
 
 
 class BrandMark(QWidget):
@@ -78,6 +91,17 @@ class NavigationSidebar(QFrame):
         self.collapse.setMinimumHeight(42)
         self.collapse.clicked.connect(self.toggle_collapsed)
         column.addWidget(self.collapse)
+
+        version = application_version()
+        self.version_label = QLabel(version)
+        self.version_label.setObjectName("SidebarVersion")
+        self.version_label.setTextFormat(Qt.TextFormat.PlainText)
+        self.version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.version_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.version_label.setMinimumHeight(16)
+        self.version_label.setToolTip(f"Jarvis {version}")
+        self.version_label.setAccessibleName(f"Jarvis {version}")
+        column.addWidget(self.version_label)
 
     def set_active(self, index):
         for i, button in enumerate(self.nav_buttons):

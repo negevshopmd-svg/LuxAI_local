@@ -1,4 +1,9 @@
-LUXAI LOCAL 0.3.7f — ACTUALIZARE
+LUXAI LOCAL 0.3.7g — ACTUALIZARE
+
+0.3.7g: UPDATE FARA BACKUPURI PERMANENTE, VOCE SI VERSIUNE
+Noul Update.bat se inchide automat dupa succes. Copiile de revenire sunt temporare; backupurile vechi recunoscute ale updaterului se sterg automat. Originalele raman numai daca restaurarea esueaza. Fisierele personale si directoarele legate nu sunt sterse.
+Vocea Piper selectata se pregateste silentios pe firul audio la pornire si este refolosita la prima replica. O voce noua necesita descarcarea initiala. Versiunea este afisata sub butonul de restrangere a meniului.
+Instalare: inchide Jarvis, ruleaza Update.bat, apoi run_windows.bat. Prima actualizare pornita cu vechiul batch poate cere inca Enter; urmatoarele se inchid automat dupa succes. Erorile raman vizibile.
 
 0.3.7f: CORECTII API SI STABILITATE
 Verificarea API respecta timpul ales si repeta o singura data erorile temporare 502/503/504 la acelasi furnizor. HTTP 503 nu inseamna automat cheie gresita. Rezultatele vechi nu mai valideaza setari schimbate intre timp; modelul Gemini verificat este salvat corect. Salvarea automata nu mai redeseneaza intreaga interfata la fiecare editare. Microfonul isi pastreaza identitatea dupa reconectare, iar unmute/undeafen in Discord functioneaza in sensul cerut.
@@ -52,8 +57,8 @@ Repository: https://github.com/negevshopmd-svg/LuxAI_local
 Actualizatorul descarcă branch-ul main; nu necesită un Release, un tag sau un ZIP
 atașat manual. O modificare disponibilă doar într-un PR nu este încă publicată.
 
-Setările, cheile, modelele și mediul .venv sunt păstrate. Fișierele înlocuite au
-backup. La o eroare se încearcă restaurarea automată a codului. Bibliotecile pip
+Setările, cheile, modelele și mediul .venv sunt păstrate. Copiile de revenire
+sunt temporare. La o eroare se încearcă restaurarea automată a codului. Bibliotecile pip
 modificate parțial nu pot fi restaurate automat; rulează install_windows.bat
 dacă mesajul de eroare cere repararea mediului.
 
