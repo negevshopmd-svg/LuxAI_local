@@ -1,4 +1,12 @@
-# LuxAI Local 0.3.7f (Windows 10/11, 64-bit)
+# LuxAI Local 0.3.7g (Windows 10/11, 64-bit)
+
+## Patch 0.3.7g: actualizare fără backupuri permanente și voce pregătită la pornire
+
+După un update reușit, noul `Update.bat` se închide automat. Fișierele necesare revenirii în caz de eroare sunt temporare și dispar după terminare. Backupurile vechi recunoscute ca aparținând updaterului și copia sa de pornire se șterg automat după succes, inclusiv dacă versiunea era deja actuală. Fișierele fără legătură cu updaterul sunt păstrate. Numai o restaurare eșuată păstrează originalele pentru recuperare.
+
+Vocea Piper aleasă este încărcată și pregătită în fundal imediat la pornirea Jarvis, fără salut automat sau înregistrare. Prima replică folosește aceeași instanță pregătită. La prima instalare a unei voci lipsite, descărcarea rămâne necesară; motorul Windows SAPI păstrează comportamentul existent. Versiunea instalată apare cu text mic sub „Свернуть”, inclusiv în meniul restrâns.
+
+Închide Jarvis, rulează `Update.bat`, apoi `run_windows.bat`. Prima trecere de la fișierul batch vechi poate cere încă Enter la pauza deja citită de Windows; următoarele actualizări reușite se închid automat. Erorile rămân vizibile pentru diagnosticare.
 
 ## Patch 0.3.7f: conexiune API și setări stabile
 

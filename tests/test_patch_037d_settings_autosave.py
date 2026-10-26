@@ -29,7 +29,8 @@ class SettingsAutoSave037dTests(unittest.TestCase):
         patcher = mock.patch.object(main, "CONFIG", filename)
         patcher.start()
         self.addCleanup(patcher.stop)
-        with mock.patch("sounddevice.query_devices", return_value=[]):
+        with (mock.patch("sounddevice.query_devices", return_value=[]),
+              mock.patch("main.MainWindow._ocr_setup_worker")):
             window = main.MainWindow()
         self.addCleanup(window.close)
         return window, filename
@@ -95,7 +96,8 @@ class SettingsAutoSave037dTests(unittest.TestCase):
         first.settings_panel.flush_auto_save()
         self.assertEqual(json.loads(filename.read_text(encoding="utf-8"))["weather_city"], "Orhei")
         first.close()
-        with mock.patch("sounddevice.query_devices", return_value=[]):
+        with (mock.patch("sounddevice.query_devices", return_value=[]),
+              mock.patch("main.MainWindow._ocr_setup_worker")):
             reopened = __import__("main").MainWindow()
         self.addCleanup(reopened.close)
         self.assertEqual(reopened.settings_panel.weather_city.text(), "Orhei")

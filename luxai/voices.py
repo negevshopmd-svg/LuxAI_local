@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import io
 import json
 import re
 import subprocess
@@ -77,8 +78,10 @@ class VoiceManager:
     """Select and play voices matching the assistant's configured language."""
 
     def __init__(self):
+        self._inference_lock = threading.RLock()
         self._voice = None
         self._loaded_path = None
+        self._prepared_path = None
         self.config = self._load_config()
 
     @staticmethod
@@ -223,6 +226,65 @@ class VoiceManager:
             return matching[0]
         return self._download_voice(language)
 
+    def _load_piper_voice(self, model_path: Path) -> None:
+        if self._voice is None or self._loaded_path != str(model_path):
+            from piper import PiperVoice
+            self._voice = PiperVoice.load(str(model_path))
+            self._loaded_path = str(model_path)
+            self._prepared_path = None
+
+    def _synthesize(self, text: str, wav_file) -> None:
+        speed = max(0.7, min(1.4, float(self.config.get("voice_speed", 1.0))))
+        try:
+            from piper.config import SynthesisConfig
+        except ImportError:
+            self._voice.synthesize_wav(text, wav_file)
+        else:
+            self._voice.synthesize_wav(
+                text, wav_file,
+                syn_config=SynthesisConfig(length_scale=1.0 / speed),
+            )
+
+    def prepare(self, settings: dict) -> bool:
+        """Load and silently exercise the configured Piper voice on a worker.
+
+        The same model instance is retained for the first spoken reply. No
+        microphone, playback stream or startup announcement is opened here.
+        Windows SAPI currently lives in a separate process for every reply;
+        launching a throwaway process would not preload its next instance.
+        """
+        snapshot = dict(settings)
+        if not snapshot.get("tts_enabled", True):
+            return False
+        if str(snapshot.get("voice_engine", "piper") or "piper").lower() == "windows":
+            return False
+        from luxai.response_language import reply_language
+        language = reply_language(snapshot)
+        with self._inference_lock:
+            self.config = snapshot
+            try:
+                model_path = self._select_model(language)
+                if model_path is None:
+                    return False
+                self._load_piper_voice(model_path)
+                if self._prepared_path == str(model_path):
+                    return True
+                # Exercise phonemization and the first ONNX inference as well
+                # as model loading. The generated samples are discarded.
+                phrase = {"ru": "Готово.", "ro": "Gata.", "en": "Ready."}[language]
+                with io.BytesIO() as samples:
+                    with wave.open(samples, "wb") as wav_file:
+                        self._synthesize(phrase, wav_file)
+                # Import the playback libraries now; importing them later can
+                # otherwise delay the first reply even with a loaded model.
+                import soundfile  # noqa: F401
+                import sounddevice  # noqa: F401
+                self._prepared_path = str(model_path)
+                return True
+            except Exception as exc:
+                self._log(f"Voice warm-up failed ({type(exc).__name__}).")
+                return False
+
     def _windows_speak(self, text: str, language: str, cancel_token: int) -> bool:
         """Fallback to SAPI, but only if Windows has a voice for the language."""
         if sys.platform != "win32":
@@ -288,6 +350,12 @@ class VoiceManager:
         return False
 
     def speak(self, text: str, language: str | None = None, cancel_token: int = 0) -> bool:
+        # Startup preparation and previews can reach the shared manager from
+        # different workers. Piper's model and mutable config stay serialized.
+        with self._inference_lock:
+            return self._speak(text, language, cancel_token)
+
+    def _speak(self, text: str, language: str | None, cancel_token: int) -> bool:
         text = re.sub(r"\s+", " ", str(text or "")).strip()[:700]
         if not text or _was_cancelled(cancel_token):
             return False
@@ -309,24 +377,13 @@ class VoiceManager:
             return False
         if model_path is not None:
             try:
-                if self._voice is None or self._loaded_path != str(model_path):
-                    from piper import PiperVoice
-                    self._voice = PiperVoice.load(str(model_path))
-                    self._loaded_path = str(model_path)
+                self._load_piper_voice(model_path)
                 volume = max(0.0, min(1.0, float(self.config.get("voice_volume", 80)) / 100))
-                speed = max(0.7, min(1.4, float(self.config.get("voice_speed", 1.0))))
                 with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp:
                     wav_path = Path(temp.name)
                 try:
                     with wave.open(str(wav_path), "wb") as wav_file:
-                        try:
-                            from piper.config import SynthesisConfig
-                            self._voice.synthesize_wav(
-                                text, wav_file,
-                                syn_config=SynthesisConfig(length_scale=1.0 / speed),
-                            )
-                        except ImportError:
-                            self._voice.synthesize_wav(text, wav_file)
+                        self._synthesize(text, wav_file)
                     import soundfile as sf
                     audio, sample_rate = sf.read(str(wav_path), dtype="float32")
                     if _was_cancelled(cancel_token):
@@ -347,7 +404,7 @@ class VoiceManager:
             except Exception as exc:
                 self._log(f"Piper playback failed for {model_path.name}: {exc}")
 
-        if self._windows_speak(text, language):
+        if self._windows_speak(text, language, cancel_token):
             return True
         model_name = VOICE_PRESETS.get(language, VOICE_PRESETS["ru"])["id"]
         self._log(
@@ -358,6 +415,11 @@ class VoiceManager:
 
 
 _manager = VoiceManager()
+
+
+def warm_up_voice(settings: dict) -> bool:
+    """Prepare speech without output; call from the serial speech worker."""
+    return _manager.prepare(settings)
 
 
 def speak(text: str, enabled: bool = True, language: str | None = None) -> bool:

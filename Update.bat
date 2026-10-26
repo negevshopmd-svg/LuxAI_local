@@ -53,35 +53,19 @@ if errorlevel 1 (
     exit /b 1
 )
 
-if not exist ".luxai_data\updater-bootstrap" mkdir ".luxai_data\updater-bootstrap"
-if exist "Update.py" (
-    copy /Y "Update.py" ".luxai_data\updater-bootstrap\Update.py.previous" >nul
-    if errorlevel 1 (
-        echo EROARE: Nu am putut salva updaterul existent. Nu modific instalarea.
-        pause
-        exit /b 1
-    )
-)
-
-move /Y "Update.py.new" "Update.py" >nul
-if errorlevel 1 (
-    echo EROARE: Nu am putut inlocui Update.py.
-    pause
-    exit /b 1
-)
-
 rem Parse this entire block before Update.py can replace the running batch file.
-rem Preserve a failing result across pause, which can otherwise hide the error.
+rem Run the validated download in place. Its normal transaction installs Update.py,
+rem so bootstrap failures never replace the installed updater or leave a backup.
 (
-    %LUXAI_PYTHON% Update.py
+    %LUXAI_PYTHON% Update.py.new
     if errorlevel 1 (
-        if exist ".luxai_data\updater-bootstrap\Update.py.previous" copy /Y ".luxai_data\updater-bootstrap\Update.py.previous" "Update.py" >nul
+        del /q "Update.py.new" >nul 2>nul
         echo.
         echo Actualizarea NU s-a incheiat cu succes. Citeste eroarea de mai sus.
         pause
         exit /b 1
+    ) else (
+        del /q "Update.py.new" >nul 2>nul
+        exit /b 0
     )
-    echo.
-    pause
-    exit /b 0
 )

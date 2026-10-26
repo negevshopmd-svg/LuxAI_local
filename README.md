@@ -1,5 +1,13 @@
 # LuxAI_local
 
+## 0.3.7g: updater cleanup, faster first speech and sidebar version
+
+Successful updates close the updater console without a final keypress. Normal updates keep rollback files only in temporary staging and remove them when finished; recognized legacy updater backups and the old bootstrap copy are cleaned automatically after success, including an already-current installation. Unrelated files and linked folders are preserved. Original files are retained only if automatic rollback itself fails.
+
+The selected Piper voice loads and performs its first silent synthesis on the speech worker at launch, reusing that instance for replies. The interface stays responsive and no greeting or microphone recording starts. A missing voice still needs its initial model download; Windows SAPI retains its existing per-reply process behavior. The installed version appears below the sidebar collapse button in both widths.
+
+Close Jarvis, run `Update.bat`, then `run_windows.bat`. On the first upgrade launched by the old batch file, its already-parsed final pause may still require Enter; subsequent successful runs use the new automatic exit. Failed updates retain a readable error instead of closing immediately.
+
 ## 0.3.7f: cloud connection and settings reliability
 
 API checks now use the configured timeout and retry HTTP 502/503/504 once against the same provider. HTTP 503 means the service is temporarily unavailable; it does not prove an API key is invalid. A successful check is tied to the exact key, endpoint and model tested, and a verified Gemini replacement model is saved before reporting success. Temporary model-list failures can still test the explicitly configured Gemini model.

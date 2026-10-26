@@ -90,6 +90,8 @@ jobs:
           $launcher = Get-Content run_windows.bat -Raw
           if ($setup -notmatch 'install_windows.ps1') { throw "Setup does not invoke installer" }
           if ($launcher -notmatch 'CheckVenv') { throw "Launcher does not check copied environments" }
+      - name: Test updater batch automatic completion and bootstrap rollback
+        run: python scripts/test_update_batch_windows.py
 
   python-compatibility-windows:
     runs-on: windows-latest

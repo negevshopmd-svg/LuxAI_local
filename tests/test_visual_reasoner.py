@@ -438,7 +438,8 @@ class FeedbackRoutingUITests(unittest.TestCase):
         config_patch = mock.patch.object(main, "CONFIG", path)
         config_patch.start()
         self.addCleanup(config_patch.stop)
-        with mock.patch("sounddevice.query_devices", return_value=[]):
+        with (mock.patch("sounddevice.query_devices", return_value=[]),
+              mock.patch("main.MainWindow._ocr_setup_worker")):
             window = main.MainWindow()
         self.addCleanup(window.close)
         return window

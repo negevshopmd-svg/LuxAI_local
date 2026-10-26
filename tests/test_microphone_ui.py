@@ -100,7 +100,8 @@ class MicrophoneControlsTests(unittest.TestCase):
     def test_live_state_error_and_language_are_independent_of_requested_switch(self):
         with tempfile.TemporaryDirectory() as temporary, mock.patch.object(main, "CONFIG", Path(temporary) / "config.json"):
             main.CONFIG.write_text(json.dumps({"microphone_enabled": False, "tts_enabled": False}), encoding="utf-8")
-            with mock.patch("sounddevice.query_devices", return_value=[]):
+            with (mock.patch("sounddevice.query_devices", return_value=[]),
+                  mock.patch("main.MainWindow._ocr_setup_worker")):
                 window = main.MainWindow()
             self.addCleanup(window.close)
             window._on_audio_state("loading_model", {})
@@ -138,7 +139,8 @@ class MicrophoneControlsTests(unittest.TestCase):
         patch = mock.patch.object(main, "CONFIG", config)
         patch.start()
         self.addCleanup(patch.stop)
-        with mock.patch("sounddevice.query_devices", return_value=[]):
+        with (mock.patch("sounddevice.query_devices", return_value=[]),
+              mock.patch("main.MainWindow._ocr_setup_worker")):
             window = main.MainWindow()
         self.addCleanup(window.close)
         return window

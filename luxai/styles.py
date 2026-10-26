@@ -86,6 +86,12 @@ QFrame#Sidebar {
 QLabel#SidebarBrand {
     color: $text;
 }
+QLabel#SidebarVersion {
+    color: $muted;
+    font-size: 10px;
+    font-weight: 400;
+    padding: 0;
+}
 QPushButton#Nav {
     background: transparent;
     border: none;

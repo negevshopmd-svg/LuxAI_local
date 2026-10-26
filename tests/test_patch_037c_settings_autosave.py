@@ -100,7 +100,8 @@ class SettingsAutoSaveTests(unittest.TestCase):
         p = mock.patch.object(main, "CONFIG", filename)
         p.start()
         self.addCleanup(p.stop)
-        with mock.patch("sounddevice.query_devices", return_value=[]):
+        with (mock.patch("sounddevice.query_devices", return_value=[]),
+              mock.patch("main.MainWindow._ocr_setup_worker")):
             window = main.MainWindow()
         self.addCleanup(window.close)
         return window, filename

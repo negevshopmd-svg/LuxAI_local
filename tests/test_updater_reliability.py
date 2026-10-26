@@ -93,9 +93,135 @@ class UpdaterReliabilityTests(unittest.TestCase):
         self.assertEqual((self.root / "main.py").read_text(), "VALUE = 'new'\n")
         self.assertEqual(json.loads(updater.STATE_FILE.read_text())["commit"], "b" * 40)
         self.assertEqual(json.loads((self.root / "config.json").read_text()), {"personal": "keep"})
-        backups = list((self.root / "backups").glob("*/main.py"))
-        self.assertEqual(len(backups), 1)
-        self.assertEqual(backups[0].read_text(), "VALUE = 'old'\n")
+        self.assertFalse((self.root / "backups").exists())
+
+    def legacy_backup(self, name="20261020-112233-123456-aaaaaaaaaaaa", *, manifest=True):
+        saved = self.root / "backups" / name
+        saved.mkdir(parents=True)
+        (saved / "main.py").write_text("old application code")
+        if manifest:
+            saved.with_name(saved.name + ".manifest.json").write_text(json.dumps({
+                "overwritten": ["main.py"], "new": ["luxai/extra.py"],
+            }))
+        return saved
+
+    def test_success_removes_generated_legacy_backups_and_bootstrap_but_keeps_user_files(self):
+        saved = self.legacy_backup()
+        old = self.legacy_backup("20260901-112233-initial", manifest=False)
+        manual = self.installed("backups/my-notes/important.txt", "personal")
+        bootstrap = self.installed(".luxai_data/updater-bootstrap/Update.py.previous", "old updater")
+        model = self.installed(".luxai_data/ocr/custom-model.dat", "keep model")
+        result, _ = self.run_update(self.complete_archive())
+        self.assertEqual(result, 0)
+        self.assertFalse(saved.exists())
+        self.assertFalse(saved.with_name(saved.name + ".manifest.json").exists())
+        self.assertFalse(old.exists())
+        self.assertFalse(bootstrap.exists())
+        self.assertFalse(bootstrap.parent.exists())
+        self.assertEqual(manual.read_text(), "personal")
+        self.assertEqual(model.read_text(), "keep model")
+
+    def test_already_current_update_removes_empty_backup_directory_and_known_copies(self):
+        saved = self.legacy_backup()
+        self.installed(".luxai_update_state.json", json.dumps({"commit": "b" * 40}))
+        with mock.patch.object(updater, "request_json", return_value={"sha": "b" * 40}), mock.patch.object(
+            updater, "upgrade_dependencies", return_value=True,
+        ), mock.patch.object(updater, "ensure_local_ai_backend", return_value=True), mock.patch.object(
+            updater, "download",
+        ) as download:
+            self.assertEqual(updater.perform_update(), 0)
+        download.assert_not_called()
+        self.assertFalse(saved.exists())
+        self.assertFalse((self.root / "backups").exists())
+
+    def test_cleanup_preserves_unrecognized_or_modified_backup_folders(self):
+        modified = self.legacy_backup()
+        (modified / "private-notes.txt").write_text("personal")
+        unknown = self.legacy_backup("my-manual-backup")
+        unmarked = self.legacy_backup("20261020-112233-123456-bbbbbbbbbbbb", manifest=False)
+        old_with_data = self.legacy_backup("20260901-112233-initial", manifest=False)
+        (old_with_data / "config.json").write_text('{"personal":true}')
+        updater.cleanup_legacy_backups()
+        for saved in (modified, unknown, unmarked, old_with_data):
+            self.assertTrue((saved / "main.py").is_file())
+        self.assertEqual((modified / "private-notes.txt").read_text(), "personal")
+
+    def test_cleanup_never_traverses_a_windows_reparse_directory(self):
+        saved = self.legacy_backup()
+        ordinary_check = updater._is_link
+        def is_reparse(path):
+            return path == saved or ordinary_check(path)
+        with mock.patch.object(updater, "_is_link", side_effect=is_reparse), mock.patch.object(
+            updater.os, "walk", side_effect=AssertionError("Must not walk a reparse directory"),
+        ):
+            updater.cleanup_legacy_backups()
+        self.assertTrue((saved / "main.py").exists())
+
+    def test_cleanup_refuses_nested_links_and_invalid_manifests(self):
+        saved = self.legacy_backup()
+        nested = saved / "luxai"
+        nested.mkdir()
+        (nested / "voice.py").write_text("keep linked code")
+        ordinary_check = updater._is_link
+        def nested_reparse(path):
+            return path == nested or ordinary_check(path)
+        with mock.patch.object(updater, "_is_link", side_effect=nested_reparse):
+            updater.cleanup_legacy_backups()
+        self.assertTrue((saved / "main.py").exists())
+        other = self.legacy_backup("20261020-112233-000000-bbbbbbbbbbbb")
+        other.with_name(other.name + ".manifest.json").write_text('{"overwritten":["../outside"],"new":[]}')
+        updater.cleanup_legacy_backups()
+        self.assertTrue((other / "main.py").exists())
+
+    def test_successful_transaction_discards_temporary_originals(self):
+        self.installed("main.py", "old")
+        created = []
+        real_mkdtemp = tempfile.mkdtemp
+        def mkdtemp(*args, **kwargs):
+            path = Path(real_mkdtemp(*args, **kwargs))
+            created.append(path)
+            return str(path)
+        with mock.patch.object(updater.tempfile, "mkdtemp", side_effect=mkdtemp):
+            with updater.file_transaction([self.staged("main.py", "new")]):
+                self.assertEqual(len(created), 1)
+                self.assertEqual((created[0] / "main.py").read_text(), "old")
+        self.assertFalse(created[0].exists())
+        self.assertFalse((self.root / "backups").exists())
+
+    def test_managed_failed_restore_retains_only_emergency_recovery_files(self):
+        self.installed("main.py", "old")
+        atomic_copy = updater._atomic_copy
+        def fail_restore(source, destination):
+            if source.parent.name.startswith("luxai_rollback_"):
+                raise PermissionError("file is locked during restoration")
+            return atomic_copy(source, destination)
+        with mock.patch.object(updater, "_atomic_copy", side_effect=fail_restore):
+            with self.assertRaisesRegex(RuntimeError, "Restaurare incompletă"):
+                with updater.file_transaction([self.staged("main.py", "new")]):
+                    raise RuntimeError("dependency installation failed")
+        recoveries = list((self.root / ".luxai_data" / "update-recovery").glob("*/main.py"))
+        self.assertEqual(len(recoveries), 1)
+        self.assertEqual(recoveries[0].read_text(), "old")
+        self.assertFalse((self.root / "backups").exists())
+
+    def test_failed_recovery_move_keeps_original_temporary_files(self):
+        self.installed("main.py", "old")
+        atomic_copy = updater._atomic_copy
+        original = []
+        def fail_restore(source, destination):
+            if source.parent.name.startswith("luxai_rollback_"):
+                original.append(source)
+                raise PermissionError("file is locked during restoration")
+            return atomic_copy(source, destination)
+        with mock.patch.object(updater, "_atomic_copy", side_effect=fail_restore), mock.patch.object(
+            updater.shutil, "move", side_effect=OSError("Recovery directory unavailable"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "Restaurare incompletă"):
+                with updater.file_transaction([self.staged("main.py", "new")]):
+                    raise RuntimeError("dependency installation failed")
+        self.assertEqual(len(original), 1)
+        self.addCleanup(shutil.rmtree, original[0].parent)
+        self.assertEqual(original[0].read_text(), "old")
 
     def test_update_success_and_rollback_survive_strict_cp1252_stdout(self):
         for dependencies in (True, False):

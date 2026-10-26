@@ -67,7 +67,10 @@ class OCRSettingsCleanupTests(unittest.TestCase):
         p = mock.patch.object(main, "CONFIG", cfg)
         p.start()
         self.addCleanup(p.stop)
-        with mock.patch("sounddevice.query_devices", return_value=[]):
+        # Ordinary widget tests must not leave an installer subprocess running
+        # after their fixture; bootstrap is exercised explicitly below.
+        with (mock.patch("sounddevice.query_devices", return_value=[]),
+              mock.patch("main.MainWindow._ocr_setup_worker")):
             win = main.MainWindow()
         self.addCleanup(win.close)
         return win
