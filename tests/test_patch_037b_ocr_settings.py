@@ -83,17 +83,16 @@ class OCRSettingsCleanupTests(unittest.TestCase):
 
     def test_integrated_bootstrap_still_attempts_ocr_setup(self):
         window = self.window()
-        with (
-            mock.patch("main.ensure_tesseract", return_value=(
-                Path("C:/LuxAI/.luxai_data/ocr/Tesseract-OCR/tesseract.exe"),
-                Path("C:/LuxAI/.luxai_data/ocr/tessdata"),
-            )) as ensure,
-            mock.patch.object(window.ocr_setup_ready, "emit") as signal,
-        ):
+        emitted = []
+        window.ocr_setup_ready.connect(lambda ok, message: emitted.append((ok, message)))
+        with mock.patch("main.ensure_tesseract", return_value=(
+            Path("C:/LuxAI/.luxai_data/ocr/Tesseract-OCR/tesseract.exe"),
+            Path("C:/LuxAI/.luxai_data/ocr/tessdata"),
+        )) as ensure:
             window._ocr_setup_worker()
         ensure.assert_called_once_with(window.cfg.get("tesseract_path", ""))
-        signal.assert_called_once()
-        self.assertTrue(signal.call_args.args[0])
+        self.assertEqual(len(emitted), 1)
+        self.assertTrue(emitted[0][0])
 
     def test_bundled_ocr_used_before_optional_stale_config(self):
         from luxai import ocr_setup
