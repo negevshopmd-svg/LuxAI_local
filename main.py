@@ -88,6 +88,15 @@ def save_config(cfg):
     finally:
         target.unlink(missing_ok=True)
 
+
+def _api_connection_signature(settings, key):
+    """Identify the exact credentials and generation destination being tested."""
+    provider = settings.get("online_provider", "openai")
+    values = [provider, str(settings.get("online_model", "")).strip(),
+              str(settings.get("online_custom_url", "")).strip() if provider == "custom" else "",
+              key]
+    return hashlib.sha256(json.dumps(values, ensure_ascii=False).encode("utf-8")).hexdigest()
+
 def card():
     frame = QFrame()
     frame.setObjectName("Card")
@@ -189,7 +198,7 @@ class MainWindow(QMainWindow):
     online_plan_ready = Signal(str, object)
     local_reply_ready = Signal(str, str)
     api_test_result = Signal(str, bool, str, object)
-    cloud_check_result = Signal(str, str, bool, str)
+    cloud_check_result = Signal(str, str, bool, str, object)
     tts_played = Signal(bool, int)
     wizard_plan_ready = Signal(str, object)
     macro_step_ready = Signal(int, bool, str)
@@ -272,12 +281,14 @@ class MainWindow(QMainWindow):
         self._api_test_running = False
         self._api_test_requested_model = None
         self._api_test_requested_key = None
+        self._api_test_requested_signature = None
         self._cloud_probe_signature = None
         self._cloud_verified_signature = None
         self._cloud_probe_failed = False
         self._cloud_probe_message = ""
         self._cloud_probe_running = False
         self._cloud_first_check_done = False
+        self._cloud_applied_signature = self._cloud_signature()
         self._speech_queue = queue.Queue(maxsize=8)
         self._speech_generation = 0
         self._speech_thread = threading.Thread(target=self._speech_loop, daemon=True, name="JarvisSpeech")
@@ -695,11 +706,11 @@ class MainWindow(QMainWindow):
             valid, message, model = False, "Ошибка подключения к облачному API.", None
         if not self._closed:
             try:
-                self.cloud_check_result.emit(provider, signature, valid, message)
+                self.cloud_check_result.emit(provider, signature, valid, message, model)
             except RuntimeError:
                 pass
 
-    def _on_cloud_check_result(self, provider, signature, valid, message):
+    def _on_cloud_check_result(self, provider, signature, valid, message, model=None):
         self._cloud_probe_running = False
         self.cloud_check_button.setEnabled(True)
         if self._closed or signature != self._cloud_signature() or (
@@ -707,7 +718,25 @@ class MainWindow(QMainWindow):
         ):
             self._update_cloud_indicator()
             return
+        if valid and model and model != self.cfg.get("online_model"):
+            # The verifier may select another accessible Gemini model. Persist
+            # that exact model before claiming the configured connection works.
+            # Never replace a newer Settings draft with an older worker result.
+            panel = self.settings_panel
+            stored_key = get_api_key(provider)
+            draft_key = panel.api_key_entry.text().strip() or stored_key
+            if (_api_connection_signature(panel.collect(), draft_key)
+                    != _api_connection_signature(self.cfg, stored_key)):
+                self._update_cloud_indicator()
+                return
+            panel.online_model.setText(model)
+            if self.apply_settings() is False:
+                self._update_cloud_indicator()
+                return
+            signature = self._cloud_signature()
+            self._cloud_probe_signature = signature
         if valid:
+            self.online_planner.reset_connection_state()
             self._cloud_verified_signature = signature
             self._cloud_probe_failed = False
         else:
@@ -719,7 +748,7 @@ class MainWindow(QMainWindow):
     def save_settings(self, *_, allow_api_key=False):
         if not hasattr(self, "settings_panel"):
             return
-        old_signature = self._cloud_signature()
+        old_signature = self._cloud_applied_signature
         old_configuration = dict(self.cfg)
         self.cfg.update(self.settings_panel.collect())
         key_field = self.settings_panel.api_key_entry
@@ -746,7 +775,9 @@ class MainWindow(QMainWindow):
         try:
             save_config(self.cfg)
         except OSError:
+            self.cfg = old_configuration
             self.mic_status.setText("Ошибка сохранения config.json.")
+            self._update_cloud_indicator()
             return False
         if self._cloud_signature() != old_signature:
             self._cloud_verified_signature = None
@@ -756,6 +787,9 @@ class MainWindow(QMainWindow):
         if self.agent:
             self.agent.update_config(self.cfg)
         self.online_planner.update_config(self.cfg)
+        if self._cloud_signature() != old_signature:
+            self.online_planner.reset_connection_state()
+        self._cloud_applied_signature = self._cloud_signature()
         if hasattr(self, "command_wizard"):
             self.command_wizard.wake_prefix = self.cfg.get("wake_prefix", "Jarvis")
         if hasattr(self, "settings_panel"):
@@ -775,13 +809,20 @@ class MainWindow(QMainWindow):
             return tr("Онлайн-ИИ включён, но ключ выбранного провайдера не сохранён")
         return tr("Облачный ИИ выключен — локальный режим")
 
-    def apply_settings(self, *_):
+    def apply_settings(self, *_, allow_api_key=False):
         """Save settings and apply them to running services where supported."""
         old = dict(self.cfg)
-        if self.save_settings() is False:
+        if self.save_settings(allow_api_key=allow_api_key) is False:
             return False
-        self.apply_appearance()
-        self.apply_ui_language()
+        appearance_defaults = {
+            "ui_theme": "dark", "ui_accent": "#3978f6", "ui_transparency": 0,
+            "ui_animations": True, "always_on_top": False,
+        }
+        if any(old.get(name, default) != self.cfg.get(name, default)
+               for name, default in appearance_defaults.items()):
+            self.apply_appearance()
+        if old.get("ui_language", "ru") != self.cfg.get("ui_language", "ru"):
+            self.apply_ui_language()
         if old.get("autostart_windows", False) != self.cfg.get("autostart_windows", False):
             self._set_autostart(self.cfg.get("autostart_windows", False))
         if hasattr(self, "home_prefix"):
@@ -860,6 +901,7 @@ class MainWindow(QMainWindow):
         self._api_test_running = True
         self._api_test_requested_model = settings.get("online_model")
         self._api_test_requested_key = key
+        self._api_test_requested_signature = _api_connection_signature(settings, key)
         self.settings_panel.set_test_busy(True)
         self.mic_status.setText("Проверяю подключение к API…")
         threading.Thread(
@@ -884,50 +926,52 @@ class MainWindow(QMainWindow):
 
     def _on_api_test_result(self, provider, valid, message, suggested_model):
         self._api_test_running = False
+        requested_signature = self._api_test_requested_signature
+        self._api_test_requested_signature = None
+        self._api_test_requested_key = None
+        self._api_test_requested_model = None
         if self._closed or not hasattr(self, "settings_panel"):
             return
         panel = self.settings_panel
-        # Do not alter a model/provider changed while the asynchronous test ran.
-        if panel.online_provider.currentData() != provider:
-            panel.set_test_busy(False)
-            panel.refresh_key_status()
-            self._api_test_requested_key = None
+        panel.set_test_busy(False)
+        current_key = panel.api_key_entry.text().strip() or get_api_key(provider)
+        # Bind both success and failure to the complete request. In particular,
+        # a successful old endpoint/key cannot certify a newly edited model.
+        if (panel.online_provider.currentData() != provider or
+                requested_signature != _api_connection_signature(panel.collect(), current_key)):
+            panel.show_test_result(
+                "Настройки API изменились во время проверки. Проверьте подключение повторно.", False
+            )
             return
-        if (
-            valid and suggested_model and
-            panel.online_model.text().strip() == self._api_test_requested_model and
-            suggested_model != panel.online_model.text().strip()
-        ):
+        if valid and suggested_model and suggested_model != panel.online_model.text().strip():
             panel.online_model.setText(suggested_model)
         if valid:
-            # The UI might have changed while the network request was running.
-            # Persist only the exact key that actually passed validation.
-            current = panel.api_key_entry.text().strip() or get_api_key(provider)
-            if current != self._api_test_requested_key:
+            if self.apply_settings(allow_api_key=True) is False:
                 panel.show_test_result(
-                    "Ключ изменился во время проверки. Проверьте новый ключ повторно.", False
+                    "Проверка прошла, но ключ НЕ удалось сохранить. Повторите сохранение.",
+                    False,
                 )
-                self._api_test_requested_key = None
                 return
-            if current == self._api_test_requested_key:
-                if self.save_settings(allow_api_key=True) is False:
-                    panel.show_test_result(
-                        "Проверка прошла, но ключ НЕ удалось сохранить. Повторите сохранение.",
-                        False,
-                    )
-                    self._api_test_requested_key = None
-                    return
-                self._cloud_verified_signature = self._cloud_signature()
-                self._cloud_probe_failed = False
-                self._cloud_first_check_done = True
-                self._update_cloud_indicator()
-                message += {
-                    "ru": " Ключ и настройки сохранены.",
-                    "en": " Key and settings saved.",
-                    "ro": " Cheia și setările au fost salvate.",
-                }.get(get_ui_language(), " Key and settings saved.")
+            self._cloud_verified_signature = self._cloud_signature()
+            self.online_planner.reset_connection_state()
+            self._cloud_probe_failed = False
+            self._cloud_first_check_done = True
+            self._update_cloud_indicator()
+            message += {
+                "ru": " Ключ и настройки сохранены.",
+                "en": " Key and settings saved.",
+                "ro": " Cheia și setările au fost salvate.",
+            }.get(get_ui_language(), " Key and settings saved.")
+        elif (_api_connection_signature(self.cfg, get_api_key(provider))
+              == requested_signature):
+            # A failed draft does not invalidate a different stored key, but a
+            # failed recheck of the stored connection must clear its old green.
+            self._cloud_verified_signature = None
+            self._cloud_probe_signature = self._cloud_signature()
+            self._cloud_probe_failed = True
+            self._cloud_probe_message = message
+            self._update_cloud_indicator()
         panel.show_test_result(message, valid)
-        self._api_test_requested_key = None
         self.mic_status.setText(message)
 
     def preview_voice(self):
@@ -963,11 +1007,13 @@ class MainWindow(QMainWindow):
         accent = self.cfg.get("ui_accent", "#3978f6")
         app = QApplication.instance()
         if app is not None:
-            app.setStyleSheet(build_styles(theme, accent))
+            styles = build_styles(theme, accent)
+            if app.styleSheet() != styles:
+                app.setStyleSheet(styles)
         refresh_icons(self, theme, accent)
         if app is not None:
             for window in app.topLevelWidgets():
-                if window is not self:
+                if window is not self and window.isVisible():
                     refresh_icons(window, theme, accent)
 
         # SettingsPanel has a local frame style; keep it synchronized too.

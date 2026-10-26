@@ -1,4 +1,10 @@
-# LuxAI Local 0.3.7e (Windows 10/11, 64-bit)
+# LuxAI Local 0.3.7f (Windows 10/11, 64-bit)
+
+## Patch 0.3.7f: conexiune API și setări stabile
+
+Verificarea API respectă timpul de așteptare ales și repetă o singură dată cererile cu HTTP 502/503/504, către același furnizor. HTTP 503 indică indisponibilitatea temporară a serviciului; nu dovedește că cheia este greșită. Rezultatele vechi nu mai pot valida o altă cheie, adresă sau model schimbat între timp. Dacă testul Gemini găsește un model funcțional, îl salvează înainte să afișeze conexiunea ca activă.
+
+Salvarea automată nu mai redesenează întreaga interfață la modificări fără legătură cu aspectul. Se păstrează identitatea microfonului după reconectare, iar „unmute/undeafen” în Discord nu mai este interpretat invers. Închide Jarvis, rulează `Update.bat`, apoi `run_windows.bat`. Dacă furnizorul continuă să răspundă cu 503, trebuie să își revină serviciul; o cheie nouă nu repară această eroare.
 
 ## Patch 0.3.7e: microfoane fără dubluri
 

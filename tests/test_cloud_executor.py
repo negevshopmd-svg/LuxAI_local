@@ -148,6 +148,7 @@ class CloudExecutionTests(unittest.TestCase):
         }
         with mock.patch("luxai.online_agent.urllib.request.build_opener") as opener:
             handle = opener.return_value.open.return_value.__enter__.return_value
+            handle.status = 200
             handle.read.return_value = json.dumps(response).encode()
             answer = planner._grounded_answer(
                 "Какая погода завтра в Кишинёве?",

@@ -4,7 +4,7 @@
 >
 > Repository: https://github.com/negevshopmd-svg/LuxAI_local  
 > OS: Windows 10/11, 64-bit. Python + PySide6. UI and voice responses primarily Russian, with Romanian/English support.  
-> Updated for the **0.3.7e work**, 2026-10-26. \`Update.bat\` installs the code merged into \`main\`, NOT an open PR.  
+> Updated for the **0.3.7f work**, 2026-10-26. \`Update.bat\` installs the code merged into \`main\`, NOT an open PR.
 > Do NOT include real API keys, private logs, screen captures, model binaries, user audio, or personal paths in Git history.
 
 ## 1. What this project is
@@ -30,6 +30,7 @@ LuxAI Local is a Windows desktop Jarvis assistant. It listens for voice commands
 - **0.3.2:** clearer screenshots, 2-pass native high-resolution visual target detection; real physical Windows coordinates (DPI/multiple monitors) and stale-window checks.
 - **0.3.3:** natural Steam self-nickname interpretation and a dedicated Steam account-bar screenshot reader.
 - **0.3.4:** Discord microphone close-up targeting, direct local keyboard/mouse commands, named Discord contact navigation, extra tests.
+- **0.3.7f:** Cloud verification uses configured timeouts and bounded same-endpoint 502/503/504 recovery (`cloud_http.py`); 503 is a service issue, not proof of invalid credentials. API results are bound to exact key/provider/model/endpoint; health checks persist the actually tested Gemini model. Settings auto-save only updates appearance/language when needed. Key deletion/source reporting, microphone host identity and English headphones on/off parsing are corrected. Dedicated regressions in `test_cloud_http_reliability.py`, `test_cloud_check_context.py`, `test_settings_key_lifecycle.py`, `test_microphone_picker_identity.py`, `test_settings_apply_efficiency.py`, `test_headphones_intent_boundaries.py`.
 - **0.3.7e:** Microphone settings list only one preferred Windows host API (WASAPI) instead of every PortAudio backend. Friendly display labels do not alter the actual selected name/host/index; safe legacy matching and scan-time signal blocking. Tests `tests/test_patch_037e_microphone_picker.py`.
 - **0.3.7d:** Hardens Settings auto-save: draft API keys are excluded from unrelated preference saves and stored only after finishing editing or an explicitly successful API test. No Save button; restart Jarvis after `Update.bat` to replace an old running UI. Tests `tests/test_patch_037d_settings_autosave.py`.
 - **0.3.7c:** Settings save automatically via `SettingsPanel._setup_autosave` and `QTimer` (550ms debounce). The explicit Save button is gone. `MainWindow.apply_settings` remains the single persistence/apply path; `mark_auto_saved` avoids duplicate writes, `show_page` and `closeEvent` flush pending edits. API key changes commit only when editing finishes. Tests `tests/test_patch_037c_settings_autosave.py`.

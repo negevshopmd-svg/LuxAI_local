@@ -1,4 +1,8 @@
-LUXAI LOCAL 0.3.7c — ACTUALIZARE
+LUXAI LOCAL 0.3.7f — ACTUALIZARE
+
+0.3.7f: CORECTII API SI STABILITATE
+Verificarea API respecta timpul ales si repeta o singura data erorile temporare 502/503/504 la acelasi furnizor. HTTP 503 nu inseamna automat cheie gresita. Rezultatele vechi nu mai valideaza setari schimbate intre timp; modelul Gemini verificat este salvat corect. Salvarea automata nu mai redeseneaza intreaga interfata la fiecare editare. Microfonul isi pastreaza identitatea dupa reconectare, iar unmute/undeafen in Discord functioneaza in sensul cerut.
+Instalare: inchide Jarvis, ruleaza Update.bat, apoi run_windows.bat. O intrerupere persistenta la furnizor necesita revenirea serviciului.
 
 0.3.7c: SALVARE AUTOMATA A SETARILOR
 Butonul albastru «Сохранить настройки» a fost eliminat. Orice modificare a setarilor (comutatoare, liste, glisoare, text) se salveaza si se aplica automat, cu o mica pauza pentru a evita scrierea repetata in timp ce tastezi. Cand pleci din Setari ori inchizi Jarvis, modificarile in asteptare sunt salvate imediat. Cheile API se salveaza dupa finalizarea editarii sau dupa verificarea cheii, nu la fiecare litera. Testele includ paginarea si inchiderea.

@@ -9,10 +9,11 @@ and does not allow redirects carrying credentials.
 """
 from __future__ import annotations
 
-import json
 import re
 import urllib.error
 import urllib.request
+
+from luxai.cloud_http import read_json_response
 
 MODELS_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/openai/models"
 
@@ -80,11 +81,10 @@ def list_gemini_models(api_key: str, timeout: int = 5) -> list[str]:
             )
 
     opener = urllib.request.build_opener(_NoRedirect())
-    with opener.open(request, timeout=max(3, min(int(timeout), 10))) as response:
-        if response.status != 200:
-            raise ValueError("Gemini models endpoint returned an unexpected status")
-        raw = response.read(512 * 1024)
-    return parse_model_ids(json.loads(raw))
+    result = read_json_response(
+        opener, request, max(3, min(int(timeout), 120)), limit=512 * 1024,
+    )
+    return parse_model_ids(result)
 
 
 def choose_gemini_model(available: list[str], selected: str | None) -> str | None:
