@@ -2,6 +2,14 @@
 
 Voice-controlled Jarvis assistant for Windows 10/11 (64-bit).
 
+## 0.3.7c: automatic Settings save, no Save button (mini-patch)
+
+Settings are now saved to `config.json` **automatically** whenever a real editable control changes: checkboxes, dropdowns, sliders, text and numeric fields. A short 550 ms debounce coalesces typing and slider changes rather than writing on every keystroke. Pending changes are committed when leaving the Settings page or closing/minimizing Jarvis. The old bottom blue **“Сохранить настройки”** button has been removed.
+
+Changes are applied using the existing live `MainWindow.apply_settings` path (appearance, voice, mic, autostart and Home controls). API secrets are saved only when the key field finishes editing or after the existing explicit API test, not per keypress. Settings search and live microphone diagnostics never count as edits. The existing config data and the rest of the application are unchanged.
+
+Install through `Update.bat` after merging to `main`. Regression tests: `tests/test_patch_037c_settings_autosave.py`.
+
 ## 0.3.7b: integrated OCR, cleaner Settings (mini-patch)
 
 The redundant "Встроенный Tesseract OCR" setting, external executable picker and OCR installation status row are removed from **Settings → System**. OCR is already integrated and still installs/checks itself automatically at startup or during `Update.bat`, using the bundled Russian and English recognition models. Existing OCR commands, OCR-dependent visual tools, user configuration and automatic recovery are preserved.

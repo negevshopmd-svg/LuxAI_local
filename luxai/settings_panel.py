@@ -11,7 +11,7 @@ import webbrowser
 from luxai.secure_keys import has_api_key, clear_api_key
 from luxai.api_providers import PROVIDERS
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QProgressBar, QScrollArea, QSlider, QSpinBox, QVBoxLayout, QWidget, QMessageBox,
@@ -65,7 +65,7 @@ class SettingsPanel(QWidget):
         heading = QLabel("Настройки")
         heading.setObjectName("PageTitle")
         self.body_layout.addWidget(heading)
-        description = QLabel("Настройки сохраняются на этом компьютере. Изменения применяются после сохранения.")
+        description = QLabel("Изменения автоматически сохраняются на этом компьютере и применяются без кнопки сохранения.")
         description.setWordWrap(True)
         description.setObjectName("Muted")
         self.body_layout.addWidget(description)
@@ -78,11 +78,8 @@ class SettingsPanel(QWidget):
         self._build_synthesis()
         self._build_system()
 
-        save = QPushButton("Сохранить настройки")
-        save.setObjectName("Primary")
-        set_button_icon(save, "save", role="white")
-        save.clicked.connect(self.on_save)
-        self.body_layout.addWidget(save)
+        # Every actual settings control is monitored and saved automatically.
+        # No explicit Save button is needed.
         self.body_layout.addStretch()
 
         sidebar = QFrame()
@@ -113,6 +110,79 @@ class SettingsPanel(QWidget):
         side.addWidget(reset)
         root.addWidget(sidebar)
         translate_widgets(self, get_ui_language())
+        self._setup_autosave()
+
+    def _setup_autosave(self):
+        """Debounce actual user settings edits, not diagnostics or search.
+
+        The watcher is attached *after* widget construction/translation so
+        default initialization cannot overwrite an existing config.json.
+        """
+        self._autosave_busy = False
+        self._autosave_force = False
+        self._autosave_snapshot = self.collect()
+        self._autosave_timer = QTimer(self)
+        self._autosave_timer.setSingleShot(True)
+        self._autosave_timer.setInterval(550)
+        self._autosave_timer.timeout.connect(self.flush_auto_save)
+
+        controls = (
+            "mic", "prefix", "prefix_text", "recognition_quality",
+            "whisper_model", "language", "mic_device", "mic_sensitivity",
+            "speech_pause", "tts", "voice_id", "response_language",
+            "voice_volume", "voice_engine", "voice_speed", "confirm",
+            "confirm_yes", "confirm_no", "confirm_timeout", "chain_words",
+            "ui_language", "theme", "accent", "transparency",
+            "animations", "on_top", "autostart", "tray_on_close",
+            "weather_city", "local_llm_fallback", "model_select",
+            "online_agent_enabled", "online_provider", "online_model",
+            "custom_api_url", "online_timeout",
+        )
+        for name in controls:
+            widget = getattr(self, name)
+            if isinstance(widget, QCheckBox):
+                widget.toggled.connect(self._queue_auto_save)
+            elif isinstance(widget, QComboBox):
+                widget.currentIndexChanged.connect(self._queue_auto_save)
+            elif isinstance(widget, (QSlider, QSpinBox)):
+                widget.valueChanged.connect(self._queue_auto_save)
+            elif isinstance(widget, QLineEdit):
+                widget.textChanged.connect(self._queue_auto_save)
+        # A secret must not be written after every keystroke.
+        # Save it only after editing finishes or a separate key test succeeds.
+        self.api_key_entry.editingFinished.connect(self._queue_api_key_save)
+
+    def _queue_auto_save(self, *_):
+        if not self._autosave_busy:
+            self._autosave_timer.start()
+
+    def _queue_api_key_save(self):
+        if self.api_key_entry.text().strip():
+            self._autosave_force = True
+            self._queue_auto_save()
+
+    def mark_auto_saved(self):
+        """Also called when a Home control / explicit API test saved config."""
+        if not hasattr(self, "_autosave_timer"):
+            return
+        self._autosave_snapshot = self.collect()
+        self._autosave_force = False
+        self._autosave_timer.stop()
+
+    def flush_auto_save(self):
+        """Persist pending edits before navigation and window close."""
+        if not hasattr(self, "_autosave_timer") or self._autosave_busy:
+            return
+        self._autosave_timer.stop()
+        current = self.collect()
+        if current == self._autosave_snapshot and not self._autosave_force:
+            return
+        self._autosave_busy = True
+        try:
+            if self.on_save() is not False:
+                self.mark_auto_saved()
+        finally:
+            self._autosave_busy = False
 
     def _section(self, title, subtitle):
         frame = QFrame()
@@ -734,7 +804,7 @@ class SettingsPanel(QWidget):
                 )
             else:
                 self.key_status.setText(
-                    tr("Новый ключ введён. Нажмите «Проверить ключ», затем «Сохранить настройки».")
+                    tr("Ключ сохраняется после завершения ввода. Нажмите «Проверить ключ» для проверки.")
                 )
         else:
             self.refresh_key_status()
@@ -829,7 +899,7 @@ class SettingsPanel(QWidget):
             "Open-Meteo работает без ключа Gemini. Этот город по умолчанию.",
             self.weather_city,
         )
-        info = QLabel("Параметры сохраняются в config.json. Для смены микрофона перезапускается распознавание.")
+        info = QLabel("Изменения автоматически сохраняются в config.json. При смене микрофона распознавание перезапускается.")
         info.setObjectName("Muted")
         info.setWordWrap(True)
         panel.addWidget(info)
