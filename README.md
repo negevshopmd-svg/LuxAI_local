@@ -2,6 +2,10 @@
 
 Voice-controlled Jarvis assistant for Windows 10/11 (64-bit).
 
+## 0.3.7e: compact microphone picker (mini-patch)
+
+Settings → Voice input now lists microphones once instead of repeating MME, DirectSound, WASAPI and WDM-KS representations. On Windows, LuxAI prefers the WASAPI input endpoints, falling back to another available recording host API when needed; descriptions use simple names like Discord. Existing selected-device names are matched to the new visible entry when uniquely identifiable. Real device names, host APIs and indices remain intact internally for voice recording, including reconnect handling. A device list refresh does not accidentally trigger settings auto-save. Click **Обновить устройства** or restart Jarvis after `Update.bat` to reload the simplified list.
+
 ## 0.3.7d: reliable hands-free Settings persistence (mini-patch)
 
 Settings continue to auto-save without a bottom Save button. Ordinary edits are applied and written to `config.json` after a 550 ms pause, including when you navigate away from Settings or close Jarvis. Draft API secrets are **not** saved because another preference changed while you were still typing: they are committed when editing finishes, or after a successful explicit API key test. Restart Jarvis after running `Update.bat` from this repository's `main`; an already-running older process will continue to display its old controls until restarted. Regression tests: `tests/test_patch_037d_settings_autosave.py`.

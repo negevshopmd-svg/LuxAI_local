@@ -1,3 +1,10 @@
+## 0.3.7e — compact Windows microphone picker
+
+- Show each physical recording input through one preferred Windows audio backend (WASAPI first), rather than repeating MME/DirectSound/WASAPI/WDM-KS entries.
+- Display short microphone labels similar to Discord, without changing driver names or recording endpoint metadata.
+- Safely migrate identifiable legacy selections, retain unavailable devices rather than silently picking a different microphone, and suppress false settings autosaves while refreshing the device list.
+- Add regression tests for backend selection, headset reconnection, MME truncation and Qt selection behavior.
+
 ## 0.3.7d — Settings auto-save safeguards
 
 - Continue automatically applying/persisting all ordinary Settings changes without any Save button; protect in-progress API-key text from being unintentionally stored by unrelated preference changes.
