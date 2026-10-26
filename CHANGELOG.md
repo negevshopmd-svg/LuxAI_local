@@ -1,3 +1,10 @@
+## 0.3.7c — automatic Settings persistence
+
+- Remove the explicit “Сохранить настройки” Settings button.
+- Automatically save/apply changes from actual editable Settings controls after a short debounce; flush edits when navigating away from Settings and on window close/minimize.
+- Preserve existing config and service-application logic and secure key storage; do not autosave search or changing diagnostics.
+- Add Qt regression tests for debounced autosave, one real config write, API key editing, navigation and close.
+
 ## 0.3.7b — Integrated OCR, remove redundant Settings controls
 
 - Remove the built-in Tesseract OCR section, external-path picker, Browse button and OCR status row from Settings → System.
