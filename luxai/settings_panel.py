@@ -120,6 +120,7 @@ class SettingsPanel(QWidget):
         """
         self._autosave_busy = False
         self._autosave_force = False
+        self._api_key_commit_ready = False
         self._autosave_snapshot = self.collect()
         self._autosave_timer = QTimer(self)
         self._autosave_timer.setSingleShot(True)
@@ -150,16 +151,26 @@ class SettingsPanel(QWidget):
                 widget.textChanged.connect(self._queue_auto_save)
         # A secret must not be written after every keystroke.
         # Save it only after editing finishes or a separate key test succeeds.
+        self.api_key_entry.textChanged.connect(self._on_api_key_draft_changed)
         self.api_key_entry.editingFinished.connect(self._queue_api_key_save)
 
     def _queue_auto_save(self, *_):
         if not self._autosave_busy:
             self._autosave_timer.start()
 
+    def _on_api_key_draft_changed(self, *_):
+        # A pending secret is not ready to save while the user is typing.
+        self._api_key_commit_ready = False
+
     def _queue_api_key_save(self):
         if self.api_key_entry.text().strip():
+            self._api_key_commit_ready = True
             self._autosave_force = True
             self._queue_auto_save()
+
+    def api_key_ready_for_save(self):
+        """Only submit a finished secret, never the middle of a pasted/typed key."""
+        return self.api_key_entry.text().strip() if self._api_key_commit_ready else ""
 
     def mark_auto_saved(self):
         """Also called when a Home control / explicit API test saved config."""

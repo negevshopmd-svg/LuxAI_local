@@ -1,4 +1,10 @@
-# LuxAI Local 0.3.1 (Windows 10/11, 64-bit)
+# LuxAI Local 0.3.7d (Windows 10/11, 64-bit)
+
+## Patch 0.3.7d: setări salvate automat
+
+Orice modificare obișnuită din **Setări** se salvează și se aplică automat după o pauză scurtă (550 ms), fără butonul „Сохранить настройки”. Modificările nesalvate se aplică și la navigarea spre altă pagină ori la închiderea Jarvis. Cheile API sunt salvate numai după terminarea editării sau după un test API reușit, nu cât timp încă tastezi. Pentru a vedea interfața nouă, **închide complet Jarvis**, rulează `Update.bat`, apoi pornește-l cu `run_windows.bat`. O fereastră rămasă deschisă continuă să afișeze interfața versiunii vechi.
+
+
 
 Asistent vocal pentru Windows, cu recunoaștere locală și servicii AI opționale:
 - microfon pornit la lansare (poate fi oprit din interfață)

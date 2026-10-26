@@ -4,7 +4,7 @@
 >
 > Repository: https://github.com/negevshopmd-svg/LuxAI_local  
 > OS: Windows 10/11, 64-bit. Python + PySide6. UI and voice responses primarily Russian, with Romanian/English support.  
-> Updated for the **0.3.7c work**, 2026-10-26. \`Update.bat\` installs the code merged into \`main\`, NOT an open PR.  
+> Updated for the **0.3.7d work**, 2026-10-26. \`Update.bat\` installs the code merged into \`main\`, NOT an open PR.  
 > Do NOT include real API keys, private logs, screen captures, model binaries, user audio, or personal paths in Git history.
 
 ## 1. What this project is
@@ -30,6 +30,7 @@ LuxAI Local is a Windows desktop Jarvis assistant. It listens for voice commands
 - **0.3.2:** clearer screenshots, 2-pass native high-resolution visual target detection; real physical Windows coordinates (DPI/multiple monitors) and stale-window checks.
 - **0.3.3:** natural Steam self-nickname interpretation and a dedicated Steam account-bar screenshot reader.
 - **0.3.4:** Discord microphone close-up targeting, direct local keyboard/mouse commands, named Discord contact navigation, extra tests.
+- **0.3.7d:** Hardens Settings auto-save: draft API keys are excluded from unrelated preference saves and stored only after finishing editing or an explicitly successful API test. No Save button; restart Jarvis after `Update.bat` to replace an old running UI. Tests `tests/test_patch_037d_settings_autosave.py`.
 - **0.3.7c:** Settings save automatically via `SettingsPanel._setup_autosave` and `QTimer` (550ms debounce). The explicit Save button is gone. `MainWindow.apply_settings` remains the single persistence/apply path; `mark_auto_saved` avoids duplicate writes, `show_page` and `closeEvent` flush pending edits. API key changes commit only when editing finishes. Tests `tests/test_patch_037c_settings_autosave.py`.
 - **0.3.7b:** Settings → System no longer shows Tesseract OCR executable Browse, section or installation status. OCR is bundled/installed automatically and keeps existing config and all OCR commands; `MainWindow._ocr_setup_worker` and `ocr_setup.py` remain active. Test `tests/test_patch_037b_ocr_settings.py`.
 - **0.3.7a:** HomePage removes the three extra action buttons but RETAINS all four toggles, volume and mic meters. MainWindow no longer wires removed buttons; microphone diagnostics remain in Settings; screen inspection/selected-text commands remain available. Regression test: `tests/test_patch_037a_home_cleanup.py`.

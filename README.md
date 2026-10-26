@@ -2,6 +2,10 @@
 
 Voice-controlled Jarvis assistant for Windows 10/11 (64-bit).
 
+## 0.3.7d: reliable hands-free Settings persistence (mini-patch)
+
+Settings continue to auto-save without a bottom Save button. Ordinary edits are applied and written to `config.json` after a 550 ms pause, including when you navigate away from Settings or close Jarvis. Draft API secrets are **not** saved because another preference changed while you were still typing: they are committed when editing finishes, or after a successful explicit API key test. Restart Jarvis after running `Update.bat` from this repository's `main`; an already-running older process will continue to display its old controls until restarted. Regression tests: `tests/test_patch_037d_settings_autosave.py`.
+
 ## 0.3.7c: automatic Settings save, no Save button (mini-patch)
 
 Settings are now saved to `config.json` **automatically** whenever a real editable control changes: checkboxes, dropdowns, sliders, text and numeric fields. A short 550 ms debounce coalesces typing and slider changes rather than writing on every keystroke. Pending changes are committed when leaving the Settings page or closing/minimizing Jarvis. The old bottom blue **“Сохранить настройки”** button has been removed.
