@@ -1,4 +1,8 @@
-LUXAI LOCAL 0.3.7a — ACTUALIZARE
+LUXAI LOCAL 0.3.7b — ACTUALIZARE
+
+0.3.7b: OCR INTEGRAT, FARA SETARI SUPLIMENTARE
+Am eliminat din pagina Setari -> Sistem sectiunea «Встроенный Tesseract OCR», campul pentru calea tesseract.exe, butonul «Обзор» si mesajul de stare de sub sectiune. OCR ramane integrat in Jarvis si se verifica/instaleaza automat, inclusiv modelele rus + eng, la pornire si prin Update.bat. Comenzile OCR nu sunt eliminate. Configuratia locala existenta ramane compatibila.
+Pentru instalare: inchide Jarvis, ruleaza Update.bat si apoi run_windows.bat.
 
 0.3.7a: MINI-PATCH PENTRU PAGINA PRINCIPALA
 Au fost eliminate doar cele trei butoane suplimentare din «Главная»: «Проверить микрофон», «Посмотреть кнопки на экране», «Пересказать выделенный текст». Functiile nu sunt sterse: testarea microfonului ramane in Setari, iar celelalte doua instrumente raman disponibile prin comenzile Jarvis. Panoul pastreaza comutatoarele, volumul si informatia microfonului.

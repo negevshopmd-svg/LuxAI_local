@@ -1,3 +1,9 @@
+## 0.3.7b — Integrated OCR, remove redundant Settings controls
+
+- Remove the built-in Tesseract OCR section, external-path picker, Browse button and OCR status row from Settings → System.
+- Preserve automatic OCR setup/retry on Windows, bundled rus/eng models, OCR commands, original config values and updater support. Status remains available internally; errors can still surface via microphone status tooltip.
+- Remove obsolete Settings callback and add regression tests for clean Settings UI, stable saving and working bundled OCR bootstrap.
+
 ## 0.3.7a — Home panel cleanup (mini-patch)
 
 - Remove the three redundant Home buttons: "Проверить микрофон", "Посмотреть кнопки на экране", and "Пересказать выделенный текст".

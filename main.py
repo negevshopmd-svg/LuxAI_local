@@ -390,11 +390,6 @@ class MainWindow(QMainWindow):
         if self._closed:
             return
         self._ocr_ready = bool(success)
-        if hasattr(self, "settings_panel"):
-            try:
-                self.settings_panel.set_ocr_status(success, message)
-            except (AttributeError, RuntimeError):
-                pass
         # Do not overwrite microphone/online command state mid-conversation.
         if not success and not self._processing:
             self.mic_status.setToolTip(message)
