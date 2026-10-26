@@ -2,6 +2,12 @@
 
 Voice-controlled Jarvis assistant for Windows 10/11 (64-bit).
 
+## 0.3.7b: integrated OCR, cleaner Settings (mini-patch)
+
+The redundant "Встроенный Tesseract OCR" setting, external executable picker and OCR installation status row are removed from **Settings → System**. OCR is already integrated and still installs/checks itself automatically at startup or during `Update.bat`, using the bundled Russian and English recognition models. Existing OCR commands, OCR-dependent visual tools, user configuration and automatic recovery are preserved.
+
+Existing optional `tesseract_path` configuration remains compatible but no longer needs a visible text field. Update through `Update.bat` after this patch is merged into main.
+
 ## 0.3.7a: Home panel cleanup (mini-patch)
 
 The Home (“Главная”) control panel no longer displays the three extra buttons for microphone testing, viewing on-screen buttons or summarizing selected text. Those tools are **not deleted**: microphone diagnostics remain in Settings; screen inspection and selected-text summary remain accessible through existing voice commands and tools. Prefix mode, quiet mode, avatar animation, always-on-top, volume and microphone meters remain untouched.
