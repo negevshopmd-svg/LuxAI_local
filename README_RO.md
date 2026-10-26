@@ -1,4 +1,10 @@
-# LuxAI Local 0.3.7d (Windows 10/11, 64-bit)
+# LuxAI Local 0.3.7e (Windows 10/11, 64-bit)
+
+## Patch 0.3.7e: microfoane fără dubluri
+
+Lista din **Setări → Intrare vocală → Microfon** afișează fiecare intrare audio o singură dată, cu nume simplu, similar Discord. Nu mai repetă variantele MME, DirectSound, WASAPI și WDM-KS. În Windows folosește prioritar WASAPI, cu alternativă dacă aceasta lipsește. Se păstrează selectarea microfonului existent când identitatea poate fi recunoscută fără ambiguitate. Scanarea listei nu salvează accidental setările. Închide Jarvis, rulează `Update.bat`, apoi `run_windows.bat`.
+
+
 
 ## Patch 0.3.7d: setări salvate automat
 

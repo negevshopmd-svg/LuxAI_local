@@ -376,7 +376,9 @@ class SettingsPanel(QWidget):
         self._row(panel, "Варианты обращения", "Несколько вариантов через запятую.", self.prefix_text)
 
     def refresh_microphone_devices(self, initial=False):
-        """Keep a selected headset by its endpoint and host API after reconnecting."""
+        """Display each Windows microphone once; retain exact recording IDs."""
+        from luxai.audio_devices import microphone_display_entries, microphone_display_name
+
         if initial:
             selected = self.cfg.get("microphone_device", -1)
             name = self.cfg.get("microphone_name", "")
@@ -389,42 +391,100 @@ class SettingsPanel(QWidget):
             selected = int(selected) if selected is not None else -1
         except (TypeError, ValueError):
             selected = -1
-        self.mic_device.clear()
-        self.mic_device.addItem(tr("По умолчанию"), -1)
-        self._combo_icon(self.mic_device, 0, "mic")
-        self.mic_device.setItemData(0, {"name": "", "hostapi": ""}, Qt.ItemDataRole.UserRole + 1)
-        self._microphone_metadata = {-1: {"name": "", "hostapi": ""}}
+        name, host = str(name or "").strip(), str(host or "").strip()
+
+        # Rebuilding a QComboBox emits selection signals. A device scan must not
+        # automatically change the microphone or restart recognition.
+        was_blocked = self.mic_device.blockSignals(True)
         error = ""
         try:
-            import sounddevice as sd
-            hosts = sd.query_hostapis()
-            for index, device in enumerate(sd.query_devices()):
-                if device["max_input_channels"] <= 0:
-                    continue
-                host_name = str(hosts[device["hostapi"]]["name"])
-                self._microphone_metadata[index] = {"name": str(device["name"]), "hostapi": host_name}
-                self.mic_device.addItem(f"{device['name']} — {host_name}", index)
-                self._combo_icon(self.mic_device, self.mic_device.count() - 1, "mic")
-                self.mic_device.setItemData(self.mic_device.count() - 1, self._microphone_metadata[index], Qt.ItemDataRole.UserRole + 1)
+            self.mic_device.clear()
+            self.mic_device.addItem(tr("По умолчанию"), -1)
+            self._combo_icon(self.mic_device, 0, "mic")
+            self.mic_device.setItemData(
+                0, {"name": "", "hostapi": ""}, Qt.ItemDataRole.UserRole + 1
+            )
+            self._microphone_metadata = {-1: {"name": "", "hostapi": ""}}
+            raw_devices = []
+            entries = []
+            try:
+                import sounddevice as sd
+                hosts = sd.query_hostapis()
+                raw_devices = list(sd.query_devices())
+                entries = microphone_display_entries(raw_devices, hosts)
+            except Exception as exc:
+                error = type(exc).__name__
+
+            labels_seen = {}
+            for index, driver_name, host_name in entries:
+                friendly = microphone_display_name(driver_name)
+                # Identically named physical microphones remain selectable.
+                count = labels_seen.get(friendly.casefold(), 0) + 1
+                labels_seen[friendly.casefold()] = count
+                display = friendly if count == 1 else f"{friendly} ({count})"
+                self._microphone_metadata[index] = {
+                    "name": driver_name, "hostapi": host_name,
+                }
+                self.mic_device.addItem(display, index)
+                position = self.mic_device.count() - 1
+                self._combo_icon(self.mic_device, position, "mic")
+                self.mic_device.setItemData(
+                    position, self._microphone_metadata[index],
+                    Qt.ItemDataRole.UserRole + 1,
+                )
+
+            # Migrate old MME/DirectSound selections to the single WASAPI entry,
+            # only when the recording device can be identified unambiguously.
             if name:
-                matches = [i for i, item in self._microphone_metadata.items()
-                           if item["name"] == name and (not host or item["hostapi"] == host)]
-                # Existing index is valid only if it still identifies this endpoint.
-                if selected not in matches:
-                    selected = matches[0] if len(matches) == 1 else None
-        except Exception as exc:
-            error = type(exc).__name__
-        position = self.mic_device.findData(selected)
-        if position < 0:
-            # Preserve an unavailable selection; never save a different mic implicitly.
-            unavailable_index = self.cfg.get("microphone_device", -1) if selected is None else selected
-            position = self.mic_device.count()
-            self.mic_device.addItem(tr("Недоступен") + ": " + (name or str(unavailable_index)), unavailable_index)
-            self._combo_icon(self.mic_device, position, "mic-off", role="muted")
-            self.mic_device.setItemData(position, {"name": name, "hostapi": host}, Qt.ItemDataRole.UserRole + 1)
-        self.mic_device.setCurrentIndex(position)
+                matches = [i for i, meta in self._microphone_metadata.items()
+                           if i != -1 and meta["name"].casefold() == name.casefold()]
+                if not matches and len(name) >= 20:
+                    # PortAudio MME may truncate long Windows device names.
+                    matches = [
+                        i for i, meta in self._microphone_metadata.items()
+                        if i != -1 and meta["name"].casefold().startswith(name.casefold())
+                    ]
+                if len(matches) == 1:
+                    selected = matches[0]
+                elif selected not in matches:
+                    selected = None
+            elif selected != -1 and selected not in self._microphone_metadata:
+                # Legacy saved configs may contain only the old numeric index.
+                # Do not substitute an unrelated device after indices change.
+                matches = []
+                if 0 <= selected < len(raw_devices):
+                    old_name = str(raw_devices[selected].get("name", "")).casefold()
+                    matches = [
+                        i for i, meta in self._microphone_metadata.items()
+                        if i != -1 and meta["name"].casefold() == old_name
+                    ]
+                selected = matches[0] if len(matches) == 1 else None
+
+            position = self.mic_device.findData(selected)
+            if position < 0:
+                # Keep the original offline selection instead of choosing a
+                # different live microphone without the user's approval.
+                unavailable_index = (
+                    self.cfg.get("microphone_device", -1)
+                    if selected is None else selected
+                )
+                position = self.mic_device.count()
+                self.mic_device.addItem(
+                    tr("Недоступен") + ": " + (microphone_display_name(name) or str(unavailable_index)),
+                    unavailable_index,
+                )
+                self._combo_icon(self.mic_device, position, "mic-off", role="muted")
+                self.mic_device.setItemData(
+                    position, {"name": name, "hostapi": host},
+                    Qt.ItemDataRole.UserRole + 1,
+                )
+            self.mic_device.setCurrentIndex(position)
+        finally:
+            self.mic_device.blockSignals(was_blocked)
         if hasattr(self, "audio_status"):
-            self.audio_status.setText(tr("Устройства обновлены. Выберите вход и сохраните настройки.") + (f" ({error})" if error else ""))
+            self.audio_status.setText(
+                tr("Устройства обновлены.") + (f" ({error})" if error else "")
+            )
 
     def _selected_microphone_metadata(self):
         return self.mic_device.itemData(self.mic_device.currentIndex(), Qt.ItemDataRole.UserRole + 1) or {}

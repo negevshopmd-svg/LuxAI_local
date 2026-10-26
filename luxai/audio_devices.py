@@ -2,6 +2,57 @@
 from __future__ import annotations
 
 
+def microphone_display_entries(devices, hostapis):
+    """List user-facing recording inputs without repeated Windows audio backends.
+
+    Windows reports the same microphone under MME, DirectSound, WASAPI and
+    WDM-KS. Prefer the shared-mode WASAPI representation used by modern apps.
+    Only fall back to older Windows host APIs if WASAPI has no inputs.
+    Preserve original PortAudio indices and names for actual recording.
+    """
+    entries = []
+    for index, device in enumerate(devices):
+        if int(device.get("max_input_channels", 0)) <= 0:
+            continue
+        try:
+            host = str(hostapis[device["hostapi"]]["name"])
+        except (IndexError, KeyError, TypeError, ValueError):
+            continue
+        name = str(device.get("name", "")).strip()
+        if name:
+            entries.append((index, name, host))
+
+    def rank(host):
+        host = host.casefold()
+        if "wasapi" in host:
+            return 0
+        if "directsound" in host:
+            return 1
+        if host in ("mme", "windows mme"):
+            return 2
+        if "wdm-ks" in host:
+            return 3
+        return None
+
+    windows_ranks = [priority for _, _, host in entries
+                     if (priority := rank(host)) is not None]
+    if windows_ranks:
+        chosen = min(windows_ranks)
+        entries = [row for row in entries if rank(row[2]) == chosen]
+    return entries
+
+
+def microphone_display_name(name):
+    """Show friendly device labels without losing the underlying driver name."""
+    label = str(name or "").strip()
+    for prefix in ("Микрофон (", "Microphone (", "Mic ("):
+        if label.casefold().startswith(prefix.casefold()) and label.endswith(")"):
+            inner = label[len(prefix):-1].strip()
+            if inner:
+                return inner
+    return label
+
+
 def resolve_microphone_device(device=-1, name="", hostapi="", *, backend=None):
     """Return ``(device_index_or_None, device_info)`` for the selected input.
 

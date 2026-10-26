@@ -75,6 +75,7 @@ Q,W,E,R,D — от 2 до 24 клавиш|||Q,W,E,R,D — 2 to 24 keys|||Q,W,E,R
 Jarvis появится здесь после первого сообщения.|||Jarvis will appear here after the first message.|||Jarvis va apărea aici după primul mesaj.
 Напишите сообщение или команду…|||Type a message or command…|||Scrie un mesaj sau o comandă…
 Отправить|||Send|||Trimite
+Устройства обновлены.|||Devices refreshed.|||Dispozitive actualizate.
 Поиск настроек|||Search settings|||Caută setări
 РАЗДЕЛЫ|||SECTIONS|||SECȚIUNI
 Сбросить поиск|||Clear search|||Șterge căutarea
