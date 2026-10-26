@@ -598,6 +598,10 @@ class MainWindow(QMainWindow):
             self._on_audio_state(self._audio_event, self._audio_details)
 
     def show_page(self, index):
+        # Do not drop pending edits when leaving Settings before debounce.
+        if (index != 4 and hasattr(self, "settings_panel")
+                and self.pages.currentWidget() is self.settings_panel):
+            self.settings_panel.flush_auto_save()
         self.pages.setCurrentIndex(index)
         titles = ["Главная", "Команды", "Дополнения", "Jarvis AI", "Настройки"]
         self.header_title.setText("Jarvis   |   " + tr(titles[index]))
@@ -753,6 +757,9 @@ class MainWindow(QMainWindow):
         self.online_planner.update_config(self.cfg)
         if hasattr(self, "command_wizard"):
             self.command_wizard.wake_prefix = self.cfg.get("wake_prefix", "Jarvis")
+        if hasattr(self, "settings_panel"):
+            self.settings_panel.mark_auto_saved()
+        return True
 
     def _provider_status_text(self):
         """Show configuration state, not an unverified claim of API connectivity."""
@@ -771,7 +778,7 @@ class MainWindow(QMainWindow):
         """Save settings and apply them to running services where supported."""
         old = dict(self.cfg)
         if self.save_settings() is False:
-            return
+            return False
         self.apply_appearance()
         self.apply_ui_language()
         if old.get("autostart_windows", False) != self.cfg.get("autostart_windows", False):
@@ -830,6 +837,7 @@ class MainWindow(QMainWindow):
             self.worker.listener.prefix = self.cfg.get("wake_prefix", "Jarvis")
         self.mic_status.setText(tr("Настройки сохранены.") + " " + self._provider_status_text())
         self._on_audio_state(self._audio_event, self._audio_details)
+        return True
 
     def test_online_api(self):
         """Verify the API; save provider, model and key only after test success."""
@@ -3751,6 +3759,10 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "OCR", f"OCR nu este configurat sau a eșuat:\n{e}")
 
     def closeEvent(self, event):
+        # Auto-save has a short debounce while typing. Flush before both a
+        # real close and minimize-to-tray so the final change survives.
+        if hasattr(self, "settings_panel"):
+            self.settings_panel.flush_auto_save()
         if (
             not self._quitting
             and self.cfg.get("minimize_to_tray", False)
