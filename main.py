@@ -288,6 +288,7 @@ class MainWindow(QMainWindow):
         self._cloud_probe_message = ""
         self._cloud_probe_running = False
         self._cloud_first_check_done = False
+        self._cloud_applied_signature = self._cloud_signature()
         self._speech_queue = queue.Queue(maxsize=8)
         self._speech_generation = 0
         self._speech_thread = threading.Thread(target=self._speech_loop, daemon=True, name="JarvisSpeech")
@@ -729,7 +730,7 @@ class MainWindow(QMainWindow):
                 self._update_cloud_indicator()
                 return
             panel.online_model.setText(model)
-            if self.save_settings() is False:
+            if self.apply_settings() is False:
                 self._update_cloud_indicator()
                 return
             signature = self._cloud_signature()
@@ -747,7 +748,7 @@ class MainWindow(QMainWindow):
     def save_settings(self, *_, allow_api_key=False):
         if not hasattr(self, "settings_panel"):
             return
-        old_signature = self._cloud_signature()
+        old_signature = self._cloud_applied_signature
         old_configuration = dict(self.cfg)
         self.cfg.update(self.settings_panel.collect())
         key_field = self.settings_panel.api_key_entry
@@ -788,6 +789,7 @@ class MainWindow(QMainWindow):
         self.online_planner.update_config(self.cfg)
         if self._cloud_signature() != old_signature:
             self.online_planner.reset_connection_state()
+        self._cloud_applied_signature = self._cloud_signature()
         if hasattr(self, "command_wizard"):
             self.command_wizard.wake_prefix = self.cfg.get("wake_prefix", "Jarvis")
         if hasattr(self, "settings_panel"):
@@ -807,10 +809,10 @@ class MainWindow(QMainWindow):
             return tr("Онлайн-ИИ включён, но ключ выбранного провайдера не сохранён")
         return tr("Облачный ИИ выключен — локальный режим")
 
-    def apply_settings(self, *_):
+    def apply_settings(self, *_, allow_api_key=False):
         """Save settings and apply them to running services where supported."""
         old = dict(self.cfg)
-        if self.save_settings() is False:
+        if self.save_settings(allow_api_key=allow_api_key) is False:
             return False
         appearance_defaults = {
             "ui_theme": "dark", "ui_accent": "#3978f6", "ui_transparency": 0,
@@ -944,7 +946,7 @@ class MainWindow(QMainWindow):
         if valid and suggested_model and suggested_model != panel.online_model.text().strip():
             panel.online_model.setText(suggested_model)
         if valid:
-            if self.save_settings(allow_api_key=True) is False:
+            if self.apply_settings(allow_api_key=True) is False:
                 panel.show_test_result(
                     "Проверка прошла, но ключ НЕ удалось сохранить. Повторите сохранение.",
                     False,
@@ -960,6 +962,15 @@ class MainWindow(QMainWindow):
                 "en": " Key and settings saved.",
                 "ro": " Cheia și setările au fost salvate.",
             }.get(get_ui_language(), " Key and settings saved.")
+        elif (_api_connection_signature(self.cfg, get_api_key(provider))
+              == requested_signature):
+            # A failed draft does not invalidate a different stored key, but a
+            # failed recheck of the stored connection must clear its old green.
+            self._cloud_verified_signature = None
+            self._cloud_probe_signature = self._cloud_signature()
+            self._cloud_probe_failed = True
+            self._cloud_probe_message = message
+            self._update_cloud_indicator()
         panel.show_test_result(message, valid)
         self.mic_status.setText(message)
 

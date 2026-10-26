@@ -88,6 +88,33 @@ class CloudCheckContextTests(unittest.TestCase):
         self.assertEqual(window.online_planner._blocked_until, 0)
         self.assertEqual(window.online_planner.last_error, "")
 
+    def test_deleting_saved_key_resets_cooldown_when_environment_key_takes_over(self):
+        window, _ = self.window()
+        window.online_planner._blocked_until = float("inf")
+        window.online_planner._cache["previous-account"] = {"action": "reply", "reply": "old"}
+        with mock.patch("main.get_api_key", return_value="fake-environment-key"):
+            window.save_settings()
+        self.assertEqual(window.online_planner._blocked_until, 0)
+        self.assertFalse(window.online_planner._cache)
+
+    def test_failed_stored_connection_check_clears_previous_green_status(self):
+        window, _ = self.window()
+        window._cloud_verified_signature = window._cloud_signature()
+        self.start_api_check(window)
+        window._on_api_test_result("custom", False, "HTTP 503", None)
+        self.assertIsNone(window._cloud_verified_signature)
+        self.assertTrue(window._cloud_probe_failed)
+        self.assertIn("503", window.cloud_details.text())
+
+    def test_failed_draft_key_check_does_not_invalidate_other_stored_connection(self):
+        window, _ = self.window()
+        verified = window._cloud_verified_signature = window._cloud_signature()
+        window.settings_panel.api_key_entry.setText("fake-draft-key")
+        self.start_api_check(window)
+        window._on_api_test_result("custom", False, "HTTP 401", None)
+        self.assertEqual(window._cloud_verified_signature, verified)
+        self.assertFalse(window._cloud_probe_failed)
+
     def test_failed_config_write_keeps_previous_runtime_configuration(self):
         window, filename = self.window()
         original = dict(window.cfg)
@@ -116,6 +143,32 @@ class CloudCheckContextTests(unittest.TestCase):
         self.assertEqual(window.settings_panel.online_model.text(), "gemini-new-draft")
         self.assertEqual(window.cfg["online_model"], "gemini-old-model")
         self.assertIsNone(window._cloud_verified_signature)
+
+    def test_api_success_applies_preferences_edited_during_network_request(self):
+        window, filename = self.window()
+        self.start_api_check(window)
+        panel = window.settings_panel
+        panel.theme.setCurrentIndex(panel.theme.findData("light"))
+        self.assertTrue(panel._autosave_timer.isActive())
+        with mock.patch.object(window, "apply_appearance") as appearance:
+            window._on_api_test_result("custom", True, "OK", "tested-model")
+        appearance.assert_called_once_with()
+        self.assertEqual(json.loads(filename.read_text(encoding="utf-8"))["ui_theme"], "light")
+        self.assertFalse(panel._autosave_timer.isActive())
+
+    def test_health_fallback_applies_preferences_instead_of_swallowing_autosave(self):
+        window, filename = self.window("gemini", "gemini-old-model")
+        signature = window._cloud_signature()
+        panel = window.settings_panel
+        panel.theme.setCurrentIndex(panel.theme.findData("light"))
+        self.assertTrue(panel._autosave_timer.isActive())
+        with mock.patch.object(window, "apply_appearance") as appearance:
+            window._on_cloud_check_result("gemini", signature, True, "OK", "gemini-2.5-flash")
+        appearance.assert_called_once_with()
+        saved = json.loads(filename.read_text(encoding="utf-8"))
+        self.assertEqual(saved["ui_theme"], "light")
+        self.assertEqual(saved["online_model"], "gemini-2.5-flash")
+        self.assertFalse(panel._autosave_timer.isActive())
 
     def test_health_worker_forwards_the_model_that_really_generated(self):
         window, _ = self.window("gemini", "gemini-old-model")
