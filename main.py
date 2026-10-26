@@ -716,14 +716,15 @@ class MainWindow(QMainWindow):
             self._cloud_probe_message = message
         self._update_cloud_indicator()
 
-    def save_settings(self, *_):
+    def save_settings(self, *_, allow_api_key=False):
         if not hasattr(self, "settings_panel"):
             return
         old_signature = self._cloud_signature()
         old_configuration = dict(self.cfg)
         self.cfg.update(self.settings_panel.collect())
         key_field = self.settings_panel.api_key_entry
-        new_key = key_field.text().strip()
+        new_key = (key_field.text().strip() if allow_api_key
+                   else self.settings_panel.api_key_ready_for_save())
         if new_key:
             try:
                 provider = self.settings_panel.online_provider.currentData()
@@ -909,7 +910,7 @@ class MainWindow(QMainWindow):
                 self._api_test_requested_key = None
                 return
             if current == self._api_test_requested_key:
-                if self.save_settings() is False:
+                if self.save_settings(allow_api_key=True) is False:
                     panel.show_test_result(
                         "Проверка прошла, но ключ НЕ удалось сохранить. Повторите сохранение.",
                         False,

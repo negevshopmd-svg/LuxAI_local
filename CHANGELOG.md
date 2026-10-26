@@ -1,3 +1,9 @@
+## 0.3.7d — Settings auto-save safeguards
+
+- Continue automatically applying/persisting all ordinary Settings changes without any Save button; protect in-progress API-key text from being unintentionally stored by unrelated preference changes.
+- Persist API credentials only when editing finishes or after a successful explicit API test, keeping the existing encrypted Windows DPAPI storage and validation behavior.
+- Update Romanian/English instructions on restarting the installed app to see the new Settings UI; add regression tests for draft-key safety and automatic persistence.
+
 ## 0.3.7c — automatic Settings persistence
 
 - Remove the explicit “Сохранить настройки” Settings button.
