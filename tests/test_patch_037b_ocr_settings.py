@@ -99,7 +99,7 @@ class OCRSettingsCleanupTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             binary = Path(folder) / "Tesseract-OCR" / "tesseract.exe"
             binary.parent.mkdir(parents=True)
-            binary.write_bytes(b"MZ")
+            binary.write_bytes(b"MZ" + b"\x00" * 10_000)
             with (
                 mock.patch.object(ocr_setup, "WINDOWS_EXECUTABLE", binary),
                 mock.patch("luxai.ocr_setup.shutil.which", return_value=None),
