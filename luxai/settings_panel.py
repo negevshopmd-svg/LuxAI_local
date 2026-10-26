@@ -14,7 +14,7 @@ from luxai.api_providers import PROVIDERS
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QProgressBar, QScrollArea, QSlider, QSpinBox, QVBoxLayout, QWidget, QMessageBox, QFileDialog,
+    QPushButton, QProgressBar, QScrollArea, QSlider, QSpinBox, QVBoxLayout, QWidget, QMessageBox,
 )
 
 from luxai.voices import available_voices
@@ -829,51 +829,10 @@ class SettingsPanel(QWidget):
             "Open-Meteo работает без ключа Gemini. Этот город по умолчанию.",
             self.weather_city,
         )
-        self.tesseract_path = QLineEdit(self.cfg.get("tesseract_path", ""))
-        self.tesseract_path.setPlaceholderText(
-            "Автоматически: встроенный Tesseract-OCR (путь необязателен)"
-        )
-        ocr_picker = QWidget()
-        ocr_row = QHBoxLayout(ocr_picker)
-        ocr_row.setContentsMargins(0, 0, 0, 0)
-        ocr_row.setSpacing(5)
-        ocr_row.addWidget(self.tesseract_path, 1)
-        select_ocr = QPushButton("Обзор")
-        set_button_icon(select_ocr, "folder-open")
-        select_ocr.clicked.connect(self._select_tesseract)
-        ocr_row.addWidget(select_ocr)
-        self._row(
-            panel, "Встроенный Tesseract OCR",
-            "Устанавливается автоматически с Jarvis и Update.bat; "
-            "русский и английский пакеты загружаются сами. "
-            "Выбор внешнего tesseract.exe необязателен.",
-            ocr_picker,
-        )
-        self.ocr_status = QLabel("OCR проверяется и устанавливается автоматически…")
-        self.ocr_status.setObjectName("Muted")
-        self.ocr_status.setWordWrap(True)
-        self.ocr_status_icon = self._status_row(panel, self.ocr_status, "image")
         info = QLabel("Параметры сохраняются в config.json. Для смены микрофона перезапускается распознавание.")
         info.setObjectName("Muted")
         info.setWordWrap(True)
         panel.addWidget(info)
-
-    def set_ocr_status(self, success, message):
-        language = get_ui_language()
-        titles = {"ru": ("Готово: ", "Недоступно: "),
-                  "en": ("Ready: ", "Unavailable: "),
-                  "ro": ("Gata: ", "Indisponibil: ")}
-        self.ocr_status.setText(titles[language][0 if success else 1] + str(message))
-        set_label_icon(self.ocr_status_icon, "check-circle-2" if success else "circle-alert",
-                       size=17, role="success" if success else "muted")
-
-    def _select_tesseract(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Выберите tesseract.exe", "",
-            "Tesseract (tesseract.exe);;Исполняемые файлы (*.exe)",
-        )
-        if path:
-            self.tesseract_path.setText(path)
 
     def retranslate(self, language):
         translate_widgets(self, language)
@@ -928,7 +887,7 @@ class SettingsPanel(QWidget):
             "autostart_windows": self.autostart.isChecked(),
             "minimize_to_tray": self.tray_on_close.isChecked(),
             "weather_city": self.weather_city.text().strip()[:70] or "Кишинёв",
-            "tesseract_path": self.tesseract_path.text().strip(),
+            "tesseract_path": self.cfg.get("tesseract_path", ""),
             "local_llm_fallback_enabled": self.local_llm_fallback.isChecked(),
             "llm_model_path": self.model_select.currentData() or "",
             "online_agent_enabled": self.online_agent_enabled.isChecked(),
