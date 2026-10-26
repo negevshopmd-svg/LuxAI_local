@@ -40,7 +40,7 @@ def cloud_status_text(state: str, provider: str, language: str = "ru",
     }
     title, body = lines[language].get(state, lines[language]["unchecked"])
     if state == "offline" and detail:
-        body = detail
+        return title, f"{provider}: {detail}", COLORS["offline"]
     if state == "missing" and detail:
         body = detail
     return title, body.format(provider=provider), COLORS.get(state, COLORS["unchecked"])

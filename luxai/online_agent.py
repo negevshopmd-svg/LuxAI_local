@@ -17,6 +17,7 @@ from pathlib import Path
 
 from luxai.secure_keys import get_api_key
 from luxai.api_providers import PROVIDERS, endpoint_for, model_for
+from luxai.cloud_http import read_json_response, request_timeout, TRANSIENT_STATUSES
 from luxai.steam_games import lookup_steam_game
 from luxai.file_actions import safe_name, ALLOWED_LOCATIONS
 from luxai.windows_apps import normalized_name
@@ -121,6 +122,13 @@ class OnlinePlanner:
         self.last_error = ""
         self._cooldown_reason = ""
 
+    def reset_connection_state(self):
+        """Forget results and cooldown tied to an old or reverified credential."""
+        self._cache.clear()
+        self._blocked_until = 0.0
+        self.last_error = ""
+        self._cooldown_reason = ""
+
     def update_config(self, config):
         updated = dict(config)
         if updated == self.config:
@@ -137,11 +145,8 @@ class OnlinePlanner:
         )
         was_enabled = self.config.get("online_agent_enabled", False)
         self.config = updated
-        if previous != current:
-            self._cache.clear()
         if previous != current or was_enabled != updated.get("online_agent_enabled", False):
-            self._blocked_until = 0.0
-            self._cooldown_reason = ""
+            self.reset_connection_state()
 
     def _provider(self):
         value = self.config.get("online_provider", "openai")
@@ -300,11 +305,7 @@ class OnlinePlanner:
                 )
 
         opener = urllib.request.build_opener(_NoRedirect())
-        with opener.open(request, timeout=timeout) as response:
-            if response.status != 200:
-                raise ValueError("Unexpected API response status")
-            raw = response.read(1024 * 1024)
-        return json.loads(raw)
+        return read_json_response(opener, request, timeout)
 
     def _grounded_answer(self, question: str, model: str, key: str, timeout: int) -> str:
         """Ask Gemini's native Google Search grounding tool to browse.
@@ -353,8 +354,7 @@ class OnlinePlanner:
                 )
 
         opener = urllib.request.build_opener(_NoRedirect())
-        with opener.open(request, timeout=max(5, min(20, timeout * 2))) as response:
-            result = json.loads(response.read(1024 * 1024))
+        result = read_json_response(opener, request, max(5, min(20, timeout * 2)))
         candidates = result.get("candidates", [])
         if not candidates:
             raise ValueError("Google Search returned no answer")
@@ -391,8 +391,7 @@ class OnlinePlanner:
         if not key:
             return None
         provider = self._provider()
-        requested = int(self.config.get("online_timeout", 60))
-        timeout = 60 if requested < 35 else min(120, requested)
+        timeout = request_timeout(self.config)
         excerpt = str(selected or "").strip()[:6500]
         if not excerpt:
             return None
@@ -453,8 +452,7 @@ class OnlinePlanner:
             "gpt-4.1-nano", "gpt-4.1-mini", "gpt-4o-mini",
         }:
             model_name = None
-        requested = int(self.config.get("online_timeout", 60))
-        timeout = 60 if requested < 35 else min(120, requested)
+        timeout = request_timeout(self.config)
         try:
             model = model_for(provider, model_name)
             # Propose -> validate -> revise, without executing unsafe or
@@ -507,6 +505,11 @@ class OnlinePlanner:
                 self._blocked_until = time.monotonic() + 60
             elif exc.code in (401, 403):
                 self.last_error = "Cloud API key is invalid or lacks access."
+            elif exc.code in TRANSIENT_STATUSES or exc.code == 500:
+                self.last_error = (
+                    f"Cloud provider is temporarily unavailable (HTTP {exc.code}). "
+                    "This does not mean the API key is invalid; try again later."
+                )
             else:
                 self.last_error = f"Cloud API returned HTTP {exc.code}."
             self._log(f"{provider} macro planner HTTP {exc.code}")
@@ -539,8 +542,7 @@ class OnlinePlanner:
 
         # 60s by default; old 3-10s settings are migrated so existing
         # installations are not stuck with spurious timeouts.
-        requested_timeout = int(self.config.get("online_timeout", 60))
-        timeout = 60 if requested_timeout < 35 else min(requested_timeout, 120)
+        timeout = request_timeout(self.config)
         language = reply_language(self.config, text)
         messages = [{"role": "system", "content": _SYSTEM + "\n" + language_instruction(language)}]
         for m in list(history)[-4:]:
@@ -603,7 +605,7 @@ class OnlinePlanner:
             if exc.code == 429:
                 self.last_error = (
                     f"{provider}: HTTP 429 — превышена квота или лимит запросов. "
-                    "Проверьте лимиты и модель в Google AI Studio; "
+                    "Проверьте лимиты и модель в аккаунте выбранного провайдера; "
                     "смена фразы не исправит исчерпанную квоту."
                 )
                 retry_header = exc.headers.get("Retry-After", "") if exc.headers else ""
@@ -612,6 +614,12 @@ class OnlinePlanner:
             elif exc.code in (401, 403):
                 self.last_error = f"{provider}: HTTP {exc.code} — нет доступа; проверьте API-ключ."
                 cooldown = 60
+            elif exc.code in TRANSIENT_STATUSES or exc.code == 500:
+                self.last_error = (
+                    f"{provider}: HTTP {exc.code} — сервис временно недоступен или перегружен. "
+                    "Это не означает, что API-ключ неверный; повторите позже."
+                )
+                cooldown = 20
             else:
                 self.last_error = f"{provider}: HTTP {exc.code}; проверьте выбранную модель и доступ к API."
                 cooldown = 20

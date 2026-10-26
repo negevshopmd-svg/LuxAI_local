@@ -1,5 +1,11 @@
 # LuxAI_local
 
+## 0.3.7f: cloud connection and settings reliability
+
+API checks now use the configured timeout and retry HTTP 502/503/504 once against the same provider. HTTP 503 means the service is temporarily unavailable; it does not prove an API key is invalid. A successful check is tied to the exact key, endpoint and model tested, and a verified Gemini replacement model is saved before reporting success. Temporary model-list failures can still test the explicitly configured Gemini model.
+
+Settings auto-save no longer rebuilds the entire interface for unrelated edits. Microphone selection retains its driver identity after reconnection, and English Discord “unmute/undeafen” commands no longer match their opposite. Close Jarvis, run `Update.bat`, then `run_windows.bat`. A persistent provider outage still requires the service to recover; creating more keys does not fix HTTP 503.
+
 Voice-controlled Jarvis assistant for Windows 10/11 (64-bit).
 
 ## 0.3.7e: compact microphone picker (mini-patch)

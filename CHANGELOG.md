@@ -1,3 +1,12 @@
+## 0.3.7f — cloud API recovery and settings regression fixes
+
+- Honor the configured API verification timeout and retry explicit HTTP 502/503/504 once at the identical endpoint within the request time budget. Never retry authentication, quota, redirect or timeout failures. Diagnose temporary service outages separately from invalid credentials.
+- Require asynchronous API results to match the exact current provider/key/model/custom endpoint before saving or marking the connection verified. Preserve a genuinely tested Gemini replacement model, tolerate transient model-list outages for an explicitly configured model, and reset stale cooldowns after credential changes or successful checks.
+- Refresh cloud status after key deletion and report the actual credential source consistently. Keep previous runtime configuration after a failed preferences write.
+- Avoid global Qt style/translation rebuilds on ordinary Settings auto-save; still apply real theme and language changes and refresh visible dialogs.
+- Retain microphone host identity after device indices change; limit truncated-name migration to legacy MME. Correct whole-word English Discord headphones on/off matching and reject prohibitions/how-to questions.
+- Add transport, asynchronous UI, credential lifecycle, microphone identity, headphones and settings efficiency regressions. Real account availability and physical headset/Discord behavior still require testing on the user's Windows PC.
+
 ## 0.3.7e — compact Windows microphone picker
 
 - Show each physical recording input through one preferred Windows audio backend (WASAPI first), rather than repeating MME/DirectSound/WASAPI/WDM-KS entries.

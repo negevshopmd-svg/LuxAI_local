@@ -137,7 +137,7 @@ Claude uses its native **Messages API** rather than the OpenAI endpoint. Model I
 
 ## Updating/testing
 
-Run `Update.bat`, restart with `run_windows.bat`, choose a provider under Settings, and save. With a valid connection and key, test **Проверить API**. Without credentials, Jarvis stays local.
+Run `Update.bat`, restart with `run_windows.bat`, choose the issuing provider under Settings; ordinary changes save automatically. With a valid connection and key, test **Проверить API**. Without credentials, Jarvis stays local.
 
 Offline syntax and routing checks:
 
@@ -146,3 +146,9 @@ Offline syntax and routing checks:
 ```
 
 Provider adapters are in `luxai/api_providers.py`, routing in `luxai/online_agent.py`, and Windows key storage in `luxai/secure_keys.py`.
+
+## Connection failures (0.3.7f)
+
+HTTP **503** means the selected service or its gateway is temporarily unavailable. It does not establish that a previously working key is invalid. Jarvis retries explicit 502/503/504 responses once at the same endpoint; persistent failures remain visible with the provider name. Authentication (401/403), payment (402), model/format (400/404/422), quota (429), and network failures are diagnosed separately. Do not post API keys in chat or logs.
+
+The connection test uses the configured timeout (35–120 seconds; legacy shorter values migrate to 60 seconds). A green result requires actual generation and applies only to the exact connection tested. Editing the key, model or custom endpoint during a test requires a new check. Gemini model discovery cannot by itself prove chat works, and a successful alternative model must be saved before the status becomes green.

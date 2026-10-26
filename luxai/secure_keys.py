@@ -98,10 +98,12 @@ def _saved_key(provider: str) -> str:
 def key_storage_status(provider: str = "openai") -> str:
     """Present/missing/unreadable without ever exposing secret values."""
     provider_config(provider)
-    if os.environ.get(ENV_VARS[provider], "").strip():
-        return "environment"
+    # Use the same precedence as get_api_key: the key explicitly saved in the
+    # UI overrides an inherited environment variable.
     if _saved_key(provider):
         return "saved"
+    if os.environ.get(ENV_VARS[provider], "").strip():
+        return "environment"
     if _secret_file(provider).exists() or _legacy_secret_file(provider).exists():
         return "unreadable"
     return "missing"

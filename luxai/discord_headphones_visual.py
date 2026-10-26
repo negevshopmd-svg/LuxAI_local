@@ -12,17 +12,29 @@ import time
 def discord_headphones_mode(text: str) -> str | None:
     from luxai.fast_intents import strip_wake_name
     phrase = strip_wake_name(str(text or "")).casefold()
-    if not re.search(r"(?:discord|дискорд\w*|дискор\w*)", phrase):
+    if not re.search(r"(?<!\w)(?:discord|дискорд\w*|дискор\w*)(?!\w)", phrase):
         return None
-    if not re.search(r"(?:наушник\w*|наушн\w*|headphones|headset|deafen|оглуш\w*)", phrase):
+    if not re.search(r"(?<!\w)(?:наушник\w*|наушн\w*|headphones|headset|undeafen|deafen|оглуш\w*)(?!\w)", phrase):
         return None
     if re.search(r"(?:микрофон\w*|microphone)", phrase):
         return None
-    if re.search(r"(?:выключ\w*|отключ\w*|заглуш\w*|замут\w*|deafen|mute|turn\s+off)", phrase):
+    # A prohibition or a how-to question is not permission to change sound.
+    if re.search(
+        r"(?<!\w)(?:не\s+(?:надо\s+)?(?:выключ\w*|отключ\w*|включ\w*|"
+        r"заглуш\w*|разглуш\w*|замут\w*|нажим\w*|нажм\w*)|"
+        r"(?:don't|don’t|dont|do\s+not|never)\s+(?:deafen|undeafen|mute|unmute|"
+        r"turn|click|press)|how\s+(?:to|do\s+i|can\s+i)|"
+        r"как\s+(?:мне\s+)?(?:выключ\w*|отключ\w*|включ\w*|"
+        r"заглуш\w*|разглуш\w*|замут\w*))(?!\w)", phrase,
+    ):
+        return None
+    # Whole action words matter: "mute" occurs inside "unmute", and
+    # "deafen" inside "undeafen". Substring matching reversed these requests.
+    if re.search(r"(?<!\w)(?:выключ\w*|отключ\w*|заглуш\w*|замут\w*|deafen|mute|turn\s+off)(?!\w)", phrase):
         return "off"
-    if re.search(r"(?:включ\w*|разглуш\w*|undeafen|unmute|turn\s+on)", phrase):
+    if re.search(r"(?<!\w)(?:включ\w*|разглуш\w*|undeafen|unmute|turn\s+on)(?!\w)", phrase):
         return "on"
-    if re.search(r"(?:нажм\w*|клик\w*|click|press|apas\w*)", phrase):
+    if re.search(r"(?<!\w)(?:нажм\w*|клик\w*|click|press|apas\w*)(?!\w)", phrase):
         return "toggle"
     return None
 

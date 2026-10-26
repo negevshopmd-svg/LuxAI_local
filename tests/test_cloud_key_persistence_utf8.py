@@ -81,6 +81,10 @@ class HealthStatusTests(unittest.TestCase):
         title, detail, color = cloud_status_text("offline", "OpenRouter", "ru")
         self.assertIn("недоступен", title)
 
+    def test_failure_names_selected_provider_and_preserves_literal_diagnostic(self):
+        title, detail, _ = cloud_status_text("offline", "Gemini", "ro", "HTTP 503 {retry}")
+        self.assertEqual(detail, "Gemini: HTTP 503 {retry}")
+
 
 class GGUFUTF8Tests(unittest.TestCase):
     def test_romanian_diacritics_survive_real_worker_stdin_and_stdout(self):

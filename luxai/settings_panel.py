@@ -438,7 +438,14 @@ class SettingsPanel(QWidget):
             if name:
                 matches = [i for i, meta in self._microphone_metadata.items()
                            if i != -1 and meta["name"].casefold() == name.casefold()]
-                if not matches and len(name) >= 20:
+                same_host = [i for i in matches
+                             if self._microphone_metadata[i]["hostapi"].casefold() == host.casefold()]
+                if host and same_host:
+                    # PortAudio indices can move after reconnecting a headset.
+                    # A same-named input on another API must not win just
+                    # because it now occupies the saved numeric index.
+                    matches = same_host
+                if not matches and host.casefold() in {"mme", "windows mme"} and len(name) >= 20:
                     # PortAudio MME may truncate long Windows device names.
                     matches = [
                         i for i, meta in self._microphone_metadata.items()
@@ -919,6 +926,11 @@ class SettingsPanel(QWidget):
             clear_api_key(provider)
             self.api_key_entry.clear()
             self.refresh_key_status()
+            # Credentials are deliberately absent from collect(), but deleting
+            # one still changes the live cloud configuration. Notify the main
+            # window so a previous successful health check cannot stay green.
+            self._autosave_force = True
+            self._queue_auto_save()
 
     def refresh_key_status(self):
         provider = self.online_provider.currentData()
