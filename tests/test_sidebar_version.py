@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from unittest import mock
 
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QApplication
 
 from luxai.styles import build_styles
@@ -60,6 +61,31 @@ class SidebarVersionTests(unittest.TestCase):
                 self.assertEqual(application_version(), "—")
                 version_file.write_text("\n" * 5, encoding="utf-8")
                 self.assertEqual(self.sidebar().version_label.text(), "—")
+
+    def test_oversized_native_or_inherited_font_cannot_clip_collapsed_version(self):
+        sidebar = self.sidebar()
+        inherited = QFont("Courier New")
+        inherited.setPixelSize(40)
+        inherited.setStretch(150)
+        inherited.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 5)
+        sidebar.setFont(inherited)
+        sidebar.toggle_collapsed()
+        for theme in ("dark", "light"):
+            sidebar.setStyleSheet(
+                build_styles(theme)
+                + "\nQFrame#Sidebar QLabel#SidebarVersion { font-size:40px; letter-spacing:5px; }"
+            )
+            sidebar.version_label.setFont(inherited)
+            sidebar.show()
+            self.app.processEvents()
+            label = sidebar.version_label
+            self.assertEqual(sidebar.width(), 76)
+            self.assertEqual(label.text(), VERSION_FILE.read_text(encoding="utf-8-sig").strip())
+            self.assertGreaterEqual(label.contentsRect().width(),
+                                    label.fontMetrics().horizontalAdvance(label.text()))
+            self.assertGreaterEqual(label.contentsRect().height(), label.fontMetrics().height())
+            self.assertLessEqual(label.font().pixelSize(), 10)
+            self.assertGreaterEqual(label.font().pixelSize(), 8)
 
 
 if __name__ == "__main__":

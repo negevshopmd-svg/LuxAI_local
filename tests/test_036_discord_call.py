@@ -238,7 +238,8 @@ class DiscordCallMainRoutingTests(unittest.TestCase):
         patch = mock.patch.object(main, "CONFIG", cfg)
         patch.start()
         self.addCleanup(patch.stop)
-        with mock.patch("sounddevice.query_devices", return_value=[]):
+        with (mock.patch("sounddevice.query_devices", return_value=[]),
+              mock.patch("main.MainWindow._ocr_setup_worker")):
             window = main.MainWindow()
         self.addCleanup(window.close)
         return window

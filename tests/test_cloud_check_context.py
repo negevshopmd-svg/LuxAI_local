@@ -30,7 +30,8 @@ class CloudCheckContextTests(unittest.TestCase):
         ):
             patcher.start()
             self.addCleanup(patcher.stop)
-        window = main.MainWindow()
+        with mock.patch("main.MainWindow._ocr_setup_worker"):
+            window = main.MainWindow()
         self.addCleanup(window.close)
         return window, filename
 

@@ -162,7 +162,8 @@ class VisualRoutingTests(unittest.TestCase):
         p = mock.patch.object(main, "CONFIG", config)
         p.start()
         self.addCleanup(p.stop)
-        with mock.patch("sounddevice.query_devices", return_value=[]):
+        with (mock.patch("sounddevice.query_devices", return_value=[]),
+              mock.patch("main.MainWindow._ocr_setup_worker")):
             win = main.MainWindow()
         self.addCleanup(win.close)
         return win

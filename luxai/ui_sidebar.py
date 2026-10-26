@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QPainter
+from PySide6.QtCore import QEvent, Qt, Signal
+from PySide6.QtGui import QFont, QPainter
 from luxai.icons import icon, set_button_icon
 from luxai.ui_i18n import tr, normalize_language
 from PySide6.QtWidgets import (
@@ -33,6 +33,56 @@ class BrandMark(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         icon("jarvis", size=48).paint(painter, self.rect())
+
+
+class VersionLabel(QLabel):
+    """Keep the release number readable with native Windows font metrics."""
+
+    def __init__(self, text):
+        super().__init__(text)
+        self._fitting_font = False
+        self._fit_font()
+
+    def _set_font_size(self, pixels):
+        font = QFont("Segoe UI")
+        font.setPixelSize(pixels)
+        font.setWeight(QFont.Weight.Normal)
+        font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 0)
+        if self.font() != font:
+            self.setFont(font)
+        # A local declaration wins over inherited native/stylesheet fonts.
+        # Color still comes from the shared dark/light SidebarVersion rule.
+        style = (
+            f"font-family:'Segoe UI','Arial'; font-size:{pixels}px; "
+            "font-weight:400; letter-spacing:0px; padding:0;"
+        )
+        if self.styleSheet() != style:
+            self.setStyleSheet(style)
+
+    def _fit_font(self):
+        if self._fitting_font:
+            return
+        self._fitting_font = True
+        try:
+            # Qt's Windows style/font substitution can differ from Linux even
+            # at the same logical DPI. Measure the effective font, rather than
+            # assuming a stylesheet pixel size guarantees the string fits.
+            for pixels in (10, 9, 8):
+                self._set_font_size(pixels)
+                if self.fontMetrics().horizontalAdvance(self.text()) <= self.contentsRect().width():
+                    break
+            self.setMinimumHeight(max(16, self.fontMetrics().height()))
+        finally:
+            self._fitting_font = False
+
+    def event(self, event):
+        result = super().event(event)
+        if hasattr(self, "_fitting_font") and event.type() in (
+            QEvent.Type.Resize, QEvent.Type.Show,
+            QEvent.Type.FontChange, QEvent.Type.StyleChange,
+        ):
+            self._fit_font()
+        return result
 
 
 class NavigationSidebar(QFrame):
@@ -93,7 +143,7 @@ class NavigationSidebar(QFrame):
         column.addWidget(self.collapse)
 
         version = application_version()
-        self.version_label = QLabel(version)
+        self.version_label = VersionLabel(version)
         self.version_label.setObjectName("SidebarVersion")
         self.version_label.setTextFormat(Qt.TextFormat.PlainText)
         self.version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
