@@ -1,4 +1,8 @@
-LUXAI LOCAL 0.3.7b — ACTUALIZARE
+LUXAI LOCAL 0.3.7c — ACTUALIZARE
+
+0.3.7c: SALVARE AUTOMATA A SETARILOR
+Butonul albastru «Сохранить настройки» a fost eliminat. Orice modificare a setarilor (comutatoare, liste, glisoare, text) se salveaza si se aplica automat, cu o mica pauza pentru a evita scrierea repetata in timp ce tastezi. Cand pleci din Setari ori inchizi Jarvis, modificarile in asteptare sunt salvate imediat. Cheile API se salveaza dupa finalizarea editarii sau dupa verificarea cheii, nu la fiecare litera. Testele includ paginarea si inchiderea.
+Instalare: inchide Jarvis, ruleaza Update.bat si apoi run_windows.bat.
 
 0.3.7b: OCR INTEGRAT, FARA SETARI SUPLIMENTARE
 Am eliminat din pagina Setari -> Sistem sectiunea «Встроенный Tesseract OCR», campul pentru calea tesseract.exe, butonul «Обзор» si mesajul de stare de sub sectiune. OCR ramane integrat in Jarvis si se verifica/instaleaza automat, inclusiv modelele rus + eng, la pornire si prin Update.bat. Comenzile OCR nu sunt eliminate. Configuratia locala existenta ramane compatibila.
