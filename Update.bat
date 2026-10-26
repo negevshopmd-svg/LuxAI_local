@@ -64,7 +64,8 @@ rem so bootstrap failures never replace the installed updater or leave a backup.
         echo Actualizarea NU s-a incheiat cu succes. Citeste eroarea de mai sus.
         pause
         exit /b 1
+    ) else (
+        del /q "Update.py.new" >nul 2>nul
+        exit /b 0
     )
-    del /q "Update.py.new" >nul 2>nul
-    exit /b 0
 )
