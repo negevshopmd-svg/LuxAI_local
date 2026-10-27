@@ -37,7 +37,6 @@ PRESERVE_NAMES = {
 }
 SKIP_SUFFIXES = {".pyc", ".pyo", ".onnx", ".gguf"}
 CLEANUP_MANIFEST = "runtime_cleanup_manifest.json"
-DEVELOPMENT_MARKDOWN = {"project_handoff.md"}
 
 
 def report(message: str) -> None:
@@ -107,15 +106,13 @@ def is_preserved(rel: Path) -> bool:
 
 
 def is_development_file(rel: Path) -> bool:
-    """Source-only material; user-facing help and third-party notices remain."""
+    """GitHub-only source and Markdown; text help and license notices remain."""
     parts = tuple(part.casefold() for part in rel.parts)
     return bool(parts) and (
-        parts[0] in {"tests", ".github"}
+        rel.suffix.casefold() == ".md"
+        or parts[0] in {"tests", ".github"}
         or (len(parts) == 2 and parts[0] == "scripts"
             and parts[1].startswith("test_") and parts[1].endswith(".py"))
-        or (len(parts) == 1 and parts[0] in DEVELOPMENT_MARKDOWN)
-        or (len(parts) == 5 and parts[:3] == ("luxai", "assets", "icons")
-            and parts[-1] == "readme.md")
     )
 
 

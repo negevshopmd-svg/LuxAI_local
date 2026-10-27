@@ -1,4 +1,8 @@
-LUXAI LOCAL 0.3.8b — ACTUALIZARE
+LUXAI LOCAL 0.3.8c — ACTUALIZARE
+
+0.3.8c: DOCUMENTATIA MARKDOWN RAMANE PE GITHUB
+Instalarea exclude toate fisierele .md livrate de proiect. Ele raman pe GitHub; Jarvis nu are nevoie de ele pentru functionare. Update.bat elimina si copiile vechi nemodificate. Notele personale, documentele modificate, setarile si modelele sunt pastrate. Licentele necesare si acest ghid .txt raman instalate.
+Inchide Jarvis, ruleaza Update.bat, apoi run_windows.bat.
 
 0.3.8b: AVATAR FLUID SI INSTALARE CURATA
 Avatarul foloseste tema/accentul/fundalul ales si reactioneaza lin la microfon si la redarea efectiva a vocii. Pregatirea silentioasa nu apare ca vorbire. Animatia se opreste cand este ascunsa sau dezactivata.

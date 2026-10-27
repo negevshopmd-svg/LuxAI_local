@@ -1,3 +1,9 @@
+## 0.3.8c — keep all bundled Markdown on GitHub
+
+- Omit all bundled `.md` documentation from fresh installations and updates, including user guides, README files and release notes. Keep the source documents on GitHub; no application code depends on them.
+- Remove unchanged Markdown shipped by older versions using the existing catalog of source hashes. Preserve edited copies, personal Markdown, settings, models and other user data; retain required license notices and the standalone Romanian `.txt` guide.
+- Verify fresh-source cleanup, upgrade filtering, historical document cleanup and personal-file preservation.
+
 ## 0.3.8b — fluid, audio-reactive avatar and clean runtime installation
 
 - Animate the right-hand avatar with elapsed-time motion, subpixel drawing and smooth microphone attack/release. Listening and actual Piper/Windows playback have distinct reactions; silent voice preparation does not trigger speaking. Theme/accent/background changes update the rings immediately. Hidden or disabled animation stops its timer.

@@ -1,4 +1,10 @@
-# LuxAI Local 0.3.8b (Windows 10/11, 64-bit)
+# LuxAI Local 0.3.8c (Windows 10/11, 64-bit)
+
+## 0.3.8c: documentația Markdown rămâne doar pe GitHub
+
+Toate fișierele `.md` livrate de proiect, inclusiv README, ghidurile și istoricul versiunilor, sunt excluse din instalare și rămân pe GitHub. Jarvis nu are nevoie de ele pentru funcționare. `Update.bat` elimină și copiile nemodificate livrate de versiunile vechi. Documentele personale, copiile modificate, setările și modelele sunt păstrate. Licențele necesare și ghidul `README_RO.txt` rămân instalate.
+
+Închide Jarvis, rulează `Update.bat`, apoi `run_windows.bat`.
 
 ## 0.3.8b: avatar fluid și instalare curată
 
