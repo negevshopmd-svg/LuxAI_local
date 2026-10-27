@@ -1,5 +1,11 @@
 # LuxAI_local
 
+## 0.3.8b: fluid avatar and cleaner installation
+
+The right-hand avatar moves smoothly and follows the selected theme, accent and background. Its rings react to microphone activity and use a distinct wave during actual voice playback. Hidden pages and the disabled-animation setting stop animation work.
+
+Installation and updates omit tests, CI files and development notes; these remain on GitHub. User instructions stay installed. Updates remove recognized old development copies only when unchanged; edited files, personal files, settings, secrets and models are preserved. Close Jarvis, run `Update.bat`, then `run_windows.bat`.
+
 ## 0.3.8a: integrated header and refreshed Interface settings
 
 The window uses one draggable header with resize, minimize, maximize/restore and close controls. The microphone sits to the left above the history cards. The right-hand rings extend to the window edges without a rectangular frame. Sliders have a clean track and knob focus indicator.

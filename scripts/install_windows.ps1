@@ -422,6 +422,7 @@ try {
         }
     }
 
+    Invoke-PythonStep $script:VenvPython @('Update.py', '--clean-installation') 'Removing unchanged bundled development files'
     Write-Status 'SUCCESS: LuxAI installation completed. Launch run_windows.bat.'
     Write-Status 'Note: voice models may download on first use; internet access may be required.'
     exit 0

@@ -2,6 +2,7 @@
 """Safe additive updater for Lux AI Local from the public GitHub main branch."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -30,11 +31,13 @@ MAX_ARCHIVE_FILES = 20000
 # These are local/user data. They are never copied over by an update.
 PRESERVE_NAMES = {
     "models", "model", ".venv", "venv", ".git", "__pycache__",
-    "backups", "downloads", "logs", "config.json", "settings.json",
+    "backups", "downloads", "logs", "recordings", "screenshots", "config.json", "settings.json",
     ".env", "config.local.json", "updater_config.json", ".luxai_secrets", ".luxai_data",
     ".luxai_update_state.json", "online_agent.log", "voice_error.log",
 }
 SKIP_SUFFIXES = {".pyc", ".pyo", ".onnx", ".gguf"}
+CLEANUP_MANIFEST = "runtime_cleanup_manifest.json"
+DEVELOPMENT_MARKDOWN = {"project_handoff.md"}
 
 
 def report(message: str) -> None:
@@ -103,6 +106,19 @@ def is_preserved(rel: Path) -> bool:
     )
 
 
+def is_development_file(rel: Path) -> bool:
+    """Source-only material; user-facing help and third-party notices remain."""
+    parts = tuple(part.casefold() for part in rel.parts)
+    return bool(parts) and (
+        parts[0] in {"tests", ".github"}
+        or (len(parts) == 2 and parts[0] == "scripts"
+            and parts[1].startswith("test_") and parts[1].endswith(".py"))
+        or (len(parts) == 1 and parts[0] in DEVELOPMENT_MARKDOWN)
+        or (len(parts) == 5 and parts[:3] == ("luxai", "assets", "icons")
+            and parts[-1] == "readme.md")
+    )
+
+
 def safe_extract(zip_path: Path, destination: Path) -> None:
     base = destination.resolve()
     with zipfile.ZipFile(zip_path) as zf:
@@ -139,7 +155,8 @@ def validate_staged_source(source: Path) -> None:
         if not (source / name).is_file():
             raise RuntimeError(f"Arhiva este incompletă: lipsește {name}.")
     for path in source.rglob("*.py"):
-        if not is_preserved(path.relative_to(source)):
+        rel = path.relative_to(source)
+        if not is_preserved(rel) and not is_development_file(rel):
             compile(path.read_bytes(), str(path), "exec")
 
 
@@ -186,6 +203,79 @@ def _tree_has_links(directory: Path) -> bool:
         if any(_is_link(Path(parent) / name) for name in directories + files):
             return True
     return False
+
+
+def _cleanup_catalog() -> dict[str, set[str]]:
+    """Read a bounded, validated catalog of exact published source hashes.
+
+    A path alone never authorizes deletion. Unknown, edited or user-added
+    content is retained, including files inside a source-only directory.
+    """
+    catalog = ROOT / CLEANUP_MANIFEST
+    if not catalog.is_file() or _is_link(catalog) or catalog.stat().st_size > 4 * 1024 * 1024:
+        return {}
+    data = json.loads(catalog.read_text(encoding="utf-8"))
+    if (not isinstance(data, dict) or data.get("format") != 1
+            or not isinstance(data.get("files"), dict)
+            or len(data["files"]) > MAX_ARCHIVE_FILES):
+        raise ValueError("Invalid cleanup catalog")
+    result = {}
+    reserved = {"con", "prn", "aux", "nul"} | {
+        f"{prefix}{n}" for prefix in ("com", "lpt") for n in range(1, 10)
+    }
+    for name, hashes in data["files"].items():
+        if not isinstance(name, str) or "\\" in name or any(ord(char) < 32 for char in name):
+            raise ValueError("Invalid cleanup path")
+        rel = PurePosixPath(name)
+        if (not rel.parts or rel.is_absolute() or ".." in rel.parts
+                or name != rel.as_posix()
+                or any(":" in part or part.endswith((".", " "))
+                       or part.split(".")[0].casefold() in reserved for part in rel.parts)
+                or not is_development_file(Path(name)) or is_preserved(Path(name))
+                or not isinstance(hashes, list) or not hashes or len(hashes) > 2000
+                or any(not isinstance(value, str) or re.fullmatch(r"[a-f0-9]{64}", value) is None
+                       for value in hashes)):
+            raise ValueError("Invalid cleanup catalog entry")
+        result[name] = set(hashes)
+    return result
+
+
+def cleanup_development_files() -> None:
+    """Remove unchanged bundled development files from an installation only."""
+    # A Git checkout is a development copy, including worktrees whose .git
+    # entry is a file. Never trim the maintainer's checked-out source.
+    if (ROOT / ".git").exists() or (ROOT / ".git").is_symlink():
+        return
+    removed = 0
+    try:
+        if _is_link(ROOT):
+            return
+        catalog = _cleanup_catalog()  # Validate every entry before any deletion.
+        for name, hashes in catalog.items():
+            path = ROOT / name
+            try:
+                if any(_is_link(parent) for parent in (path, *path.parents)
+                       if parent != ROOT and parent.exists()):
+                    continue
+                if not path.is_file() or path.stat().st_size > 16 * 1024 * 1024:
+                    continue
+                if hashlib.sha256(path.read_bytes()).hexdigest() not in hashes:
+                    continue
+                path.unlink()
+                removed += 1
+                parent = path.parent
+                while parent != ROOT:
+                    try:
+                        parent.rmdir()  # Only empty directories; retain personal additions.
+                    except OSError:
+                        break
+                    parent = parent.parent
+            except OSError:
+                continue  # Locked files can be retried by the next update/install.
+    except (OSError, ValueError, TypeError) as exc:
+        report(f"Curățarea fișierelor de dezvoltare a fost omisă: {type(exc).__name__}.")
+    if removed:
+        report(f"Fișiere de dezvoltare nemodificate eliminate: {removed}.")
 
 
 _LEGACY_BACKUP_NAME = re.compile(
@@ -236,6 +326,8 @@ def cleanup_legacy_backups() -> None:
                 expected = _legacy_manifest(manifest)
                 actual = {path.relative_to(saved).as_posix()
                           for path in saved.rglob("*") if path.is_file()}
+                if any(is_preserved(Path(value)) for value in actual):
+                    continue
                 if expected is None:
                     if manifest.exists() or re.fullmatch(
                         r"\d{8}-\d{6}-(?:[a-f0-9]{12}|initial)", saved.name
@@ -521,6 +613,7 @@ def perform_update() -> int:
             if not upgrade_dependencies():
                 return 1
             ensure_local_ai_backend()
+            cleanup_development_files()
             cleanup_legacy_backups()
             return 0
     except Exception as e:
@@ -552,7 +645,7 @@ def perform_update() -> int:
             files = []
             for src in source.rglob("*"):
                 rel = src.relative_to(source)
-                if is_preserved(rel):
+                if is_preserved(rel) or is_development_file(rel):
                     continue
                 if src.is_file():
                     files.append((src, rel))
@@ -601,6 +694,7 @@ def perform_update() -> int:
 
                 write_update_state(latest_sha)
             report("Actualizare instalată cu succes.")
+            cleanup_development_files()
             cleanup_legacy_backups()
             report("Nu păstrez backupuri permanente ale fișierelor programului.")
             report("Folderul models și config.json au fost păstrate.")
@@ -623,6 +717,9 @@ def main() -> int:
 
 if __name__ == "__main__":
     try:
+        if sys.argv[1:] == ["--clean-installation"]:
+            cleanup_development_files()
+            raise SystemExit(0)
         raise SystemExit(main())
     except KeyboardInterrupt:
         report("\nActualizare anulată.")

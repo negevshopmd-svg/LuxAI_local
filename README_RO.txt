@@ -1,4 +1,9 @@
-LUXAI LOCAL 0.3.8a — ACTUALIZARE
+LUXAI LOCAL 0.3.8b — ACTUALIZARE
+
+0.3.8b: AVATAR FLUID SI INSTALARE CURATA
+Avatarul foloseste tema/accentul/fundalul ales si reactioneaza lin la microfon si la redarea efectiva a vocii. Pregatirea silentioasa nu apare ca vorbire. Animatia se opreste cand este ascunsa sau dezactivata.
+Testele, fisierele CI si notele de dezvoltare raman pe GitHub si sunt excluse din instalare. Instructiunile utilizatorului raman instalate. Update.bat elimina doar copii vechi recunoscute si nemodificate; pastreaza fisierele personale, setarile, cheile si modelele.
+Inchide Jarvis, ruleaza Update.bat, apoi run_windows.bat.
 
 0.3.8a: DESIGN INTEGRAT SI INTERFATA UNIFORMA
 Antet integrat cu butoane de fereastra; microfonul mai in stanga, deasupra istoricului. Cercurile ajung la marginile ferestrei fara rama dreptunghiulara. Glisoare fara bordura nativa.

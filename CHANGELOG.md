@@ -1,3 +1,9 @@
+## 0.3.8b — fluid, audio-reactive avatar and clean runtime installation
+
+- Animate the right-hand avatar with elapsed-time motion, subpixel drawing and smooth microphone attack/release. Listening and actual Piper/Windows playback have distinct reactions; silent voice preparation does not trigger speaking. Theme/accent/background changes update the rings immediately. Hidden or disabled animation stops its timer.
+- Omit repository tests, CI files and development Markdown from installed runtime copies; keep all source and development files on GitHub and retain user instructions. Clean recognized old shipped copies only when their contents match known repository versions; preserve edited or user-added files.
+- Keep settings, secrets, models, recordings and personal files during updates. Reject old backup cleanup when a backup contains preserved data, even if its manifest lists that data.
+
 ## 0.3.8a — integrated design and consistent interface language
 
 - Replace the separate native title bar with an integrated draggable header and accessible minimize/maximize/restore/close controls. Retain native resizing and minimum-size fallback. Place the microphone to the left, aligned above the history cards.
