@@ -1,5 +1,11 @@
 # LuxAI_local
 
+## 0.3.8c: Markdown documentation stays on GitHub
+
+Installation and updates omit all bundled `.md` files, including README files, user guides and release notes. These documents remain available in this GitHub repository; Jarvis does not need them to run. `Update.bat` also removes unchanged Markdown copies shipped by earlier versions. Personal notes, edited documents, settings and models are preserved. Required license notices and `README_RO.txt` remain installed.
+
+Close Jarvis, run `Update.bat`, then `run_windows.bat`.
+
 ## 0.3.8b: fluid avatar and cleaner installation
 
 The right-hand avatar moves smoothly and follows the selected theme, accent and background. Its rings react to microphone activity and use a distinct wave during actual voice playback. Hidden pages and the disabled-animation setting stop animation work.
