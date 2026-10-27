@@ -1,4 +1,10 @@
-# LuxAI Local 0.3.8a (Windows 10/11, 64-bit)
+# LuxAI Local 0.3.8b (Windows 10/11, 64-bit)
+
+## 0.3.8b: avatar fluid și instalare curată
+
+Avatarul din dreapta se mișcă fluid și folosește tema, accentul și fundalul ales. Inelele reacționează la nivelul microfonului și afișează un val distinct în timpul redării vocii. Pregătirea silențioasă a vocii nu declanșează reacția de vorbire. Animația se oprește când este dezactivată sau pagina nu este vizibilă.
+
+Instalarea exclude testele, fișierele CI și documentația de dezvoltare; acestea rămân pe GitHub. Instrucțiunile pentru utilizator rămân instalate. Update-ul curăță copiile vechi recunoscute numai dacă nu au fost modificate și păstrează fișierele personale, setările, cheile și modelele. Închide Jarvis, rulează `Update.bat`, apoi `run_windows.bat`.
 
 ## 0.3.8a: design integrat și setări reorganizate
 

@@ -56,6 +56,7 @@ if errorlevel 1 (
 rem Parse this entire block before Update.py can replace the running batch file.
 rem Run the validated download in place. Its normal transaction installs Update.py,
 rem so bootstrap failures never replace the installed updater or leave a backup.
+rem The current updater filters development sources and safely trims old bundled copies.
 (
     %LUXAI_PYTHON% Update.py.new
     if errorlevel 1 (

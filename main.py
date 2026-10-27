@@ -14,7 +14,10 @@ from PySide6.QtWidgets import (
 
 from luxai.agent import LocalAgent
 from luxai.voice import VoiceListener, speak
-from luxai.voices import stop_speaking as stop_voice_output, warm_up_voice
+from luxai.voices import (
+    stop_speaking as stop_voice_output, warm_up_voice,
+    barge_in_ready as voice_output_playing,
+)
 from luxai.voice_rules import is_stop_speech_command, is_hallucinated_outro
 from luxai.screen import capture_screen, read_screen_text
 from luxai.settings_panel import SettingsPanel
@@ -372,6 +375,9 @@ class MainWindow(QMainWindow):
         self.build_chat()
         self.build_settings()
         self.home_page.detach_avatar(content)
+        # Sample actual playback on the avatar's UI timer. Synthesis/downloads
+        # and silent startup preparation must not look like audible speech.
+        self.avatar.set_playback_probe(voice_output_playing.is_set)
         self._window_chrome = WindowChrome(self, self.window_header)
         content.installEventFilter(self)
         self.home_page.installEventFilter(self)
@@ -1205,12 +1211,17 @@ class MainWindow(QMainWindow):
         value = 0 if rms <= 0 else int(max(0, min(100, (20 * math.log10(max(rms, 1e-8)) + 70) / 0.7)))
         self.home_page.microphone_level.setValue(value)
         self.settings_panel.audio_level.setValue(value)
+        self.avatar.set_audio_level(value / 100.0)
 
     def _on_audio_state(self, event, details):
         """Show capture readiness separately from the requested on/off switch."""
         if self._closed:
             return
         self._audio_event, self._audio_details = event, dict(details or {})
+        self.avatar.set_listening(event in (
+            "listening", "speech_started", "no_speech", "transcription_error",
+            "input_warning", "input_silent", "testing",
+        ))
         messages = {
             "stopped": "Микрофон выключен",
             "loading_model": "Загрузка модели распознавания… Первый запуск может занять несколько минут.",
