@@ -124,6 +124,7 @@ class SettingsUsability038Tests(unittest.TestCase):
         self.app.processEvents()
         self.assertEqual(self.selected(panel), [4])
         panel.search.setText("no such section")
+        self.assertEqual(self.selected(panel), [])
         self.app.processEvents()
         self.assertEqual(self.selected(panel), [])
         panel.search.clear()

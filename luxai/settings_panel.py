@@ -1066,6 +1066,11 @@ class SettingsPanel(QWidget):
             match = not query or query in button.text().casefold()
             section.setVisible(match)
             button.setVisible(match)
+        # Hidden sections are already known before Qt lays out the remaining
+        # ones. Clear/select immediately, then resync their new geometry.
+        # On Windows, layout events can restart the zero-delay timer after
+        # an event-loop pass, leaving a stale hidden selection meanwhile.
+        self._sync_current_section()
         self._queue_section_sync()
 
     def collect(self):
