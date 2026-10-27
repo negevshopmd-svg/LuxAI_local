@@ -32,9 +32,9 @@ class VoiceLanguageAndOptionalLLMTests(unittest.TestCase):
             # GGUF signature/incomplete-file detection.
             model.write_bytes(b"GGUF" + b"\x00" * 1_048_576)
             for code, expected in (
-                ("ru", "llama-cpp-python"),
-                ("en", "llama-cpp-python"),
-                ("ro", "llama-cpp-python"),
+                ("ru", "автоматически"),
+                ("en", "automatically"),
+                ("ro", "automat"),
             ):
                 with self.subTest(code=code), mock.patch.dict(sys.modules, {"llama_cpp": None}):
                     agent = LocalAgent({"llm_model_path": str(model), "language": code})

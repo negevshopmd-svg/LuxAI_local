@@ -47,7 +47,8 @@ class IsolatedGGUF:
         if completed.returncode != 0:
             raise GGUFWorkerError(
                 "Local GGUF process failed or was stopped. Check model compatibility, "
-                "available RAM and install_local_ai.bat. Jarvis remains running."
+                "available RAM and logs/local_ai_install.log. The engine is prepared "
+                "automatically at startup/update. Jarvis remains running."
             )
         for line in reversed(completed.stdout.splitlines()):
             if line.startswith(SENTINEL):

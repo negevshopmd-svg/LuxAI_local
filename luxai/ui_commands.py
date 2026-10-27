@@ -165,7 +165,7 @@ class CommandsPage(QWidget):
             self.tree.addTopLevelItem(header)
             for entry in group_items:
                 item = QTreeWidgetItem([
-                    entry["title"], "",
+                    tr(entry["title"], self.interface_language) if entry.get("builtin") else entry["title"], "",
                 ])
                 action_icon = CATALOG.get(entry["action"], {}).get("icon", "list-checks")
                 set_item_icon(item, action_icon, widget=self.tree, column=0)
@@ -238,7 +238,7 @@ class CommandsPage(QWidget):
                 self.refresh()
                 self.changed.emit()
             except (OSError, ValueError) as exc:
-                QMessageBox.warning(self, "Ошибка", str(exc))
+                QMessageBox.warning(self, tr("Ошибка", self.interface_language), str(exc))
 
     def edit_selected(self):
         selected = self._selected()
@@ -251,7 +251,7 @@ class CommandsPage(QWidget):
                 self.refresh()
                 self.changed.emit()
             except (OSError, ValueError) as exc:
-                QMessageBox.warning(self, "Ошибка", str(exc))
+                QMessageBox.warning(self, tr("Ошибка", self.interface_language), str(exc))
 
     def toggle_selected(self):
         entry = self._selected()
@@ -261,15 +261,15 @@ class CommandsPage(QWidget):
                 self.refresh()
                 self.changed.emit()
             except (ValueError, OSError) as exc:
-                QMessageBox.warning(self, "Ошибка", str(exc))
+                QMessageBox.warning(self, tr("Ошибка", self.interface_language), str(exc))
 
     def delete_selected(self):
         entry = self._selected()
         if not entry or entry["builtin"]:
             return
         answer = QMessageBox.question(
-            self, "Удалить команду?",
-            f"Удалить команду «{entry['title']}»?",
+            self, tr("Удалить команду?", self.interface_language),
+            tr("Удалить команду «{title}»?", self.interface_language).format(title=entry["title"]),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -279,7 +279,7 @@ class CommandsPage(QWidget):
                 self.refresh()
                 self.changed.emit()
             except (ValueError, OSError) as exc:
-                QMessageBox.warning(self, "Ошибка", str(exc))
+                QMessageBox.warning(self, tr("Ошибка", self.interface_language), str(exc))
 
     def execute_selected(self):
         entry = self._selected()

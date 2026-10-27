@@ -11,7 +11,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QCheckBox, QFrame, QHBoxLayout, QLabel, QProgressBar, QPushButton, QScrollArea, QSlider, QTextEdit,
-    QVBoxLayout, QWidget,
+    QSizePolicy, QVBoxLayout, QWidget,
 )
 from luxai.icons import set_button_icon, set_label_icon
 from luxai.styles import theme_colors, mix_colors
@@ -29,8 +29,8 @@ class ToggleSwitch(QCheckBox):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._colors = theme_colors()
 
-    def set_theme(self, theme, accent="#3978f6"):
-        self._colors = theme_colors(theme, accent)
+    def set_theme(self, theme, accent="#3978f6", background=None):
+        self._colors = theme_colors(theme, accent, background)
         self.update()
 
     def hitButton(self, pos):
@@ -69,11 +69,14 @@ class OrbVisual(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("HeroOrb")
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.setAutoFillBackground(False)
         self.setMinimumWidth(155)
         self._phase = 0.0
         self._animated = False
         self._theme = "dark"
         self._accent = "#3978f6"
+        self._background = None
         self._timer = QTimer(self)
         self._timer.setInterval(80)
         self._timer.timeout.connect(self._advance)
@@ -86,9 +89,11 @@ class OrbVisual(QWidget):
             self._timer.stop()
         self.update()
 
-    def set_theme(self, theme, accent="#3978f6"):
+    def set_theme(self, theme, accent="#3978f6", background=None):
         self._theme = "light" if theme == "light" else "dark"
-        self._accent = theme_colors(theme, accent)["accent"]
+        palette = theme_colors(theme, accent, background)
+        self._accent = palette["accent"]
+        self._background = palette["bg"]
         self.update()
 
     def showEvent(self, event):
@@ -110,12 +115,14 @@ class OrbVisual(QWidget):
         painter.setClipRect(self.rect())
         # Center sits outside the right edge, just like the Luxify reference.
         w, h = float(self.width()), float(self.height())
-        x, y = w * 1.13, h * 0.50
         radius = max(h * 0.76, w * 0.93)
+        # Leave the outside of the left arc transparent. A tall full-height
+        # backdrop must not cut the colored circle into a straight left edge.
+        x, y = max(w * 1.13, radius + 8.0), h * 0.50
         pulse = math.sin(self._phase) * 4.0 if self._animated else 0.0
         ratios = (1.00, 0.86, 0.70, 0.54, 0.39, 0.24)
         amounts = (0.23, 0.38, 0.57, 0.76, 0.92)
-        background = theme_colors(self._theme, self._accent)["bg"]
+        background = theme_colors(self._theme, self._accent, self._background)["bg"]
         if self._theme == "light":
             amounts = (0.12, 0.25, 0.40, 0.60, 0.80, 0.95)
         colors = [mix_colors(background, self._accent, amount) for amount in amounts]
@@ -228,20 +235,46 @@ class HomePage(QWidget):
         left.addWidget(control_card, 2)
 
         controls_scroll = QScrollArea()
+        controls_scroll.setObjectName("HomeScroll")
+        controls_scroll.viewport().setObjectName("HomeViewport")
         controls_scroll.setWidgetResizable(True)
         controls_scroll.setFrameShape(QFrame.Shape.NoFrame)
         controls_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         controls_scroll.setWidget(column)
+        self.controls_scroll = controls_scroll
         root.addWidget(controls_scroll, 5)
         self.avatar = OrbVisual()
+        self.hero_space = self.avatar
         root.addWidget(self.avatar, 5)
-        self.set_theme(config.get("ui_theme", "dark"), config.get("ui_accent", "#3978f6"))
+        self.set_theme(config.get("ui_theme", "dark"), config.get("ui_accent", "#3978f6"), config.get("ui_background"))
 
-    def set_theme(self, theme, accent="#3978f6"):
+    def detach_avatar(self, parent):
+        """Keep the home column width while giving its orb a full-height host.
+
+        The main window positions this decorative backdrop behind its header
+        and page, rather than clipping it to the rectangle below the header.
+        The original avatar object, animation state and signal bindings stay
+        intact; the caller controls its geometry and home-page visibility.
+        """
+        layout = self.layout()
+        index = layout.indexOf(self.avatar)
+        if index >= 0:
+            layout.removeWidget(self.avatar)
+            self.hero_space = QWidget(self)
+            self.hero_space.setObjectName("HeroSpace")
+            self.hero_space.setMinimumWidth(155)
+            self.hero_space.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+            self.hero_space.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+            layout.insertWidget(index, self.hero_space, 5)
+        if self.avatar.parentWidget() is not parent:
+            self.avatar.setParent(parent)
+        return self.avatar
+
+    def set_theme(self, theme, accent="#3978f6", background=None):
         """Apply the same selected accent to custom-painted home controls."""
-        self.avatar.set_theme(theme, accent)
+        self.avatar.set_theme(theme, accent, background)
         for switch in (self.home_prefix, self.home_quiet, self.home_avatar, self.home_top):
-            switch.set_theme(theme, accent)
+            switch.set_theme(theme, accent, background)
 
     @staticmethod
     def _switch_row(layout, title, checked, icon_name):

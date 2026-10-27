@@ -265,6 +265,6 @@ class CommandEditor(QDialog):
         try:
             checked_command(payload)
         except (ValueError, TypeError) as exc:
-            QMessageBox.warning(self, "Ошибка команды", str(exc))
+            QMessageBox.warning(self, tr("Ошибка команды"), str(exc))
             return
         self.accept()

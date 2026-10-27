@@ -105,7 +105,7 @@ class ScreenAssistDialog(QDialog):
                 )
             )
         else:
-            self.preview.setText("Снимок экрана недоступен.")
+            self.preview.setText(tr("Снимок экрана недоступен."))
         self.button_list.clear()
         for item in snapshot.buttons:
             kind = classify_button(item.label)
@@ -126,5 +126,5 @@ class ScreenAssistDialog(QDialog):
         self.no_button.setEnabled(no_count == 1)
         if not self.button_list.count():
             self.button_list.addItem(
-                "Кнопки через UI Automation не обнаружены."
+                tr("Кнопки через UI Automation не обнаружены.")
             )

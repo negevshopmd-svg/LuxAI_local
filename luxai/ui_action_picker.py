@@ -331,7 +331,7 @@ class ActionOptionsDialog(QDialog):
                 "location": self.location.currentData() if self.location else "desktop",
             })
         except (TypeError, ValueError) as exc:
-            QMessageBox.warning(self, "Некорректное действие", str(exc))
+            QMessageBox.warning(self, tr("Некорректное действие"), str(exc))
             return
         self.accept()
 

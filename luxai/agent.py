@@ -82,9 +82,9 @@ class LocalAgent:
                 "No local model selected. Choose a .gguf file in Settings.",
             ),
             "missing_llama_cpp": (
-                "Модуль llama-cpp-python не установлен. Локальный GGUF-чат недоступен, но простые команды работают. Установите модуль в среду .venv.",
-                "Modulul llama-cpp-python nu este instalat. Chatul GGUF local nu este disponibil, dar comenzile simple funcționează. Instalează modulul în mediul .venv.",
-                "The optional llama-cpp-python module is not installed. Local GGUF chat is unavailable, but simple commands still work. Install it into .venv.",
+                "Локальный движок ещё не готов. Он подготавливается автоматически при запуске и обновлении. Простые команды работают.",
+                "Motorul local nu este încă pregătit. Se pregătește automat la pornire și actualizare. Comenzile simple funcționează.",
+                "The local engine is not ready yet. It is prepared automatically at startup and during updates. Simple commands still work.",
             ),
             "invalid_model": (
                 "Файл GGUF повреждён или загружен не полностью. Скопируйте исправный файл в папку models.",

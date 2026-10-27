@@ -1,4 +1,10 @@
-LUXAI LOCAL 0.3.8 — ACTUALIZARE
+LUXAI LOCAL 0.3.8a — ACTUALIZARE
+
+0.3.8a: DESIGN INTEGRAT SI INTERFATA UNIFORMA
+Antet integrat cu butoane de fereastra; microfonul mai in stanga, deasupra istoricului. Cercurile ajung la marginile ferestrei fara rama dreptunghiulara. Glisoare fara bordura nativa.
+Setari Interfata cu butoane tema/limba, culori accent/fundal, selector personalizat/codhex, procente, comutatoare rotunjite si resetare. Controalele se adapteaza ferestrelor inguste. Autorii mesajelor respecta limba interfetei; in rusa apare Вы (голос). Vocile se numesc Piper si Windows.
+Motorul AI local se instaleaza prin instalare/update si se repara automat in fundal la pornire. Butonul manual este eliminat. Modelul GGUF ramane ales de tine, separat de motor.
+Instalare: inchide Jarvis, ruleaza Update.bat, apoi run_windows.bat.
 
 0.3.8: COMENZI MULTILINGVE, JOCURI SI INTERFATA
 Comenzile RO/RU/EN accepta mai multe formulari politicoase si variante cu/fara diacritice. War Thunder foloseste instrumente locale de pornire/inchidere, cu verificarea ferestrelor si proceselor jocului; Steam ramane deschis. Un joc care cere confirmare sau continua sa ruleze nu este declarat inchis. Testele includ 10-15 formulari per intentie si limba testata, plus negatii si cereri compuse. Recunoasterea vorbirii depinde si de microfon, model si limba Whisper.

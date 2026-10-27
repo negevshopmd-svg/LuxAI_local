@@ -1,4 +1,12 @@
-# LuxAI Local 0.3.8 (Windows 10/11, 64-bit)
+# LuxAI Local 0.3.8a (Windows 10/11, 64-bit)
+
+## 0.3.8a: design integrat și setări reorganizate
+
+Bara Windows separată este înlocuită de un antet cu mutare, redimensionare și butoane de minimizare/maximizare/închidere. Microfonul este mai în stânga, deasupra istoricului. Cercurile din dreapta ajung la marginile ferestrei, cu margine stângă curbată și transparentă. Glisoarele nu mai au rama nativă.
+
+Setările Interfeței au butoane pentru temă și limbă, mostre de culori pentru accent/fundal, selector personalizat și cod hexazecimal, procente, comutatoare rotunjite și resetare. În ferestre înguste, controalele se așază sub explicații. Autorii mesajelor urmează limba interfeței, inclusiv în istoricul existent: în rusă apare **Вы (голос)**. Preferințele vocale rămân separate. Furnizorii se numesc **Piper** și **Windows**.
+
+Motorul AI local este pregătit automat de instalator/update și reparat în fundal la pornire dacă lipsește. Butonul manual a fost eliminat. Motorul este separat de modelul `.gguf`, ales potrivit memoriei disponibile. Închide Jarvis, rulează `Update.bat`, apoi `run_windows.bat`.
 
 ## 0.3.8: comenzi multilingve, jocuri și interfață corectată
 
@@ -70,7 +78,7 @@ Recunoașterea Whisper, sinteza Piper și OCR rulează local după descărcarea 
 
 ## Componente
 - `faster-whisper`: recunoaștere vocală locală; detectare automată a limbii.
-- `llama-cpp-python`: model lingvistic local GGUF.
+- `llama-cpp-python`: motor pentru rularea modelelor locale GGUF.
 - `piper-tts`: sinteză vocală locală în română, rusă și engleză; vocile se descarcă la prima folosire.
 - `mss`, `Pillow`, `pytesseract`: captură și OCR opțional.
 - `pyautogui`: mouse/tastatură.

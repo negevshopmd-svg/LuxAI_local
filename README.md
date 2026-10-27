@@ -1,5 +1,13 @@
 # LuxAI_local
 
+## 0.3.8a: integrated header and refreshed Interface settings
+
+The window uses one draggable header with resize, minimize, maximize/restore and close controls. The microphone sits to the left above the history cards. The right-hand rings extend to the window edges without a rectangular frame. Sliders have a clean track and knob focus indicator.
+
+Interface settings offer segmented theme/language choices, accent/background swatches, custom color picker/hex field, percentage pills, rounded switches and reset. Controls stack on narrow windows. Chat roles follow the UI language, including existing history: Russian shows **Вы (голос)**. Recognition and reply settings remain separate. Synthesis providers are named **Piper** and **Windows**.
+
+Install/update automatically prepare the local GGUF engine; normal startup silently repairs it if missing/broken, without checking the network for a working engine. Its manual installation button is gone. The engine is separate from the potentially large `.gguf` model file, which you choose to suit your RAM. Close Jarvis, run `Update.bat`, then `run_windows.bat`.
+
 ## 0.3.8: multilingual commands, games and interface fixes
 
 Romanian, Russian and English requests now share broader handling of polite formulations, diacritics and spoken command variants. Known Steam games, including War Thunder, launch or close through local tools before generic planning. Closing checks the actual game windows/processes and leaves Steam running; an in-game confirmation or a still-running process is reported as unverified. Regression corpora include 10–15 formulations per tested intent and language, together with negative and compound requests. Speech accuracy still depends on the selected Whisper model, recording and recognition language; interface language remains separate.
@@ -158,7 +166,7 @@ Interface language is separate from **Voice input → Recognition language** (th
 
 ## Local model and multilingual speech troubleshooting
 
-The built-in keyboard/mouse commands and quick conversation replies work without a local GGUF library. The offline GGUF **chat model** is optional. If your app previously displayed `No module named 'llama_cpp'`, update to the latest version and run `install_local_ai.bat` to attempt installing the official prebuilt CPU wheel into **LuxAI's own .venv**. This helper does not compile native code and reports clearly if no wheel is available for your Python version. The main installer still does not require the large GGUF backend. Choose a different supported Python environment or cloud model if a wheel is unavailable. Do not copy a .venv between computers.
+The built-in keyboard/mouse commands and quick replies work without a local GGUF model. Install/update automatically prepare the native CPU engine in **LuxAI's own .venv**, and normal startup silently repairs a missing/broken engine. Only precompiled wheels are used; no C++ build or separate UI installation step is needed. If a compatible wheel cannot be obtained, ordinary commands/cloud chat remain usable and Settings show the preparation status. The offline GGUF **chat model** remains user-selected. Do not copy a .venv between computers.
 
 Under **Settings → Voice Output**, select **Jarvis reply language**: Automatic (follows voice recognition), Русский, English or Română. This controls response text and Piper speech. Selecting Mihai or Lessac in **Assistant voice** also selects Romanian or English reply language. The interface language and microphone language remain independent; switching interface labels alone does not change the spoken language. Normal greetings (including “Hello, Jarvis”) work without a local LLM or API key. Some legacy macro/tool responses can still contain untranslated Russian text; these should be updated independently rather than inaccurately translated or spoken using a mismatched model.
 
@@ -166,7 +174,7 @@ Under **Settings → Voice Output**, select **Jarvis reply language**: Automatic
 
 Place GGUF files in `LuxAI_Local/models/` (subfolders are supported). Open **Settings → AI Provider → Models in models folder** and choose a model; use **Refresh model list** after copying files. The selector shows all .gguf files, disables invalid/incomplete entries, and restores a previously selected model if the same unique filename was moved from another PC. Previously selected external model paths are still supported. Saving settings persists this selection.
 
-The model status under the selector reports invalid files or the optional `llama-cpp-python` dependency missing. Run `install_local_ai.bat` after `install_windows.bat` when using local GGUF chat. It does not magically make a huge model fit in RAM. **GGUF chat now runs in an isolated CPU subprocess** instead of loading native llama.cpp into the Qt/audio process. This protects the main app from many native GGUF crashes, but the local model is loaded per request and therefore replies may be slower; try a smaller quantized model if RAM is limited.
+The model status under the selector reports invalid files and automatic engine-preparation progress. Installing the engine does not make a huge model fit in RAM. **GGUF chat now runs in an isolated CPU subprocess** instead of loading native llama.cpp into the Qt/audio process. This protects the main app from many native GGUF crashes, but the local model is loaded per request and therefore replies may be slower; try a smaller quantized model if RAM is limited.
 
 For better Romanian transcription choose **Settings → Voice input → Recognition language: Română**, recognition model **Medium** (if sufficient RAM/CPU, approximately 1.5 GB initial download), and accuracy **Balanced** or **More accurate**. The Small model requires fewer resources. On supported systems, audio capture now falls back from 16 kHz to the device's own sample rate and resamples to 16 kHz for Whisper. The mic uses Romanian vocabulary hints and a stronger beam on Romanian speech. Actual recognition accuracy still depends on recording quality and microphone position.
 

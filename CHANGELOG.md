@@ -1,3 +1,12 @@
+## 0.3.8a — integrated design and consistent interface language
+
+- Replace the separate native title bar with an integrated draggable header and accessible minimize/maximize/restore/close controls. Retain native resizing and minimum-size fallback. Place the microphone to the left, aligned above the history cards.
+- Extend the home orb behind the full content height and to the right edge, with a natural transparent left curve. Preserve animation, themes and home-only visibility. Remove slider borders/bevels, retaining keyboard focus on the knob.
+- Redesign Interface settings with segmented theme/language controls, accent swatches/custom color, real background swatches/hex selection, percentage pills, rounded switches, separators and reset. Stack controls on narrow windows without clipping; preserve auto-save and configuration compatibility.
+- Render chat roles using the interface language, including existing history: Russian shows «Вы (голос)». Keep voice preferences and message bodies independent. Complete UI/dialog/model-status translations; simplify synthesis provider names to Piper and Windows.
+- Remove the manual local-engine installation button. Install/update continue preparing the CPU engine automatically; the launcher now silently repairs missing/broken engines without delaying Qt. Reuse working engines without network, serialize installers, and verify native imports in child processes. GGUF model weights remain user-selected.
+- Add real Qt interaction/layout/pixel/localization tests and subprocess locking/startup-repair regressions. Physical desktop behavior still needs observation on the target PC.
+
 ## 0.3.8 — multilingual commands, native games and consistent settings UI
 
 - Normalize bounded polite requests, Romanian diacritics/inflections and spoken key names consistently across Romanian, Russian and English. Expand Discord microphone/headphones, calls, contacts and screen/dictation intents while preserving exact recipients, literal message bodies and action safeguards. Keep explicit Whisper language choices intact.

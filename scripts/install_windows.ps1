@@ -407,7 +407,7 @@ try {
             Invoke-PythonStep $script:VenvPython @('-m', 'luxai.local_ai_setup') 'Installing and verifying local GGUF AI engine'
         } catch {
             Write-Status "WARNING: Local GGUF engine could not be installed: $($_.Exception.Message)"
-            Write-Status 'Jarvis can still run. See logs\local_ai_install.log and retry install_local_ai.bat.'
+            Write-Status 'Jarvis can still run. Automatic setup retries on launch; see logs\local_ai_install.log or retry Update.bat online.'
         }
     }
 

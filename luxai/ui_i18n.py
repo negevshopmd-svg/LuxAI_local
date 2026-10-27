@@ -418,6 +418,72 @@ API-ключ|||API key|||Cheie API
 Микрофон слышит звук. Если команд нет, проверьте язык и модель Whisper.|||Microphone receives sound. If commands are missing, check the language and Whisper model.|||Microfonul primește sunet. Dacă nu apar comenzi, verifică limba și modelul Whisper.
 Звука нет. Проверьте вход Headset / Hands-Free, кнопку Mute и разрешения Windows.|||No sound. Check the Headset / Hands-Free input, Mute switch and Windows permissions.|||Nu este sunet. Verifică intrarea Headset / Hands-Free, butonul Mute și permisiunile Windows.
 Сигнал перегружен. Уменьшите усиление микрофона в Windows.|||Signal is clipping. Reduce microphone gain in Windows.|||Semnalul este prea puternic. Redu amplificarea microfonului în Windows.
+Развернуть|||Maximize|||Maximizează
+Восстановить|||Restore|||Restaurează
+Свернуть окно|||Minimize window|||Minimizează fereastra
+Переместить окно|||Move window|||Mută fereastra
+Подтвердите действие|||Confirm action|||Confirmă acțiunea
+Джарвис хочет выполнить действие:|||Jarvis wants to perform this action:|||Jarvis dorește să execute acțiunea:
+Скажите «да» или «нет», либо нажмите кнопку.|||Say “yes” or “no”, or choose a button.|||Spune „da” sau „nu” ori alege un buton.
+Голосовое подтверждение доступно, пока микрофон включён.|||Voice confirmation is available while the microphone is on.|||Confirmarea vocală este disponibilă cât timp microfonul este pornit.
+Да|||Yes|||Da
+Нет|||No|||Nu
+Снимок сохранён на этом компьютере:|||Screenshot saved on this computer:|||Captura a fost salvată pe acest calculator:
+Текст на экране|||On-screen text|||Textul de pe ecran
+(Текст не обнаружен.)|||(No text detected.)|||(Nu s-a detectat text.)
+Распознавание текста недоступно или завершилось ошибкой:|||Text recognition is unavailable or failed:|||Recunoașterea textului este indisponibilă sau a eșuat:
+Изменения автоматически сохраняются на этом компьютере и применяются без кнопки сохранения.|||Changes are saved and applied automatically on this computer.|||Modificările sunt salvate și aplicate automat pe acest calculator.
+Пауза перед распознаванием|||Pause before recognition|||Pauză înainte de recunoaștere
+Jarvis дождётся этой паузы после вашей речи (1,2–4,0 с). Если обрывает фразы, увеличьте до 3 секунд.|||Jarvis waits for this pause after your speech (1.2–4.0 s). If phrases are cut off, increase it to 3 seconds.|||Jarvis așteaptă această pauză după vorbire (1,2–4,0 s). Dacă frazele sunt întrerupte, mărește la 3 secunde.
+Для румынского языка рекомендуется Medium, если хватает памяти. Модель загружается при первом использовании.|||Medium is recommended for Romanian if enough RAM is available. Downloads on first use.|||Medium este recomandat pentru română dacă există suficientă memorie RAM. Modelul se descarcă la prima utilizare.
+Dmitri — Русский|||Dmitri — Russian|||Dmitri — Rusă
+Mihai — Румынский|||Mihai — Romanian|||Mihai — Română
+Lessac — Английский|||Lessac — English|||Lessac — Engleză
+— Модель не выбрана —|||— No model selected —|||— Niciun model selectat —
+Модель не выбрана|||No model selected|||Niciun model selectat
+внешняя модель|||external model|||model extern
+Выберите модель GGUF|||Choose a GGUF model|||Alege un model GGUF
+Модели GGUF (*.gguf)|||GGUF models (*.gguf)|||Modele GGUF (*.gguf)
+Модель выбрана. Локальный движок подготавливается автоматически.|||Model selected. The local engine is prepared automatically.|||Model selectat. Motorul local se pregătește automat.
+Изменения автоматически сохраняются в config.json. При смене микрофона распознавание перезапускается.|||Changes are saved automatically. Changing the microphone restarts speech recognition.|||Modificările se salvează automat. Schimbarea microfonului repornește recunoașterea vocală.
+Ключ сохраняется после завершения ввода. Нажмите «Проверить ключ» для проверки.|||The key is saved after editing finishes. Select “Test key” to verify it.|||Cheia se salvează după terminarea editării. Apasă „Verifică cheia” pentru verificare.
+Цвет темы, фон, прозрачность и язык. Изменения видны сразу.|||Theme color, background, transparency and language. Changes appear immediately.|||Culoarea temei, fundalul, transparența și limba. Modificările se văd imediat.
+Цвет фона|||Background color|||Culoarea fundalului
+Подложка окна под содержимым.|||Window background behind the content.|||Fundalul ferestrei din spatele conținutului.
+По теме|||Match theme|||După temă
+Свой цвет|||Custom color|||Culoare personalizată
+Другой цвет|||Another color|||Altă culoare
+Цвет в формате #RRGGBB|||Color in #RRGGBB format|||Culoare în format #RRGGBB
+Выберите цвет|||Choose a color|||Alege o culoare
+Сбросить оформление|||Reset appearance|||Resetează aspectul
+Пурпурный|||Purple|||Purpuriu
+Оранжевый|||Orange|||Portocaliu
+Красный|||Red|||Roșu
+Белый|||White|||Alb
+Блокнот|||Notepad|||Notepad
+Калькулятор|||Calculator|||Calculator
+Проводник|||File Explorer|||Explorator de fișiere
+Проводник Windows|||Windows File Explorer|||Explorator de fișiere Windows
+Обзор…|||Browse…|||Răsfoiește…
+Название кнопки или объекта||1 (1–10 кликов)|||Button or object name||1 (1–10 clicks)|||Numele butonului sau obiectului||1 (1–10 clicuri)
+Тема статьи||пользователь Discord|||Article topic||Discord user|||Subiectul articolului||utilizator Discord
+Точное имя пользователя Discord|||Exact Discord username|||Numele exact al utilizatorului Discord
+Отчёт.docx|||Report.docx|||Raport.docx
+Новый файл.txt|||New file.txt|||Fișier nou.txt
+Новая папка|||New folder|||Dosar nou
+Кнопки через UI Automation не обнаружены.|||No buttons detected through UI Automation.|||Nu s-au detectat butoane prin UI Automation.
+Удалить команду «{title}»?|||Delete command “{title}”?|||Ștergi comanda „{title}”?
+Модель не выбрана или файл не найден. Поместите файл .gguf в папку models.|||No model selected or model file missing. Place a .gguf in models/.|||Nu este selectat un model sau fișierul lipsește. Pune un fișier .gguf în dosarul models/.
+Файл GGUF повреждён или загружен не полностью. Скачайте или скопируйте его заново.|||GGUF file is invalid or incomplete. Download/copy it again.|||Fișierul GGUF este invalid sau incomplet. Descarcă-l sau copiază-l din nou.
+Локальный движок ИИ подготавливается автоматически. Обновите список моделей после завершения.|||The local AI engine is being prepared automatically. Refresh models after setup.|||Motorul AI local se pregătește automat. Actualizează lista modelelor după terminare.
+Локальный движок ИИ подготавливается автоматически при запуске и обновлении. Если он недоступен, проверьте logs/local_ai_install.log и повторите Update.bat с интернетом.|||The local AI engine is prepared automatically at startup/update. If unavailable, check logs/local_ai_install.log and retry Update.bat online.|||Motorul AI local se pregătește automat la pornire și actualizare. Dacă este indisponibil, verifică logs/local_ai_install.log și repetă Update.bat cu internet.
+GGUF найден, локальный движок установлен. Загрузка модели зависит от свободной памяти.|||GGUF found and local backend installed. Actual load depends on available RAM.|||Modelul GGUF a fost găsit și motorul local este instalat. Încărcarea depinde de memoria RAM disponibilă.
+Движок локального ИИ подготавливается…|||Preparing the local AI engine…|||Se pregătește motorul AI local…
+Движок локального ИИ готов.|||Local AI engine ready.|||Motorul AI local este pregătit.
+Движок локального ИИ пока недоступен. Подключитесь к интернету и повторите Update.bat.|||The local AI engine is unavailable. Connect to the internet and run Update.bat again.|||Motorul AI local este indisponibil. Conectează-te la internet și rulează din nou Update.bat.
+Движок локального ИИ подготавливается автоматически при запуске и обновлении.|||The local AI engine is prepared automatically at startup and update.|||Motorul AI local se pregătește automat la pornire și actualizare.
+Выбранный голос Piper загружается при первом использовании.|||The selected Piper voice downloads on first use.|||Vocea Piper selectată se descarcă la prima utilizare.
+Для голоса Windows нужен установленный языковой пакет. Piper работает локально после загрузки голоса.|||Windows voices require an installed language pack. Piper works locally after downloading the voice.|||Vocile Windows necesită un pachet de limbă instalat. Piper funcționează local după descărcarea vocii.
 """
 
 # Every entry is a Russian source string and an English/Romanian translation.
@@ -429,6 +495,17 @@ for _line in _DATA.splitlines():
     TRANSLATIONS[" ".join(_ru.split())] = (_en, _ro)
 
 _language = "ru"
+
+# Model health is also used by non-Qt diagnostics, whose source remains
+# English. Only these exact application-owned phrases are localized here;
+# arbitrary model filenames and user text are never reverse-translated.
+_LEGACY_UI_SOURCES = {
+    "No model selected or model file missing. Place a .gguf in models/.": "Модель не выбрана или файл не найден. Поместите файл .gguf в папку models.",
+    "GGUF file is invalid or incomplete. Download/copy it again.": "Файл GGUF повреждён или загружен не полностью. Скачайте или скопируйте его заново.",
+    "The local AI engine is being prepared automatically. Refresh models after setup.": "Локальный движок ИИ подготавливается автоматически. Обновите список моделей после завершения.",
+    "The local AI engine is prepared automatically at startup/update. If unavailable, check logs/local_ai_install.log and retry Update.bat online.": "Локальный движок ИИ подготавливается автоматически при запуске и обновлении. Если он недоступен, проверьте logs/local_ai_install.log и повторите Update.bat с интернетом.",
+    "GGUF found and local backend installed. Actual load depends on available RAM.": "GGUF найден, локальный движок установлен. Загрузка модели зависит от свободной памяти.",
+}
 
 TRANSLATIONS["Голоса со значком загрузки загрузятся при первом использовании. Голос выбирается по языку ответа, а не по языку интерфейса."] = (
     "Voices with a download icon download on first use. Voice follows reply language, not interface language.",
@@ -445,10 +522,30 @@ def set_ui_language(language):
     _language = normalize_language(language)
 
 
+_TEXT_AUTHORS = frozenset({"Tu", "You", "Вы"})
+_VOICE_AUTHORS = frozenset({"Tu (voce)", "You (voice)", "Вы (голос)"})
+
+
+def is_user_author(who):
+    """Recognize only application-owned user labels, never an arbitrary name."""
+    return who in _TEXT_AUTHORS or who in _VOICE_AUTHORS
+
+
+def chat_author(who, language=None):
+    """Render history roles in the interface language without editing data."""
+    code = normalize_language(language if language is not None else _language)
+    if who in _VOICE_AUTHORS:
+        return {"ru": "Вы (голос)", "en": "You (voice)", "ro": "Tu (voce)"}[code]
+    if who in _TEXT_AUTHORS:
+        return {"ru": "Вы", "en": "You", "ro": "Tu"}[code]
+    return str(who)
+
+
 def tr(source, language=None):
     """Translate only known interface phrases; preserve arbitrary user data."""
     if not isinstance(source, str):
         return source
+    source = _LEGACY_UI_SOURCES.get(source, source)
     code = normalize_language(language if language is not None else _language)
     if code == "ru":
         return source
@@ -518,6 +615,10 @@ def translate_widgets(root: QWidget, language=None):
             suffix = widget.suffix()
             if suffix.strip() in ("сек", "sec", "s"):
                 widget.setSuffix(" sec" if language == "en" else (" s" if language == "ro" else " сек"))
+            elif suffix.strip() in ("мин", "min"):
+                widget.setSuffix(" мин" if language == "ru" else " min")
+            elif suffix.strip() in ("шага", "steps", "pași"):
+                widget.setSuffix({"ru": " шага", "en": " steps", "ro": " pași"}[language])
         _translate_property(widget, "tooltip", widget.toolTip, widget.setToolTip, language)
         _translate_property(widget, "accessible", widget.accessibleName, widget.setAccessibleName, language)
         # Only local dialogs have translated window titles, not dynamic content.

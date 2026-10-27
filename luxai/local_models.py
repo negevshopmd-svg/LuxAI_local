@@ -82,5 +82,8 @@ def model_status(configured: str, *, directory: Path | None = None) -> tuple[boo
     except (ImportError, ValueError):
         installed = False
     if not installed:
-        return False, "llama-cpp-python is missing. Run install_local_ai.bat."
+        from luxai.local_ai_setup import setup_status
+        if setup_status() == "installing":
+            return False, "The local AI engine is being prepared automatically. Refresh models after setup."
+        return False, "The local AI engine is prepared automatically at startup/update. If unavailable, check logs/local_ai_install.log and retry Update.bat online."
     return True, "GGUF found and local backend installed. Actual load depends on available RAM."

@@ -69,6 +69,10 @@ def main() -> int:
     try:
         os.chdir(ROOT)
         enable_native_crash_log()
+        # The wheel is installed by setup/update. Recover interrupted/offline
+        # installations silently; never hold Qt startup on a native import or pip.
+        from luxai.local_ai_setup import start_background_setup
+        start_background_setup()
         import main as application
         return int(application.main() or 0)
     except Exception as exc:

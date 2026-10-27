@@ -8,8 +8,9 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    # Full offscreen Qt suite may take over five minutes on shared runners.
-    timeout-minutes: 10
+    # The full Qt suite includes responsive layouts, pixels and native helpers.
+    # Shared runners can take over ten minutes including dependency setup.
+    timeout-minutes: 20
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -95,7 +96,7 @@ jobs:
 
   python-compatibility-windows:
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
