@@ -49,11 +49,14 @@ def mix_colors(base: str, accent: str, amount: float) -> str:
                           for a, b in zip(first, second))
 
 
-def theme_colors(theme="dark", accent="#3978f6") -> dict:
+def theme_colors(theme="dark", accent="#3978f6", background=None) -> dict:
     """Use the selected accent consistently in CSS and custom painting."""
     palette = dict(LIGHT if theme == "light" else DARK)
     if not re.fullmatch(r"#[0-9a-fA-F]{6}", str(accent)):
         accent = "#3978f6"
+    if re.fullmatch(r"#[0-9a-fA-F]{6}", str(background)):
+        palette["bg"] = str(background).lower()
+        palette["black"] = palette["bg"]
     palette["accent"] = str(accent).lower()
     palette["hover"] = mix_colors(palette["surface"], accent, 0.10)
     palette["selection"] = mix_colors(palette["surface"], accent, 0.18)
@@ -62,8 +65,8 @@ def theme_colors(theme="dark", accent="#3978f6") -> dict:
     return palette
 
 
-def build_styles(theme="dark", accent="#3978f6"):
-    p = theme_colors(theme, accent)
+def build_styles(theme="dark", accent="#3978f6", background=None):
+    p = theme_colors(theme, accent, background)
     accent = p["accent"]
 
     css = """
@@ -75,6 +78,10 @@ QWidget {
 }
 QMainWindow, QWidget#MainContent {
     background: $bg;
+}
+QStackedWidget#MainPages, QWidget#WindowHeader {
+    background: transparent;
+    border: none;
 }
 QDialog {
     background: $bg;
@@ -162,8 +169,10 @@ QLabel#TaskActivity {
     padding: 5px 8px;
     background: transparent;
 }
-QWidget#HomePage, QWidget#HomeLeft, QWidget#HeroOrb {
+QWidget#HomePage, QWidget#HomeLeft, QWidget#HeroOrb, QWidget#HeroSpace,
+QWidget#HomeViewport, QScrollArea#HomeScroll {
     background: transparent;
+    border: none;
 }
 QTextEdit#HomeHistory {
     background: transparent;
@@ -176,6 +185,66 @@ QFrame#Card, QFrame#SettingsCard, QFrame#SettingsSidebar {
     background: $surface;
     border: 1px solid $border;
     border-radius: 15px;
+}
+QFrame#InterfaceRow {
+    background: transparent;
+    border: none;
+    border-top: 1px solid $border;
+}
+QLabel#InterfaceRowTitle {
+    color: $text;
+    font-size: 14px;
+    font-weight: 600;
+}
+QLabel#InterfaceRowHint {
+    color: $muted;
+    font-size: 12px;
+}
+QFrame#PreferenceSegments {
+    background: $control;
+    border: 1px solid $border;
+    border-radius: 9px;
+}
+QPushButton#PreferenceSegment {
+    background: transparent;
+    border: none;
+    border-radius: 7px;
+    padding: 6px 10px;
+}
+QPushButton#PreferenceSegment[selected="true"] {
+    background: $hover;
+    font-weight: 600;
+}
+QPushButton#ColorPickerButton {
+    background: transparent;
+    border: 1px dashed $border;
+    border-radius: 15px;
+    padding: 0;
+}
+QPushButton#ColorPickerButton:hover, QPushButton#ColorPickerButton[selected="true"] {
+    border-color: $accent;
+}
+QPushButton#InterfaceReset {
+    background: transparent;
+    border: none;
+    border-radius: 7px;
+    padding: 0;
+}
+QPushButton#InterfaceReset:hover {
+    background: $hover;
+}
+QPushButton#ColorPickerButton:focus, QPushButton#InterfaceReset:focus {
+    border: 1px solid $focus;
+}
+QLineEdit#BackgroundHex[invalid="true"] {
+    border: 1px solid #e26675;
+}
+QLabel#SettingsSliderValue {
+    background: $control;
+    border: none;
+    border-radius: 5px;
+    padding: 3px 7px;
+    color: $text;
 }
 QLabel#PageTitle {
     font-size: 23px;
@@ -332,20 +401,37 @@ QCheckBox::indicator:checked {
     border: 1px solid $accent;
     border-radius: 8px;
 }
+QSlider {
+    background: transparent;
+    border: none;
+    padding: 0;
+    min-height: 20px;
+}
 QSlider::groove:horizontal {
-    height: 5px;
+    height: 4px;
     background: $scroll;
+    border: none;
     border-radius: 2px;
 }
 QSlider::sub-page:horizontal {
     background: $accent;
+    border: none;
+    border-radius: 2px;
+}
+QSlider::add-page:horizontal {
+    background: $scroll;
+    border: none;
     border-radius: 2px;
 }
 QSlider::handle:horizontal {
     width: 16px;
     margin: -6px 0;
     background: $slider_handle;
+    border: none;
     border-radius: 8px;
+}
+QSlider::handle:horizontal:focus {
+    border: 2px solid $focus;
 }
 QProgressBar {
     background: $control;
@@ -382,6 +468,22 @@ QPushButton#HeaderMic {
 QPushButton#HeaderMic:checked {
     border-color: $accent;
     color: $accent;
+}
+QPushButton#WindowControl, QPushButton#WindowClose {
+    background: transparent;
+    border: none;
+    border-radius: 7px;
+    padding: 0;
+}
+QPushButton#WindowControl:hover {
+    background: $control;
+}
+QPushButton#WindowClose:hover {
+    background: #c8374f;
+    color: white;
+}
+QPushButton#WindowControl:focus, QPushButton#WindowClose:focus {
+    border: 1px solid $focus;
 }
 """
     for key, value in p.items():

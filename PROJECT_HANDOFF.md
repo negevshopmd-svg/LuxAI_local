@@ -4,7 +4,7 @@
 >
 > Repository: https://github.com/negevshopmd-svg/LuxAI_local  
 > OS: Windows 10/11, 64-bit. Python + PySide6. UI and voice responses primarily Russian, with Romanian/English support.  
-> Updated for the **0.3.8 work**, 2026-10-27. \`Update.bat\` installs the code merged into \`main\`, NOT an open PR.
+> Updated for the **0.3.8a work**, 2026-10-27. \`Update.bat\` installs the code merged into \`main\`, NOT an open PR.
 > Do NOT include real API keys, private logs, screen captures, model binaries, user audio, or personal paths in Git history.
 
 ## 1. What this project is
@@ -26,6 +26,7 @@ LuxAI Local is a Windows desktop Jarvis assistant. It listens for voice commands
 
 ## 3. Version history and current status
 
+- **0.3.8a:** Design update: `ui_window_chrome.py` owns integrated native move/resize + window controls; microphone is LEFT above cards (user corrected initial right instruction). HomePage.detach_avatar reparents the original orb behind the full-height MainContent with reserved HeroSpace. `ui_preferences.py` provides responsive theme/language segments and real accent/background swatches; `ui_background` is validated optional hex. Settings use rounded switches/readouts and auto-save; no fake premium/blur controls. `ui_i18n.chat_author` renders canonical history authors without changing stored tuples or body text; UI languages remain separate from ASR/replies. Piper/Windows short labels. Manual engine button removed; launch_windows silently schedules local_ai_setup --ensure to repair only missing/broken CPU engines under OS lock. Autostart points to launch_windows.py. Engine progress is read-only and environment-bound; GGUF weights remain selected by user.
 - **0.3.1:** Discord intent improvements, updated UI icons and regression fixes.
 - **0.3.2:** clearer screenshots, 2-pass native high-resolution visual target detection; real physical Windows coordinates (DPI/multiple monitors) and stale-window checks.
 - **0.3.3:** natural Steam self-nickname interpretation and a dedicated Steam account-bar screenshot reader.

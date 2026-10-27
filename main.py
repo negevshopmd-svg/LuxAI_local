@@ -4,7 +4,7 @@ import queue
 import threading
 import hashlib
 from pathlib import Path
-from PySide6.QtCore import Qt, QThread, Signal, QTimer
+from PySide6.QtCore import QEvent, QPoint, Qt, QThread, Signal, QTimer
 from PySide6.QtGui import QFontDatabase, QFont, QAction
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
@@ -20,9 +20,10 @@ from luxai.screen import capture_screen, read_screen_text
 from luxai.settings_panel import SettingsPanel
 from luxai.ui_home import HomePage
 from luxai.ui_sidebar import NavigationSidebar
+from luxai.ui_window_chrome import WindowHeader, WindowChrome
 from luxai.styles import build_styles, theme_colors
 from luxai.icons import icon, refresh_icons, set_button_icon, set_label_icon
-from luxai.ui_i18n import get_ui_language, set_ui_language, translate_widgets, tr, normalize_language
+from luxai.ui_i18n import get_ui_language, set_ui_language, translate_widgets, tr, normalize_language, chat_author, is_user_author
 from luxai.response_language import reply_language
 from luxai.online_agent import OnlinePlanner
 from luxai.secure_keys import store_api_key, get_api_key, key_storage_status
@@ -234,6 +235,8 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
+        self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint
+                            | Qt.WindowType.WindowSystemMenuHint | Qt.WindowType.WindowMinMaxButtonsHint)
         self.setWindowTitle("Jarvis")
         self.setWindowIcon(icon("jarvis"))
         self.resize(1120, 720)
@@ -332,14 +335,11 @@ class MainWindow(QMainWindow):
         self.content_frame = content
         content.setObjectName("MainContent")
         content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(24, 20, 24, 18)
-        content_layout.setSpacing(14)
-        header = QHBoxLayout()
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(0)
         self.header_title = QLabel("Jarvis   |   Главная")
         self.header_title.setObjectName("HeaderTitle")
         self.header_title.setStyleSheet("font-size:17px;font-weight:650;")
-        header.addWidget(self.header_title)
-        header.addStretch()
         self.mic_status = ActivityStatus("", self)
         self.mic_status.hide()
         self.mic_status.changed.connect(self._on_activity_status)
@@ -352,11 +352,18 @@ class MainWindow(QMainWindow):
         self.header_mic_button.setCheckable(True)
         self.header_mic_button.setChecked(self.cfg.get("microphone_enabled", True))
         self.header_mic_button.clicked.connect(self.toggle_microphone_from_header)
-        header.addWidget(self.header_mic_button)
-        content_layout.addLayout(header)
+        self.window_header = WindowHeader(self, self.header_title, self.header_mic_button, content)
+        content_layout.addWidget(self.window_header)
 
+        page_area = QWidget()
+        page_area.setObjectName("PageArea")
+        page_area.setStyleSheet("QWidget#PageArea {background:transparent;}")
+        page_layout = QVBoxLayout(page_area)
+        page_layout.setContentsMargins(24, 12, 24, 18)
         self.pages = QStackedWidget()
-        content_layout.addWidget(self.pages, 1)
+        self.pages.setObjectName("MainPages")
+        page_layout.addWidget(self.pages)
+        content_layout.addWidget(page_area, 1)
         outer.addWidget(content, 1)
 
         self.build_home()
@@ -364,6 +371,13 @@ class MainWindow(QMainWindow):
         self.build_addons()
         self.build_chat()
         self.build_settings()
+        self.home_page.detach_avatar(content)
+        self._window_chrome = WindowChrome(self, self.window_header)
+        content.installEventFilter(self)
+        self.home_page.installEventFilter(self)
+        self.home_page.hero_space.installEventFilter(self)
+        self.home_page.controls_scroll.installEventFilter(self)
+        self.home_page.controls_scroll.widget().installEventFilter(self)
         self._setup_tray()
         self.apply_appearance()
         self.apply_ui_language()
@@ -387,6 +401,29 @@ class MainWindow(QMainWindow):
                 name="JarvisBundledOCR",
             ).start()
         QTimer.singleShot(0, self._restore_pending_adaptive_task)
+
+    def eventFilter(self, watched, event):
+        if (event.type() in (QEvent.Type.Resize, QEvent.Type.Show, QEvent.Type.LayoutRequest)
+                and hasattr(self, "home_page")):
+            self._update_home_backdrop()
+        return super().eventFilter(watched, event)
+
+    def _update_home_backdrop(self):
+        if not hasattr(self, "home_page") or not hasattr(self, "window_header"):
+            return
+        content, home = self.content_frame, self.home_page
+        # Keep the microphone above the cards, as in the reference. Other
+        # pages use the same stable header alignment.
+        width = min(490, max(350, (content.width() - 74) // 2))
+        active = self.pages.currentWidget() is home
+        if active and home.controls_scroll.widget().isVisible():
+            width = home.controls_scroll.widget().width()
+        self.window_header.set_leading_width(width)
+        if active:
+            left = max(0, home.hero_space.mapTo(content, QPoint(0, 0)).x())
+            home.avatar.setGeometry(left, 0, max(1, content.width() - left), content.height())
+            home.avatar.lower()
+        home.avatar.setVisible(active)
 
     def _ocr_setup_worker(self):
         try:
@@ -619,6 +656,8 @@ class MainWindow(QMainWindow):
         self.commands_page.interface_language = language
         self.commands_page.refresh()
         translate_widgets(self, language)
+        self.settings_panel.retranslate(language)
+        self._refresh_history_colors()
         self._update_cloud_indicator()
         self.show_page(self.pages.currentIndex())
         if hasattr(self, "_audio_event"):
@@ -633,6 +672,9 @@ class MainWindow(QMainWindow):
         titles = ["Главная", "Команды", "Дополнения", "Jarvis AI", "Настройки"]
         self.header_title.setText("Jarvis   |   " + tr(titles[index]))
         self.sidebar.set_active(index)
+        self._update_home_backdrop()
+        if hasattr(self, "window_header"):
+            self.window_header.refresh_labels()
         if index == 2 and hasattr(self, "cloud_indicator"):
             self._update_cloud_indicator()
             if not self._cloud_first_check_done:
@@ -834,6 +876,7 @@ class MainWindow(QMainWindow):
             return False
         appearance_defaults = {
             "ui_theme": "dark", "ui_accent": "#3978f6", "ui_transparency": 0,
+            "ui_background": "",
             "ui_animations": True, "always_on_top": False,
         }
         if any(old.get(name, default) != self.cfg.get(name, default)
@@ -1023,10 +1066,11 @@ class MainWindow(QMainWindow):
     def apply_appearance(self):
         """Apply the shared look to every page, including the separate home."""
         theme = self.cfg.get("ui_theme", "dark")
-        accent = theme_colors(theme, self.cfg.get("ui_accent", "#3978f6"))["accent"]
+        background = self.cfg.get("ui_background")
+        accent = theme_colors(theme, self.cfg.get("ui_accent", "#3978f6"), background)["accent"]
         app = QApplication.instance()
         if app is not None:
-            styles = build_styles(theme, accent)
+            styles = build_styles(theme, accent, background)
             if app.styleSheet() != styles:
                 app.setStyleSheet(styles)
         refresh_icons(self, theme, accent)
@@ -1037,25 +1081,14 @@ class MainWindow(QMainWindow):
 
         # SettingsPanel has a local frame style; keep it synchronized too.
         if hasattr(self, "settings_panel"):
-            card_bg = "#ffffff" if theme == "light" else "#1b1d20"
-            card_border = "#cdd6e4" if theme == "light" else "#30343a"
-            heading_color = "#162034" if theme == "light" else "#f0f2f6"
             for section in self.settings_panel.sections:
-                section.setStyleSheet(
-                    f"QFrame#SettingsCard {{background:{card_bg}; border:1px solid {card_border}; border-radius:15px;}}"
-                    "QFrame#SettingsCard QLabel {background:transparent; border:0;}"
-                    "QFrame#SettingsCard QCheckBox {background:transparent; border:0;}"
-                )
-                for child in section.findChildren(QLabel):
-                    if child.text() in [name for name, _ in self.settings_panel.SECTIONS]:
-                        child.setStyleSheet(
-                            f"font-size:18px; font-weight:700; color:{heading_color};"
-                        )
+                section.setStyleSheet("")
+            self.settings_panel.set_theme(theme, accent, background)
 
         self.setWindowOpacity(
             max(0.65, 1.0 - float(self.cfg.get("ui_transparency", 0)) / 100)
         )
-        self.home_page.set_theme(theme, accent)
+        self.home_page.set_theme(theme, accent, background)
         self.setWindowIcon(icon("jarvis", color=accent))
         if self.tray_icon:
             self.tray_icon.setIcon(icon("jarvis", color=accent))
@@ -1067,6 +1100,7 @@ class MainWindow(QMainWindow):
         )
         if self.isVisible():
             self.show()
+        self._update_home_backdrop()
 
     def _set_autostart(self, enabled):
         if sys.platform != "win32":
@@ -1077,7 +1111,7 @@ class MainWindow(QMainWindow):
             with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as key:
                 if enabled:
                     executable = str(BASE / ".venv" / "Scripts" / "pythonw.exe")
-                    command = f'"{executable}" "{BASE / "main.py"}"'
+                    command = f'"{executable}" "{BASE / "launch_windows.py"}"'
                     winreg.SetValueEx(key, "LuxAI_Jarvis", 0, winreg.REG_SZ, command)
                 else:
                     try:
@@ -1457,17 +1491,17 @@ class MainWindow(QMainWindow):
             )
 
     def pick_model(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Alege model GGUF", "", "Modele GGUF (*.gguf)")
+        path, _ = QFileDialog.getOpenFileName(self, tr("Выберите модель GGUF"), "", tr("Модели GGUF (*.gguf)"))
         if path:
             self.cfg["llm_model_path"] = str(Path(path).resolve())
             panel = self.settings_panel
             index = panel.model_select.findData(self.cfg["llm_model_path"])
             if index < 0:
-                panel.model_select.addItem(Path(path).name + " (external)", self.cfg["llm_model_path"])
+                panel.model_select.addItem(Path(path).name + " (" + tr("внешняя модель") + ")", self.cfg["llm_model_path"])
                 index = panel.model_select.count() - 1
             panel.model_select.setCurrentIndex(index)
             self.save_settings()
-            self.mic_status.setText("Model selectat. Pentru chat GGUF este necesar llama-cpp-python.")
+            self.mic_status.setText(tr("Модель выбрана. Локальный движок подготавливается автоматически."))
 
     def handle_voice(self, text):
         # A single clear stop word interrupts TTS even in the middle of
@@ -1557,24 +1591,26 @@ class MainWindow(QMainWindow):
         self.run_command(text)
 
     def append_message(self, who, text, color):
-        palette = theme_colors(self.cfg.get("ui_theme", "dark"), self.cfg.get("ui_accent", "#3978f6"))
-        if who.startswith("Tu"):
+        palette = theme_colors(self.cfg.get("ui_theme", "dark"), self.cfg.get("ui_accent", "#3978f6"), self.cfg.get("ui_background", ""))
+        user = is_user_author(who)
+        display_author = chat_author(who)
+        if user:
             color = palette["accent"]
         elif color.lower() in {"#a5b9dc", "#79a6ff", "#4388f9"}:
             color = palette["muted"]
         safe = html.escape(str(text)).replace("\n", "<br>")
-        entry = f'<p style="margin:8px 0"><b style="color:{color}">{html.escape(who)}:</b><br>{safe}</p>'
+        entry = f'<p style="margin:8px 0"><b style="color:{color}">{html.escape(display_author)}:</b><br>{safe}</p>'
         self.log.append(entry)
-        color_line = palette["accent"] if who.startswith("Tu") else palette["muted"]
+        color_line = palette["accent"] if user else palette["muted"]
         self.home_history.append(
             f'<p style="margin:5px 0; padding-left:10px; border-left:2px solid {color_line};">'
-            f'<span style="color:{color_line};font-weight:600;">{html.escape(who)}</span>  {safe}</p>'
+            f'<span style="color:{color_line};font-weight:600;">{html.escape(display_author)}</span>  {safe}</p>'
         )
         self.history.append((who, str(text)))
 
     def _refresh_history_colors(self):
-        palette = theme_colors(self.cfg.get("ui_theme", "dark"), self.cfg.get("ui_accent", "#3978f6"))
-        signature = (palette["accent"], palette["muted"])
+        palette = theme_colors(self.cfg.get("ui_theme", "dark"), self.cfg.get("ui_accent", "#3978f6"), self.cfg.get("ui_background", ""))
+        signature = (palette["accent"], palette["muted"], get_ui_language())
         if getattr(self, "_history_palette", None) == signature:
             return
         self._history_palette = signature
@@ -1584,13 +1620,14 @@ class MainWindow(QMainWindow):
             position, anchor = cursor.position(), cursor.anchor()
             entries = []
             for who, text in self.history:
-                color = palette["accent"] if who.startswith("Tu") else palette["muted"]
+                color = palette["accent"] if is_user_author(who) else palette["muted"]
+                display_author = chat_author(who)
                 safe = html.escape(text).replace("\n", "<br>")
                 separator = "  " if compact else ":</b><br>"
                 if compact:
-                    entries.append(f'<p style="margin:5px 0"><span style="color:{color};font-weight:600">{html.escape(who)}</span>{separator}{safe}</p>')
+                    entries.append(f'<p style="margin:5px 0"><span style="color:{color};font-weight:600">{html.escape(display_author)}</span>{separator}{safe}</p>')
                 else:
-                    entries.append(f'<p style="margin:8px 0"><b style="color:{color}">{html.escape(who)}{separator}{safe}</p>')
+                    entries.append(f'<p style="margin:8px 0"><b style="color:{color}">{html.escape(display_author)}{separator}{safe}</p>')
             widget.setHtml("".join(entries))
             limit = max(0, widget.document().characterCount() - 1)
             cursor.setPosition(min(anchor, limit))
@@ -3751,9 +3788,9 @@ class MainWindow(QMainWindow):
         prefix = {"ru": "Ошибка", "en": "Error", "ro": "Eroare"}[language]
         if isinstance(exc, ModuleNotFoundError) and exc.name == "llama_cpp":
             return {
-                "ru": "Не установлен необязательный модуль llama-cpp-python. Простые команды работают.",
-                "en": "The optional llama-cpp-python module is missing. Simple commands still work.",
-                "ro": "Lipsește modulul opțional llama-cpp-python. Comenzile simple funcționează.",
+                "ru": "Локальный движок ещё не готов. Он подготавливается автоматически при запуске и обновлении. Простые команды работают.",
+                "en": "The local engine is not ready yet. It is prepared automatically at startup and during updates. Simple commands still work.",
+                "ro": "Motorul local nu este încă pregătit. Se pregătește automat la pornire și actualizare. Comenzile simple funcționează.",
             }[language]
         if isinstance(exc, ModuleNotFoundError):
             package = str(exc.name or "unknown")[:80]
@@ -3886,17 +3923,14 @@ class MainWindow(QMainWindow):
         display_description = str(description)
         if display_description.startswith("⚠"):
             display_description = display_description[1:].lstrip()
-        russian = self.cfg.get("language") == "ru"
-        dialog.setWindowTitle("Подтвердите действие" if russian else "Confirmă acțiunea")
-        if russian:
-            dialog.setText(f"Джарвис хочет выполнить действие:\n\n{display_description}\n\nСкажите «да» или «нет», либо нажмите кнопку.")
-            dialog.setInformativeText("Голосовое подтверждение доступно, пока микрофон включён.")
-        else:
-            dialog.setText(f"Jarvis dorește să execute:\n\n{display_description}\n\nSpune „da” sau „nu” ori alege un buton.")
-            dialog.setInformativeText("Răspuns vocal disponibil cât timp microfonul este activ.")
+        dialog.setWindowTitle(tr("Подтвердите действие"))
+        dialog.setTextFormat(Qt.TextFormat.PlainText)
+        dialog.setText(tr("Джарвис хочет выполнить действие:") + "\n\n" + display_description
+                       + "\n\n" + tr("Скажите «да» или «нет», либо нажмите кнопку."))
+        dialog.setInformativeText(tr("Голосовое подтверждение доступно, пока микрофон включён."))
         dialog.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        dialog.button(QMessageBox.StandardButton.Yes).setText("Да" if russian else "Da")
-        dialog.button(QMessageBox.StandardButton.No).setText("Нет" if russian else "Nu")
+        dialog.button(QMessageBox.StandardButton.Yes).setText(tr("Да"))
+        dialog.button(QMessageBox.StandardButton.No).setText(tr("Нет"))
         set_button_icon(dialog.button(QMessageBox.StandardButton.Yes), "check", role="success")
         set_button_icon(dialog.button(QMessageBox.StandardButton.No), "x", role="muted")
         dialog.setDefaultButton(QMessageBox.StandardButton.No)
@@ -3918,23 +3952,24 @@ class MainWindow(QMainWindow):
     def screen_action(self):
         try:
             path = capture_screen()
-            QMessageBox.information(self, "Captură ecran", f"Captură salvată local:\n{path}")
+            QMessageBox.information(self, tr("Снимок экрана"), tr("Снимок сохранён на этом компьютере:") + "\n" + str(path))
         except Exception as e:
-            QMessageBox.warning(self, "Captură ecran", str(e))
+            QMessageBox.warning(self, tr("Снимок экрана"), str(e))
 
     def ocr_action(self):
         try:
             path = capture_screen()
             text = read_screen_text(path, self.cfg.get("tesseract_path", ""))
             dialog = QMessageBox(self)
-            dialog.setWindowTitle("Text detectat pe ecran")
-            dialog.setText(text[:4000] or "(Nu s-a detectat text.)")
+            dialog.setWindowTitle(tr("Текст на экране"))
+            dialog.setTextFormat(Qt.TextFormat.PlainText)
+            dialog.setText(text[:4000] or tr("(Текст не обнаружен.)"))
             dialog.setStandardButtons(QMessageBox.StandardButton.Ok)
             dialog.exec()
             if text:
                 self.append_message("OCR", text[:10000], "#a5b9dc")
         except Exception as e:
-            QMessageBox.warning(self, "OCR", f"OCR nu este configurat sau a eșuat:\n{e}")
+            QMessageBox.warning(self, "OCR", tr("Распознавание текста недоступно или завершилось ошибкой:") + "\n" + str(e))
 
     def closeEvent(self, event):
         # Auto-save has a short debounce while typing. Flush before both a
@@ -3997,6 +4032,10 @@ def load_project_font():
     return loaded
 
 def main():
+    # Older Windows autostart entries can still invoke main.py directly.
+    # The helper schedules once per process, including the normal launcher.
+    from luxai.local_ai_setup import start_background_setup
+    start_background_setup()
     if sys.platform == "win32":
         # Give the taskbar its own identity instead of grouping with Python.
         try:

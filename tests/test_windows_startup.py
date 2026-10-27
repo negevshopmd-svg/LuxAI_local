@@ -18,6 +18,7 @@ class WindowsStartupTests(unittest.TestCase):
                 mock.patch.object(launch_windows, "ROOT", root),
                 mock.patch.object(launch_windows, "STARTUP_LOG", root / "logs" / "startup_error.log"),
                 mock.patch.object(launch_windows, "enable_native_crash_log"),
+                mock.patch("luxai.local_ai_setup.start_background_setup"),
                 mock.patch("launch_windows.os.chdir"),
                 mock.patch.dict(sys.modules, {"main": fake}),
                 mock.patch.object(launch_windows, "_show_failure_dialog") as dialog,

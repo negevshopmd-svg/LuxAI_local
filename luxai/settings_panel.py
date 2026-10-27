@@ -21,6 +21,11 @@ from luxai.voices import available_voices
 from luxai.voice_presets import VOICE_PRESETS
 from luxai.ui_i18n import LANGUAGES, get_ui_language, tr, translate_widgets
 from luxai.icons import icon, set_button_icon, set_label_icon, theme_color
+from luxai.ui_home import ToggleSwitch
+from luxai.ui_preferences import (
+    BackgroundControl, ColorPalette, ColorSwatch, PreferenceRow,
+    SegmentedControl, color_value,
+)
 
 
 class SettingsPanel(QWidget):
@@ -109,6 +114,7 @@ class SettingsPanel(QWidget):
         reset.clicked.connect(lambda: self.search.clear())
         side.addWidget(reset)
         root.addWidget(sidebar)
+        self.set_theme(self.theme.currentData(), self.accent.currentData(), self.background.currentData())
         translate_widgets(self, get_ui_language())
         self._setup_autosave()
         self._section_sync_timer = QTimer(self)
@@ -119,6 +125,10 @@ class SettingsPanel(QWidget):
         self.scroll.viewport().installEventFilter(self)
         body.installEventFilter(self)
         self._queue_section_sync()
+        self._engine_status_timer = QTimer(self)
+        self._engine_status_timer.setInterval(2000)
+        self._engine_status_timer.timeout.connect(self._refresh_auto_engine_status)
+        self._refresh_auto_engine_status(force=True)
 
     def _setup_autosave(self):
         """Debounce actual user settings edits, not diagnostics or search.
@@ -141,7 +151,7 @@ class SettingsPanel(QWidget):
             "speech_pause", "tts", "voice_id", "response_language",
             "voice_volume", "voice_engine", "voice_speed", "confirm",
             "confirm_yes", "confirm_no", "confirm_timeout", "chain_words",
-            "ui_language", "theme", "accent", "transparency",
+            "ui_language", "theme", "accent", "background", "transparency",
             "animations", "on_top", "autostart", "tray_on_close",
             "weather_city", "local_llm_fallback", "model_select",
             "online_agent_enabled", "online_provider", "online_model",
@@ -206,10 +216,6 @@ class SettingsPanel(QWidget):
     def _section(self, title, subtitle):
         frame = QFrame()
         frame.setObjectName("SettingsCard")
-        frame.setStyleSheet(
-            "QFrame#SettingsCard QLabel {background:transparent; border:0;}"
-            "QFrame#SettingsCard QCheckBox {background:transparent; border:0;}"
-        )
         col = QVBoxLayout(frame)
         col.setContentsMargins(18, 17, 18, 18)
         col.setSpacing(12)
@@ -247,7 +253,9 @@ class SettingsPanel(QWidget):
             hint.setStyleSheet("font-size:11px;")
             labels.addWidget(hint)
         line.addLayout(labels, 3)
-        if isinstance(control, QWidget):
+        if isinstance(control, ToggleSwitch):
+            line.addWidget(control, 0, Qt.AlignmentFlag.AlignRight)
+        elif isinstance(control, QWidget):
             control.setMinimumWidth(150)
             line.addWidget(control, 2)
         else:
@@ -284,9 +292,7 @@ class SettingsPanel(QWidget):
 
     @staticmethod
     def _toggle(checked):
-        checkbox = QCheckBox()
-        checkbox.setChecked(bool(checked))
-        return checkbox
+        return ToggleSwitch(bool(checked))
 
     @staticmethod
     def _slider(value, bottom, top):
@@ -327,7 +333,7 @@ class SettingsPanel(QWidget):
             self.cfg.get("whisper_model", "small"),
         )
         self._row(panel, "Модель распознавания",
-                  "Medium is recommended for Romanian on a PC with enough RAM. Downloads on first use.",
+                  "Для румынского языка рекомендуется Medium, если хватает памяти. Модель загружается при первом использовании.",
                   self.whisper_model)
         self.language = self._combo(
             [("Авто", "auto"), ("Русский", "ru"), ("English", "en"), ("Română", "ro")],
@@ -523,8 +529,8 @@ class SettingsPanel(QWidget):
         voices = [("Автоматически — по языку ответа", "")]
         labels = {
             "ru": "Dmitri — Русский",
-            "ro": "Mihai — Română",
-            "en": "Lessac — English",
+            "ro": "Mihai — Румынский",
+            "en": "Lessac — Английский",
         }
         for lang, preset in VOICE_PRESETS.items():
             voice_id = preset["id"]
@@ -613,33 +619,76 @@ class SettingsPanel(QWidget):
         self._row(panel, "Связка команд", "Разделите две простые команды одним из этих выражений.", self.chain_words)
 
     def _build_interface(self):
-        panel = self._section("Интерфейс", "Вид окна и оформление.")
+        panel = self._section("Интерфейс", "Цвет темы, фон, прозрачность и язык. Изменения видны сразу.")
+        panel.setSpacing(0)
+        self.interface_reset = QPushButton()
+        self.interface_reset.setObjectName("InterfaceReset")
+        self.interface_reset.setFixedSize(30, 30)
+        self.interface_reset.setToolTip(tr("Сбросить оформление"))
+        self.interface_reset.setAccessibleName(tr("Сбросить оформление"))
+        set_button_icon(self.interface_reset, "rotate-cw", size=17, role="muted")
+        self.interface_reset.clicked.connect(self._reset_interface)
+        panel.itemAt(0).layout().addWidget(self.interface_reset)
         self.theme = self._combo(
             [("Тёмное", "dark"), ("Светлое", "light")],
             self.cfg.get("ui_theme", "dark"),
         )
-        self._row(panel, "Оформление", "Тёмное или светлое окно.", self.theme)
+        self.theme_control = SegmentedControl(self.theme)
+        panel.addWidget(PreferenceRow("Оформление", "Тёмное или светлое окно.", self.theme_control))
         self.accent = self._combo(
-            [("Синий", "#3978f6"), ("Фиолетовый", "#873eff"), ("Зелёный", "#1bbf8b"), ("Розовый", "#ec4899")],
+            [("Синий", "#3978f6"), ("Фиолетовый", "#873eff"), ("Пурпурный", "#b400ff"),
+             ("Розовый", "#ec4899"), ("Зелёный", "#1bbf8b"), ("Оранжевый", "#f97316"),
+             ("Красный", "#ff245a"), ("Белый", "#f5f5f5")],
             self.cfg.get("ui_accent", "#3978f6"),
         )
-        self._row(panel, "Цвет темы", "Акцент кнопок и навигации.", self.accent)
+        initial_accent = color_value(self.cfg.get("ui_accent", ""))
+        if initial_accent:
+            index = self.accent.findData(initial_accent)
+            if index < 0:
+                self.accent.addItem(tr("Свой цвет"), initial_accent)
+                index = self.accent.count() - 1
+            self.accent.setCurrentIndex(index)
+        self.accent_control = ColorPalette(self.accent)
+        panel.addWidget(PreferenceRow("Цвет темы", "Акцент кнопок и навигации.", self.accent_control))
+        initial_background = color_value(self.cfg.get("ui_background", "")) or ""
+        self.background = self._combo(
+            [("По теме", ""), ("#0A0A0A", "#0a0a0a"), ("#101B2C", "#101b2c"),
+             ("#1C1329", "#1c1329"), ("#0E1E18", "#0e1e18")], initial_background,
+        )
+        if initial_background and self.background.findData(initial_background) < 0:
+            self.background.addItem(tr("Свой цвет"), initial_background)
+            self.background.setCurrentIndex(self.background.count() - 1)
+        self.background_control = BackgroundControl(self.background)
+        panel.addWidget(PreferenceRow("Цвет фона", "Подложка окна под содержимым.", self.background_control))
         self.transparency = self._slider(self.cfg.get("ui_transparency", 0), 0, 35)
         transparency_control, self.transparency_value = self._slider_value_control(self.transparency)
-        self._row(panel, "Прозрачность", "0–35% окна приложения.", transparency_control)
+        self.transparency.setMinimumWidth(180)
+        panel.addWidget(PreferenceRow("Прозрачность", "0–35% окна приложения.", transparency_control))
         self.animations = self._toggle(self.cfg.get("ui_animations", True))
-        self._row(panel, "Анимации", "Отображение анимированного аватара.", self.animations)
+        panel.addWidget(PreferenceRow("Анимации", "Отображение анимированного аватара.", self.animations))
         self.on_top = self._toggle(self.cfg.get("always_on_top", False))
-        self._row(panel, "Поверх остальных окон", "Оставлять Jarvis видимым поверх приложений.", self.on_top)
+        panel.addWidget(PreferenceRow("Поверх остальных окон", "Оставлять Jarvis видимым поверх приложений.", self.on_top))
         self.ui_language = self._combo(
             LANGUAGES, self.cfg.get("ui_language", "ru")
         )
         self.ui_language.setObjectName("UiLanguageCombo")
-        self._row(
-            panel, "Язык интерфейса",
+        self.ui_language_control = SegmentedControl(self.ui_language)
+        panel.addWidget(PreferenceRow(
+            "Язык интерфейса",
             "Меняет только интерфейс. Язык распознавания и озвучивания настраивается отдельно.",
-            self.ui_language,
-        )
+            self.ui_language_control,
+        ))
+
+    def _reset_interface(self):
+        for combo, value in ((self.theme, "dark"), (self.accent, "#3978f6"), (self.background, "")):
+            combo.setCurrentIndex(combo.findData(value))
+        self.transparency.setValue(0)
+        self.animations.setChecked(True)
+        self.on_top.setChecked(False)
+
+    def set_theme(self, theme, accent, background=None):
+        for control in self.findChildren(ToggleSwitch) + self.findChildren(ColorSwatch):
+            control.set_theme(theme, accent, background)
 
     def _build_ai(self):
         panel = self._section(
@@ -820,18 +869,18 @@ class SettingsPanel(QWidget):
         set_button_icon(refresh, "refresh-cw")
         refresh.clicked.connect(self.refresh_local_models)
         panel.addWidget(refresh)
-        if self.on_install_local_ai is not None:
-            install = QPushButton("Установить локальный AI-движок (llama-cpp-python)")
-            set_button_icon(install, "package-plus")
-            install.clicked.connect(self.on_install_local_ai)
-            panel.addWidget(install)
+        self.local_engine_status = QLabel()
+        self.local_engine_status.setObjectName("Muted")
+        self.local_engine_status.setWordWrap(True)
+        panel.addWidget(self.local_engine_status)
 
     def _refresh_local_models(self):
         from luxai.local_models import available_models, resolve_model_path, format_model
         selected = (self.model_select.currentData() or self.cfg.get("llm_model_path", ""))
         self.model_select.blockSignals(True)
         self.model_select.clear()
-        self.model_select.addItem("— Модель не выбрана —", "")
+        self.model_select.addItem(tr("— Модель не выбрана —"), "")
+        self.model_select.setItemData(0, "— Модель не выбрана —", Qt.ItemDataRole.UserRole + 18)
         self._combo_icon(self.model_select, 0, "bot", role="muted")
         found = available_models()
         for item in found:
@@ -851,7 +900,7 @@ class SettingsPanel(QWidget):
             # configured paths outside models/ on this computer.
             path = Path(str(selected))
             if path.is_file():
-                self.model_select.addItem(path.name + " (external)", str(path.resolve()))
+                self.model_select.addItem(path.name + " (" + tr("внешняя модель") + ")", str(path.resolve()))
                 self._combo_icon(self.model_select, self.model_select.count() - 1, "bot")
                 self.model_select.setCurrentIndex(self.model_select.count() - 1)
         self.model_select.blockSignals(False)
@@ -861,12 +910,12 @@ class SettingsPanel(QWidget):
         current = self.model_select.currentData() or ""
         if hasattr(self, "model_label"):
             self.model_label.setText(
-                Path(current).name or "Модель не выбрана"
+                Path(current).name or tr("Модель не выбрана")
             )
         if hasattr(self, "model_health"):
             from luxai.local_models import model_status
             ready, status = model_status(str(current))
-            self.model_health.setText(status)
+            self.model_health.setText(tr(status))
             set_label_icon(self.model_health_icon, "check-circle-2" if ready else "circle-alert",
                            size=17, role="success" if ready else "muted")
 
@@ -874,7 +923,34 @@ class SettingsPanel(QWidget):
         """Rescan files after user copies a model or chooses one externally."""
         count = self._refresh_local_models()
         self._selected_local_model()
+        self._refresh_auto_engine_status(force=True)
         return count
+
+    def _refresh_auto_engine_status(self, *, force=False):
+        if not force and not self.isVisible():
+            return
+        from luxai.local_ai_setup import setup_status
+        state = setup_status()
+        message = {
+            "installing": "Движок локального ИИ подготавливается…",
+            "ready": "Движок локального ИИ готов.",
+            "unavailable": "Движок локального ИИ пока недоступен. Подключитесь к интернету и повторите Update.bat.",
+        }.get(state, "Движок локального ИИ подготавливается автоматически при запуске и обновлении.")
+        self.local_engine_status.setText(tr(message))
+        if state != getattr(self, "_engine_status_state", None):
+            self._engine_status_state = state
+            self._selected_local_model()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if hasattr(self, "_engine_status_timer"):
+            self._engine_status_timer.start()
+            self._refresh_auto_engine_status(force=True)
+
+    def hideEvent(self, event):
+        if hasattr(self, "_engine_status_timer"):
+            self._engine_status_timer.stop()
+        super().hideEvent(event)
 
     def _on_provider_changed(self, *_):
         provider = self.online_provider.currentData()
@@ -895,6 +971,7 @@ class SettingsPanel(QWidget):
 
     def _on_key_text_changed(self, text):
         if text.strip():
+            self._key_status_mode = "draft"
             set_label_icon(self.key_status_icon, "key-round", size=17, role="accent")
             if text.strip().startswith("sk-orca-") and self.online_provider.currentData() != "orcarouter":
                 self.key_status.setText(
@@ -913,11 +990,13 @@ class SettingsPanel(QWidget):
         self.api_test_button.setText(tr("Проверка…" if busy else "Проверить ключ"))
         set_button_icon(self.api_test_button, "refresh-cw" if busy else "key-round")
         if busy:
+            self._key_status_mode = "busy"
             set_label_icon(self.key_status_icon, "refresh-cw", size=17, role="accent")
             self.key_status.setText(tr("Проверка ключа и выбранной модели через API…"))
 
     def show_test_result(self, message, valid):
         self.set_test_busy(False)
+        self._key_status_mode = "test"
         self.key_status.setText(message)
         set_label_icon(self.key_status_icon, "check-circle-2" if valid else "x-circle",
                        size=17, role="success" if valid else "danger")
@@ -953,7 +1032,7 @@ class SettingsPanel(QWidget):
             self._autosave_force = True
             self._queue_auto_save()
 
-    def refresh_key_status(self):
+    def refresh_key_status(self, *, update_status=True):
         provider = self.online_provider.currentData()
         name = PROVIDERS[provider]["label"]
         stored = has_api_key(provider)
@@ -969,6 +1048,9 @@ class SettingsPanel(QWidget):
             "ro": (f"Cheia {name} a fost găsită pe calculator.", f"Cheia {name} nu este configurată."),
         }
         self.api_key_entry.setPlaceholderText(placeholders[language][0 if stored else 1])
+        if not update_status:
+            return
+        self._key_status_mode = "storage"
         self.key_status.setText(statuses[language][0 if stored else 1])
         set_label_icon(self.key_status_icon, "check-circle-2" if stored else "key-round",
                        size=17, role="success" if stored else "muted")
@@ -976,16 +1058,16 @@ class SettingsPanel(QWidget):
     def _build_synthesis(self):
         panel = self._section("Синтез речи", "Локальный Piper или голос Windows (если установлен нужный язык).")
         self.voice_engine = self._combo(
-            [("Piper — нейросеть (локально)", "piper"), ("Windows SAPI (локально)", "windows")],
+            [("Piper", "piper"), ("Windows", "windows")],
             self.cfg.get("voice_engine", "piper"),
         )
-        self._row(panel, "Провайдер синтеза", "Piper загружает русскую модель Дмитрий при первом запуске.", self.voice_engine)
+        self._row(panel, "Провайдер синтеза", "Выбранный голос Piper загружается при первом использовании.", self.voice_engine)
         self.voice_speed = self._slider(round(float(self.cfg.get("voice_speed", 1.0)) * 100), 70, 140)
         speed_control, self.voice_speed_value = self._slider_value_control(self.voice_speed)
         self._row(panel, "Скорость речи", "70–140% обычной скорости.", speed_control)
         self.speech_status = QLabel(
-            "Голоса Luxify / Fish Audio и облачные модели требуют отдельного доступа. "
-            "В этой версии используются только установленные локальные голоса."
+            "Для голоса Windows нужен установленный языковой пакет. "
+            "Piper работает локально после загрузки голоса."
         )
         self.speech_status.setObjectName("Muted")
         self.speech_status.setWordWrap(True)
@@ -1011,6 +1093,19 @@ class SettingsPanel(QWidget):
 
     def retranslate(self, language):
         translate_widgets(self, language)
+        self.ui_language_control.sync()
+        self.refresh_key_status(update_status=False)
+        mode = getattr(self, "_key_status_mode", "storage")
+        if mode == "busy":
+            self.set_test_busy(True)
+        elif mode == "test":
+            pass
+        elif self.api_key_entry.text().strip():
+            self._on_key_text_changed(self.api_key_entry.text())
+        else:
+            self.refresh_key_status()
+        self._selected_local_model()
+        self._refresh_auto_engine_status(force=True)
         self._queue_section_sync()
 
     def _jump(self, index):
@@ -1101,6 +1196,7 @@ class SettingsPanel(QWidget):
             "ui_language": self.ui_language.currentData(),
             "ui_theme": self.theme.currentData(),
             "ui_accent": self.accent.currentData(),
+            "ui_background": self.background.currentData() or "",
             "ui_transparency": self.transparency.value(),
             "ui_animations": self.animations.isChecked(),
             "always_on_top": self.on_top.isChecked(),
