@@ -8,29 +8,32 @@ from __future__ import annotations
 import re
 import time
 
-from luxai.fast_intents import strip_wake_name
+from luxai.fast_intents import command_text
 from luxai.discord_screen_review import validate_discord_review_user
 
 
 _DISCORD = re.compile(r"(?<!\w)(?:discord|дискорд\w*|дискор\w*)(?!\w)", re.I)
 _CALL = re.compile(
     r"(?<!\w)(?:позвони(?:ть)?|звони(?:ть)?|набери(?:те)?|"
-    r"позвони-ка|call|ring|phone|sună(?:-l|-o)?|suna(?:-l|-o)?|"
-    r"apelează(?:-l|-o)?|apeleaza(?:-l|-o)?)(?!\w)", re.I,
+    r"позвони-ка|call|ring|phone|sună(?:-l|-o)?|suna(?:-l|-o)?|suni|"
+    r"apelează(?:-l|-o)?|apeleaza(?:-l|-o)?|apelezi|"
+    r"d[ăa]-i\s+(?:un\s+)?(?:telefon|apel)|ini[țt]iaz[ăa]\s+(?:un\s+)?apel|"
+    r"start\s+(?:a\s+)?(?:voice\s+)?call)(?!\w)", re.I,
 )
 _LOCATION = re.compile(
     r"\s+(?:(?:в|на|через|in|on|în|pe)\s+)"
     r"(?:discord|дискорд\w*|дискор\w*)\s*$", re.I,
 )
 _ROLE = re.compile(
-    r"^(?:(?:пользовател[ьюя]|юзер[ау]?|друг[ау]?|контакт[ау]?|"
-    r"user|friend|contact|utilizator(?:ul|ului)?|pe|lui|на)\s+)+", re.I,
+    r"^(?:(?:пользовател[ьюя]|юзер[ау]?|(?:моему\s+)?друг[ау]?|контакт[ау]?|"
+    r"(?:my\s+)?(?:user|friend|contact)|utilizator(?:ul|ului)?|"
+    r"prieten(?:ul|ului)?(?:\s+meu)?|contact(?:ul|ului)?|pe|lui|cu|with|на)\s+)+", re.I,
 )
 
 
 def detect_discord_call_request(text: str) -> str | None:
     """Return only an explicitly called individual; reject requests to send."""
-    phrase = strip_wake_name(str(text or "")).strip()
+    phrase = command_text(text).strip()
     if not 7 <= len(phrase) <= 220 or not _DISCORD.search(phrase):
         return None
     lowered = phrase.casefold()
@@ -40,10 +43,10 @@ def detect_discord_call_request(text: str) -> str | None:
         r"(?:как\s+(?:мне\s+)?позвонить|как\s+(?:позвонить|звонить)|"
         r"how\s+to\s+call|how\s+do\s+i\s+call|cum\s+(?:pot|se)\s+"
         r"(?:apel|sun)|(?:не\s+(?:надо\s+)?|dont\s+|don't\s+|"
-        r"nu\s+)(?:звони|позвони|call|suna|sună|apel)|"
-        r"видео\w*|video\s*call|screen\s*share|трансляци\w*|"
+        r"nu(?:-l|-mi)?\s+|do\s+not\s+|never\s+)(?:звони|позвони|call|suna|sună|suni|apel)|"
+        r"видео\w*|\bvideo\b|screen\s*share|partaj\w*\s+ecran\w*|трансляци\w*|"
         r"групп\w*|group\s*call|номер\s+телефона|phone\s+number|"
-        r"напиши|отправ\w*|send\s+(?:a\s+)?message|"
+        r"напиши|отправ\w*|scrie(?:-i)?\b|trimite\w*|send\s+(?:a\s+)?message|"
         r"сообщени\w*|message\s+|"
         r"потом|затем|after\s+that|then\s+)", lowered,
     ):
@@ -51,15 +54,23 @@ def detect_discord_call_request(text: str) -> str | None:
     match = _CALL.search(phrase)
     if not match:
         return None
+    prefix = phrase[:match.start()].strip(" ,.;:")
+    if prefix and re.fullmatch(
+        r"(?:(?:в|на|через|in|on|în|pe)\s+(?:discord|дискорд\w*|дискор\w*)|"
+        r"(?:s[ăa]\s+)?(?:îl|il|-?l))", prefix, re.I,
+    ) is None:
+        return None
     name = phrase[match.end():].strip(" \t.,!?;:«»\"'")
     name = _LOCATION.sub("", name).strip(" \t.,!?;:«»\"'")
     # Allow "позвони в Discord пользователю Hanzo" without making
     # "Discord" part of the account identity.
     name = re.sub(
-        r"^(?:(?:в|на|через|in|on|în)\s+)"
+        r"^(?:(?:в|на|через|in|on|în|pe)\s+)"
         r"(?:discord|дискорд\w*|дискор\w*)\s+", "", name, flags=re.I,
     )
     name = _ROLE.sub("", name).strip(" \t.,!?;:«»\"'")
+    if re.search(r"\s+(?:and|și|si|и)\s+", name, re.I):
+        return None
     try:
         return validate_discord_review_user(name)
     except ValueError:

@@ -1,6 +1,11 @@
-LUXAI LOCAL 0.3.7g — ACTUALIZARE
+LUXAI LOCAL 0.3.8 — ACTUALIZARE
 
-0.3.7g: UPDATE FARA BACKUPURI PERMANENTE, VOCE SI VERSIUNE
+0.3.8: COMENZI MULTILINGVE, JOCURI SI INTERFATA
+Comenzile RO/RU/EN accepta mai multe formulari politicoase si variante cu/fara diacritice. War Thunder foloseste instrumente locale de pornire/inchidere, cu verificarea ferestrelor si proceselor jocului; Steam ramane deschis. Un joc care cere confirmare sau continua sa ruleze nu este declarat inchis. Testele includ 10-15 formulari per intentie si limba testata, plus negatii si cereri compuse. Recunoasterea vorbirii depinde si de microfon, model si limba Whisper.
+Culoarea aleasa se aplica sferei si controalelor. Activitatea este afisata temporar in chat si dispare la terminare. Glisoarele arata procente, iar sectiunea activa din Setari urmareste derularea.
+Auto foloseste context trilingv si recunoastere mai precisa, verificate cu Whisper Small si voci sintetice RO/RU/EN. Zgomotul excesiv repetitiv este ignorat. Numele proprii pot ramane dificile; alege Romana pentru vorbire romaneasca si incearca Medium daca Small pierde cuvinte.
+
+RAMAN INCLUSE: UPDATE FARA BACKUPURI PERMANENTE, VOCE SI VERSIUNE
 Noul Update.bat se inchide automat dupa succes. Copiile de revenire sunt temporare; backupurile vechi recunoscute ale updaterului se sterg automat. Originalele raman numai daca restaurarea esueaza. Fisierele personale si directoarele legate nu sunt sterse.
 Vocea Piper selectata se pregateste silentios pe firul audio la pornire si este refolosita la prima replica. O voce noua necesita descarcarea initiala. Versiunea este afisata sub butonul de restrangere a meniului.
 Instalare: inchide Jarvis, ruleaza Update.bat, apoi run_windows.bat. Prima actualizare pornita cu vechiul batch poate cere inca Enter; urmatoarele se inchid automat dupa succes. Erorile raman vizibile.

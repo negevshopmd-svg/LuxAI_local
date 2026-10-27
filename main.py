@@ -20,7 +20,7 @@ from luxai.screen import capture_screen, read_screen_text
 from luxai.settings_panel import SettingsPanel
 from luxai.ui_home import HomePage
 from luxai.ui_sidebar import NavigationSidebar
-from luxai.styles import build_styles
+from luxai.styles import build_styles, theme_colors
 from luxai.icons import icon, refresh_icons, set_button_icon, set_label_icon
 from luxai.ui_i18n import get_ui_language, set_ui_language, translate_widgets, tr, normalize_language
 from luxai.response_language import reply_language
@@ -104,6 +104,16 @@ def card():
     layout.setContentsMargins(20, 18, 20, 18)
     layout.setSpacing(13)
     return frame, layout
+
+
+class ActivityStatus(QLabel):
+    """Retain status diagnostics while presenting active work inside chat."""
+    changed = Signal(str)
+
+    def setText(self, text):
+        value = str(text or "")
+        super().setText(value)
+        self.changed.emit(value)
 
 class VoiceWorker(QThread):
     transcript = Signal(str)
@@ -330,9 +340,9 @@ class MainWindow(QMainWindow):
         self.header_title.setStyleSheet("font-size:17px;font-weight:650;")
         header.addWidget(self.header_title)
         header.addStretch()
-        self.mic_status = QLabel("●  Локальный режим")
-        self.mic_status.setStyleSheet("color:#8ea2c2;padding-right:8px;")
-        header.addWidget(self.mic_status)
+        self.mic_status = ActivityStatus("", self)
+        self.mic_status.hide()
+        self.mic_status.changed.connect(self._on_activity_status)
         self.header_mic_button = QPushButton()
         set_button_icon(self.header_mic_button, "mic" if self.cfg.get("microphone_enabled", True) else "mic-off", size=21)
         self.header_mic_button.setAccessibleName("Включить или выключить микрофон")
@@ -558,6 +568,12 @@ class MainWindow(QMainWindow):
         self.log.setReadOnly(True)
         self.log.setPlaceholderText("Jarvis появится здесь после первого сообщения.")
         box.addWidget(self.log, 1)
+        self.chat_activity = QLabel()
+        self.chat_activity.setObjectName("TaskActivity")
+        self.chat_activity.setTextFormat(Qt.TextFormat.PlainText)
+        self.chat_activity.setWordWrap(True)
+        self.chat_activity.hide()
+        box.addWidget(self.chat_activity)
         row = QHBoxLayout()
         self.command = QLineEdit()
         self.command.setPlaceholderText("Напишите сообщение или команду…")
@@ -776,7 +792,9 @@ class MainWindow(QMainWindow):
             save_config(self.cfg)
         except OSError:
             self.cfg = old_configuration
-            self.mic_status.setText("Ошибка сохранения config.json.")
+            message = tr("Ошибка сохранения config.json.")
+            self.mic_status.setText(message)
+            self.append_message("Jarvis", message, "#a5b9dc")
             self._update_cloud_indicator()
             return False
         if self._cloud_signature() != old_signature:
@@ -926,6 +944,7 @@ class MainWindow(QMainWindow):
 
     def _on_api_test_result(self, provider, valid, message, suggested_model):
         self._api_test_running = False
+        self._on_activity_status("")
         requested_signature = self._api_test_requested_signature
         self._api_test_requested_signature = None
         self._api_test_requested_key = None
@@ -1004,7 +1023,7 @@ class MainWindow(QMainWindow):
     def apply_appearance(self):
         """Apply the shared look to every page, including the separate home."""
         theme = self.cfg.get("ui_theme", "dark")
-        accent = self.cfg.get("ui_accent", "#3978f6")
+        accent = theme_colors(theme, self.cfg.get("ui_accent", "#3978f6"))["accent"]
         app = QApplication.instance()
         if app is not None:
             styles = build_styles(theme, accent)
@@ -1036,7 +1055,11 @@ class MainWindow(QMainWindow):
         self.setWindowOpacity(
             max(0.65, 1.0 - float(self.cfg.get("ui_transparency", 0)) / 100)
         )
-        self.avatar.set_theme(theme)
+        self.home_page.set_theme(theme, accent)
+        self.setWindowIcon(icon("jarvis", color=accent))
+        if self.tray_icon:
+            self.tray_icon.setIcon(icon("jarvis", color=accent))
+        self._refresh_history_colors()
         self.avatar.set_animated(bool(self.cfg.get("ui_animations", True)))
         self.setWindowFlag(
             Qt.WindowType.WindowStaysOnTopHint,
@@ -1408,24 +1431,28 @@ class MainWindow(QMainWindow):
 
     def install_local_ai(self):
         """Explicit opt-in: install official prebuilt CPU backend in this .venv."""
+        def feedback(message):
+            self.mic_status.setText(message)
+            self.append_message("Jarvis", message, "#a5b9dc")
+
         if sys.platform != "win32":
-            self.mic_status.setText("This installer is supported only on Windows.")
+            feedback("This installer is supported only on Windows.")
             return
         import subprocess
         script = BASE / "install_local_ai.bat"
         if not script.is_file():
-            self.mic_status.setText("install_local_ai.bat missing. Run Update.bat.")
+            feedback("install_local_ai.bat missing. Run Update.bat.")
             return
         try:
             subprocess.Popen(
                 ["cmd.exe", "/c", str(script)], cwd=str(BASE),
                 creationflags=subprocess.CREATE_NEW_CONSOLE,
             )
-            self.mic_status.setText(
+            feedback(
                 "Installing GGUF support in a separate console. Refresh models after completion."
             )
         except OSError as error:
-            self.mic_status.setText(
+            feedback(
                 f"Could not launch local AI installer: {type(error).__name__}"
             )
 
@@ -1530,15 +1557,58 @@ class MainWindow(QMainWindow):
         self.run_command(text)
 
     def append_message(self, who, text, color):
+        palette = theme_colors(self.cfg.get("ui_theme", "dark"), self.cfg.get("ui_accent", "#3978f6"))
+        if who.startswith("Tu"):
+            color = palette["accent"]
+        elif color.lower() in {"#a5b9dc", "#79a6ff", "#4388f9"}:
+            color = palette["muted"]
         safe = html.escape(str(text)).replace("\n", "<br>")
         entry = f'<p style="margin:8px 0"><b style="color:{color}">{html.escape(who)}:</b><br>{safe}</p>'
         self.log.append(entry)
-        color_line = "#4388f9" if who.startswith("Tu") else "#868d98"
+        color_line = palette["accent"] if who.startswith("Tu") else palette["muted"]
         self.home_history.append(
             f'<p style="margin:5px 0; padding-left:10px; border-left:2px solid {color_line};">'
             f'<span style="color:{color_line};font-weight:600;">{html.escape(who)}</span>  {safe}</p>'
         )
         self.history.append((who, str(text)))
+
+    def _refresh_history_colors(self):
+        palette = theme_colors(self.cfg.get("ui_theme", "dark"), self.cfg.get("ui_accent", "#3978f6"))
+        signature = (palette["accent"], palette["muted"])
+        if getattr(self, "_history_palette", None) == signature:
+            return
+        self._history_palette = signature
+        for widget, compact in ((self.log, False), (self.home_history, True)):
+            scroll = widget.verticalScrollBar().value()
+            cursor = widget.textCursor()
+            position, anchor = cursor.position(), cursor.anchor()
+            entries = []
+            for who, text in self.history:
+                color = palette["accent"] if who.startswith("Tu") else palette["muted"]
+                safe = html.escape(text).replace("\n", "<br>")
+                separator = "  " if compact else ":</b><br>"
+                if compact:
+                    entries.append(f'<p style="margin:5px 0"><span style="color:{color};font-weight:600">{html.escape(who)}</span>{separator}{safe}</p>')
+                else:
+                    entries.append(f'<p style="margin:8px 0"><b style="color:{color}">{html.escape(who)}{separator}{safe}</p>')
+            widget.setHtml("".join(entries))
+            limit = max(0, widget.document().characterCount() - 1)
+            cursor.setPosition(min(anchor, limit))
+            cursor.setPosition(min(position, limit), cursor.MoveMode.KeepAnchor)
+            widget.setTextCursor(cursor)
+            widget.verticalScrollBar().setValue(scroll)
+
+    def _on_activity_status(self, message):
+        active = bool(self._processing or self.dictation_active
+                      or self.command_wizard.active or self._api_test_running)
+        value = tr(str(message or "")) if active else ""
+        labels = [getattr(self, "chat_activity", None)]
+        if hasattr(self, "home_page"):
+            labels.append(getattr(self.home_page, "history_activity", None))
+        for label in labels:
+            if label is not None:
+                label.setText(value)
+                label.setVisible(bool(value))
 
     def run_command(self, text):
         """Queue multi-part commands, routing unfamiliar ones off the UI thread."""
@@ -1584,7 +1654,7 @@ class MainWindow(QMainWindow):
             })
             self._dispatch_command()
             return
-        self.save_settings()
+        self.apply_settings()
         # "You missed, try again" is meaningful feedback about the LAST
         # desktop goal, not a new small-talk request. Retry from a NEW image
         # rather than replaying yesterday's click coordinates or old macro.
@@ -1758,8 +1828,47 @@ class MainWindow(QMainWindow):
     def _on_direct_task_ready(self, text, mode, answer):
         if self._closed or not self._processing or self._active_text != text:
             return
-        self._current_route = "Open-Meteo" if mode == "weather" else "локальный OCR"
+        self._current_route = ("Windows: локальная команда" if mode == "native"
+                               else "Open-Meteo" if mode == "weather" else "локальный OCR")
         self._resolved_command(text, answer)
+
+    def _start_native_plan(self, text, plan):
+        """Approve one explicit local request on Qt, then verify it off-thread."""
+        from luxai.steam_games import GAMES
+        language = reply_language(self.cfg, text)
+        title = GAMES.get(plan["target"], (None, plan["target"]))[1]
+        verbs = {
+            "launch_game": {"ru": "Запустить", "ro": "Pornește", "en": "Launch"},
+            "close_app": {"ru": "Закрыть", "ro": "Închide", "en": "Close"},
+            "set_system_volume": {"ru": "Громкость Windows", "ro": "Volumul Windows", "en": "Windows volume"},
+            "get_system_volume": {"ru": "Прочитать громкость Windows", "ro": "Citește volumul Windows", "en": "Read Windows volume"},
+        }
+        if plan["action"] not in verbs:
+            raise ValueError("Unsupported direct native plan")
+        question = f'{verbs[plan["action"]][language]} {title}'.strip()
+        if not self.confirm_action(question):
+            self._resolved_command(text, {"ru": "Действие отменено.", "ro": "Acțiune anulată.", "en": "Action cancelled."}[language])
+            return
+        self.mic_status.setText({"ru": "Выполняю и проверяю локальную команду…", "ro": "Execut și verific comanda locală…", "en": "Executing and verifying the local command…"}[language])
+        threading.Thread(target=self._native_plan_worker, args=(text, dict(plan)),
+                         daemon=True, name="JarvisNativeCommand").start()
+
+    def _native_plan_worker(self, text, plan):
+        try:
+            # Only the exact typed plan approved above reaches this worker.
+            # Native verification may wait; no Qt dialog runs on this thread.
+            answer = self.agent.execute_plan(
+                text, plan, confirm_callback=lambda _: not self._closed,
+            )
+            if answer is None:
+                raise ValueError("Native request could not be executed")
+        except Exception as exc:
+            answer = self._error_message(exc)
+        if not self._closed:
+            try:
+                self.direct_task_ready.emit(text, "native", str(answer))
+            except RuntimeError:
+                pass
 
     def _start_selection_request(self, spoken, mode):
         """Copy a deliberate browser/editor selection, preserving clipboard.
@@ -2042,6 +2151,7 @@ class MainWindow(QMainWindow):
         text = current["parts"].pop(0)
         self._active_text = text
         self._processing = True
+        self.mic_status.setText({"ru": "Обрабатываю запрос…", "ro": "Procesez cererea…", "en": "Processing the request…"}[reply_language(self.cfg, text)])
         try:
             resume = current.pop("adaptive_resume", None)
             if resume:
@@ -2112,6 +2222,13 @@ class MainWindow(QMainWindow):
                     return
                 if message["missing"]:
                     self._ask_discord_message_details(text, message)
+                    return
+            if not manual_saved and not protected_workflow:
+                from luxai.steam_games import local_game_request
+                from luxai.task_intents import system_volume_request
+                native_plan = local_game_request(text) or system_volume_request(text)
+                if native_plan is not None:
+                    self._start_native_plan(text, native_plan)
                     return
             if feedback and not protected_workflow:
                 from luxai.task_intents import steam_self_nickname_request
@@ -3678,6 +3795,8 @@ class MainWindow(QMainWindow):
                 self.mic_status.setText("Готово: " + (", ".join(routes) or "локально"))
             if self.cfg.get("tts_enabled", True):
                 self._queue_speech(result, reply_language(self.cfg, group.get("original_text", "")))
+        else:
+            self.mic_status.setText("")
         QTimer.singleShot(0, self._dispatch_command)
 
     def stop_speaking(self):
@@ -3742,11 +3861,14 @@ class MainWindow(QMainWindow):
             self.settings_panel.refresh_voice_status()
         if not played:
             language = reply_language(self.cfg)
-            self.mic_status.setText({
+            message = {
                 "ru": "Голос недоступен. Проверьте voice_error.log.",
                 "en": "Voice unavailable. Check voice_error.log.",
                 "ro": "Vocea nu este disponibilă. Verifică voice_error.log.",
-            }[language])
+            }[language]
+            self.mic_status.setText(message)
+            # Report in text only: a failed voice must not enqueue itself again.
+            self.append_message("Jarvis", message, "#a5b9dc")
 
     def confirm_action(self, description):
         # Ordinary app launches, documents, sites, text and hotkeys execute
@@ -3759,7 +3881,8 @@ class MainWindow(QMainWindow):
         if not risk and not self.cfg.get("confirm_all_actions", False):
             return True
         dialog = QMessageBox(self)
-        dialog.setIconPixmap(icon("circle-alert" if risk else "circle-help", color="#e5bd69" if risk else "#3978f6").pixmap(40, 40))
+        accent = theme_colors(self.cfg.get("ui_theme", "dark"), self.cfg.get("ui_accent", "#3978f6"))["accent"]
+        dialog.setIconPixmap(icon("circle-alert" if risk else "circle-help", color="#e5bd69" if risk else accent).pixmap(40, 40))
         display_description = str(description)
         if display_description.startswith("⚠"):
             display_description = display_description[1:].lstrip()

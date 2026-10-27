@@ -11,16 +11,16 @@ import webbrowser
 from luxai.secure_keys import has_api_key, clear_api_key
 from luxai.api_providers import PROVIDERS
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QProgressBar, QScrollArea, QSlider, QSpinBox, QVBoxLayout, QWidget, QMessageBox,
+    QPushButton, QProgressBar, QScrollArea, QSlider, QSizePolicy, QSpinBox, QVBoxLayout, QWidget, QMessageBox,
 )
 
 from luxai.voices import available_voices
 from luxai.voice_presets import VOICE_PRESETS
 from luxai.ui_i18n import LANGUAGES, get_ui_language, tr, translate_widgets
-from luxai.icons import icon, set_button_icon, set_label_icon
+from luxai.icons import icon, set_button_icon, set_label_icon, theme_color
 
 
 class SettingsPanel(QWidget):
@@ -111,6 +111,14 @@ class SettingsPanel(QWidget):
         root.addWidget(sidebar)
         translate_widgets(self, get_ui_language())
         self._setup_autosave()
+        self._section_sync_timer = QTimer(self)
+        self._section_sync_timer.setSingleShot(True)
+        self._section_sync_timer.timeout.connect(self._sync_current_section)
+        self.scroll.verticalScrollBar().valueChanged.connect(self._sync_current_section)
+        self.scroll.verticalScrollBar().rangeChanged.connect(self._queue_section_sync)
+        self.scroll.viewport().installEventFilter(self)
+        body.installEventFilter(self)
+        self._queue_section_sync()
 
     def _setup_autosave(self):
         """Debounce actual user settings edits, not diagnostics or search.
@@ -272,7 +280,7 @@ class SettingsPanel(QWidget):
         # Shared icon refresh recolors these items without changing userData.
         combo.setItemData(index, name, Qt.ItemDataRole.UserRole + 60)
         combo.setItemData(index, role, Qt.ItemDataRole.UserRole + 61)
-        combo.setItemIcon(index, icon(name, color="#24996c" if role == "success" else "#3978f6", size=18))
+        combo.setItemIcon(index, icon(name, color=theme_color(role, combo), size=18))
 
     @staticmethod
     def _toggle(checked):
@@ -286,6 +294,22 @@ class SettingsPanel(QWidget):
         slider.setRange(bottom, top)
         slider.setValue(max(bottom, min(top, int(value))))
         return slider
+
+    @staticmethod
+    def _slider_value_control(slider, formatter=lambda value: f"{value}%"):
+        """Keep the current value beside its slider, including during editing."""
+        value = QLabel(formatter(slider.value()))
+        value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        value.setMinimumWidth(52)
+        value.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+        value.setObjectName("SettingsSliderValue")
+        value.setTextFormat(Qt.TextFormat.PlainText)
+        slider.valueChanged.connect(lambda number: value.setText(formatter(number)))
+        row = QHBoxLayout()
+        row.setSpacing(9)
+        row.addWidget(slider, 1)
+        row.addWidget(value)
+        return row, value
 
     def _build_voice_input(self):
         panel = self._section("Голосовой ввод", "Как Jarvis слышит вас: распознавание речи и микрофон.")
@@ -316,21 +340,16 @@ class SettingsPanel(QWidget):
         self.refresh_microphone_devices(initial=True)
         self._row(panel, "Микрофон", "Выберите устройство входа.", self.mic_device)
         self.mic_sensitivity = self._slider(float(self.cfg.get("microphone_sensitivity", 1.0)) * 100, 50, 300)
+        sensitivity_control, self.mic_sensitivity_value = self._slider_value_control(self.mic_sensitivity)
         self._row(panel, "Чувствительность микрофона",
                   "100% — обычная; увеличьте для тихого микрофона. Это не меняет громкость Windows.",
-                  self.mic_sensitivity)
+                  sensitivity_control)
         self.speech_pause = self._slider(
             round(float(self.cfg.get("speech_pause_seconds", 2.3)) * 10), 12, 40,
         )
-        self.speech_pause_value = QLabel("")
-        self.speech_pause_value.setMinimumWidth(43)
-        self.speech_pause.valueChanged.connect(
-            lambda value: self.speech_pause_value.setText(f"{value / 10:.1f} s")
+        pause_control, self.speech_pause_value = self._slider_value_control(
+            self.speech_pause, lambda value: f"{value / 10:.1f} s",
         )
-        self.speech_pause_value.setText(f"{self.speech_pause.value() / 10:.1f} s")
-        pause_control = QHBoxLayout()
-        pause_control.addWidget(self.speech_pause)
-        pause_control.addWidget(self.speech_pause_value)
         self._row(
             panel, "Пауза перед распознаванием",
             "Jarvis дождётся этой паузы после вашей речи (1,2–4,0 с). "
@@ -543,7 +562,8 @@ class SettingsPanel(QWidget):
             self.voice_id,
         )
         self.voice_volume = self._slider(self.cfg.get("voice_volume", 80), 0, 100)
-        self._row(panel, "Громкость", "0–100%, применяется к озвучке.", self.voice_volume)
+        volume_control, self.voice_volume_value = self._slider_value_control(self.voice_volume)
+        self._row(panel, "Громкость", "0–100%, применяется к озвучке.", volume_control)
         preview = QPushButton("Прослушать пример")
         set_button_icon(preview, "play")
         preview.clicked.connect(self.on_test_voice)
@@ -605,7 +625,8 @@ class SettingsPanel(QWidget):
         )
         self._row(panel, "Цвет темы", "Акцент кнопок и навигации.", self.accent)
         self.transparency = self._slider(self.cfg.get("ui_transparency", 0), 0, 35)
-        self._row(panel, "Прозрачность", "0–35% окна приложения.", self.transparency)
+        transparency_control, self.transparency_value = self._slider_value_control(self.transparency)
+        self._row(panel, "Прозрачность", "0–35% окна приложения.", transparency_control)
         self.animations = self._toggle(self.cfg.get("ui_animations", True))
         self._row(panel, "Анимации", "Отображение анимированного аватара.", self.animations)
         self.on_top = self._toggle(self.cfg.get("always_on_top", False))
@@ -960,7 +981,8 @@ class SettingsPanel(QWidget):
         )
         self._row(panel, "Провайдер синтеза", "Piper загружает русскую модель Дмитрий при первом запуске.", self.voice_engine)
         self.voice_speed = self._slider(round(float(self.cfg.get("voice_speed", 1.0)) * 100), 70, 140)
-        self._row(panel, "Скорость речи", "70–140% обычной скорости.", self.voice_speed)
+        speed_control, self.voice_speed_value = self._slider_value_control(self.voice_speed)
+        self._row(panel, "Скорость речи", "70–140% обычной скорости.", speed_control)
         self.speech_status = QLabel(
             "Голоса Luxify / Fish Audio и облачные модели требуют отдельного доступа. "
             "В этой версии используются только установленные локальные голоса."
@@ -989,15 +1011,54 @@ class SettingsPanel(QWidget):
 
     def retranslate(self, language):
         translate_widgets(self, language)
+        self._queue_section_sync()
 
     def _jump(self, index):
         section = self.sections[index]
+        if section.isHidden():
+            return
         self.scroll.verticalScrollBar().setValue(section.y())
+        self._sync_current_section()
+
+    def _select_section(self, index):
         for i, button in enumerate(self.section_buttons):
+            if bool(button.property("selected")) == (i == index):
+                continue
             button.setProperty("selected", i == index)
             set_button_icon(button, self.SECTION_ICONS[i], role="accent" if i == index else "default")
             button.style().unpolish(button)
             button.style().polish(button)
+
+    def _queue_section_sync(self, *_):
+        if hasattr(self, "_section_sync_timer"):
+            self._section_sync_timer.start(0)
+
+    def _sync_current_section(self, *_):
+        """Follow the section at the viewport's top, including the page end."""
+        if not self.isVisible():
+            return
+        visible = [(i, section) for i, section in enumerate(self.sections)
+                   if not section.isHidden()]
+        if not visible:
+            self._select_section(-1)
+            return
+        scrollbar = self.scroll.verticalScrollBar()
+        if scrollbar.maximum() > 0 and scrollbar.value() >= scrollbar.maximum():
+            selected = visible[-1][0]
+        else:
+            marker = scrollbar.value() + 16
+            selected = visible[0][0]
+            for index, section in visible:
+                if section.y() <= marker:
+                    selected = index
+                else:
+                    break
+        self._select_section(selected)
+
+    def eventFilter(self, watched, event):
+        if event.type() in (QEvent.Type.Resize, QEvent.Type.LayoutRequest, QEvent.Type.Show):
+            self._queue_section_sync()
+        return super().eventFilter(watched, event)
 
     def _filter(self, text):
         query = text.strip().casefold()
@@ -1005,6 +1066,7 @@ class SettingsPanel(QWidget):
             match = not query or query in button.text().casefold()
             section.setVisible(match)
             button.setVisible(match)
+        self._queue_section_sync()
 
     def collect(self):
         return {

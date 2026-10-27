@@ -8,24 +8,16 @@ from __future__ import annotations
 
 import re
 
-from luxai.fast_intents import quick_reply, strip_wake_name
+from luxai.fast_intents import command_text, quick_reply
 from luxai.windows_apps import ALIASES, normalized_name
 
 
-_POLITE = re.compile(
-    r"^(?:пожалуйста|ну|(?:ты\s+)?можешь(?:\s+ли)?(?:\s+ты)?|"
-    r"(?:не\s+)?мог(?:ла)?\s+бы\s+ты|хочу\s+чтобы\s+ты|"
-    r"please|(?:can|could|would|will)\s+you(?:\s+please)?|"
-    r"te\s+rog(?:\s+frumos)?|(?:poți|poti)(?:\s+(?:să|sa))?|"
-    r"ai\s+putea(?:\s+(?:să|sa))?|(?:aș|as)\s+vrea\s+(?:să|sa)|"
-    r"vreau\s+(?:să|sa))\b[\s,:;—–-]*", re.I,
-)
 _OPEN = re.compile(
     r"^(?:открой|открыть|открывай|откроешь|запусти|запустить|"
     r"запускай|включи|включить|(?:зайди|зайти)(?:\s+в)?|перейди\s+в|"
     r"open|launch|start|run|go\s+(?:to|into)|"
     r"deschide(?:-mi)?|deschizi|pornește|porneste|pornești|pornesti|"
-    r"lansează|lanseaza|intră\s+în|intra\s+in)\b\s+", re.I,
+    r"lansează|lanseaza|lansezi|intră\s+în|intra\s+in)\b[\s,]+", re.I,
 )
 _ACTION_WORD = (
     r"откро\w*|запуст\w*|включ\w*|выключ\w*|перейд\w*|зайд\w*|зайт\w*|"
@@ -38,10 +30,14 @@ _ACTION_WORD = (
     r"open|launch|start|run|click|press|find|search|take|create|read|"
     r"wait|write|type|move|copy|close|delete|send|select|scroll|change|resize|"
     r"show|check|fix|minimize|maximize|restart|reboot|lock|research|analyze|analyse|"
-    r"deschide|pornește|porneste|apasă|apasa|caută|cauta|fă|fa|"
-    r"creează|creeaza|citește|citeste|așteaptă|asteapta|scrie|mută|muta|"
-    r"copiază|copiaza|închide|inchide|șterge|sterge|trimite|alege|"
-    r"schimbă|schimba|redimensionează|redimensioneaza|verifică|verifica|"
+    r"deschide|deschizi|pornește|porneste|pornești|pornesti|lansează|lanseaza|lansezi|"
+    r"apasă|apasa|apeși|apesi|caută|cauta|fă|fa|faci|"
+    r"creează|creeaza|citește|citeste|citești|citesti|așteaptă|asteapta|aștepți|astepti|"
+    r"scrie|scrii|tastează|tasteaza|introdu|mută|muta|muți|muti|deplasează|deplaseaza|"
+    r"copiază|copiaza|închide|inchide|închizi|inchizi|oprește|opreste|oprești|opresti|"
+    r"șterge|sterge|trimite|alege|salvează|salveaza|salvezi|"
+    r"schimbă|schimba|setează|seteaza|setezi|reglează|regleaza|reglezi|"
+    r"derulează|deruleaza|derulezi|redimensionează|redimensioneaza|verifică|verifica|"
     r"repornește|reporneste|blochează|blocheaza|cercetează|cerceteaza"
 )
 # Bare "and" can be part of an app name. A conjunction followed by an action
@@ -55,7 +51,8 @@ _CLAUSE = re.compile(
 _APP_PREFIX = re.compile(
     r"^(?:(?:окно|приложение|программу|программа)(?:\s+приложения)?|"
     r"(?:the\s+)?(?:app|application|program|window)(?:\s+(?:of|for))?|"
-    r"(?:aplicația|aplicatia|aplicație|aplicatie|programul|fereastra))\s+", re.I,
+    r"(?:aplicația|aplicatia|aplicație|aplicatie|programul|fereastra"
+    r"(?:\s+(?:aplicației|aplicatiei|programului))?))\s+", re.I,
 )
 _NON_APP = re.compile(
     r"^(?:файл\w*|документ\w*|папк\w*|сайт\w*|ссылк\w*|"
@@ -74,15 +71,40 @@ _SHELL = re.compile(
 
 
 def _text(text: str) -> str:
-    value = " ".join(str(text or "").strip().split())
-    for _ in range(4):
-        previous = value
-        value = strip_wake_name(value).strip()
-        value = _POLITE.sub("", value, count=1)
-        if value == previous:
-            break
-    value = re.sub(r"(?:[,\s]+(?:пожалуйста|please|te\s+rog))[.!?]*$", "", value, flags=re.I)
+    value = " ".join(command_text(text).split())
     return value.rstrip(" .!?").strip()
+
+
+def system_volume_request(text: str) -> dict | None:
+    """Describe one explicit master-volume request, never an embedded quote.
+
+    The actual Core Audio executor validates bounds and reads the new level
+    back. An out-of-range number remains a volume request for that executor
+    to reject, rather than silently executing some other interpretation.
+    """
+    value = _text(text).casefold()
+    if not value or _CLAUSE.search(value):
+        return None
+    control = r"(?:громкость(?:\s+(?:звука|windows))?|звук|(?:the\s+)?(?:system\s+)?volume|volum(?:ul)?(?:\s+(?:sistemului|windows))?)"
+    setting = re.fullmatch(
+        r"(?:(?:поставь|поставить|установи|установить|сделай|сделать|измени|изменить|выставь|выставить)\s+" + control +
+        r"(?:\s+(?:на|до))?|(?:set|change|adjust|put)\s+" + control +
+        r"(?:\s+(?:to|at))?|(?:setează|seteaza|setezi|pune|schimbă|schimba|"
+        r"reglează|regleaza|reglezi|dă|da)\s+" + control + r"(?:\s+la)?)"
+        r"\s+(\d{1,3})(?:\s*(?:%|процент(?:а|ов)?|percent|per\s+cent|(?:de\s+)?procente?))?",
+        value,
+    )
+    if setting:
+        return {"action": "set_system_volume", "target": str(int(setting[1]))}
+    if re.fullmatch(
+        r"(?:какая\s+(?:сейчас\s+)?" + control + r"|проверь\s+" + control +
+        r"|(?:what(?:'s|\s+is)\s+(?:the\s+)?(?:current\s+)?(?:system\s+)?volume|check\s+(?:the\s+)?volume)"
+        r"|(?:care\s+(?:este|e)\s+volumul(?:\s+(?:actual|sistemului))?|"
+        r"cât\s+(?:este|e)\s+volumul|cat\s+(?:este|e)\s+volumul|"
+        r"verifică\s+volumul|verifica\s+volumul))", value,
+    ):
+        return {"action": "get_system_volume", "target": ""}
+    return None
 
 
 def _app_parts(text: str) -> tuple[str, str] | None:
@@ -189,10 +211,13 @@ def screenshot_request(text: str) -> bool:
         r"(?:скриншот|скрин|снимок)(?:\s+(?:(?:текущего|активного)\s+)?(?:экрана|окна))?|"
         r"сними\s+экран|"
         r"(?:take|make|save|capture)\s+(?:(?:a|the)\s+)?(?:screenshot|screen\s*shot|screen\s+capture)"
-        r"(?:\s+of\s+(?:the\s+)?(?:screen|desktop|current\s+window))?|"
-        r"capture\s+(?:the\s+)?screen|"
-        r"(?:fă|fa|fă-mi|fa-mi|salvează|salveaza|capturează|captureaza)\s+"
-        r"(?:(?:o|un)\s+)?(?:captură\s+de\s+ecran|captura\s+de\s+ecran|screenshot|printscreen))",
+        r"(?:\s+of\s+(?:(?:the|my)\s+)?(?:screen|desktop|current\s+window))?|"
+        r"capture\s+(?:(?:the|my)\s+)?screen|"
+        r"(?:fă|fa|fă-mi|fa-mi|faci|salvează|salveaza|salvezi|capturează|captureaza|"
+        r"realizează|realizeaza)\s+(?:(?:o|un)\s+)?"
+        r"(?:captur[ăa]\s+(?:de\s+ecran|a\s+ecranului)|screenshot|printscreen|"
+        r"(?:poză|poza|fotografie)\s+(?:la\s+ecran|a\s+ecranului|de\s+pe\s+ecran))|"
+        r"(?:fotografiază|fotografiaza)\s+ecranul)",
         value, re.I,
     ))
 

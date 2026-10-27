@@ -66,6 +66,7 @@ class QtActionTests(unittest.TestCase):
             ),
             _start_selection_request=mock.Mock(),
             agent=types.SimpleNamespace(history=[]),
+            mic_status=mock.Mock(),
         )
         MainWindow._dispatch_command(fake)
         fake._start_selection_request.assert_called_once_with(spoken, "summarize")
@@ -90,6 +91,7 @@ class QtActionTests(unittest.TestCase):
                 enabled=mock.Mock(side_effect=AssertionError("No AI needed")),
             ),
             _start_selection_request=mock.Mock(),
+            mic_status=mock.Mock(),
         )
         MainWindow._dispatch_command(fake)
         fake._start_selection_request.assert_called_once_with(spoken, "read")
@@ -285,6 +287,7 @@ class QtActionTests(unittest.TestCase):
                 enabled=mock.Mock(side_effect=AssertionError("Presets need no Gemini")),
             ),
             _execute_registered=mock.Mock(),
+            mic_status=mock.Mock(),
         )
         MainWindow._dispatch_command(fake)
         fake.online_planner.enabled.assert_not_called()
@@ -313,6 +316,7 @@ class QtActionTests(unittest.TestCase):
             ),
             confirm_action=lambda _: True,
             _resolved_command=mock.Mock(),
+            mic_status=mock.Mock(),
         )
         MainWindow._dispatch_command(fake)
         fake.online_planner.enabled.assert_not_called()
@@ -360,6 +364,7 @@ class QtActionTests(unittest.TestCase):
             ),
             confirm_action=lambda *_: False,
             _resolved_command=mock.Mock(),
+            mic_status=mock.Mock(),
         )
         MainWindow._dispatch_command(fake)
         fake.online_planner.enabled.assert_not_called()
@@ -387,6 +392,7 @@ class QtActionTests(unittest.TestCase):
             ),
             _screen_snapshot=None,
             _start_screen_inspection=mock.Mock(),
+            mic_status=mock.Mock(),
         )
         MainWindow._dispatch_command(fake)
         self.assertEqual(fake._pending_screen_click, "yes")

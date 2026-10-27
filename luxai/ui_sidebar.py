@@ -5,7 +5,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtGui import QFont, QPainter
-from luxai.icons import icon, set_button_icon
+from luxai.icons import icon, set_button_icon, theme_color
 from luxai.ui_i18n import tr, normalize_language
 from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
@@ -29,10 +29,11 @@ class BrandMark(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedSize(48, 48)
+        self.setProperty("jarvisBrandMark", True)
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        icon("jarvis", size=48).paint(painter, self.rect())
+        icon("jarvis", color=theme_color("accent", self), size=48).paint(painter, self.rect())
 
 
 class VersionLabel(QLabel):

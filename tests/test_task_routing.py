@@ -39,6 +39,7 @@ class TaskRoutingTests(unittest.TestCase):
         window._current_route = "adaptive tools"
         window.append_message = mock.Mock()
         window.save_settings = mock.Mock()
+        window.apply_settings = mock.Mock()
         window.dictation_active = False
         window.command_wizard = SimpleNamespace(active=False)
         window._task_memory = mock.Mock()

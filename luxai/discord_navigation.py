@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 import time
 
-from luxai.fast_intents import strip_wake_name
+from luxai.fast_intents import command_text
 from luxai.discord_screen_review import (
     _ensure_discord_visible, validate_discord_review_user,
 )
@@ -19,31 +19,59 @@ from luxai.discord_research import focus_discord
 
 
 def detect_discord_open_dm(text: str) -> str | None:
-    phrase = strip_wake_name(str(text or "")).strip()
+    phrase = command_text(text).strip().rstrip(" .!?")
     lower = phrase.casefold()
-    if not re.search(r"(?:discord|дискорд\w*|дискор\w*)", lower):
+    platform = r"(?:discord|дискорд\w*|дискор\w*)"
+    if not re.search(r"(?<!\w)" + platform + r"(?!\w)", lower):
         return None
     if re.search(
         r"(?:скрин|снимок|микрофон|отправ\w*|напиши|сообщени|"
-        r"пересказ|содержани|информаци\w*\s+(?:про|об)|потом|затем)",
+        r"пересказ|содержани|информаци\w*\s+(?:про|об)|потом|затем|"
+        r"\b(?:screenshot|microphone|microfon\w*|send|write|message|scrie(?:-i)?|trimite\w*|"
+        r"call|ring|phone|sun[ăa](?:-l)?|apeleaz[ăa]|then|apoi)\b)",
         lower,
     ):
         return None
-    if not re.search(r"(?:нажм\w*|жми|жать|откро\w*|найд\w*|выбер\w*|перейд\w*)", lower):
+    if re.search(r"\b(?:не\s+(?:наж\w*|откр\w*|найд\w*|выб\w*)|"
+                 r"(?:do\s+not|don['’]?t|never)\s+|nu\s+|how\s+|как\s+|cum\s+)", lower):
         return None
-    match = re.search(
-        r"(?:пользовател[ья]|юзера|контакт|user)\s+"
-        r"(?P<name>[\w.\-]+(?:\s+[\w.\-]+){0,3})",
-        phrase, re.IGNORECASE | re.UNICODE,
+    phrase = re.sub(r"^(?:в|на|in|on|în|pe)\s+" + platform + r"\s*[,;:]?\s+", "", phrase, flags=re.I)
+    action = re.match(
+        r"^(?:нажм\w*|нажми|жми|жать|откр[оы]\w*|найд\w*|найти|выбер\w*|выбрать|перейд\w*|"
+        r"open|find|select|click|go\s+to|"
+        r"deschide|deschizi|găsește|gaseste|caută|cauta|apasă|apasa|apeși|apesi|"
+        r"selectează|selecteaza|intră|intra)\s+", phrase, re.I,
     )
-    if match is None:
+    if action is None:
         return None
-    # The location phrase is not part of a user's display name:
-    # "жми на пользователя R0nfsy в дискорде" -> "R0nfsy".
+    rest = phrase[action.end():].strip()
+    rest = re.sub(r"^(?:(?:в|на|in|on|în|pe)\s+)?" + platform + r"\s+", "", rest, flags=re.I)
+    rest = re.sub(r"^(?:(?:на|по|pe|on|the)\s+)+", "", rest, flags=re.I)
+    # Opening a person, rather than an arbitrary Discord setting, needs an
+    # explicit contact/chat noun. The actual identity remains fully literal.
+    descriptor = re.match(
+        r"^(?:(?:личн\w*\s+)?(?:чат|переписку)|"
+        r"(?:the\s+)?(?:direct\s+messages?|dm|chat|conversation)|"
+        r"(?:conversația|conversatia|conversație|conversatie|chatul|dm-ul))"
+        r"(?:\s+(?:с|со|cu|with|of))?\s+", rest, re.I,
+    )
+    if descriptor:
+        rest = rest[descriptor.end():]
+    role = re.match(
+        r"^(?:(?:пользовател[ьюя]|юзер[ау]?|контакт[ау]?|друг[ау]?|"
+        r"(?:my\s+)?(?:user|friend|contact)|utilizator(?:ul|ului)?|"
+        r"prieten(?:ul|ului)?(?:\s+meu)?|contact(?:ul|ului)?|lui|pe)\s+)+", rest, re.I,
+    )
+    if role:
+        rest = rest[role.end():]
+    if descriptor is None and role is None:
+        return None
     candidate = re.sub(
-        r"\s+(?:в|на|in)\s+(?:discord|дискорд\w*|дискор\w*)$",
-        "", match.group("name").strip(" .,!?;"), flags=re.I,
+        r"\s+(?:в|на|in|on|în|pe)\s+" + platform + r"$",
+        "", rest.strip(" .,!?;"), flags=re.I,
     )
+    if re.search(r"\s+(?:and|și|si|и)\s+", candidate, re.I):
+        return None
     try:
         return validate_discord_review_user(candidate)
     except ValueError:

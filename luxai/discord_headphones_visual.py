@@ -10,13 +10,17 @@ import time
 
 
 def discord_headphones_mode(text: str) -> str | None:
-    from luxai.fast_intents import strip_wake_name
-    phrase = strip_wake_name(str(text or "")).casefold()
+    from luxai.fast_intents import command_text
+    phrase = command_text(text).casefold()
     if not re.search(r"(?<!\w)(?:discord|дискорд\w*|дискор\w*)(?!\w)", phrase):
         return None
-    if not re.search(r"(?<!\w)(?:наушник\w*|наушн\w*|headphones|headset|undeafen|deafen|оглуш\w*)(?!\w)", phrase):
+    if not re.search(r"(?<!\w)(?:наушник\w*|наушн\w*|headphones|headset|undeafen|deafen|оглуш\w*|c[ăa][șs]ti(?:le|lor)?)(?!\w)", phrase):
         return None
-    if re.search(r"(?:микрофон\w*|microphone)", phrase):
+    if re.search(r"(?:микрофон\w*|microphone|\bmic\b|microfon\w*)", phrase):
+        return None
+    if re.search(r"\b(?:напиш\w*|отправ\w*|сообщени\w*|write|send|message|scrie(?:-i)?|trimite(?:-i)?)\b", phrase):
+        return None
+    if re.match(r"(?:как|how|cum|explică|explica|explain|объясни|поясни)\b", phrase):
         return None
     # A prohibition or a how-to question is not permission to change sound.
     if re.search(
@@ -25,14 +29,18 @@ def discord_headphones_mode(text: str) -> str | None:
         r"(?:don't|don’t|dont|do\s+not|never)\s+(?:deafen|undeafen|mute|unmute|"
         r"turn|click|press)|how\s+(?:to|do\s+i|can\s+i)|"
         r"как\s+(?:мне\s+)?(?:выключ\w*|отключ\w*|включ\w*|"
-        r"заглуш\w*|разглуш\w*|замут\w*))(?!\w)", phrase,
+        r"заглуш\w*|разглуш\w*|замут\w*)|"
+        r"nu(?:-mi)?\s+(?:opri\w*|opre\w*|porni\w*|porne\w*|închid\w*|inchid\w*|deschid\w*|activ\w*|dezactiv\w*|scoat\w*|sco[țt]\w*|ap[ăa]s\w*)|"
+        r"cum\s+(?:pot|se|s[ăa]))(?!\w)", phrase,
     ):
         return None
+    if re.search(r"\b(?:scoate|scoți|scoti)\b.{0,40}\b(?:de\s+pe|din)\s+mute\b", phrase):
+        return "on"
     # Whole action words matter: "mute" occurs inside "unmute", and
     # "deafen" inside "undeafen". Substring matching reversed these requests.
-    if re.search(r"(?<!\w)(?:выключ\w*|отключ\w*|заглуш\w*|замут\w*|deafen|mute|turn\s+off)(?!\w)", phrase):
+    if re.search(r"(?<!\w)(?:выключ\w*|отключ\w*|заглуш\w*|замут\w*|deafen|mute|disable|turn\s+off|opre\w*|dezactiv\w*|închid\w*|inchid\w*)(?!\w)", phrase):
         return "off"
-    if re.search(r"(?<!\w)(?:включ\w*|разглуш\w*|undeafen|unmute|turn\s+on)(?!\w)", phrase):
+    if re.search(r"(?<!\w)(?:включ\w*|разглуш\w*|размут\w*|undeafen|unmute|enable|turn\s+on|porne\w*|activ\w*|deschid\w*)(?!\w)", phrase):
         return "on"
     if re.search(r"(?<!\w)(?:нажм\w*|клик\w*|click|press|apas\w*)(?!\w)", phrase):
         return "toggle"

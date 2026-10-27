@@ -16,6 +16,7 @@ import subprocess
 import sys
 
 from luxai.win32 import get_user32, hwnd_value, window_on_screen
+from luxai.steam_games import ALIASES as GAME_ALIASES
 
 ALIASES = {
     "файерфокс": "firefox",
@@ -54,6 +55,7 @@ ALIASES = {
     "настройки windows": "settings",
     "setări windows": "settings",
     "setari windows": "settings",
+    **{alias: game for game, aliases in GAME_ALIASES.items() for alias in aliases},
 }
 EXEC_NAMES = {
     "firefox": ("firefox.exe",),
@@ -72,6 +74,10 @@ EXEC_NAMES = {
     "visual studio": ("devenv.exe",),
     "pycharm": ("pycharm64.exe", "pycharm.exe"),
     "blender": ("blender.exe",),
+    "warthunder": ("aces.exe",),
+    "dota2": ("dota2.exe",),
+    "cs2": ("cs2.exe",),
+    "undertale": ("undertale.exe",),
 }
 # Resolve common apps even if they haven't registered App Paths.
 COMMON_DIRS = {
