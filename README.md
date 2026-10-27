@@ -1,8 +1,14 @@
 # LuxAI_local
 
-## 0.3.7g: updater cleanup, faster first speech and sidebar version
+## 0.3.8: multilingual commands, games and interface fixes
 
-Successful updates close the updater console without a final keypress. Normal updates keep rollback files only in temporary staging and remove them when finished; recognized legacy updater backups and the old bootstrap copy are cleaned automatically after success, including an already-current installation. Unrelated files and linked folders are preserved. Original files are retained only if automatic rollback itself fails.
+Romanian, Russian and English requests now share broader handling of polite formulations, diacritics and spoken command variants. Known Steam games, including War Thunder, launch or close through local tools before generic planning. Closing checks the actual game windows/processes and leaves Steam running; an in-game confirmation or a still-running process is reported as unverified. Regression corpora include 10–15 formulations per tested intent and language, together with negative and compound requests. Speech accuracy still depends on the selected Whisper model, recording and recognition language; interface language remains separate.
+
+The chosen accent now reaches the orb, home switches, branding and controls. Current activity appears temporarily inside chat and clears after completion. Settings show live slider percentages, and the section highlight follows scrolling.
+
+Auto speech recognition uses a trilingual command context and a stronger decoding search. This improved short Romanian commands in local Whisper Small tests with synthesized RO/RU/EN speech, at a small decoding-time cost. Excessive repetitive noise transcriptions are discarded. Recognition of names and mixed-language game titles can still vary; choose Romanian explicitly when that is the language you speak, and try the Medium model if Small misses words.
+
+The previous updater and startup-voice improvements remain included. Successful updates close the updater console without a final keypress. Normal updates keep rollback files only in temporary staging and remove them when finished; recognized legacy updater backups and the old bootstrap copy are cleaned automatically after success, including an already-current installation. Unrelated files and linked folders are preserved. Original files are retained only if automatic rollback itself fails.
 
 The selected Piper voice loads and performs its first silent synthesis on the speech worker at launch, reusing that instance for replies. The interface stays responsive and no greeting or microphone recording starts. A missing voice still needs its initial model download; Windows SAPI retains its existing per-reply process behavior. The installed version appears below the sidebar collapse button in both widths.
 

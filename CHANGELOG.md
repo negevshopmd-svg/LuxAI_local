@@ -1,3 +1,13 @@
+## 0.3.8 — multilingual commands, native games and consistent settings UI
+
+- Normalize bounded polite requests, Romanian diacritics/inflections and spoken key names consistently across Romanian, Russian and English. Expand Discord microphone/headphones, calls, contacts and screen/dictation intents while preserving exact recipients, literal message bodies and action safeguards. Keep explicit Whisper language choices intact.
+- Give Auto recognition a trilingual command context and at least three decoding beams after real Whisper Small/Piper comparisons exposed lost Romanian commands with the previous unprompted fast Auto mode. Filter excessive repetitive noise transcriptions before dispatch. Explicit Russian/English decoding preferences remain unchanged; synthetic speech results do not establish physical-headset or arbitrary-name accuracy.
+- Route recognized Steam game launch/close and master-volume requests directly to typed local tools before generic cloud/chat planning. Recognize War Thunder and its speech aliases; close only verified game windows/processes, never Steam. Request graceful closure once and report success only after observing closure; game dialogs or still-running processes remain unverified.
+- Apply the selected accent to the home orb, switches, branding, sliders, progress bars and existing chat entries. Starting a command also applies any pending appearance edits.
+- Move ongoing task activity from beside the header microphone into the chat area; clear it when work ends. Add live percentage readouts for microphone sensitivity, speech speed/volume and transparency. Synchronize Settings section navigation with scrolling, filtering and resizing.
+- Include 10–15 equivalent formulations per tested intent and language, negative/literal/compound cases, executor/routing checks, native Windows closure simulations and real Qt interaction/pixel regressions. These cover the supported RU/RO/EN command paths; physical microphones, arbitrary speech and live game behavior still depend on the target PC.
+- Retain 0.3.7g's automatic updater completion, temporary rollback/legacy backup cleanup, startup Piper preparation and sidebar version display.
+
 ## 0.3.7g — updater storage cleanup, startup voice preparation and version label
 
 - Close the new Windows updater batch automatically after success; retain readable failures and nonzero exit status. The final pause already parsed by a legacy launcher can occur once during migration.

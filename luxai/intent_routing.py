@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import re
 
-from luxai.fast_intents import strip_wake_name, quick_reply
+from luxai.fast_intents import command_text, strip_wake_name, quick_reply
 
 OPERATION_TERMS = (
     r"открой|открыть|запусти|запустить|включи|включить|"
@@ -19,13 +19,22 @@ OPERATION_TERMS = (
     r"перемести|переместить|скопируй|сохрани|"
     r"громкость|сверни|выполни|команду|"
     r"open|launch|start|run|create|rename|delete|"
-    r"weather|deschide|pornește|porneste|șterge|sterge"
+    r"close|click|press|type|write|move|copy|save|scroll|wait|"
+    r"minimize|maximize|shutdown|restart|reboot|mute|unmute|"
+    r"weather|deschide|deschizi|pornește|porneste|pornești|pornesti|"
+    r"lansează|lanseaza|închide|inchide|închizi|inchizi|oprește|opreste|"
+    r"apasă|apasa|apeși|apesi|scrie|scrii|tastează|tasteaza|mută|muta|"
+    r"copiază|copiaza|salvează|salveaza|setează|seteaza|reglează|regleaza|"
+    r"derulează|deruleaza|așteaptă|asteapta|creează|creeaza|"
+    r"redenumește|redenumeste|șterge|sterge|caută|cauta|"
+    r"citește|citeste|verifică|verifica|volumul|microfonul|vremea|"
+    r"repornește|reporneste|blochează|blocheaza|minimizează|minimizeaza"
 )
 PATTERN = re.compile(r"(?<!\w)(?:" + OPERATION_TERMS + r")(?!\w)", re.IGNORECASE)
 
 
 def is_operational_request(text: str) -> bool:
-    return bool(PATTERN.search(strip_wake_name(text)))
+    return bool(PATTERN.search(command_text(text)))
 
 
 def routine_reply(text: str, language: str = "ru") -> str | None:
@@ -46,6 +55,9 @@ def suspicious_completion_reply(text: str) -> bool:
     return bool(re.search(
         r"\b(?:открыл(?:а|и)?|создал(?:а|и)?|переименовал(?:а|и)?|"
         r"удалил(?:а|и)?|запустил(?:а|и)?|выполнил(?:а|и)?|"
-        r"opened|created|renamed|deleted|launched|executed)\b",
+        r"закрыл(?:а|и)?|нажал(?:а|и)?|сохранил(?:а|и)?|скопировал(?:а|и)?|"
+        r"opened|created|renamed|deleted|launched|executed|closed|saved|copied|moved|pressed|"
+        r"am\s+(?:deschis|pornit|creat|redenumit|șters|sters|închis|inchis|"
+        r"executat|apăsat|apasat|salvat|copiat|mutat|setat|restartat))\b",
         text.casefold(),
     ))

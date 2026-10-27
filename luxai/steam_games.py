@@ -23,7 +23,10 @@ GAMES = {
 ALIASES = {
     "dota2": ("dota", "dota 2", "дота", "доту", "доты", "дота 2", "доту 2"),
     "cs2": ("cs2", "cs 2", "csgo", "cs:go", "кс2", "кс 2", "контр страйк", "counter strike"),
-    "warthunder": ("war thunder", "warthunder", "вар тандер", "вартандер", "вар тандр", "war-tunder"),
+    "warthunder": (
+        "war thunder", "warthunder", "war-thunder", "war tander", "war tunder",
+        "war thunder game", "вар тандер", "вартандер", "вар тандр", "вар тандэр", "war-tunder",
+    ),
     "undertale": ("undertale", "андертейл", "андертэйл", "андертеил", "андертел", "андертале", "андертейла", "андертэла"),
 }
 
@@ -41,13 +44,63 @@ def _normalized(text: str) -> str:
 
 
 def local_game_intent(text: str) -> str | None:
-    text = text.casefold()
-    if not any(re.search(r"(?<!\w)" + re.escape(verb) + r"(?!\w)", text) for verb in LAUNCH_VERBS):
-        return None
-    for game, aliases in ALIASES.items():
-        for alias in aliases:
-            if re.search(r"(?<!\w)" + re.escape(alias) + r"(?!\w)", text):
-                return game
+    request = local_game_request(text)
+    return request["target"] if request and request["action"] == "launch_game" else None
+
+
+def mentions_known_game(text: str) -> bool:
+    """A routing hint only: a mentioned name never grants launch authority."""
+    value = str(text or "").casefold()
+    return any(
+        re.search(r"(?<!\w)" + re.escape(alias) + r"(?!\w)", value)
+        for aliases in ALIASES.values() for alias in aliases
+    )
+
+
+def local_game_request(text: str) -> dict | None:
+    """Recognize one complete named-game request, without an API or app scan.
+
+    Do not extract a launch verb from quoted speech, a message body, a how-to
+    question, a negative instruction or only the first half of a compound task.
+    The known game ID still comes from GAMES, never from the user's words.
+    """
+    from luxai.fast_intents import command_text
+    value = command_text(text).casefold().translate(str.maketrans({
+        "ă": "a", "â": "a", "î": "i", "ș": "s", "ț": "t",
+    }))
+    value = re.sub(r"\s+", " ", value).strip().rstrip(" .!?")
+    launch = (
+        r"открой|открыть|открывай|откроешь|запусти|запустить|запускай|"
+        r"включи|включить|open|launch|start|run|play|deschide(?:-mi)?|deschidea|"
+        r"deschizi|porneste|pornesti|lanseaza|lansezi|intra in"
+    )
+    close = (
+        r"закрой|закрыть|закрывай|закроешь|выключи|выключить|останови|"
+        r"заверши|close|exit|quit|stop|shut down|inchide(?:-mi)?|inchizi|"
+        r"opreste|opresti|iesi din|inchideti"
+    )
+    prefix = r"(?:(?:пожалуйста|please)\s+)?"
+    # Courtesy directly after the action belongs to the request framing.
+    # Keep it bounded here: stripping arbitrary middle words could turn a
+    # quoted message or a compound goal into a different game command.
+    courtesy = r"(?:(?:пожалуйста|please|te rog(?: frumos)?)[,;]?\s+)?"
+    article = r"(?:the\s+)?(?:(?:игру|игры|окно(?:\s+игры)?|приложение|(?:game|app|application|window)(?:\s+(?:of|for))?|jocul|joc|fereastra(?:\s+jocului)?)\s+)?"
+    platform = r"(?:\s+(?:в стим(?:е)?|в steam|через steam|in steam|on steam|through steam|prin steam|din steam|in steam))?"
+    for action, verbs in (("launch_game", launch), ("close_app", close)):
+        match = re.fullmatch(prefix + r"(?:" + verbs + r")[\s,:]+" + courtesy + article + r"(.+?)" + platform + r"(?:\s+(?:acum|now|сейчас))?", value)
+        if not match:
+            continue
+        target = match.group(1).strip()
+        target = re.sub(r"\s+(?:window|окно)$", "", target)
+        # Quotes around the explicitly named game are data, not a second
+        # command; the complete action phrase must still have matched above.
+        if len(target) >= 2 and (target[0], target[-1]) in {
+            ('"', '"'), ("'", "'"), ("«", "»"), ("“", "”"),
+        }:
+            target = target[1:-1].strip()
+        for game, aliases in ALIASES.items():
+            if target in {*aliases, GAMES[game][1].casefold()}:
+                return {"action": action, "target": game}
     return None
 
 

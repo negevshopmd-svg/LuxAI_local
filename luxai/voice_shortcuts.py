@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import re
 
-from luxai.fast_intents import strip_wake_name
+from luxai.fast_intents import command_text, strip_wake_name
 from luxai.action_catalog import CATALOG, CATEGORIES, HOTKEYS
 
 ENTER = re.compile(
@@ -53,7 +53,7 @@ CANONICAL = {
     "x": "x",
 }
 SAVE = re.compile(
-    r"^\s*(?:сохрани|сохранить|сохрани\s+(?:документ|файл)|save(?:\s+document)?)\s*[.!?]*$",
+    r"^\s*(?:(?:сохрани|сохранить)(?:\s+(?:документ|файл))?|save(?:\s+(?:the\s+)?(?:current\s+)?(?:document|file))?|(?:salvează|salveaza|salvezi|salva)(?:\s+(?:documentul|fișierul|fisierul))?)\s*[.!?]*$",
     re.I,
 )
 HELP = re.compile(
@@ -69,7 +69,13 @@ HELP = re.compile(
 
 
 def keyboard_action_plan(text: str) -> dict | None:
-    phrase = strip_wake_name(text).strip()
+    phrase = command_text(text).strip()
+    # Share the conservative native key parser so Romanian nouns such as
+    # "tasta" and polite requests behave the same as their Russian variants.
+    from luxai.voice_actions import parse_action
+    native = parse_action(phrase)
+    if native is not None and native["action"] in {"press_enter", "hotkey"}:
+        return {"action": native["action"], "target": native.get("target", ""), "reply": ""}
     if ENTER.fullmatch(phrase):
         return {"action": "press_enter", "target": "", "reply": ""}
     if SAVE.fullmatch(phrase):

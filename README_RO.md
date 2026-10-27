@@ -1,8 +1,14 @@
-# LuxAI Local 0.3.7g (Windows 10/11, 64-bit)
+# LuxAI Local 0.3.8 (Windows 10/11, 64-bit)
 
-## Patch 0.3.7g: actualizare fără backupuri permanente și voce pregătită la pornire
+## 0.3.8: comenzi multilingve, jocuri și interfață corectată
 
-După un update reușit, noul `Update.bat` se închide automat. Fișierele necesare revenirii în caz de eroare sunt temporare și dispar după terminare. Backupurile vechi recunoscute ca aparținând updaterului și copia sa de pornire se șterg automat după succes, inclusiv dacă versiunea era deja actuală. Fișierele fără legătură cu updaterul sunt păstrate. Numai o restaurare eșuată păstrează originalele pentru recuperare.
+Comenzile românești, rusești și englezești acceptă mai multe formulări politicoase, forme verbale și variante cu/fără diacritice. War Thunder și celelalte jocuri Steam recunoscute folosesc direct instrumentele locale pentru pornire și închidere. Închiderea verifică ferestrele/procesele jocului și păstrează Steam deschis; dacă jocul cere confirmare sau rămâne pornit, rezultatul nu este declarat reușit. Testele includ 10–15 formulări pentru fiecare intenție și limbă testată, plus negații și cereri compuse. Acuratețea vorbirii depinde în continuare de microfon, modelul Whisper și limba recunoașterii, separată de limba interfeței.
+
+Culoarea aleasă se aplică și sferei, comutatoarelor și celorlalte controale. Activitatea curentă apare temporar în chat și dispare după terminare. Glisoarele afișează procentele, iar meniul secțiunilor din Setări urmărește derularea.
+
+Recunoașterea Auto folosește context trilingv și o căutare mai precisă. Acest lucru a îmbunătățit comenzile românești scurte în probe locale Whisper Small cu vorbire sintetizată RO/RU/EN, cu un mic cost de timp. Transcrierile excesiv de repetitive produse de zgomot sunt ignorate. Numele proprii și titlurile în altă limbă pot fi recunoscute diferit; pentru vorbire românească poți alege explicit Română și modelul Medium dacă Small pierde cuvinte.
+
+Rămân incluse toate îmbunătățirile actualizatorului și vocii. După un update reușit, noul `Update.bat` se închide automat. Fișierele necesare revenirii în caz de eroare sunt temporare și dispar după terminare. Backupurile vechi recunoscute ca aparținând updaterului și copia sa de pornire se șterg automat după succes, inclusiv dacă versiunea era deja actuală. Fișierele fără legătură cu updaterul sunt păstrate. Numai o restaurare eșuată păstrează originalele pentru recuperare.
 
 Vocea Piper aleasă este încărcată și pregătită în fundal imediat la pornirea Jarvis, fără salut automat sau înregistrare. Prima replică folosește aceeași instanță pregătită. La prima instalare a unei voci lipsite, descărcarea rămâne necesară; motorul Windows SAPI păstrează comportamentul existent. Versiunea instalată apare cu text mic sub „Свернуть”, inclusiv în meniul restrâns.
 

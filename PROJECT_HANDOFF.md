@@ -4,7 +4,7 @@
 >
 > Repository: https://github.com/negevshopmd-svg/LuxAI_local  
 > OS: Windows 10/11, 64-bit. Python + PySide6. UI and voice responses primarily Russian, with Romanian/English support.  
-> Updated for the **0.3.7g work**, 2026-10-26. \`Update.bat\` installs the code merged into \`main\`, NOT an open PR.
+> Updated for the **0.3.8 work**, 2026-10-27. \`Update.bat\` installs the code merged into \`main\`, NOT an open PR.
 > Do NOT include real API keys, private logs, screen captures, model binaries, user audio, or personal paths in Git history.
 
 ## 1. What this project is
@@ -30,6 +30,7 @@ LuxAI Local is a Windows desktop Jarvis assistant. It listens for voice commands
 - **0.3.2:** clearer screenshots, 2-pass native high-resolution visual target detection; real physical Windows coordinates (DPI/multiple monitors) and stale-window checks.
 - **0.3.3:** natural Steam self-nickname interpretation and a dedicated Steam account-bar screenshot reader.
 - **0.3.4:** Discord microphone close-up targeting, direct local keyboard/mouse commands, named Discord contact navigation, extra tests.
+- **0.3.8:** RU/RO/EN command normalization and intent parity, including polite/diacritic/inflected forms, Discord mic/headphones/calls/contacts and direct input. `steam_games.local_game_request` recognizes complete known-game launch/close requests; MainWindow sends these and typed system-volume requests to a preapproved local worker before generic planning. War Thunder uses Steam AppID 236390 and verified aces.exe/window identity; graceful close is checked, never force-kills Steam. Theme palette reaches orb/switches/branding/history. Header status is hidden, active progress appears transiently inside both chats. Settings percentages and scroll-synchronized section navigation are tested with Qt interaction. Pending appearance edits apply before commands. Includes all 0.3.7g features below. Corpora use 10–15 variants per tested intent/language, with negative/quoted/compound regressions; physical ASR/game behavior still requires the user's PC.
 - **0.3.7g:** Successful updater exits automatically; ordinary rollback is temporary, recognized old updater backups are cleaned after success/already-current checks, failed-rollback originals remain recoverable. A legacy batch can retain its already-parsed pause once. `VoiceManager.prepare`/`warm_up_voice` prepare the selected Piper voice silently on the existing speech worker at startup; Windows SAPI remains per-reply. Sidebar reads installed `version.txt` beneath collapse in both widths. Tests: `test_speech_startup.py`, `test_voice_startup_prepare.py`, `test_sidebar_version.py`, updater regressions.
 - **0.3.7f:** Cloud verification uses configured timeouts and bounded same-endpoint 502/503/504 recovery (`cloud_http.py`); 503 is a service issue, not proof of invalid credentials. API results are bound to exact key/provider/model/endpoint; health checks persist the actually tested Gemini model. Settings auto-save only updates appearance/language when needed. Key deletion/source reporting, microphone host identity and English headphones on/off parsing are corrected. Dedicated regressions in `test_cloud_http_reliability.py`, `test_cloud_check_context.py`, `test_settings_key_lifecycle.py`, `test_microphone_picker_identity.py`, `test_settings_apply_efficiency.py`, `test_headphones_intent_boundaries.py`.
 - **0.3.7e:** Microphone settings list only one preferred Windows host API (WASAPI) instead of every PortAudio backend. Friendly display labels do not alter the actual selected name/host/index; safe legacy matching and scan-time signal blocking. Tests `tests/test_patch_037e_microphone_picker.py`.
@@ -42,6 +43,8 @@ LuxAI Local is a Windows desktop Jarvis assistant. It listens for voice commands
 - **0.3.5:** planned/fixed Discord headphones (deafen) state observation using before/after screenshots plus enlarged verification; Steam nickname command priority regression and project handoff documentation. **Verify \`version.txt\` and GitHub Actions before claiming the release is merged.**
 
 See \`CHANGELOG.md\` for other releases and \`README.md\` for current user instructions. The current source is the final arbiter if this text and code diverge.
+
+0.3.8 ASR investigation: the friend already used Romanian/Auto, so do not diagnose this as an unchanged Russian setting. Real local Whisper Small inference on Piper-generated RO/RU/EN audio exposed short Romanian failures in unprompted beam-1 Auto. A trilingual command prompt plus minimum beam 3 improved the five selected comparison examples; beam 3 alone did not. Auto remains automatic language detection, explicit RU/EN options are preserved, and repetitive hallucinations are filtered before dispatch. Synthetic tests are not headset validation; names such as Hanzo and mixed-language titles still had failures in some synthetic samples. Do not add guessed contact aliases to compensate for uncertain audio.
 
 ## 4. Top-level repository files
 

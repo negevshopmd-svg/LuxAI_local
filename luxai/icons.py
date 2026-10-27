@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+import re
 
 from PySide6.QtCore import QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QIcon, QIconEngine, QPainter, QPixmap
@@ -52,6 +53,11 @@ def _color(role="default", widget=None):
         "success": "#15803d" if light else "#80c99b",
         "warning": "#a16207" if light else "#e5bd69",
     }.get(role, "#334155" if light else "#d9e2ef")
+
+
+def theme_color(role="default", widget=None):
+    """Expose the current widget's theme color to custom painted controls."""
+    return _color(role, widget)
 
 
 @lru_cache(maxsize=192)
@@ -101,13 +107,22 @@ class _SvgEngine(QIconEngine):
 
 @lru_cache(maxsize=384)
 def _colored_icon(name, color):
-    return QIcon(_SvgEngine(_svg(name).replace(b"currentColor", color.encode("ascii"))))
+    svg = _svg(name)
+    if name == "jarvis" and color != "#3978f6":
+        accent = QColor(color)
+        gradient = {
+            b"#60a5fa": accent.lighter(130).name().encode("ascii"),
+            b"#3978f6": accent.name().encode("ascii"),
+            b"#244bcb": accent.darker(135).name().encode("ascii"),
+        }
+        svg = re.sub(b"#(?:60a5fa|3978f6|244bcb)", lambda match: gradient[match[0]], svg)
+    return QIcon(_SvgEngine(svg.replace(b"currentColor", color.encode("ascii"))))
 
 
 def icon(name, *, color=None, size=20):
     """Return a scalable icon; ``size`` documents its intended widget size."""
     del size  # SVG engine paints at the size requested by Qt, including HiDPI.
-    value = QColor(color or _color())
+    value = QColor(color or _color("accent" if name == "jarvis" else "default"))
     if not value.isValid():
         raise ValueError("Invalid icon color")
     return QIcon(_colored_icon(name, value.name()))
@@ -165,6 +180,8 @@ def refresh_icons(root, theme="dark", accent="#3978f6"):
             role = str(action.property("jarvisIconRole") or "default")
             action.setIcon(icon(name, color=_color(role, root)))
     for widget in [root] + root.findChildren(QWidget):
+        if widget.property("jarvisBrandMark"):
+            widget.update()
         name = widget.property("jarvisIcon")
         if name:
             size = int(widget.property("jarvisIconSize") or 18)

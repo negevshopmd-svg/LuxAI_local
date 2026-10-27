@@ -57,7 +57,7 @@ class DiscordRequestRoutingTests(unittest.TestCase):
             command_registry=registry, online_planner=planner,
             agent=SimpleNamespace(history=[], execute_plan=mock.Mock(), remember=mock.Mock()),
             direct_macro_ready=mock.Mock(), mic_status=mock.Mock(),
-            append_message=mock.Mock(), save_settings=mock.Mock(),
+            append_message=mock.Mock(), save_settings=mock.Mock(), apply_settings=mock.Mock(),
             confirm_action=mock.Mock(return_value=False),
             _run_saved_steps=mock.Mock(), _start_adaptive_task=mock.Mock(),
             _start_visual_reasoner=mock.Mock(), _start_discord_mic_visual=mock.Mock(),

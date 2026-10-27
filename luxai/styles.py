@@ -40,10 +40,31 @@ LIGHT = {
 }
 
 
-def build_styles(theme="dark", accent="#3978f6"):
-    p = LIGHT if theme == "light" else DARK
+def mix_colors(base: str, accent: str, amount: float) -> str:
+    """Blend opaque RGB colors for accent-derived surfaces and orb rings."""
+    amount = max(0.0, min(1.0, float(amount)))
+    first = tuple(int(base[index:index + 2], 16) for index in (1, 3, 5))
+    second = tuple(int(accent[index:index + 2], 16) for index in (1, 3, 5))
+    return "#" + "".join(f"{round(a + (b - a) * amount):02x}"
+                          for a, b in zip(first, second))
+
+
+def theme_colors(theme="dark", accent="#3978f6") -> dict:
+    """Use the selected accent consistently in CSS and custom painting."""
+    palette = dict(LIGHT if theme == "light" else DARK)
     if not re.fullmatch(r"#[0-9a-fA-F]{6}", str(accent)):
         accent = "#3978f6"
+    palette["accent"] = str(accent).lower()
+    palette["hover"] = mix_colors(palette["surface"], accent, 0.10)
+    palette["selection"] = mix_colors(palette["surface"], accent, 0.18)
+    palette["focus"] = mix_colors(accent, "#ffffff", 0.25)
+    palette["slider_handle"] = "#334155" if theme == "light" else "#ffffff"
+    return palette
+
+
+def build_styles(theme="dark", accent="#3978f6"):
+    p = theme_colors(theme, accent)
+    accent = p["accent"]
 
     css = """
 QWidget {
@@ -134,6 +155,12 @@ QLabel#HomeRowLabel {
 QLabel#HomeVolumeValue {
     font-size: 13px;
     color: $text;
+}
+QLabel#TaskActivity {
+    color: $muted;
+    border-left: 2px solid $accent;
+    padding: 5px 8px;
+    background: transparent;
 }
 QWidget#HomePage, QWidget#HomeLeft, QWidget#HeroOrb {
     background: transparent;
@@ -317,8 +344,20 @@ QSlider::sub-page:horizontal {
 QSlider::handle:horizontal {
     width: 16px;
     margin: -6px 0;
-    background: #ffffff;
+    background: $slider_handle;
     border-radius: 8px;
+}
+QProgressBar {
+    background: $control;
+    color: $text;
+    border: 1px solid $border;
+    border-radius: 4px;
+    text-align: center;
+    min-height: 14px;
+}
+QProgressBar::chunk {
+    background: $accent;
+    border-radius: 3px;
 }
 QScrollBar:vertical {
     background: $bg;

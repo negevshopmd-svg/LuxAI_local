@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 from luxai.icons import set_button_icon, set_label_icon
+from luxai.styles import theme_colors, mix_colors
 
 
 class ToggleSwitch(QCheckBox):
@@ -26,6 +27,11 @@ class ToggleSwitch(QCheckBox):
         self.setFixedSize(54, 28)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._colors = theme_colors()
+
+    def set_theme(self, theme, accent="#3978f6"):
+        self._colors = theme_colors(theme, accent)
+        self.update()
 
     def hitButton(self, pos):
         """Use the entire PAINTED switch as the click target.
@@ -41,17 +47,19 @@ class ToggleSwitch(QCheckBox):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         rect = self.rect().adjusted(3, 5, -3, -5)
         active = self.isChecked()
-        color = QColor("#4388f9") if active else QColor("#25272c")
-        painter.setPen(QPen(QColor("#4388f9") if active else QColor("#505258"), 1))
+        if not self.isEnabled():
+            painter.setOpacity(0.45)
+        color = QColor(self._colors["accent"] if active else self._colors["control"])
+        painter.setPen(QPen(QColor(self._colors["accent"] if active else self._colors["border"]), 1))
         painter.setBrush(color)
         painter.drawRoundedRect(rect, 10, 10)
         knob_x = rect.right() - 17 if active else rect.left() + 2
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor("#ffffff") if active else QColor("#a1a5ac"))
+        painter.setBrush(QColor("#ffffff") if active else QColor(self._colors["muted"]))
         painter.drawEllipse(int(knob_x), int(rect.top() + 2), 14, 14)
         if self.hasFocus():
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.setPen(QPen(QColor("#85aeff"), 1))
+            painter.setPen(QPen(QColor(self._colors["focus"]), 1))
             painter.drawRoundedRect(self.rect().adjusted(1, 2, -1, -2), 12, 12)
 
 
@@ -65,6 +73,7 @@ class OrbVisual(QWidget):
         self._phase = 0.0
         self._animated = False
         self._theme = "dark"
+        self._accent = "#3978f6"
         self._timer = QTimer(self)
         self._timer.setInterval(80)
         self._timer.timeout.connect(self._advance)
@@ -77,8 +86,9 @@ class OrbVisual(QWidget):
             self._timer.stop()
         self.update()
 
-    def set_theme(self, theme):
-        self._theme = theme
+    def set_theme(self, theme, accent="#3978f6"):
+        self._theme = "light" if theme == "light" else "dark"
+        self._accent = theme_colors(theme, accent)["accent"]
         self.update()
 
     def showEvent(self, event):
@@ -103,25 +113,16 @@ class OrbVisual(QWidget):
         x, y = w * 1.13, h * 0.50
         radius = max(h * 0.76, w * 0.93)
         pulse = math.sin(self._phase) * 4.0 if self._animated else 0.0
-        colors = (
-            ("#1b2b48", 1.00),
-            ("#244474", 0.86),
-            ("#2d58a0", 0.70),
-            ("#3572d5", 0.54),
-            ("#4286f3", 0.39),
-            ("#4b90ff", 0.24),
-        )
+        ratios = (1.00, 0.86, 0.70, 0.54, 0.39, 0.24)
+        amounts = (0.23, 0.38, 0.57, 0.76, 0.92)
+        background = theme_colors(self._theme, self._accent)["bg"]
         if self._theme == "light":
-            colors = (
-                ("#d7e4fb", 1.00),
-                ("#b7cef6", 0.86),
-                ("#91b6f2", 0.70),
-                ("#6397e9", 0.54),
-                ("#4785e9", 0.39),
-                ("#3479e6", 0.24),
-            )
+            amounts = (0.12, 0.25, 0.40, 0.60, 0.80, 0.95)
+        colors = [mix_colors(background, self._accent, amount) for amount in amounts]
+        if self._theme != "light":
+            colors.append(mix_colors(self._accent, "#ffffff", 0.10))
         painter.setPen(Qt.PenStyle.NoPen)
-        for color, ratio in colors:
+        for color, ratio in zip(colors, ratios):
             r = radius * ratio + pulse * ratio
             painter.setBrush(QColor(color))
             painter.drawEllipse(int(x-r), int(y-r), int(2*r), int(2*r))
@@ -171,6 +172,13 @@ class HomePage(QWidget):
         self.home_history.setReadOnly(True)
         self.home_history.setPlaceholderText("Здесь появятся распознанные команды и ответы Jarvis.")
         history_layout.addWidget(self.home_history, 1)
+        self.history_activity = QLabel()
+        self.history_activity.setObjectName("TaskActivity")
+        self.history_activity.setTextFormat(Qt.TextFormat.PlainText)
+        self.history_activity.setWordWrap(True)
+        self.history_activity.setAccessibleName("Activity")
+        self.history_activity.hide()
+        history_layout.addWidget(self.history_activity)
         left.addWidget(history_card, 3)
 
         control_card, control_layout = _card("Панель управления", "sliders-horizontal")
@@ -227,6 +235,13 @@ class HomePage(QWidget):
         root.addWidget(controls_scroll, 5)
         self.avatar = OrbVisual()
         root.addWidget(self.avatar, 5)
+        self.set_theme(config.get("ui_theme", "dark"), config.get("ui_accent", "#3978f6"))
+
+    def set_theme(self, theme, accent="#3978f6"):
+        """Apply the same selected accent to custom-painted home controls."""
+        self.avatar.set_theme(theme, accent)
+        for switch in (self.home_prefix, self.home_quiet, self.home_avatar, self.home_top):
+            switch.set_theme(theme, accent)
 
     @staticmethod
     def _switch_row(layout, title, checked, icon_name):

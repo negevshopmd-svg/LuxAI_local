@@ -2,8 +2,8 @@ import json, os, re, subprocess, webbrowser, datetime
 import urllib.parse
 from pathlib import Path
 from luxai.screen import capture_screen, read_screen_text
-from luxai.steam_games import GAMES, local_game_intent, launch_steam_game
-from luxai.fast_intents import strip_wake_name, quick_reply, has_launch_verb
+from luxai.steam_games import GAMES, local_game_request, mentions_known_game, launch_steam_game
+from luxai.fast_intents import strip_wake_name, quick_reply
 from luxai.response_language import reply_language, language_instruction
 from luxai.file_actions import (
     create_user_item, list_user_items, parse_file_intent, safe_name,
@@ -225,20 +225,15 @@ class LocalAgent:
         simple = quick_reply(text, self._response_language(text))
         if simple is not None:
             return simple
-        # Windows master volume is read back from Core Audio, never guessed.
-        volume_match = re.search(
-            r"(?:громкост\w*|звук\w*|volume|volum)[^\d\n]{0,55}(\d{1,3})\s*%?",
-            t, flags=re.IGNORECASE,
-        )
-        if volume_match:
-            level = int(volume_match.group(1))
-            if not 0 <= level <= 100:
-                return "Громкость должна быть от 0 до 100%."
-            return self.execute_plan(
-                text, {"action": "set_system_volume", "target": str(level)},
-                confirm_callback,
-            )
-        if re.search(
+        from luxai.task_intents import direct_app_request, system_volume_request
+        volume_request = system_volume_request(text)
+        if volume_request is not None:
+            return self.execute_plan(text, volume_request, confirm_callback)
+        game_request = local_game_request(text)
+        if game_request is not None:
+            return self.execute_plan(text, game_request, confirm_callback)
+        game_mentioned = mentions_known_game(text)
+        if not game_mentioned and re.search(
             r"^(?:закрой|закрыть|закрывай|close|închide)\b", t,
             flags=re.IGNORECASE,
         ):
@@ -266,28 +261,11 @@ class LocalAgent:
             or re.search(r"\b(?:сколько|скока)\s+(?:сейчас\s+)?врем(?:ени|я)\b|\bкоторый\s+час\b", t)
         ):
             return self._say("Сейчас ", "Ora este ", "It's ", text) + datetime.datetime.now().strftime("%H:%M")
-        # Fast offline Steam launch for common voice commands. The game ID is
-        # hardcoded here, never copied from an AI-generated CMD command.
-        game = local_game_intent(text)
-        if game in GAMES:
-            app_id, title = GAMES[game]
-            if not confirm_callback(self._say(f"Запустить {title}", f"Pornește {title}", f"Launch {title}", text)):
-                return self._say("Действие отменено.", "Acțiune anulată.", "Action cancelled.", text)
-            if launch_steam_game(app_id):
-                self.last_execution_success = True
-                self.last_executed_plan = {"action": "launch_game", "target": game}
-                return self._say(
-                    f"Отправил Steam команду запуска {title} (AppID {app_id}).",
-                    f"Pornesc {title} prin Steam.",
-                    f"Launching {title} through Steam.",
-                    text,
-                )
-            return self._say(
-                f"Не удалось запустить {title}. Проверьте установку Steam.",
-                f"Nu am putut porni {title}. Verifică instalarea Steam.",
-                f"Could not launch {title}. Check Steam installation.",
-                text,
-            )
+        if game_mentioned:
+            # A richer game request, prohibition or quoted message must not
+            # degrade into "open Steam" merely because Steam is also named.
+            # The dispatcher/planner keeps the complete task in that case.
+            return None
         # App-launch intents in Romanian, Russian and English.
         app_aliases = {
             "telegram": ["telegram", "телеграм", "телеграмм", "телегу", "телеграму"],
@@ -302,9 +280,10 @@ class LocalAgent:
             "steam": ["steam", "стим"],
             "word": ["microsoft word", "word", "ворд", "ворде"],
         }
-        if has_launch_verb(t):
+        requested_app = direct_app_request(text)
+        if requested_app is not None:
             for app, aliases in app_aliases.items():
-                if any(alias in t for alias in aliases):
+                if requested_app == app or requested_app in aliases:
                     if not confirm_callback(self._say(f"Открыть {app.capitalize()}", f"Deschide {app.capitalize()}", f"Open {app.capitalize()}", text)):
                         return self._say("Действие отменено.", "Acțiune anulată.", "Action cancelled.", text)
                     if self._open_application(app):
@@ -322,22 +301,22 @@ class LocalAgent:
                         f"Could not find {app.capitalize()} on this computer.",
                         text,
                     )
-        if any(x in t for x in ["open notepad", "deschide notepad", "открой блокнот"]):
+        if requested_app == "notepad":
             if confirm_callback(self._say("Открыть Notepad", "Deschide Notepad", "Open Notepad", text)):
                 subprocess.Popen(["notepad.exe"])
                 return self._say("Открыл Блокнот.", "Am deschis Notepad.", "Opened Notepad.", text)
             return self._say("Действие отменено.", "Acțiune anulată.", "Action cancelled.", text)
-        if any(x in t for x in ["open calculator", "deschide calculator", "открой калькулятор"]):
+        if requested_app == "calculator":
             if confirm_callback(self._say("Открыть Calculator", "Deschide Calculator", "Open Calculator", text)):
                 subprocess.Popen(["calc.exe"])
                 return self._say("Открыл Калькулятор.", "Am deschis Calculator.", "Opened Calculator.", text)
             return self._say("Действие отменено.", "Acțiune anulată.", "Action cancelled.", text)
-        if any(x in t for x in ["open explorer", "deschide explorer", "открой проводник"]):
+        if requested_app == "explorer":
             if confirm_callback(self._say("Открыть File Explorer", "Deschide File Explorer", "Open File Explorer", text)):
                 subprocess.Popen(["explorer.exe"])
                 return self._say("Открыл Проводник.", "Am deschis File Explorer.", "Opened File Explorer.", text)
             return self._say("Действие отменено.", "Acțiune anulată.", "Action cancelled.", text)
-        if any(x in t for x in ["open browser", "deschide browser", "открой браузер"]):
+        if requested_app in {"browser", "браузер"}:
             if confirm_callback(self._say("Открыть browserul implicit", "Deschide browserul implicit", "Open browserul implicit", text)):
                 webbrowser.open("about:blank")
                 return self._say("Открыл браузер.", "Am deschis browserul implicit.", "Opened the default browser.", text)
@@ -546,22 +525,34 @@ class LocalAgent:
         elif action == "set_system_volume":
             try:
                 if not isinstance(target, str) or not target.isdecimal():
-                    return "Укажите громкость числом от 0 до 100%."
+                    return self._say("Укажите громкость числом от 0 до 100%.",
+                                     "Indică volumul printr-un număr de la 0 la 100%.",
+                                     "Specify volume as a number from 0 to 100%.", text)
                 level = int(target)
                 if not 0 <= level <= 100:
-                    return "Громкость должна быть от 0 до 100%."
+                    return self._say("Громкость должна быть от 0 до 100%.",
+                                     "Volumul trebuie să fie între 0 și 100%.",
+                                     "Volume must be between 0 and 100%.", text)
                 actual = windows_volume(level)
                 self.last_execution_success = True
-                answer = f"Проверено: громкость Windows сейчас {actual}%."
+                answer = self._say(f"Проверено: громкость Windows сейчас {actual}%.",
+                                   f"Verificat: volumul Windows este acum {actual}%.",
+                                   f"Verified: Windows volume is now {actual}%.", text)
             except (OSError, ValueError, ImportError) as exc:
-                answer = f"Громкость Windows НЕ изменена: {exc}"
+                answer = self._say(f"Громкость Windows НЕ изменена: {exc}",
+                                   f"Volumul Windows NU a fost schimbat: {exc}",
+                                   f"Windows volume was NOT changed: {exc}", text)
         elif action == "get_system_volume":
             try:
                 actual = windows_volume()
                 self.last_execution_success = True
-                answer = f"Громкость Windows сейчас {actual}%."
+                answer = self._say(f"Громкость Windows сейчас {actual}%.",
+                                   f"Volumul Windows este acum {actual}%.",
+                                   f"Windows volume is now {actual}%.", text)
             except (OSError, ImportError) as exc:
-                answer = f"Не удалось прочитать громкость Windows: {exc}"
+                answer = self._say(f"Не удалось прочитать громкость Windows: {exc}",
+                                   f"Nu am putut citi volumul Windows: {exc}",
+                                   f"Could not read Windows volume: {exc}", text)
         elif action == "close_app":
             if not isinstance(target, str):
                 return "Неверное имя приложения."
@@ -573,7 +564,9 @@ class LocalAgent:
                 normalized_name(target)
             except ValueError:
                 return "Не удалось распознать имя приложения."
-            success, answer = close_installed_app(target, confirmed=confirm_callback)
+            success, answer = close_installed_app(
+                target, confirmed=confirm_callback, language=self._response_language(text),
+            )
             self.last_execution_success = bool(success)
             if success and self.last_app == target:
                 self.last_app = None
@@ -610,6 +603,10 @@ class LocalAgent:
             else:
                 success = launch_steam_game(app_id)
                 self.last_execution_success = bool(success)
+                if success:
+                    self.last_executed_plan = dict(plan)
+                    if action == "launch_game" and target in GAMES:
+                        self.last_app = target
                 answer = self._say(
                     f"Отправил Steam команду запуска {title} (AppID {app_id}). Проверьте, открылся ли Steam." if success else f"Не удалось передать Steam запрос на запуск {title}.",
                     f"Am trimis către Steam cererea de pornire pentru {title} (AppID {app_id})." if success else f"Nu am putut trimite cererea către Steam.",
