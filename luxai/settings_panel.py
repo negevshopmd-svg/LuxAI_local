@@ -339,7 +339,7 @@ class SettingsPanel(QWidget):
         self._microphone_metadata = {}
         self.refresh_microphone_devices(initial=True)
         self._row(panel, "Микрофон", "Выберите устройство входа.", self.mic_device)
-        self.mic_sensitivity = self._slider(float(self.cfg.get("microphone_sensitivity", 1.0)) * 100, 50, 300)
+        self.mic_sensitivity = self._slider(round(float(self.cfg.get("microphone_sensitivity", 1.0)) * 100), 50, 300)
         sensitivity_control, self.mic_sensitivity_value = self._slider_value_control(self.mic_sensitivity)
         self._row(panel, "Чувствительность микрофона",
                   "100% — обычная; увеличьте для тихого микрофона. Это не меняет громкость Windows.",

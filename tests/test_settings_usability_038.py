@@ -41,12 +41,12 @@ class SettingsUsability038Tests(unittest.TestCase):
 
     def test_slider_readouts_restore_and_change_with_exact_saved_values(self):
         panel, calls = self.panel({
-            "microphone_sensitivity": 1.4, "voice_volume": 73,
+            "microphone_sensitivity": 1.15, "voice_volume": 73,
             "voice_speed": 1.15, "ui_transparency": 23,
             "speech_pause_seconds": 2.7,
         })
         controls = (
-            (panel.mic_sensitivity, panel.mic_sensitivity_value, "140%", 300, "300%"),
+            (panel.mic_sensitivity, panel.mic_sensitivity_value, "115%", 300, "300%"),
             (panel.voice_volume, panel.voice_volume_value, "73%", 0, "0%"),
             (panel.voice_speed, panel.voice_speed_value, "115%", 140, "140%"),
             (panel.transparency, panel.transparency_value, "23%", 35, "35%"),
