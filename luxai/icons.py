@@ -116,6 +116,14 @@ def _colored_icon(name, color):
             b"#244bcb": accent.darker(135).name().encode("ascii"),
         }
         svg = re.sub(b"#(?:60a5fa|3978f6|244bcb)", lambda match: gradient[match[0]], svg)
+        channels = (accent.redF(), accent.greenF(), accent.blueF())
+        linear = [channel / 12.92 if channel <= 0.04045
+                  else ((channel + 0.055) / 1.055) ** 2.4 for channel in channels]
+        luminance = sum(channel * weight for channel, weight in zip(linear, (0.2126, 0.7152, 0.0722)))
+        if luminance >= 0.72:
+            # White/custom pastel tiles need dark robot details, including
+            # the small antenna. Ordinary brand colors retain their artwork.
+            svg = re.sub(rb'\b(stroke|fill)="white"', rb'\1="#172332"', svg)
     return QIcon(_SvgEngine(svg.replace(b"currentColor", color.encode("ascii"))))
 
 

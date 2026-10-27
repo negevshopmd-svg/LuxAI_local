@@ -39,6 +39,23 @@ class BrandAccentTests(unittest.TestCase):
         self.assertGreater(purple.blue(), purple.green() + 60)
         self.assertGreater(green.green(), green.red() + 60)
 
+    def test_white_and_bright_custom_tiles_keep_robot_antenna_and_face_visible(self):
+        for accent in ("#ffffff", "#fff6d0", "#d8f5ff", "#ffff00"):
+            for scale in (1, 2):
+                with self.subTest(accent=accent, scale=scale):
+                    image = icon("jarvis", color=accent).pixmap(QSize(64, 64), scale).toImage()
+                    tile = logical_pixel(image, 10, 25)
+                    self.assertGreater(max(tile.red(), tile.green(), tile.blue()), 230)
+                    for point in ((32, 15), (32, 19), (19, 34), (26, 34), (32, 41)):
+                        glyph = logical_pixel(image, *point)
+                        self.assertLess(max(glyph.red(), glyph.green(), glyph.blue()), 80)
+                        self.assertGreater(glyph.alpha(), 240)
+        # Saturated accents remain the familiar white-on-color brand.
+        for accent in ("#3978f6", "#873eff", "#1bbf8b", "#ec4899"):
+            image = icon("jarvis", color=accent).pixmap(QSize(64, 64)).toImage()
+            glyph = logical_pixel(image, 32, 16)
+            self.assertGreater(min(glyph.red(), glyph.green(), glyph.blue()), 240)
+
     def test_sidebar_brand_and_selected_icon_refresh_with_ancestor_accent(self):
         sidebar = self.sidebar()
         sidebar.show()
