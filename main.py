@@ -763,6 +763,11 @@ class MainWindow(QMainWindow):
         composer_layout = QVBoxLayout(composer)
         composer_layout.setContentsMargins(13, 9, 12, 8)
         composer_layout.setSpacing(1)
+        # Attachment cards appear ABOVE the prompt text (ChatGPT layout),
+        # while the +/send actions stay BELOW it in AttachmentTray.
+        self.attachment_tray.layout().removeWidget(self.attachment_tray.files)
+        self.attachment_tray.files.setParent(composer)
+        composer_layout.addWidget(self.attachment_tray.files)
         self.command = ChatPromptEdit()
         self.command.returnPressed.connect(self.submit_command)
         composer_layout.addWidget(self.command)
