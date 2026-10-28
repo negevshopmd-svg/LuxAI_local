@@ -244,8 +244,9 @@ class CommandEditor(QDialog):
         voice_row.addWidget(self.voice_enabled)
         voice_row.addWidget(_label("Голосом"))
         voice_row.addStretch()
-        form.addLayout(voice_row)
+        # Match Luxify's launch controls: voice beside the other triggers.
         triggers = QHBoxLayout()
+        triggers.addLayout(voice_row)
         self._trigger_row = triggers
         triggers.setSpacing(7)
         self.hotkey_toggle = self._trigger_button("+ Клавиша", "keyboard", bool(self.original.get("hotkey")))
@@ -381,12 +382,12 @@ class CommandEditor(QDialog):
         footer.addWidget(self.footer_status, 1)
         self.cancel_button = QPushButton("Отмена")
         self.cancel_button.clicked.connect(self.reject)
-        footer.addWidget(self.cancel_button)
+        side.addWidget(self.cancel_button)
         self.save_button = QPushButton("Сохранить команду")
         self.save_button.setObjectName("Primary")
         set_button_icon(self.save_button, "save", role="white")
         self.save_button.clicked.connect(self._validate_accept)
-        footer.addWidget(self.save_button)
+        side.addWidget(self.save_button)
         footer.addWidget(QSizeGrip(self), 0, Qt.AlignmentFlag.AlignBottom)
         root.addLayout(footer)
 
@@ -581,7 +582,13 @@ QLabel#Muted {{ color: {p['muted']}; font-size: 12px; }}
 QToolButton#EditorExpander {{ border: none; background: transparent; padding: 2px 0; font-size: 13px; font-weight: 600; }}
 QPushButton#EditorIconButton, QToolButton#EditorIconButton {{ border: none; background: transparent; padding: 4px; }}
 QPushButton#PhraseChip {{ background: {p['selection']}; color: {p['text']}; border: 1px solid {p['border']}; padding: 5px 9px; border-radius: 9px; font-size: 12px; text-align: left; }}
-QPushButton#TriggerButton {{ padding: 7px 5px; font-size: 11px; border-radius: 8px; }}
+QPushButton#TriggerButton {{ padding: 8px 6px; font-size: 11px; border-radius: 9px; }}
+QLineEdit {{ border-radius: 8px; }}
+QPushButton#Primary {{ background: #397ef6; color: white; border: 0; border-radius: 9px;
+                       padding: 9px 12px; font-weight: 600; }}
+QFrame#CommandCard {{ background: #1b1d21; border: 1px solid #353a45; border-radius: 13px; }}
+QLabel#EditorSectionTitle {{ color: #eef0f6; font-size: 14px; font-weight: 600; }}
+QLabel#Muted {{ color: #a4aebe; font-size: 12px; }}
 QPushButton#TriggerButton:checked {{ background: {p['selection']}; border-color: {p['accent']}; }}
 QListWidget#CommandActionsList {{ background: transparent; border: none; padding: 0; }}
 QListWidget#CommandActionsList::item {{ padding: 0; margin: 0; border: none; background: transparent; }}
