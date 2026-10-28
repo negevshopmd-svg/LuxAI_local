@@ -1,4 +1,10 @@
-LUXAI LOCAL 0.3.9 — ACTUALIZARE 2026-10-28
+LUXAI LOCAL 0.3.9a — ACTUALIZARE 2026-10-28
+
+0.3.9a: chat compact cu buton + și atașamente integrate; comenzile de
+bază au folder separat. Editorul are informații vizibile la hover sau clic.
+Înregistrarea minimizează Jarvis, arată un panou Stop/Anulează și restaurează
+fereastra după oprire. Comenzile personale nu mai au limita fixă de opt pași,
+dar acțiunile sunt validate și operațiile riscante cer confirmare.
 
 0.3.9: FIȘIERE ÎN CHAT ȘI EDITOR COMPLET DE COMENZI
 Apasă Atașează sau trage fișiere în chat, scrie cererea și apasă Trimite.
@@ -17,7 +23,7 @@ originalul rămâne păstrat. Codul atașat este citit, nu executat.
 Editorul Comenzi include fraze, cuvinte opționale, voce, combinații de taste,
 programări, evenimente pentru aplicații/căști, înregistrare de acțiuni Windows
 și propuneri de pași prin AI. Verificarea frazei nu execută nimic; Execută acum
-rulează varianta verificată. Poți folosi până la 8 acțiuni, confirmare și
+rulează varianta verificată. Poți folosi acțiuni ordonate, confirmare și
 înlănțuire. Programările, evenimentele și tastele globale cer Jarvis pornit.
 Înregistrarea literelor/cifrelor necesită activare explicită și este limitată
 la Dota 2, Counter-Strike 2, War Thunder și Undertale.

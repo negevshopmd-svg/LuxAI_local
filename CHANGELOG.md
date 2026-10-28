@@ -1,3 +1,11 @@
+## 0.3.9a — Luxify-style chat and command editor (2026-10-28)
+
+- Compact chat composer with inline files, an attachment + control and a send arrow; cloud-delivery hints are hidden until attachments are selected.
+- Separate declarative default presets into `luxai/default_commands.py` and a distinct nested UI folder. Reorganize the command sidebar and editor navigation.
+- Explicit high-contrast info-icon help on hover/click.
+- Remove the old eight-action ceiling for manually saved/recorded macros, preserving per-step validation and separate AI-plan safeguards. Minimize Jarvis during recording and expose a standalone Stop/Cancel overlay, then restore the editor.
+- Extend regression tests and update the safe source-only cleanup catalog. Native Windows interaction still requires a user-PC smoke test.
+
 ## 0.3.9 — chat attachments and complete command editing (2026-10-28)
 
 - Add local attachment selection, drag/drop and previews for text/code/CSV/JSON/Markdown, images, PDF and DOCX. Send only selected snapshots to the configured cloud provider; use document extraction and image OCR for local processing. Bound file counts, bytes and extracted context; never execute attached content.
