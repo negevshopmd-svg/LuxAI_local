@@ -124,7 +124,9 @@ class CommandsPage(QWidget):
         self.tree.setIconSize(QSize(20, 20))
         self.tree.header().setStretchLastSection(False)
         self.tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.tree.header().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        # Long voice phrases must not steal the title and action controls' width.
+        self.tree.header().setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        self.tree.setColumnWidth(1, 154)
         self.tree.header().setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
         self.tree.header().setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
         self.tree.header().setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
