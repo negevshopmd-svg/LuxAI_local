@@ -136,6 +136,7 @@ class CommandsPage(QWidget):
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self.show_context_menu)
         self.tree.itemSelectionChanged.connect(self._selection_changed)
+        self.tree.itemClicked.connect(self._item_clicked)
         self.tree.itemDoubleClicked.connect(self.open_selected)
         area.addWidget(self.tree, 1)
         center_col.addWidget(card, 1)
@@ -357,6 +358,12 @@ class CommandsPage(QWidget):
             return None
         identifier = item.data(0, Qt.ItemDataRole.UserRole)
         return next((x for x in self.registry.entries() if x["id"] == identifier), None)
+
+    def _item_clicked(self, item, column):
+        if column == 4 and item.data(0, Qt.ItemDataRole.UserRole):
+            # The green power icon at the far right is an actual toggle.
+            self.tree.setCurrentItem(item)
+            self.toggle_selected()
 
     def _selection_changed(self):
         entry = self._selected()
