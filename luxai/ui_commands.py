@@ -169,7 +169,7 @@ class CommandsPage(QWidget):
             return button
 
         side_col.addWidget(caption("Создать"))
-        self.create_button = action("+  Новая команда", "plus", self.new_command, primary=True)
+        self.create_button = action("Новая команда", "plus", self.new_command, primary=True)
         self.folder_button = action("Новая папка", "folder-plus",
                                     lambda: self.create_group("folders"))
         self.collection_button = action("Новая коллекция", "folder",
