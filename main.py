@@ -705,7 +705,7 @@ class MainWindow(QMainWindow):
         frame, box = card()
         frame.setObjectName("ChatHistoryFrame")
         frame.setStyleSheet("""
-            QFrame#ChatHistoryFrame {background: transparent; border: none;}
+            QFrame#ChatHistoryFrame {background: #171a20; border: none; border-radius: 14px;}
             QTextEdit {background: transparent; border: none;}
         """)
         self.log = QTextEdit()
