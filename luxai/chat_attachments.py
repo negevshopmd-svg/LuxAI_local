@@ -324,7 +324,10 @@ def propose_text_edit(attachments, attachment_id: str, new_text: str) -> EditPro
     attachment = selected[0]
     if not isinstance(new_text, str) or len(new_text) > MAX_EXTRACTED_CHARS:
         raise AttachmentError("The edited text must be a string of at most 24000 characters.")
-    if any((ord(char) < 32 and char not in "\t\r\n\f\v")
+    # DOCX uses vertical tabs to distinguish manual breaks from paragraphs.
+    # Plain text must remain readable by the same validator used on attach.
+    controls = "\t\r\n\f" if attachment.kind == "text" else "\t\r\n\f\v"
+    if any((ord(char) < 32 and char not in controls)
            or 0xD800 <= ord(char) <= 0xDFFF for char in new_text):
         raise AttachmentError("The edited text contains unsupported control characters or invalid Unicode.")
     if attachment.truncated or attachment.kind not in {"text", "docx", "pdf"}:
@@ -424,7 +427,7 @@ def save_text_copy(proposal: EditProposal, chosen_path: str | Path) -> EditResul
     if suffix == ".docx" and proposal.attachment.kind == "docx" and not proposal.export_only:
         data = proposal.new_content
     elif suffix == ".txt":
-        data = proposal.new_text.encode("utf-8")
+        data = proposal.new_text.replace("\v", "\n").encode("utf-8")
     elif proposal.attachment.kind == "text" and not proposal.export_only and suffix in TEXT_SUFFIXES:
         data = proposal.new_content
     else:

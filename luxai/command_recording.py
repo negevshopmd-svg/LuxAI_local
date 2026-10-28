@@ -232,8 +232,10 @@ class ActionRecorder:
                                     key = f"f{keycode - 0x70 + 1}"
                                 elif 0x30 <= keycode <= 0x5A:
                                     key = chr(keycode).casefold()
-                                modifiers = [name for name, code in (("ctrl", 0x11), ("alt", 0x12), ("shift", 0x10), ("win", 0x5B))
+                                modifiers = [name for name, code in (("ctrl", 0x11), ("alt", 0x12), ("shift", 0x10))
                                              if user32.GetAsyncKeyState(code) & 0x8000]
+                                if any(user32.GetAsyncKeyState(code) & 0x8000 for code in (0x5B, 0x5C)):
+                                    modifiers.append("win")
                                 if key:
                                     pid = foreground_pid()
                                     game = (not modifiers and self._buffer.record_game_keys

@@ -138,10 +138,12 @@ class ChatAttachmentTests(unittest.TestCase):
         self.assertEqual(unrelated.read_bytes(), b"personal")
 
     def test_invalid_unicode_and_hidden_binary_edits_are_rejected_before_preview(self):
-        attachment = files.load_attachment(self.put("selected.txt", b"text"))
-        for replacement in ("hidden\x00binary", "invalid\ud800Unicode"):
+        path = self.put("selected.txt", b"text")
+        attachment = files.load_attachment(path)
+        for replacement in ("hidden\x00binary", "invalid\ud800Unicode", "Line one\vLine two"):
             with self.subTest(text=repr(replacement)), self.assertRaises(files.AttachmentError):
                 files.propose_text_edit([attachment], attachment.id, replacement)
+            self.assertEqual(path.read_bytes(), b"text")
 
     def test_external_changes_prevent_apply_even_after_a_valid_preview(self):
         path = self.put("selected.txt", b"old")
@@ -266,6 +268,32 @@ class ChatAttachmentTests(unittest.TestCase):
         with zipfile.ZipFile(path) as archive:
             self.assertEqual(archive.read("word/media/preserved.bin"), b"unrelated embedded data")
             self.assertIn(b"Heading1", archive.read("word/document.xml"))
+
+    def test_docx_manual_breaks_round_trip_as_text_lines_and_stay_breaks_in_docx(self):
+        output = io.BytesIO()
+        with zipfile.ZipFile(self.docx()) as original, zipfile.ZipFile(output, "w") as target:
+            for info in original.infolist():
+                data = original.read(info.filename)
+                if info.filename == "word/document.xml":
+                    data = data.replace(b"<w:t>Old body</w:t>",
+                                        b"<w:t>Old</w:t><w:br/><w:t>body</w:t>")
+                target.writestr(info, data)
+        original = output.getvalue()
+        path = self.put("line-breaks.docx", original)
+        attachment = files.load_attachment(path)
+        self.assertEqual(attachment.text, "Heading\nOld\vbody")
+        proposal = files.propose_text_edit([attachment], attachment.id, "Heading\nNew\vbody")
+        self.assertFalse(proposal.export_only)
+
+        destination = self.root / "line-breaks.txt"
+        files.save_text_copy(proposal, destination)
+        self.assertEqual(destination.read_bytes(), b"Heading\nNew\nbody")
+        self.assertEqual(files.load_attachment(destination).text, "Heading\nNew\nbody")
+        self.assertEqual(path.read_bytes(), original)
+
+        result = files.apply_text_edit(proposal, confirmed=True, backup_root=self.root / "backups")
+        self.assertEqual(files.load_attachment(path).text, "Heading\nNew\vbody")
+        self.assertEqual(result.backup_path.read_bytes(), original)
 
     def test_docx_structural_change_is_explicit_text_export_and_preserves_original(self):
         path = self.docx()

@@ -802,7 +802,13 @@ class MainWindow(QMainWindow):
         if result is not None:
             self._current_route = "cloud: файлы" if result.source == "cloud" else "локальные файлы"
             for proposal in result.edits:
-                button = QPushButton(tr("Просмотреть изменения:") + " " + proposal.attachment.name)
+                label = tr("Просмотреть изменения:") + " " + proposal.attachment.name
+                button = QPushButton()
+                button.setText(button.fontMetrics().elidedText(
+                    label, Qt.TextElideMode.ElideMiddle,
+                    max(280, self.attachment_edits.viewport().width() - 48)))
+                button.setAccessibleName(label)
+                button.setStyleSheet("text-align: left;")
                 button.setProperty("i18n_skip", True)
                 button.setToolTip(proposal.attachment.name)
                 button.setMinimumWidth(0)
