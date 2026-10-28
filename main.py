@@ -732,23 +732,39 @@ class MainWindow(QMainWindow):
         self.attachment_tray.loading_changed.connect(self._attachment_loading_changed)
         self.attachment_tray.changed.connect(self._refresh_attachment_route)
         self._attachment_dialogs = []
-        box.addWidget(self.attachment_tray)
-        row = QHBoxLayout()
+        # One compact composer: message above, attachments and actions below.
+        composer = QFrame()
+        composer.setObjectName("ChatComposer")
+        composer.setStyleSheet("""
+            QFrame#ChatComposer {background: #2b3038; border: 1px solid #48505e; border-radius: 16px;}
+            QLineEdit#ChatMessageField {background: transparent; border: none; padding: 8px 5px;
+                                      font-size: 14px; color: #f2f5fa;}
+            QPushButton#AttachmentAddButton {background: transparent; border: none; color: #e5e8ee;
+                                             font-size: 21px; min-width: 34px; min-height: 34px;}
+            QPushButton#ChatSendButton {background: #3978f6; border: none; border-radius: 17px;
+                                        color: white; font-size: 17px;}
+        """)
+        composer_layout = QVBoxLayout(composer)
+        composer_layout.setContentsMargins(12, 9, 10, 9)
+        composer_layout.setSpacing(3)
         self.command = QLineEdit()
+        self.command.setObjectName("ChatMessageField")
         self.command.setPlaceholderText("Напишите сообщение или команду…")
         self.command.returnPressed.connect(self.submit_command)
-        row.addWidget(self.command, 1)
+        composer_layout.addWidget(self.command)
+        composer_layout.addWidget(self.attachment_tray)
         self.cancel_attachment = QPushButton(tr("Отменить чтение"))
         set_button_icon(self.cancel_attachment, "x")
         self.cancel_attachment.clicked.connect(lambda: self.run_command("cancel task"))
         self.cancel_attachment.hide()
-        row.addWidget(self.cancel_attachment)
-        self.send = QPushButton("Отправить")
-        self.send.setObjectName("Primary")
-        set_button_icon(self.send, "send", role="white")
+        self.attachment_tray.controls.addWidget(self.cancel_attachment)
+        self.send = QPushButton("↑")
+        self.send.setObjectName("ChatSendButton")
+        self.send.setToolTip(tr("Отправить"))
+        self.send.setFixedSize(34, 34)
         self.send.clicked.connect(self.submit_command)
-        row.addWidget(self.send)
-        box.addLayout(row)
+        self.attachment_tray.controls.addWidget(self.send)
+        box.addWidget(composer)
         layout.addWidget(frame, 1)
         self.pages.addWidget(page)
         self._refresh_attachment_route()
