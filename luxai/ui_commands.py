@@ -38,6 +38,7 @@ class CommandsPage(QWidget):
         self._config = {}
         self._last_hover = None
         self._menu_widgets = {}
+        self._edit_widgets = {}
         self.setObjectName("CommandsPage")
         self.setStyleSheet("""
             QFrame#LibraryCard {background: #191c21; border: 1px solid #323943; border-radius: 15px;}
@@ -114,7 +115,7 @@ class CommandsPage(QWidget):
 
         self.tree = QTreeWidget()
         self.tree.setObjectName("CommandTree")
-        self.tree.setColumnCount(4)
+        self.tree.setColumnCount(5)
         self.tree.setHeaderHidden(True)
         self.tree.setIndentation(21)
         self.tree.setRootIsDecorated(True)
@@ -125,8 +126,10 @@ class CommandsPage(QWidget):
         self.tree.header().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.tree.header().setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
         self.tree.header().setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
-        self.tree.setColumnWidth(2, 30)
+        self.tree.header().setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+        self.tree.setColumnWidth(2, 28)
         self.tree.setColumnWidth(3, 28)
+        self.tree.setColumnWidth(4, 30)
         self.tree.viewport().setMouseTracking(True)
         self.tree.viewport().installEventFilter(self)
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -211,6 +214,7 @@ class CommandsPage(QWidget):
         previous_id = previous["id"] if previous else None
         self.tree.clear()
         self._menu_widgets.clear()
+        self._edit_widgets.clear()
         self._last_hover = None
         entries = self.registry.entries()
         default_entries = [entry for entry in entries if entry["builtin"]]
@@ -282,8 +286,18 @@ class CommandsPage(QWidget):
         set_item_icon(item, CATALOG.get(entry["action"], {}).get("icon", "list-checks"),
                       widget=self.tree, column=0)
         set_item_icon(item, "power" if entry["enabled"] else "circle-minus",
-                      widget=self.tree, column=2, role="success" if entry["enabled"] else "muted")
+                      widget=self.tree, column=4, role="success" if entry["enabled"] else "muted")
         category.addChild(item)
+        pencil = QToolButton(self.tree)
+        pencil.setObjectName("LibraryMore")
+        pencil.setIcon(icon("pencil", size=15))
+        pencil.setFixedSize(25, 28)
+        pencil.setCursor(Qt.CursorShape.PointingHandCursor)
+        pencil.setToolTip(tr("Открыть / изменить", self.interface_language))
+        pencil.clicked.connect(lambda _checked=False, current=item: self._open_item(current))
+        self.tree.setItemWidget(item, 2, pencil)
+        pencil.hide()
+        self._edit_widgets[entry["id"]] = pencil
         more = QToolButton(self.tree)
         more.setObjectName("LibraryMore")
         more.setText("⋯")
@@ -294,6 +308,10 @@ class CommandsPage(QWidget):
         self.tree.setItemWidget(item, 3, more)
         more.hide()
         self._menu_widgets[entry["id"]] = more
+
+    def _open_item(self, item):
+        self.tree.setCurrentItem(item)
+        self.open_selected()
 
     def _iter_leaves(self):
         def visit(item):
@@ -324,17 +342,21 @@ class CommandsPage(QWidget):
                 item = self.tree.itemAt(event.position().toPoint())
                 identifier = item.data(0, Qt.ItemDataRole.UserRole) if item else None
                 if identifier != self._last_hover:
-                    old = self._menu_widgets.get(self._last_hover)
-                    if old:
-                        old.hide()
-                    button = self._menu_widgets.get(identifier)
-                    if button:
-                        button.show()
+                    for buttons in (self._menu_widgets, self._edit_widgets):
+                        old = buttons.get(self._last_hover)
+                        if old:
+                            old.hide()
+                        button = buttons.get(identifier)
+                        if button:
+                            button.show()
                     self._last_hover = identifier
             elif event.type() == QEvent.Type.Leave:
                 old = self._menu_widgets.get(self._last_hover)
-                if old and not old.underMouse():
+                pencil = self._edit_widgets.get(self._last_hover)
+                if old and not (old.underMouse() or (pencil and pencil.underMouse())):
                     old.hide()
+                    if pencil:
+                        pencil.hide()
                     self._last_hover = None
         return super().eventFilter(watched, event)
 
