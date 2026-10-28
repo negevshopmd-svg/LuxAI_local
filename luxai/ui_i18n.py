@@ -9,7 +9,7 @@ import re
 
 from PySide6.QtWidgets import (
     QAbstractButton, QComboBox, QGroupBox, QLabel, QLineEdit,
-    QSpinBox, QDoubleSpinBox, QTextEdit, QTreeWidget, QWidget,
+    QSpinBox, QDoubleSpinBox, QPlainTextEdit, QTextEdit, QTreeWidget, QWidget,
 )
 
 LANGUAGES = (("Русский", "ru"), ("English", "en"), ("Română", "ro"))
@@ -717,7 +717,7 @@ def translate_widgets(root: QWidget, language=None):
             _translate_property(widget, "text", widget.text, widget.setText, language)
         elif isinstance(widget, QGroupBox):
             _translate_property(widget, "title", widget.title, widget.setTitle, language)
-        if isinstance(widget, (QLineEdit, QTextEdit)):
+        if isinstance(widget, (QLineEdit, QPlainTextEdit, QTextEdit)):
             _translate_property(widget, "placeholder", widget.placeholderText, widget.setPlaceholderText, language)
         if isinstance(widget, QComboBox) and widget.objectName() != "UiLanguageCombo":
             for index in range(widget.count()):
