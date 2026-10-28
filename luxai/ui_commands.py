@@ -162,7 +162,7 @@ class CommandsPage(QWidget):
         builtins = [item for item in records if item["builtin"]]
         defaults_root = QTreeWidgetItem([tr("Команды по умолчанию", self.interface_language), ""])
         defaults_root.setFlags(defaults_root.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-        set_item_icon(defaults_root, "archive", widget=self.tree, column=0, role="accent")
+        set_item_icon(defaults_root, "folder", widget=self.tree, column=0, role="accent")
         self.tree.addTopLevelItem(defaults_root)
         category_names = order + sorted({name for name, _ in categories} - set(order))
         for category, builtin_group in ((name, flag) for flag in (True, False) for name in category_names):
