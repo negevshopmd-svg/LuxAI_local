@@ -50,6 +50,33 @@ class Patch039bTests(unittest.TestCase):
         self.assertEqual(stopped, [True])
         self.assertEqual(cancelled, [True])
 
+    def test_stop_button_restores_a_modal_command_editor(self):
+        editor = CommandEditor()
+        self.addCleanup(editor.close)
+        editor.setWindowModality(Qt.WindowModality.ApplicationModal)
+        editor.show()
+        self.app.processEvents()
+        with mock.patch("luxai.command_recording.ActionRecorder") as recorder_class:
+            recorder = recorder_class.return_value
+            recorder.start.return_value = True
+            recorder.error = ""
+            recorder.active = True
+            recorder.stop.return_value = [{"action": "press_key", "target": "f2"}]
+            editor.record_button.click()
+            self.app.processEvents()
+            overlay = editor._record_overlay
+            self.assertIsNotNone(overlay)
+            self.assertTrue(overlay.isVisible())
+            buttons = overlay.findChildren(
+                __import__("PySide6.QtWidgets", fromlist=["QPushButton"]).QPushButton)
+            QTest.mouseClick(buttons[1], Qt.MouseButton.LeftButton)
+            self.app.processEvents()
+            self.assertIsNone(editor._record_overlay)
+            self.assertIsNone(editor._recorder)
+            self.assertTrue(editor.isVisible())
+            recorder.stop.assert_called_once()
+            self.assertEqual(editor.steps[-1]["target"], "f2")
+
     def test_chat_prompt_is_multiline_and_enter_sends(self):
         edit = ChatPromptEdit()
         self.addCleanup(edit.close)
