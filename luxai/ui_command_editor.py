@@ -4,7 +4,7 @@ from __future__ import annotations
 from PySide6.QtCore import QDate, QSize, Qt, QTime, QTimer, Signal
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
-    QBoxLayout, QCheckBox, QComboBox, QDateEdit, QDialog, QFormLayout, QFrame, QHBoxLayout,
+    QBoxLayout, QCheckBox, QComboBox, QDateEdit, QDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout,
     QInputDialog, QKeySequenceEdit, QLabel, QLineEdit, QListWidget, QListWidgetItem,
     QMessageBox, QPushButton, QScrollArea, QSizeGrip, QSizePolicy, QTimeEdit, QToolButton,
     QVBoxLayout, QWidget,
@@ -411,14 +411,17 @@ class CommandEditor(QDialog):
         form.addRow("Дата", self.schedule_date)
         self.weekdays = QWidget()
         self.weekdays.setObjectName("EditorPlain")
-        days = QHBoxLayout(self.weekdays)
+        # Seven checkboxes in one horizontal row impose a too-large minimum
+        # width on Windows/Qt. Keep every weekday visible in a compact grid.
+        days = QGridLayout(self.weekdays)
         days.setContentsMargins(0, 0, 0, 0)
-        days.setSpacing(4)
+        days.setHorizontalSpacing(7)
+        days.setVerticalSpacing(5)
         self.weekday_buttons = []
         for day, label in enumerate(("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")):
             check = QCheckBox(label)
             check.setChecked(day in settings.get("weekdays", [0, 1, 2, 3, 4]))
-            days.addWidget(check)
+            days.addWidget(check, day // 4, day % 4)
             self.weekday_buttons.append(check)
         form.addRow("Дни", self.weekdays)
         return panel
