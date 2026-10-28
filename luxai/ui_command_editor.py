@@ -4,7 +4,7 @@ from __future__ import annotations
 from PySide6.QtCore import QDate, QSize, Qt, QTime, QTimer, Signal
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDateEdit, QDialog, QFormLayout, QFrame, QHBoxLayout,
+    QBoxLayout, QCheckBox, QComboBox, QDateEdit, QDialog, QFormLayout, QFrame, QHBoxLayout,
     QInputDialog, QKeySequenceEdit, QLabel, QLineEdit, QListWidget, QListWidgetItem,
     QMessageBox, QPushButton, QScrollArea, QSizeGrip, QSizePolicy, QTimeEdit, QToolButton,
     QVBoxLayout, QWidget,
@@ -132,6 +132,7 @@ class CommandEditor(QDialog):
         form.addWidget(self.title_field)
         self.phrases_toggle = self._expander("Фразы", form, True)
         self.phrases_panel = QWidget()
+        self._phrase_rows = []
         self.phrases_panel.setObjectName("EditorPlain")
         phrases = QVBoxLayout(self.phrases_panel)
         phrases.setContentsMargins(0, 0, 0, 0)
@@ -154,6 +155,7 @@ class CommandEditor(QDialog):
         voice_row.addStretch()
         form.addLayout(voice_row)
         triggers = QHBoxLayout()
+        self._trigger_row = triggers
         triggers.setSpacing(7)
         self.hotkey_toggle = self._trigger_button("+ Клавиша", "keyboard", bool(self.original.get("hotkey")))
         self.schedule_toggle = self._trigger_button("+ По расписанию", "clock", bool(self.original.get("schedule")))
@@ -164,6 +166,7 @@ class CommandEditor(QDialog):
         self.hotkey_panel = QWidget()
         self.hotkey_panel.setObjectName("EditorPlain")
         keys = QHBoxLayout(self.hotkey_panel)
+        self._hotkey_row = keys
         keys.setContentsMargins(0, 0, 0, 0)
         keys.addWidget(_label("Сочетание клавиш"))
         self.hotkey = QKeySequenceEdit(QKeySequence(self.original.get("hotkey", "")))
@@ -188,6 +191,7 @@ class CommandEditor(QDialog):
         action_header.addWidget(self.counter)
         actions.addLayout(action_header)
         toolbar = QHBoxLayout()
+        self._action_toolbar = toolbar
         toolbar.setSpacing(8)
         self.add_button = QPushButton("Действие")
         self.add_button.setObjectName("Primary")
@@ -327,9 +331,9 @@ class CommandEditor(QDialog):
         translate_widgets(self, get_ui_language())
         for button in self.findChildren(QPushButton):
             button.setAutoDefault(False)
+        self._sync_responsive_layout()
 
-    @staticmethod
-    def _phrase_row(text, tooltip, chips):
+    def _phrase_row(self, text, tooltip, chips):
         row = QHBoxLayout()
         row.setSpacing(10)
         heading = QWidget()
@@ -340,7 +344,27 @@ class CommandEditor(QDialog):
         heading.setLayout(layout)
         row.addWidget(heading, 0, Qt.AlignmentFlag.AlignTop)
         row.addWidget(chips, 1)
+        self._phrase_rows.append(row)
         return row
+
+    def _sync_responsive_layout(self):
+        if not hasattr(self, "sidebar"):
+            return
+        compact = self.width() <= 900
+        if getattr(self, "_responsive_compact", None) == compact:
+            return
+        self._responsive_compact = compact
+        direction = (QBoxLayout.Direction.TopToBottom if compact
+                     else QBoxLayout.Direction.LeftToRight)
+        for layout in (*self._phrase_rows, self._trigger_row,
+                       self._hotkey_row, self._action_toolbar):
+            layout.setDirection(direction)
+        self.sidebar.setFixedWidth(190 if compact else 220)
+        self.main_scroll.widget().layout().invalidate()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._sync_responsive_layout()
 
     @staticmethod
     def _expander(text, layout, checked):

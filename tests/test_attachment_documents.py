@@ -134,8 +134,14 @@ class WordAttachmentTests(unittest.TestCase):
     def test_traversal_links_and_case_aliases_are_rejected(self):
         for name in ("../outside.txt", "/outside.txt", "word/../../outside.txt", "C:/outside.txt",
                      "word\\outside.txt", "WORD/DOCUMENT.XML"):
+            archive_bytes = docx(paragraph("Safe"), extra=((name, b"payload"),))
+            if name == "word\\outside.txt":
+                # Windows ZipInfo normalizes backslashes on ZIP creation too.
+                # Put the unsafe name into both local and central ZIP headers.
+                archive_bytes = archive_bytes.replace(b"word/outside.txt", b"word\\outside.txt")
+                self.assertIn(b"word\\outside.txt", archive_bytes)
             with self.subTest(name=name), self.assertRaisesRegex(ValueError, "unsafe entry"):
-                documents.extract_docx(docx(paragraph("Safe"), extra=((name, b"payload"),)))
+                documents.extract_docx(archive_bytes)
         link = zipfile.ZipInfo("word/link")
         link.external_attr = (stat.S_IFLNK | 0o777) << 16
         with self.assertRaisesRegex(ValueError, "unsafe entry"):

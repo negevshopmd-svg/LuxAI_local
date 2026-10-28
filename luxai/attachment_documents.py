@@ -212,7 +212,11 @@ def _read_docx(data: bytes) -> tuple[ElementTree.Element, bytes]:
                 raise ValueError("The DOCX archive exceeds the 40 MiB expansion limit.")
             seen = set()
             for info in entries:
-                name = info.filename
+                # Windows normalizes backslashes in ZipInfo.filename; inspect the
+                # raw central-directory name before trusting ZIP path lookups.
+                name = info.orig_filename
+                if name != info.filename:
+                    raise ValueError("The DOCX archive contains an unsafe entry.")
                 path = PurePosixPath(name)
                 key = name.casefold()
                 if (not path.parts or path.is_absolute() or ".." in path.parts
