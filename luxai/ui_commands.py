@@ -156,7 +156,7 @@ class CommandsPage(QWidget):
         records = self.registry.entries()
         categories = defaultdict(list)
         for entry in records:
-            categories[entry["category"]].append(entry)
+            categories[(entry["category"], entry["builtin"])].append(entry)
         order = ["Приложения", "Windows", "Игры Steam", "Файлы",
                  "Мои команды", "Выученные команды"]
         builtins = [item for item in records if item["builtin"]]
@@ -164,8 +164,9 @@ class CommandsPage(QWidget):
         defaults_root.setFlags(defaults_root.flags() & ~Qt.ItemFlag.ItemIsSelectable)
         set_item_icon(defaults_root, "archive", widget=self.tree, column=0, role="accent")
         self.tree.addTopLevelItem(defaults_root)
-        for category in order + sorted(set(categories) - set(order)):
-            items = categories.get(category, [])
+        category_names = order + sorted({name for name, _ in categories} - set(order))
+        for category, builtin_group in ((name, flag) for flag in (True, False) for name in category_names):
+            items = categories.get((category, builtin_group), [])
             if not items:
                 continue
             is_default = items[0]["builtin"]

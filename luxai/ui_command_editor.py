@@ -3,13 +3,13 @@ from __future__ import annotations
 
 import time
 
-from PySide6.QtCore import QDate, QSize, Qt, QTime, QTimer, Signal
+from PySide6.QtCore import QDate, QPoint, QSize, Qt, QTime, QTimer, Signal
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
     QBoxLayout, QCheckBox, QComboBox, QDateEdit, QDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout,
     QInputDialog, QKeySequenceEdit, QLabel, QLineEdit, QListWidget, QListWidgetItem,
     QMessageBox, QPushButton, QScrollArea, QSizeGrip, QSizePolicy, QTimeEdit, QToolButton,
-    QVBoxLayout, QWidget,
+    QToolTip, QVBoxLayout, QWidget,
 )
 
 from luxai.action_catalog import CATALOG, validate_step
@@ -40,12 +40,30 @@ def _card(parent=None):
     return frame, layout
 
 
+class InfoButton(QToolButton):
+    """Show explanation immediately on hover and on click on Windows."""
+
+    def _explain(self):
+        if self.toolTip():
+            QToolTip.showText(self.mapToGlobal(QPoint(self.width() // 2, self.height() + 8)),
+                              self.toolTip(), self)
+
+    def enterEvent(self, event):
+        super().enterEvent(event)
+        self._explain()
+
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+        self._explain()
+
+
 def _heading(text, tooltip=""):
     row = QHBoxLayout()
     row.setSpacing(7)
     row.addWidget(_label(text, "EditorSectionTitle"))
     if tooltip:
-        info = QToolButton()
+        info = InfoButton()
+        info.setCursor(Qt.CursorShape.PointingHandCursor)
         set_button_icon(info, "info", size=15, role="muted")
         info.setObjectName("EditorIconButton")
         info.setToolTip(tooltip)
@@ -125,7 +143,7 @@ class CommandEditor(QDialog):
         self.setWindowIcon(icon("jarvis"))
         self.setObjectName("CommandEditorDialog")
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
-        self.resize(1060, 720)
+        self.resize(1190, 720)
         self.setMinimumSize(760, 560)
         previous = self.original.get("steps")
         if previous:
@@ -164,6 +182,21 @@ class CommandEditor(QDialog):
 
         body = QHBoxLayout()
         body.setSpacing(16)
+        self.editor_nav = QFrame()
+        self.editor_nav.setObjectName("EditorNav")
+        self.editor_nav.setFixedWidth(145)
+        nav = QVBoxLayout(self.editor_nav)
+        nav.setContentsMargins(13, 17, 13, 17)
+        nav.setSpacing(14)
+        brand = _label("LuxAI  /  Jarvis", "EditorSectionTitle")
+        nav.addWidget(brand)
+        nav_back = QPushButton("←  " + tr("Команды"))
+        nav_back.setObjectName("EditorNavBack")
+        nav_back.clicked.connect(self.reject)
+        nav.addWidget(nav_back)
+        nav.addWidget(_label(tr("Новая команда"), "Muted"))
+        nav.addStretch()
+        body.addWidget(self.editor_nav)
         self.main_scroll = QScrollArea()
         self.main_scroll.setObjectName("CommandEditorScroll")
         self.main_scroll.setWidgetResizable(True)
@@ -410,6 +443,7 @@ class CommandEditor(QDialog):
     def _sync_responsive_layout(self):
         if not hasattr(self, "sidebar"):
             return
+        self.editor_nav.setVisible(self.width() >= 1140)
         compact = self.width() <= 900
         if getattr(self, "_responsive_compact", None) == compact:
             return
@@ -529,6 +563,10 @@ class CommandEditor(QDialog):
         p = theme_colors(theme, accent, background)
         self.setStyleSheet(f"""
 QDialog#CommandEditorDialog {{ background: {p['bg']}; border: 1px solid {p['border']}; border-radius: 14px; }}
+QFrame#EditorNav {{ background: {p['surface']}; border: 1px solid {p['border']}; border-radius: 12px; }}
+QPushButton#EditorNavBack {{ background: {p['selection']}; border: none; border-radius: 8px; padding: 10px 6px; }}
+QToolTip {{ background-color: #202939; color: #f8fafc; border: 1px solid #67758d;
+            padding: 9px 12px; font-size: 12px; }}
 QWidget#EditorPlain, QWidget#CommandEditorBody, QScrollArea#CommandEditorScroll {{ background: transparent; border: none; }}
 QFrame#CommandCard {{ background: {p['surface']}; border: 1px solid {p['border']}; border-radius: 12px; }}
 QPushButton#Primary:disabled {{ background: {p["control"]}; color: {p["muted"]}; border: 1px solid {p["border"]}; }}
