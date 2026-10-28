@@ -367,6 +367,12 @@ class CommandsPage(QWidget):
                           self.interface_language), self.toggle_selected)
         if not entry["builtin"]:
             menu.addAction(tr("Изменить", self.interface_language), self.edit_selected)
+            folders = list(getattr(self.registry, "groups", {}).get("folders", []))
+            folders += list(getattr(self.registry, "groups", {}).get("collections", []))
+            if folders:
+                move = menu.addMenu(tr("Переместить в папку", self.interface_language))
+                for name in dict.fromkeys(folders):
+                    move.addAction(name, lambda group=name: self.move_selected_to_group(group))
             menu.addAction(tr("Удалить", self.interface_language), self.delete_selected)
         button = self._menu_widgets.get(entry["id"])
         if global_pos is None and button is not None:
@@ -408,6 +414,17 @@ class CommandsPage(QWidget):
                 self.changed.emit()
             except (OSError, ValueError) as exc:
                 QMessageBox.warning(self, tr("Ошибка", self.interface_language), str(exc))
+
+    def move_selected_to_group(self, group):
+        entry = self._selected()
+        if entry is None or entry["builtin"]:
+            return
+        try:
+            self.registry.save_custom(dict(entry, category=group))
+            self.refresh()
+            self.changed.emit()
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, tr("Ошибка", self.interface_language), str(exc))
 
     def _filter(self, keyword):
         keyword = keyword.strip().casefold()
