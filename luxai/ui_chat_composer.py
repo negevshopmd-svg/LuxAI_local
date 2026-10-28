@@ -23,6 +23,9 @@ class ChatPromptEdit(QPlainTextEdit):
 
     def setText(self, text):
         self.setPlainText(str(text))
+        # QLineEdit.setText positions the caret at the end; keep that behavior
+        # for voice/status restores and existing UI integration tests.
+        self.setCursorPosition(len(self.toPlainText()))
 
     def cursorPosition(self):
         """QLineEdit compatibility for existing settings/localization workflows."""
