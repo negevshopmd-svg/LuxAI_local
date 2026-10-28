@@ -96,7 +96,10 @@ class AttachmentTray(QFrame):
         outer.setContentsMargins(0, 3, 0, 3)
         outer.setSpacing(5)
         row = QHBoxLayout()
+        self.controls = row
+        row.setSpacing(8)
         self.add_button = QPushButton()
+        self.add_button.setObjectName("AttachmentAddButton")
         set_button_icon(self.add_button, "file-plus-corner")
         self.add_button.clicked.connect(self.add_requested.emit)
         row.addWidget(self.add_button)
@@ -107,15 +110,22 @@ class AttachmentTray(QFrame):
         set_button_icon(self.remove_button, "x")
         self.remove_button.clicked.connect(self.remove_selected)
         row.addWidget(self.remove_button)
-        outer.addLayout(row)
         self.files = QListWidget()
         self.files.setObjectName("AttachmentFiles")
-        self.files.setIconSize(QSize(38, 38))
-        self.files.setMaximumHeight(112)
-        self.files.setMinimumHeight(58)
+        self.files.setViewMode(QListWidget.ViewMode.IconMode)
+        self.files.setFlow(QListWidget.Flow.LeftToRight)
+        self.files.setWrapping(True)
+        self.files.setResizeMode(QListWidget.ResizeMode.Adjust)
+        self.files.setMovement(QListWidget.Movement.Static)
+        self.files.setGridSize(QSize(132, 102))
+        self.files.setIconSize(QSize(58, 58))
+        self.files.setSpacing(6)
+        self.files.setMaximumHeight(216)
+        self.files.setMinimumHeight(105)
         self.files.itemDoubleClicked.connect(self._preview)
         self.files.itemSelectionChanged.connect(self._update_remove_button)
         outer.addWidget(self.files)
+        outer.addLayout(row)
         self.files.hide()
         self._loaded.connect(self._on_loaded)
         self.set_language(self._language)
@@ -129,10 +139,12 @@ class AttachmentTray(QFrame):
 
     def set_language(self, language):
         self._language = normalize_language(language)
-        self.add_button.setText(_t("Прикрепить", "Attach", "Atașează", self._language))
+        self.add_button.setText("+")
+        self.add_button.setAccessibleName(_t("Прикрепить", "Attach", "Atașează", self._language))
         self.add_button.setToolTip(_t("Добавить фотографии и файлы", "Add photos and files",
                                      "Adaugă fotografii și fișiere", self._language))
-        self.remove_button.setText(_t("Убрать", "Remove", "Elimină", self._language))
+        self.remove_button.setText("×")
+        self.remove_button.setAccessibleName(_t("Убрать", "Remove", "Elimină", self._language))
         self.remove_button.setToolTip(_t("Убрать вложение из чата", "Remove attachment from chat",
                                         "Elimină atașamentul din chat", self._language))
         self.files.setToolTip(_t("Двойной щелчок — просмотр вложения", "Double-click to preview an attachment",
@@ -156,9 +168,11 @@ class AttachmentTray(QFrame):
                          "Attachments are processed locally. Drop files here.",
                          "Atașamentele sunt procesate local. Trage fișierele aici.", self._language)
         self.route_hint.setText(caption)
+        self.route_hint.setVisible(bool(self._attachments) or self._loading)
 
     def _update_remove_button(self):
         self.remove_button.setEnabled(not self._loading and self.files.currentItem() is not None)
+        self.remove_button.setVisible(bool(self._attachments))
 
     def _set_loading(self, value):
         self._loading = bool(value)
@@ -246,7 +260,7 @@ class AttachmentTray(QFrame):
         selected_id = selected.data(Qt.ItemDataRole.UserRole) if selected is not None else None
         self.files.clear()
         for item in self._attachments:
-            caption = f"{item.name}  ·  {max(1, (item.size + 1023) // 1024)} KB"
+            caption = item.name
             row = QListWidgetItem(caption)
             row.setData(Qt.ItemDataRole.UserRole, item.id)
             row.setToolTip(item.name + "\n" + item.kind.upper())

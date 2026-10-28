@@ -1,4 +1,10 @@
-# LuxAI Local 0.3.9 (Windows 10/11, 64-bit)
+# LuxAI Local 0.3.9a (Windows 10/11, 64-bit)
+
+## 0.3.9a: interfață chat și comenzi apropiată de Luxify (2026-10-28)
+
+Chatul folosește o singură casetă cu **+** în stânga jos, fișiere atașate în interior și butonul de trimitere în dreapta. Mesajul despre partajarea în cloud apare când există atașamente. Comenzile de bază sunt într-un modul separat, `luxai/default_commands.py`, și într-un folder **Comenzi implicite**; cele personale rămân separate și se păstrează la actualizare. Panoul de gestionare este reorganizat. Editorul are bară de navigare și pictograme de informație care afișează explicații la hover sau clic.
+
+Comenzile personale și înregistrarea nu mai au limita fixă de 8 acțiuni. La pornirea înregistrării, ferestrele Jarvis sunt minimizate, iar un panou separat **Stop și adaugă / Anulează** rămâne accesibil. După oprire, editorul revine. Fiecare acțiune rămâne validată, iar operațiile riscante necesită confirmare. Funcționarea hook-urilor native și aspectul exact trebuie verificate pe PC-ul utilizatorului.
 
 ## 0.3.9: fișiere în chat și editor complet de comenzi — 2026-10-28
 

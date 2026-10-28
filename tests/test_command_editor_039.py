@@ -136,7 +136,7 @@ class CommandEditor039Tests(unittest.TestCase):
         with mock.patch.dict(sys.modules, {"luxai.command_recording": SimpleNamespace(ActionRecorder=factory)}):
             self.assertFalse(editor.record_game_keys.isChecked())
             editor.record_button.click()
-            factory.assert_called_with(max_actions=7, record_game_keys=False)
+            factory.assert_called_with(max_actions=None, record_game_keys=False)
             self.assertFalse(editor.record_game_keys.isEnabled())
             self.assertFalse(editor.save_button.isEnabled())
             self.assertTrue(editor.record_timer.isActive())
@@ -148,7 +148,7 @@ class CommandEditor039Tests(unittest.TestCase):
             before = list(editor.steps)
             editor.record_game_keys.setChecked(True)
             editor.record_button.click()
-            factory.assert_called_with(max_actions=6, record_game_keys=True)
+            factory.assert_called_with(max_actions=None, record_game_keys=True)
             editor.reject()
             self.assertEqual(recorder.stop.call_count, 2)
             self.assertEqual(editor.steps, before)

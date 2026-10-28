@@ -1,12 +1,19 @@
 # LuxAI_local
 
+## 0.3.9a: Luxify-style chat and command workflows (2026-10-28)
+
+The chat composer now places the attachment **+** and send arrow on the bottom row with file previews inside the composer. The cloud-sharing notice appears when files are attached. Built-in commands are stored in `luxai/default_commands.py` and grouped under a separate **Default commands** folder, while user commands stay separate and persistent. The right management panel is more compact. The command editor includes a navigation rail and explicit high-contrast explanations when hovering or clicking the info icons.
+
+User-created and recorded macros no longer have the fixed eight-action limit. When recording begins, Jarvis windows are minimized and a separate always-on-top Stop/Cancel panel remains visible, then the editor is restored. Each action is still allowlist-validated; dangerous actions still require confirmation and model-generated plans retain separate restrictions. Native global-hook behavior and exact visual appearance require verification on the target Windows PC.
+
+
 ## 0.3.9: chat attachments and a complete command editor — 2026-10-28
 
 Use **Attach** or drag files into the chat, enter a question and press **Send**. Supported inputs include text, code, CSV, JSON, Markdown, PDF, DOCX and photos. Selection and preview stay local. Sending with cloud AI enabled shares the selected files with that provider; image analysis requires an image-capable model. Local processing uses document text and image OCR, rather than local image vision. Limits: 8 files, 10 MB per file and 20 MB per message.
 
 For requested file changes, Jarvis proposes edits for review. Compare the original, changes and new text before choosing **Apply** or **Save copy**. Text files and compatible DOCX edits with the same paragraph structure can be applied after a stale-file check, with the original backed up in `.luxai_data/file_edits`. PDF changes and structural DOCX changes are exported as a text copy; they do not rewrite the original document. Attached code is read as data, never executed.
 
-The redesigned **Commands** editor groups phrases, optional words, triggers and ordered actions. Add voice phrases, a keyboard shortcut, a schedule or an application/headphone event; record supported Windows actions or ask AI to propose steps, then review them. Recording letters/digits is opt-in and limited to Dota 2, Counter-Strike 2, War Thunder and Undertale. **Test phrase** checks matching without running anything; **Run now** executes the reviewed draft. Up to 8 actions, whole-command confirmation and chaining preferences are supported. Schedules, events and global shortcuts work only while Jarvis is running. Native Windows recording/hooks still need testing on the target PC.
+The redesigned **Commands** editor groups phrases, optional words, triggers and ordered actions. Add voice phrases, a keyboard shortcut, a schedule or an application/headphone event; record supported Windows actions or ask AI to propose steps, then review them. Recording letters/digits is opt-in and limited to Dota 2, Counter-Strike 2, War Thunder and Undertale. **Test phrase** checks matching without running anything; **Run now** executes the reviewed draft. Ordered actions, whole-command confirmation and chaining preferences are supported. Schedules, events and global shortcuts work only while Jarvis is running. Native Windows recording/hooks still need testing on the target PC.
 
 The sidebar remembers whether it was collapsed. The Screenshot and OCR cards have been removed from **Tools**; their existing commands and automatic OCR setup remain available. Interface labels follow Russian, English or Romanian without translating personal filenames, phrases or document contents.
 

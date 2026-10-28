@@ -19,8 +19,8 @@ from luxai.action_catalog import HOTKEYS, SINGLE_KEYS, validate_step
 class RecordingBuffer:
     """Pure bounded recorder used by native hooks and deterministic tests."""
     def __init__(self, max_actions=8, *, own_pid=None, record_game_keys=False):
-        if type(max_actions) is not int or not 1 <= max_actions <= 8:
-            raise ValueError("Запись поддерживает от 1 до 8 действий.")
+        if max_actions is not None and (type(max_actions) is not int or max_actions < 1):
+            raise ValueError("Recording action count must be positive or unlimited.")
         self.max_actions = max_actions
         self.own_pid = os.getpid() if own_pid is None else own_pid
         self.record_game_keys = bool(record_game_keys)
@@ -28,6 +28,11 @@ class RecordingBuffer:
         self.active = False
         self.error = ""
         self._lock = threading.Lock()
+
+    @property
+    def count(self):
+        with self._lock:
+            return len(self.steps)
 
     def begin(self):
         with self._lock:
@@ -48,12 +53,12 @@ class RecordingBuffer:
         with self._lock:
             if not self.active:
                 return
-            if len(self.steps) + len(verified) > self.max_actions:
+            if self.max_actions is not None and len(self.steps) + len(verified) > self.max_actions:
                 self.active = False
                 self.error = "Достигнут предел действий записи."
                 return
             self.steps.extend(verified)
-            if len(self.steps) == self.max_actions:
+            if self.max_actions is not None and len(self.steps) == self.max_actions:
                 self.active = False
 
     def record_key(self, key, modifiers=(), *, foreground_pid=None, foreground_is_game=False):
@@ -108,6 +113,10 @@ class ActionRecorder:
     @property
     def error(self):
         return self._startup_error or self._buffer.error
+
+    @property
+    def count(self):
+        return self._buffer.count
 
     def start(self):
         if self.active:

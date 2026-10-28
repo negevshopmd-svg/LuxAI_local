@@ -4,8 +4,12 @@
 >
 > Repository: https://github.com/negevshopmd-svg/LuxAI_local  
 > OS: Windows 10/11, 64-bit. Python + PySide6. UI and voice responses primarily Russian, with Romanian/English support.  
-> Updated for the **0.3.9 work**, 2026-10-28. \`Update.bat\` installs the code merged into \`main\`, NOT an open PR.
+> Updated for the **0.3.9a work**, 2026-10-28. \`Update.bat\` installs the code merged into \`main\`, NOT an open PR.
 > Do NOT include real API keys, private logs, screen captures, model binaries, user audio, or personal paths in Git history.
+
+## 0. Patch 0.3.9a
+
+`luxai/default_commands.py` now owns built-in commands, separate from persistent user entries in `.luxai_data/commands.json`. Their grouped UI is in `luxai/ui_commands.py`. The chat composer lives in `main.py::build_chat` and `luxai/ui_attachments.py`. The editor in `luxai/ui_command_editor.py` has immediate info help, a navigation rail and a standalone recording Stop/Cancel overlay. Manually created/recorded macros can exceed eight actions; the action allowlist, human review and sensitive-operation confirmations remain mandatory, and automatic cloud-generated plans have independent budgets. Verify the Windows native hooks on a real PC in addition to CI.
 
 ## 1. What this project is
 

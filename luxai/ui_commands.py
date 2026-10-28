@@ -110,6 +110,9 @@ class CommandsPage(QWidget):
         search_icon.setProperty("jarvisIconRole", "muted")
         self.search.textChanged.connect(self._filter)
         side_col.addWidget(self.search)
+        create_label = QLabel("Создать")
+        create_label.setObjectName("Muted")
+        side_col.addWidget(create_label)
         add = QPushButton("Новая команда")
         add.setObjectName("Primary")
         set_button_icon(add, "plus", role="white")
@@ -120,6 +123,9 @@ class CommandsPage(QWidget):
         add_voice.setToolTip("Jarvis спросит фразу и действие, затем сохранит команду.")
         add_voice.clicked.connect(lambda _checked=False: self.voice_create_requested.emit())
         side_col.addWidget(add_voice)
+        tools_label = QLabel("Управление")
+        tools_label.setObjectName("Muted")
+        side_col.addWidget(tools_label)
         self.edit = QPushButton("Изменить выбранную")
         set_button_icon(self.edit, "pencil")
         self.edit.clicked.connect(self.edit_selected)
@@ -131,11 +137,11 @@ class CommandsPage(QWidget):
         self.remove = QPushButton("Удалить выбранную")
         set_button_icon(self.remove, "trash-2", role="danger")
         self.remove.clicked.connect(self.delete_selected)
-        side_col.addWidget(self.remove)
         self.run_button = QPushButton("Выполнить сейчас")
         set_button_icon(self.run_button, "play", role="accent")
         self.run_button.clicked.connect(self.execute_selected)
         side_col.addWidget(self.run_button)
+        side_col.addWidget(self.remove)
         side_col.addStretch()
         self.summary = QLabel("")
         self.summary.setObjectName("Muted")
@@ -147,57 +153,66 @@ class CommandsPage(QWidget):
 
     def refresh(self):
         self.tree.clear()
-        categories = defaultdict(list)
         records = self.registry.entries()
+        categories = defaultdict(list)
         for entry in records:
-            categories[entry["category"]].append(entry)
-        ordering = [
-            "Приложения", "Windows", "Игры Steam", "Файлы",
-            "Мои команды", "Выученные команды",
-        ]
-        for category in ordering + sorted(set(categories) - set(ordering)):
-            group_items = categories.get(category)
-            if not group_items:
+            categories[(entry["category"], entry["builtin"])].append(entry)
+        order = ["Приложения", "Windows", "Игры Steam", "Файлы",
+                 "Мои команды", "Выученные команды"]
+        builtins = [item for item in records if item["builtin"]]
+        defaults_root = QTreeWidgetItem([tr("Команды по умолчанию", self.interface_language), ""])
+        defaults_root.setFlags(defaults_root.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+        set_item_icon(defaults_root, "folder", widget=self.tree, column=0, role="accent")
+        self.tree.addTopLevelItem(defaults_root)
+        category_names = order + sorted({name for name, _ in categories} - set(order))
+        for category, builtin_group in ((name, flag) for flag in (True, False) for name in category_names):
+            items = categories.get((category, builtin_group), [])
+            if not items:
                 continue
-            header = QTreeWidgetItem([f"{tr(category, self.interface_language)}  ({len(group_items)})", ""])
-            category_icon = {
-                "Приложения": "app-window", "Windows": "monitor", "Игры Steam": "gamepad-2",
-                "Файлы": "folder", "Мои команды": "list-checks", "Выученные команды": "sparkles",
-            }.get(category, "folder")
-            set_item_icon(header, category_icon, widget=self.tree, column=0, role="muted")
+            is_default = items[0]["builtin"]
+            header = QTreeWidgetItem([f"{tr(category, self.interface_language)}  ({len(items)})", ""])
+            set_item_icon(header, {
+                "Приложения": "app-window", "Windows": "monitor",
+                "Игры Steam": "gamepad-2", "Файлы": "folder",
+                "Мои команды": "list-checks", "Выученные команды": "sparkles",
+            }.get(category, "folder"), widget=self.tree, column=0, role="muted")
             header.setFlags(header.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-            self.tree.addTopLevelItem(header)
-            for entry in group_items:
+            if is_default:
+                defaults_root.addChild(header)
+            else:
+                self.tree.addTopLevelItem(header)
+            for entry in items:
                 item = QTreeWidgetItem([
-                    tr(entry["title"], self.interface_language) if entry.get("builtin") else entry["title"], "",
+                    tr(entry["title"], self.interface_language) if entry["builtin"] else entry["title"], "",
                 ])
                 action_icon = CATALOG.get(entry["action"], {}).get("icon", "list-checks")
                 set_item_icon(item, action_icon, widget=self.tree, column=0)
-                status_icon = "circle-check" if entry["enabled"] else "circle-minus"
-                status_role = "success" if entry["enabled"] else "muted"
                 state_text = {
                     "ru": ("Включена", "Выключена"), "en": ("Enabled", "Disabled"),
                     "ro": ("Activată", "Dezactivată"),
                 }[self.interface_language][0 if entry["enabled"] else 1]
-                set_item_icon(item, status_icon, widget=self.tree, column=1, role=status_role)
+                set_item_icon(item, "circle-check" if entry["enabled"] else "circle-minus",
+                              widget=self.tree, column=1,
+                              role="success" if entry["enabled"] else "muted")
                 item.setData(1, Qt.ItemDataRole.AccessibleTextRole, state_text)
                 item.setToolTip(1, state_text)
                 item.setData(0, Qt.ItemDataRole.UserRole, entry["id"])
                 item.setToolTip(0, ", ".join(entry["phrases"]))
                 header.addChild(item)
-            header.setExpanded(True)
+            header.setExpanded(not is_default)
+        defaults_root.setText(0, f"{tr('Команды по умолчанию', self.interface_language)}  ({len(builtins)})")
+        defaults_root.setExpanded(False)
         custom_count = len(self.registry.custom)
-        language = self.interface_language
         summary_labels = {
             "ru": ("Готовые команды", "Мои/выученные"),
             "en": ("Built-in commands", "Custom/learned"),
             "ro": ("Comenzi predefinite", "Personale/învățate"),
         }
-        built_in, custom = summary_labels.get(language, summary_labels["ru"])
+        built_in, custom = summary_labels.get(self.interface_language, summary_labels["ru"])
         self.summary.setText(
-            f"{built_in}: {len(records) - custom_count}\n"
+            f"{built_in}: {len(builtins)}\n"
             f"{custom}: {custom_count}\n"
-            + tr("Изменения сохраняются между обновлениями.", language)
+            + tr("Изменения сохраняются между обновлениями.", self.interface_language)
         )
         self._filter(self.search.text())
         self._selection_changed()
@@ -223,16 +238,26 @@ class CommandsPage(QWidget):
     def _filter(self, keyword):
         keyword = keyword.strip().casefold()
         for index in range(self.tree.topLevelItemCount()):
-            group = self.tree.topLevelItem(index)
-            visible = 0
-            for child_idx in range(group.childCount()):
-                item = group.child(child_idx)
-                label = item.text(0).casefold()
-                phrases = item.toolTip(0).casefold()
-                show = not keyword or keyword in label or keyword in phrases
-                item.setHidden(not show)
-                visible += int(show)
-            group.setHidden(visible == 0)
+            root = self.tree.topLevelItem(index)
+            if root.childCount() and root.child(0).childCount():
+                groups = [root.child(n) for n in range(root.childCount())]
+            else:
+                groups = [root]
+            count = 0
+            for group in groups:
+                matches = 0
+                for child_idx in range(group.childCount()):
+                    item = group.child(child_idx)
+                    shown = not keyword or keyword in item.text(0).casefold() or keyword in item.toolTip(0).casefold()
+                    item.setHidden(not shown)
+                    matches += int(shown)
+                group.setHidden(matches == 0)
+                count += matches
+                if keyword and matches:
+                    group.setExpanded(True)
+            root.setHidden(count == 0)
+            if keyword and count:
+                root.setExpanded(True)
 
     def set_context(self, planner=None, config=None):
         self._planner = planner

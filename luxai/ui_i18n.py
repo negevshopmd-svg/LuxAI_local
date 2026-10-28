@@ -21,6 +21,13 @@ def normalize_language(value):
 
 
 _DATA = r"""
+Команды по умолчанию|||Default commands|||Comenzi implicite
+Создать|||Create|||Creează
+Управление|||Manage|||Gestionează
+Идёт запись|||Recording in progress|||Înregistrare în curs
+Поймано|||Captured|||Capturate
+Стоп и добавить|||Stop and add|||Oprește și adaugă
+Нажмите Esc или Стоп, чтобы завершить запись.|||Press Esc or Stop to finish recording.|||Apasă Esc sau Oprește pentru a încheia înregistrarea.
 Команда изменилась или отключена до запуска.|||The command changed or was disabled before it started.|||Comanda a fost modificată sau dezactivată înainte de pornire.
 Последовательность клавиш|||Key sequence|||Secvență de taste
 По очереди нажимает 2–24 буквы или цифры, например Q,W,E,R,D|||Presses 2–24 letters or digits in order, for example Q,W,E,R,D|||Apasă în ordine 2–24 de litere sau cifre, de exemplu Q,W,E,R,D
