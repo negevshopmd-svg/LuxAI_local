@@ -21,6 +21,30 @@ def normalize_language(value):
 
 
 _DATA = r"""
+Мои команды|||My commands|||Comenzile mele
+Команды агента|||Agent commands|||Comenzile agentului
+Ваши команды|||Your commands|||Comenzile tale
+Двойной щелчок по команде — открыть её.|||Double-click a command to open it.|||Dublu clic pe comandă pentru a o deschide.
+Управление Windows|||Manage Windows|||Control Windows
+Управление Google Chrome|||Manage Google Chrome|||Control Google Chrome
+Управление YouTube|||Manage YouTube|||Control YouTube
+Управление Telegram|||Manage Telegram|||Control Telegram
+Управление Spotify|||Manage Spotify|||Control Spotify
+Управление Word|||Manage Word|||Control Word
+Управление Yandex Music|||Manage Yandex Music|||Control Yandex Music
+Другие приложения|||Other applications|||Alte aplicații
+Новая папка|||New folder|||Dosar nou
+Новая коллекция|||New collection|||Colecție nouă
+Импорт из файла|||Import from file|||Importă din fișier
+Экспорт в файл|||Export to file|||Exportă în fișier
+Сохранено автоматически|||Saved automatically|||Salvat automat
+Все изменения сохраняются автоматически.|||All changes are saved automatically.|||Toate modificările sunt salvate automat.
+Действия с командой|||Command actions|||Acțiuni pentru comandă
+Открыть / изменить|||Open / edit|||Deschide / editează
+Создать копию|||Duplicate|||Creează o copie
+Копировать название|||Copy title|||Copiază numele
+Копировать как JSON|||Copy as JSON|||Copiază ca JSON
+Переместить в папку|||Move to folder|||Mută în dosar
 Команды по умолчанию|||Default commands|||Comenzi implicite
 Создать|||Create|||Creează
 Управление|||Manage|||Gestionează
