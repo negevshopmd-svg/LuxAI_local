@@ -1,4 +1,14 @@
-# LuxAI Local 0.3.9a (Windows 10/11, 64-bit)
+# LuxAI Local 0.3.9b (Windows 10/11, 64-bit)
+
+## 0.3.9b: corecții după testele de interfață (2026-10-29)
+
+- **Chat:** casetă compactă gri-închis, cu mesaje pe mai multe rânduri, atașamente **deasupra textului** și butoanele **+** și **Trimite** la baza casetei. Enter trimite, Shift+Enter inserează un rând nou.
+- **Comenzi:** butoane de creare a comenzilor/folderelor/colecțiilor și import/export JSON în **dreapta**. Comenzile predefinite se află într-un arbore separat; acțiunile de deschidere, editare, duplicare, activare și ștergere apar la hover, clic dreapta sau butonul cu trei puncte al comenzii, nu în bara din dreapta.
+- **Foldere:** persistă între actualizări; poți muta comenzile personale în ele din meniul contextual. Importul validează comenzile și le dezactivează inițial, fără execuție automată; exportul conține numai comenzile personale.
+- **Editor:** două coloane, cu verificarea și **Salvează/Anulează** în dreapta, fără bara laterală suplimentară inutilă. Declanșatoarele de voce și tastatură sunt pe același rând.
+- **Înregistrare:** panoul Stop/Anulează este acum un dialog modal independent, nu un panou blocat de dialogul editorului; ferestrele se minimizează în timpul capturării și se restaurează la oprire.
+
+Acestea sunt schimbări reale de layout și funcționalitate. Capturile Luxify reprezintă referințe vizuale, nu codul sursă sau inventarul complet al produsului respectiv; funcționarea hook-urilor globale trebuie verificată și pe PC-ul tău.
 
 ## 0.3.9a: interfață chat și comenzi apropiată de Luxify (2026-10-28)
 

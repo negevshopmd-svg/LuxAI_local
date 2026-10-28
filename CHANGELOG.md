@@ -1,3 +1,13 @@
+## 0.3.9b — command workspace redesign and functioning recorder controls (2026-10-29)
+
+- Rebuild Commands as a Luxify-style library with top tabs, nested default-command categories, a right-side create/file panel and accessible on-hover or right-click per-command actions. Remove visible global edit/delete controls from the right panel.
+- Add real JSON **Import from file** / **Export to file** for user-created commands. Imported actions are allowlist-validated, disabled initially and assigned fresh IDs. Never execute imported content; export includes no API keys or private settings.
+- Add persistent personal folders and collections, with a context action for moving custom commands into them. Defaults remain read-only and do not overwrite personal data on updates.
+- Replace chat's visually broken nested input with a charcoal ChatGPT-style multiline composer. Attachment previews sit above the prompt, + and send arrow remain in the bottom toolbar. Shift+Enter adds a line; Enter sends.
+- Fix recording Stop/Cancel being unclickable under a modal editor: use a standalone application-modal dialog with visible clickable controls, minimize the editor during capture and restore it after stop. Recorded keyboard/game-key safeguards remain unchanged.
+- Remove the redundant command editor navigation rail, align the voice/keyboard/schedule/event controls and pin Save/Cancel inside the right review column. Native Windows hook behavior and visual fidelity still require smoke testing on a PC.
+- Add offscreen Qt regressions and refresh the safe updater cleanup hashes. Python 3.11–3.14 are the fully supported versions; 3.15/3.16 are probes only.
+
 ## 0.3.9a — Luxify-style chat and command editor (2026-10-28)
 
 - Compact chat composer with inline files, an attachment + control and a send arrow; cloud-delivery hints are hidden until attachments are selected.
