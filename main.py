@@ -2834,7 +2834,7 @@ class MainWindow(QMainWindow):
         from luxai.action_catalog import validate_step
         try:
             verified = [validate_step(item) for item in steps]
-            if not 1 <= len(verified) <= 8:
+            if not verified:
                 raise ValueError("Недопустимое количество действий")
         except (TypeError, ValueError) as exc:
             self._current_route = "ошибка команды"

@@ -1,6 +1,8 @@
 """A complete command draft: phrases, triggers, ordered actions and a live check."""
 from __future__ import annotations
 
+import time
+
 from PySide6.QtCore import QDate, QSize, Qt, QTime, QTimer, Signal
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
@@ -53,8 +55,56 @@ def _heading(text, tooltip=""):
     return row
 
 
+class RecordingOverlay(QFrame):
+    """A small always-on-top Stop/Cancel control; never captures typed content."""
+
+    stop_requested = Signal()
+    cancel_requested = Signal()
+
+    def __init__(self):
+        super().__init__(None, Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint |
+                         Qt.WindowType.WindowStaysOnTopHint)
+        self.setObjectName("RecordingOverlay")
+        self.setFixedWidth(350)
+        self.setStyleSheet("""
+            QFrame#RecordingOverlay {background: #171c25; border: 1px solid #384458; border-radius: 14px;}
+            QLabel {color: #f4f6fa; border: none;}
+            QPushButton {background: #303846; border: 1px solid #475263; border-radius: 8px;
+                         color: white; padding: 9px;}
+            QPushButton#StopRecording {background: #387cf7; border-color: #387cf7;}
+        """)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(9)
+        header = QHBoxLayout()
+        label = _label("●  " + tr("Идёт запись"))
+        header.addWidget(label, 1)
+        self.elapsed = _label("00:00")
+        header.addWidget(self.elapsed)
+        layout.addLayout(header)
+        self.steps_label = _label(tr("Поймано") + ": 0")
+        layout.addWidget(self.steps_label)
+        hint = _label(tr("Нажмите Esc или Стоп, чтобы завершить запись."))
+        layout.addWidget(hint)
+        controls = QHBoxLayout()
+        cancel = QPushButton(tr("Отмена"))
+        cancel.clicked.connect(self.cancel_requested.emit)
+        controls.addWidget(cancel)
+        stop = QPushButton(tr("Стоп и добавить"))
+        stop.setObjectName("StopRecording")
+        stop.clicked.connect(self.stop_requested.emit)
+        controls.addWidget(stop)
+        layout.addLayout(controls)
+        self._started_at = time.monotonic()
+
+    def update_status(self, count):
+        seconds = int(time.monotonic() - self._started_at)
+        self.elapsed.setText(f"{seconds // 60:02d}:{seconds % 60:02d}")
+        self.steps_label.setText(tr("Поймано") + f": {count}")
+
+
 class CommandEditor(QDialog):
-    MAX_ACTIONS = 8
+    MAX_ACTIONS = None
     run_requested = Signal(object)
     ai_requested = Signal(str, object)
 
@@ -64,6 +114,9 @@ class CommandEditor(QDialog):
         self.steps = []
         self._legacy = False
         self._recorder = None
+        self._record_overlay = None
+        self._record_restore_parent = None
+        self._record_was_visible = False
         self._ai_pending = False
         self._context_config = {}
         self._ai_prompt = ""
@@ -554,10 +607,10 @@ QLabel#ActionNumber {{ color: {p['muted']}; font-size: 12px; }}
         self.empty_hint.setMinimumHeight(55)
         self.empty_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.actions_list.setVisible(bool(count or self._legacy))
-        self.counter.setText(f"{count or int(self._legacy)} / {self.MAX_ACTIONS}")
-        self.add_button.setEnabled(count < self.MAX_ACTIONS and not self._legacy)
-        self.record_button.setEnabled(count < self.MAX_ACTIONS and not self._legacy)
-        self.ai_button.setEnabled(count < self.MAX_ACTIONS and not self._legacy and not self._ai_pending)
+        self.counter.setText(str(count or int(self._legacy)))
+        self.add_button.setEnabled(not self._legacy)
+        self.record_button.setEnabled(not self._legacy)
+        self.ai_button.setEnabled(not self._legacy and not self._ai_pending)
         self._update_buttons()
         self._update_readiness()
 
@@ -576,7 +629,7 @@ QLabel#ActionNumber {{ color: {p['muted']}; font-size: 12px; }}
         self.down_button.setEnabled(selected and index < len(self.steps) - 1)
 
     def add_action(self):
-        if self._legacy or len(self.steps) >= self.MAX_ACTIONS:
+        if self._legacy:
             return
         picker = ActionPicker(self)
         if picker.exec() == QDialog.DialogCode.Accepted and picker.step:
@@ -612,7 +665,7 @@ QLabel#ActionNumber {{ color: {p['muted']}; font-size: 12px; }}
             return
         try:
             from luxai.command_recording import ActionRecorder
-            recorder = ActionRecorder(max_actions=self.MAX_ACTIONS - len(self.steps),
+            recorder = ActionRecorder(max_actions=None,
                                       record_game_keys=self.record_game_keys.isChecked())
             started = recorder.start()
             if started is False or recorder.error:
@@ -626,21 +679,53 @@ QLabel#ActionNumber {{ color: {p['muted']}; font-size: 12px; }}
         self._feedback(tr("Запись: выполните действия в другом приложении. Esc или кнопка записи остановит запись."))
         self.record_timer.start()
         self.record_game_keys.setEnabled(False)
+        if self.isVisible():
+            self._start_record_overlay()
         self._update_readiness()
+
+    def _start_record_overlay(self):
+        self._record_was_visible = self.isVisible()
+        parent = self.parentWidget()
+        top = parent.window() if parent is not None else None
+        self._record_restore_parent = top if top is not self and top is not None and top.isVisible() else None
+        if self._record_restore_parent is not None:
+            self._record_restore_parent.showMinimized()
+        self.showMinimized()
+        self._record_overlay = RecordingOverlay()
+        self._record_overlay.stop_requested.connect(self._finish_recording)
+        self._record_overlay.cancel_requested.connect(lambda: self._finish_recording(append=False))
+        self._record_overlay.show()
+
+    def _restore_after_recording(self):
+        overlay, self._record_overlay = self._record_overlay, None
+        if overlay is not None:
+            overlay.close()
+            overlay.deleteLater()
+        parent, self._record_restore_parent = self._record_restore_parent, None
+        if parent is not None:
+            parent.showNormal()
+        if self._record_was_visible:
+            self.showNormal()
+            self.raise_()
+            self.activateWindow()
+        self._record_was_visible = False
 
     def _check_recording(self):
         if self._recorder is not None and not self._recorder.active:
             self._finish_recording()
+        elif self._recorder is not None and self._record_overlay is not None:
+            self._record_overlay.update_status(self._recorder.count)
 
     def _finish_recording(self, append=True):
         recorder, self._recorder = self._recorder, None
         self.record_timer.stop()
         if recorder is None:
+            self._restore_after_recording()
             return
         try:
             steps = [validate_step(step) for step in recorder.stop()]
             if append:
-                self.steps.extend(steps[:self.MAX_ACTIONS - len(self.steps)])
+                self.steps.extend(steps)
                 self._refresh_steps()
                 self._feedback(recorder.error or tr("Запись завершена. Проверьте действия перед сохранением."))
         except (ValueError, TypeError, RuntimeError, OSError) as exc:
@@ -648,9 +733,11 @@ QLabel#ActionNumber {{ color: {p['muted']}; font-size: 12px; }}
         self.record_button.setText(tr("Записать"))
         self.record_game_keys.setEnabled(True)
         set_button_icon(self.record_button, "circle", role="danger")
+        self._restore_after_recording()
+        self._update_readiness()
 
     def request_ai(self):
-        if self._legacy or self._ai_pending or len(self.steps) >= self.MAX_ACTIONS:
+        if self._legacy or self._ai_pending:
             return
         prompt, accepted = QInputDialog.getMultiLineText(self, tr("Действия с ИИ"), tr("Опишите, что должна сделать команда:"))
         if not accepted or not prompt.strip():
@@ -673,8 +760,8 @@ QLabel#ActionNumber {{ color: {p['muted']}; font-size: 12px; }}
             if not validated:
                 raise ValueError(tr("ИИ не предложил допустимых действий. Уточните задачу."))
             steps = [validate_step(step) for step in validated.get("steps", [])]
-            if not steps or len(self.steps) + len(steps) > self.MAX_ACTIONS:
-                raise ValueError(tr("В команде может быть не более 8 действий."))
+            if not steps:
+                raise ValueError(tr("ИИ не предложил допустимых действий. Уточните задачу."))
             self.steps.extend(steps)
             self._feedback(tr("Действия добавлены. Проверьте их перед сохранением."))
         except (ValueError, TypeError, KeyError) as exc:

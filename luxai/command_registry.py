@@ -86,8 +86,8 @@ def checked_command(raw, builtin=False):
     raw_steps = raw.get("steps")
     validated_steps = []
     if raw_steps:
-        if not isinstance(raw_steps, list) or not 1 <= len(raw_steps) <= 8:
-            raise ValueError("A command must contain 1 to 8 actions")
+        if not isinstance(raw_steps, list) or not raw_steps:
+            raise ValueError("A command must contain at least one action")
         validated_steps = [validate_step(step) for step in raw_steps]
         first = validated_steps[0]
         action = first["action"]
