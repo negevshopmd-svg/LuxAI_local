@@ -21,6 +21,7 @@ def normalize_language(value):
 
 
 _DATA = r"""
+Команда изменилась или отключена до запуска.|||The command changed or was disabled before it started.|||Comanda a fost modificată sau dezactivată înainte de pornire.
 Последовательность клавиш|||Key sequence|||Secvență de taste
 По очереди нажимает 2–24 буквы или цифры, например Q,W,E,R,D|||Presses 2–24 letters or digits in order, for example Q,W,E,R,D|||Apasă în ordine 2–24 de litere sau cifre, de exemplu Q,W,E,R,D
 Q,W,E,R,D — от 2 до 24 клавиш|||Q,W,E,R,D — 2 to 24 keys|||Q,W,E,R,D — de la 2 la 24 de taste
@@ -484,6 +485,124 @@ GGUF найден, локальный движок установлен. Заг�
 Движок локального ИИ подготавливается автоматически при запуске и обновлении.|||The local AI engine is prepared automatically at startup and update.|||Motorul AI local se pregătește automat la pornire și actualizare.
 Выбранный голос Piper загружается при первом использовании.|||The selected Piper voice downloads on first use.|||Vocea Piper selectată se descarcă la prima utilizare.
 Для голоса Windows нужен установленный языковой пакет. Piper работает локально после загрузки голоса.|||Windows voices require an installed language pack. Piper works locally after downloading the voice.|||Vocile Windows necesită un pachet de limbă instalat. Piper funcționează local după descărcarea vocii.
++ Клавиша|||+ Key|||+ Tastă
++ По расписанию|||+ Schedule|||+ Programare
++ По событию|||+ Event|||+ Eveniment
++ Слово|||+ Word|||+ Cuvânt
++ Фраза|||+ Phrase|||+ Frază
+В команде может быть не более 8 действий.|||A command can contain at most 8 actions.|||O comandă poate conține cel mult 8 acțiuni.
+Введите фразу для проверки.|||Enter a phrase to test.|||Introdu o frază pentru verificare.
+Введите фразу…|||Enter a phrase…|||Introdu o frază…
+Время|||Time|||Ora
+Вс|||Sun|||Du
+Вт|||Tue|||Ma
+Голос, горячие клавиши, расписание и события работают, пока Jarvis запущен.|||Voice, hotkeys, schedules and events work while Jarvis is running.|||Vocea, tastele rapide, programările și evenimentele funcționează cât timp Jarvis rulează.
+Голосовой запуск выключен.|||Voice activation is off.|||Activarea vocală este oprită.
+Голосом|||By voice|||Prin voce
+Готово к запуску|||Ready to run|||Gata de executare
+Дата|||Date|||Data
+Действие|||Action|||Acțiune
+Действия добавлены. Проверьте их перед сохранением.|||Actions added. Review them before saving.|||Acțiunile au fost adăugate. Verifică-le înainte de salvare.
+Действия с ИИ|||Actions with AI|||Acțiuni cu AI
+Действия: {count}|||Actions: {count}|||Acțiuni: {count}
+Дни|||Days|||Zile
+Добавьте действие|||Add an action|||Adaugă o acțiune
+Добавьте действие, запишите шаги или опишите задачу ИИ.|||Add an action, record steps or describe the task to AI.|||Adaugă o acțiune, înregistrează pașii sau descrie sarcina pentru AI.
+Добавьте название|||Add a name|||Adaugă un nume
+Добавьте фразу|||Add a phrase|||Adaugă o frază
+Дополнительно|||Advanced|||Opțiuni avansate
+Дополнительное подтверждение всей команды. Подтверждения опасных действий сохраняются.|||Request an extra confirmation for the whole command. Risky actions still require their own confirmation.|||Solicită o confirmare suplimentară pentru întreaga comandă. Acțiunile riscante necesită în continuare confirmarea lor.
+Ежедневно|||Daily|||Zilnic
+Записать|||Record|||Înregistrează
+Запись завершена. Проверьте действия перед сохранением.|||Recording finished. Review the actions before saving.|||Înregistrarea s-a încheiat. Verifică acțiunile înainte de salvare.
+Запись: выполните действия в другом приложении и остановите запись здесь. Текст не записывается.|||Recording: perform actions in another app, then stop recording here. Text is not recorded.|||Înregistrare: execută acțiunile în altă aplicație, apoi oprește înregistrarea aici. Textul nu este înregistrat.
+ИИ не предложил допустимых действий. Уточните задачу.|||AI did not suggest valid actions. Clarify the task.|||AI nu a propus acțiuni valide. Clarifică sarcina.
+ИИ подбирает действия…|||AI is choosing actions…|||AI alege acțiunile…
+Изменения ещё не сохранены.|||Changes have not been saved yet.|||Modificările nu au fost salvate încă.
+Любая из этих фраз запускает команду. Можно добавить несколько вариантов.|||Any of these phrases starts the command. You can add several variants.|||Oricare dintre aceste fraze pornește comanda. Poți adăuga mai multe variante.
+Можно добавить|||Optional words|||Cuvinte opționale
+Назад|||Back|||Înapoi
+Например: Начать рабочий день|||For example: Start the workday|||De exemplu: Începe ziua de lucru
+Например: пожалуйста|||For example: please|||De exemplu: te rog
+Необязательные слова в начале или конце фразы, например «пожалуйста».|||Optional words at the start or end of a phrase, such as “please”.|||Cuvinte opționale la începutul sau sfârșitul frazei, precum „te rog”.
+Один раз|||Once|||O singură dată
+Опишите, что должна сделать команда:|||Describe what the command should do:|||Descrie ce trebuie să facă comanda:
+Остановить запись|||Stop recording|||Oprește înregistrarea
+Пн|||Mon|||Lu
+По дням недели|||On selected weekdays|||În zilele selectate
+По расписанию|||On a schedule|||La ora programată
+По событию|||On an event|||La un eveniment
+Повтор|||Repeat|||Repetare
+При запуске приложения|||When the app starts|||La pornirea aplicației
+При подключении наушников|||When headphones connect|||La conectarea căștilor
+Проверка команды|||Command check|||Verificarea comenzii
+Проверка фразы не выполняет действия.|||Testing a phrase does not run actions.|||Verificarea frazei nu execută acțiuni.
+Проверьте настройки запуска|||Check the trigger settings|||Verifică setările de pornire
+Проверьте фразу перед сохранением.|||Test the phrase before saving.|||Verifică fraza înainte de salvare.
+Пт|||Fri|||Vi
+Разрешить выполнять эту команду в цепочке с другими командами.|||Allow this command to run in a chain with other commands.|||Permite executarea acestei comenzi într-un șir cu alte comenzi.
+С ИИ|||With AI|||Cu AI
+Сб|||Sat|||Sâ
+Связка с другими командами|||Chain with other commands|||Înlănțuire cu alte comenzi
+Сочетание клавиш|||Keyboard shortcut|||Combinație de taste
+Спрашивать перед выполнением|||Ask before running|||Cere confirmare înainte de executare
+Ср|||Wed|||Mi
+Фраза не подходит|||Phrase does not match|||Fraza nu corespunde
+Фраза подходит|||Phrase matches|||Fraza corespunde
+Фразы|||Phrases|||Fraze
+Фразы: {count}|||Phrases: {count}|||Fraze: {count}
+Чт|||Thu|||Jo
+Что вы скажете Jarvis?|||What will you say to Jarvis?|||Ce îi vei spune lui Jarvis?
+Что сказать|||What to say|||Ce să spui
+Включена|||Enabled|||Activată
+Выключена|||Disabled|||Dezactivată
+Готовые команды|||Built-in commands|||Comenzi predefinite
+Мои/выученные|||My / learned commands|||Comenzile mele / învățate
+Недопустимая команда:|||Invalid command:|||Comandă nevalidă:
+Не удалось включить горячую клавишу:|||Could not enable the keyboard shortcut:|||Nu am putut activa combinația de taste:
+Ошибка проверки запуска команд:|||Command trigger check failed:|||Verificarea pornirii comenzilor a eșuat:
+Настройте облачный AI в настройках.|||Configure cloud AI in Settings.|||Configurează AI cloud în setări.
+Запустить команду:|||Run command:|||Execută comanda:
+Команда отменена.|||Command cancelled.|||Comanda a fost anulată.
+Добавить фотографии и файлы|||Add photos and files|||Adaugă fotografii și fișiere
+Читаю прикреплённые файлы…|||Reading attached files…|||Se citesc fișierele atașate…
+Очередь заполнена. Подождите завершения команды.|||The queue is full. Wait for the current command to finish.|||Coada este plină. Așteaptă terminarea comenzii curente.
+Не удалось прочитать прикреплённые файлы.|||Could not read the attached files.|||Nu am putut citi fișierele atașate.
+Ошибка сохранения config.json.|||Could not save config.json.|||Nu am putut salva config.json.
+Дождитесь загрузки файлов.|||Wait for the files to finish loading.|||Așteaptă terminarea încărcării fișierelor.
+Опиши прикреплённые файлы.|||Describe the attached files.|||Descrie fișierele atașate.
+Обработка файлов отменена.|||File processing cancelled.|||Procesarea fișierelor a fost anulată.
+Все файлы|||All files|||Toate fișierele
+Изменения сохранены. Исходная копия сохранена в резервной папке.|||Changes saved. The original was kept in the backup folder.|||Modificările au fost salvate. Originalul a fost păstrat în dosarul de rezervă.
+Для этой команды отключена связка с другими командами.|||Chaining with other commands is disabled for this command.|||Înlănțuirea cu alte comenzi este dezactivată pentru această comandă.
+Фотографии и документы|||Photos and documents|||Fotografii și documente
+Просмотреть изменения:|||Review changes:|||Verifică modificările:
+Копия сохранена:|||Copy saved:|||Copia a fost salvată:
+Достигнут предел действий записи.|||The recording action limit has been reached.|||A fost atinsă limita de acțiuni înregistrate.
+Запись действий доступна в Windows.|||Action recording is available on Windows.|||Înregistrarea acțiunilor este disponibilă în Windows.
+Не удалось запустить запись действий.|||Could not start recording actions.|||Nu am putut porni înregistrarea acțiunilor.
+Записывать игровые клавиши (буквы и цифры)|||Record game keys (letters and digits)|||Înregistrează tastele de joc (litere și cifre)
+Записывает буквы и цифры только в Dota 2, Counter-Strike 2, War Thunder и Undertale.|||Records letters and digits only in Dota 2, Counter-Strike 2, War Thunder and Undertale.|||Înregistrează litere și cifre numai în Dota 2, Counter-Strike 2, War Thunder și Undertale.
+Запись: выполните действия в другом приложении. Esc или кнопка записи остановит запись.|||Recording: perform actions in another app. Press Esc or the record button to stop.|||Înregistrare: execută acțiunile în altă aplicație. Apasă Esc sau butonul de înregistrare pentru oprire.
+Отменить чтение|||Cancel reading|||Anulează citirea
+Некорректное сочетание клавиш.|||Invalid keyboard shortcut.|||Combinație de taste nevalidă.
+Укажите букву, цифру или F1–F12 с модификаторами.|||Choose a letter, digit or F1–F12 with modifier keys.|||Alege o literă, o cifră sau F1–F12 cu taste modificatoare.
+Для буквы или цифры добавьте Ctrl, Alt, Shift или Win.|||Add Ctrl, Alt, Shift or Win to a letter or digit.|||Adaugă Ctrl, Alt, Shift sau Win la o literă ori cifră.
+Это системное сочетание нельзя назначить команде.|||This system shortcut cannot be assigned to a command.|||Această combinație de sistem nu poate fi atribuită unei comenzi.
+Некорректное расписание.|||Invalid schedule.|||Programare nevalidă.
+Время запуска должно быть в формате ЧЧ:ММ.|||The start time must use HH:MM format.|||Ora de pornire trebuie să aibă formatul OO:MM.
+Выберите дату запуска.|||Choose a start date.|||Alege data de pornire.
+Выберите корректную дату запуска.|||Choose a valid start date.|||Alege o dată de pornire validă.
+Выберите хотя бы один день недели.|||Choose at least one weekday.|||Alege cel puțin o zi a săptămânii.
+Некорректное событие.|||Invalid event.|||Eveniment nevalid.
+Выберите поддерживаемое приложение или подключение наушников.|||Choose a supported app or headphone connection.|||Alege o aplicație acceptată sau conectarea căștilor.
+Глобальные сочетания клавиш доступны в Windows.|||Global keyboard shortcuts are available on Windows.|||Combinațiile globale de taste sunt disponibile în Windows.
+Это сочетание уже назначено другой команде.|||This shortcut is already assigned to another command.|||Această combinație este deja atribuită altei comenzi.
+Windows не удалось зарегистрировать сочетание. Возможно, оно уже используется.|||Windows could not register the shortcut. It may already be in use.|||Windows nu a putut înregistra combinația. Este posibil să fie deja folosită.
+Некорректный параметр команды.|||Invalid command parameter.|||Parametru de comandă nevalid.
+Некорректный список необязательных слов.|||Invalid optional word list.|||Listă nevalidă de cuvinte opționale.
+Некорректное необязательное слово.|||Invalid optional word.|||Cuvânt opțional nevalid.
+Запись поддерживает от 1 до 8 действий.|||Recording supports 1 to 8 actions.|||Înregistrarea acceptă între 1 și 8 acțiuni.
 """
 
 # Every entry is a Russian source string and an English/Romanian translation.
@@ -583,6 +702,8 @@ def translate_widgets(root: QWidget, language=None):
     """
     language = normalize_language(language or _language)
     for widget in [root] + root.findChildren(QWidget):
+        if widget.property("i18n_skip"):
+            continue  # Filenames, phrase chips and other user-owned display text.
         if isinstance(widget, QAbstractButton):
             _translate_property(widget, "text", widget.text, widget.setText, language)
         elif isinstance(widget, QLabel):

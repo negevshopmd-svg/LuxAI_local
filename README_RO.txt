@@ -1,4 +1,33 @@
-LUXAI LOCAL 0.3.8c — ACTUALIZARE
+LUXAI LOCAL 0.3.9 — ACTUALIZARE 2026-10-28
+
+0.3.9: FIȘIERE ÎN CHAT ȘI EDITOR COMPLET DE COMENZI
+Apasă Atașează sau trage fișiere în chat, scrie cererea și apasă Trimite.
+Sunt acceptate texte, cod, CSV, JSON, Markdown, PDF, DOCX și fotografii:
+cel mult 8 fișiere, 10 MB fiecare și 20 MB în total per mesaj.
+Selectarea și previzualizarea sunt locale. Cu AI cloud activ, Trimite partajează
+fișierele selectate cu furnizorul configurat. Imaginile cer un model cu suport
+vizual; local se folosesc textul documentelor și OCR, fără analiză vizuală locală.
+
+Modificările propuse se verifică înainte de Aplică sau Salvează o copie.
+Textul și modificările DOCX compatibile, cu aceeași structură de paragrafe,
+pot fi aplicate după verificarea originalului, cu rezervă în .luxai_data/file_edits.
+Modificările PDF ori DOCX care schimbă structura se exportă ca o copie text;
+originalul rămâne păstrat. Codul atașat este citit, nu executat.
+
+Editorul Comenzi include fraze, cuvinte opționale, voce, combinații de taste,
+programări, evenimente pentru aplicații/căști, înregistrare de acțiuni Windows
+și propuneri de pași prin AI. Verificarea frazei nu execută nimic; Execută acum
+rulează varianta verificată. Poți folosi până la 8 acțiuni, confirmare și
+înlănțuire. Programările, evenimentele și tastele globale cer Jarvis pornit.
+Înregistrarea literelor/cifrelor necesită activare explicită și este limitată
+la Dota 2, Counter-Strike 2, War Thunder și Undertale.
+Înregistrarea și comenzile native Windows trebuie verificate pe calculatorul țintă.
+
+Meniul lateral își păstrează starea restrânsă. Cardurile Captură/OCR dispar din
+Instrumente; comenzile existente și pregătirea automată OCR rămân disponibile.
+Documentele .md și testele rămân pe GitHub. Fișierele personale, setările,
+modelele, licențele necesare și acest ghid .txt sunt păstrate.
+Închide Jarvis, rulează Update.bat, apoi run_windows.bat.
 
 0.3.8c: DOCUMENTATIA MARKDOWN RAMANE PE GITHUB
 Instalarea exclude toate fisierele .md livrate de proiect. Ele raman pe GitHub; Jarvis nu are nevoie de ele pentru functionare. Update.bat elimina si copiile vechi nemodificate. Notele personale, documentele modificate, setarile si modelele sunt pastrate. Licentele necesare si acest ghid .txt raman instalate.
@@ -82,8 +111,10 @@ sunt temporare. La o eroare se încearcă restaurarea automată a codului. Bibli
 modificate parțial nu pot fi restaurate automat; rulează install_windows.bat
 dacă mesajul de eroare cere repararea mediului.
 
-Pentru microfon, căști wireless, instalare și diagnostic, deschide README_RO.md.
-Lista modificărilor este în CHANGELOG.md. Nu publica chei sau date personale.
+Ghidul complet și istoricul versiunilor sunt pe GitHub:
+https://github.com/negevshopmd-svg/LuxAI_local/blob/main/README_RO.md
+https://github.com/negevshopmd-svg/LuxAI_local/blob/main/CHANGELOG.md
+Nu publica chei sau date personale.
 
 0.3.0 adaugă planificarea pe pași cu observare și verificare: aplicațiile se
 deschid mai întâi prin Windows, iar capturile locale nu cer AI. Implicit,

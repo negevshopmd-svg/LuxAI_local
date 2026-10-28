@@ -1,4 +1,16 @@
-# LuxAI Local 0.3.8c (Windows 10/11, 64-bit)
+# LuxAI Local 0.3.9 (Windows 10/11, 64-bit)
+
+## 0.3.9: fișiere în chat și editor complet de comenzi — 2026-10-28
+
+Apasă **Atașează** sau trage fișierele în chat, scrie cererea și apasă **Trimite**. Sunt acceptate texte, cod, CSV, JSON, Markdown, PDF, DOCX și fotografii. Selectarea și previzualizarea sunt locale. Dacă AI cloud este activ, trimiterea partajează fișierele selectate cu furnizorul configurat; analiza imaginilor necesită un model care acceptă imagini. Procesarea locală folosește textul documentelor și OCR pentru imagini, fără analiză vizuală locală. Limite: 8 fișiere, 10 MB fiecare și 20 MB în total per mesaj.
+
+Pentru modificări cerute, Jarvis propune o variantă de verificat. Compară originalul, diferențele și textul nou înainte de **Aplică** sau **Salvează o copie**. Fișierele text și modificările DOCX compatibile, cu aceeași structură de paragrafe, pot fi aplicate după verificarea că originalul nu s-a schimbat; copia de rezervă rămâne în `.luxai_data/file_edits`. Modificările PDF sau DOCX care schimbă structura se exportă ca o copie text, fără rescrierea originalului. Codul atașat este citit, nu executat.
+
+Editorul **Comenzi** grupează frazele, cuvintele opționale, declanșatoarele și acțiunile ordonate. Poți adăuga voce, combinație de taste, programare ori evenimente de pornire a aplicațiilor/conectare a căștilor. Înregistrează acțiuni Windows acceptate sau cere AI să propună pași, apoi verifică-i. Înregistrarea literelor/cifrelor necesită activare explicită și funcționează doar în Dota 2, Counter-Strike 2, War Thunder și Undertale. **Verificarea frazei** nu execută nimic; **Execută acum** rulează varianta verificată. Sunt disponibile până la 8 acțiuni, confirmarea întregii comenzi și înlănțuirea. Programările, evenimentele și tastele globale funcționează numai cât timp Jarvis rulează. Înregistrarea și comenzile native Windows necesită verificare pe calculatorul țintă.
+
+Meniul lateral își păstrează starea restrânsă. Cardurile Captură de ecran și OCR au fost eliminate din **Instrumente**; comenzile existente și instalarea automată OCR rămân disponibile. Interfața RU/EN/RO păstrează exact numele personale, frazele și conținutul documentelor.
+
+Închide Jarvis, rulează `Update.bat`, apoi `run_windows.bat`. Setările, modelele și fișierele personale sunt păstrate. Toate fișierele `.md` livrate și testele rămân doar pe GitHub; ghidul `README_RO.txt` și licențele necesare rămân instalate.
 
 ## 0.3.8c: documentația Markdown rămâne doar pe GitHub
 

@@ -88,6 +88,7 @@ class VersionLabel(QLabel):
 
 class NavigationSidebar(QFrame):
     page_selected = Signal(int)
+    collapsed_changed = Signal(bool)
 
     PAGES = [
         ("house", "Главная"),
@@ -162,11 +163,19 @@ class NavigationSidebar(QFrame):
             button.style().polish(button)
             button.update()
 
-    def toggle_collapsed(self):
-        self._collapsed = not self._collapsed
+    def set_collapsed(self, collapsed: bool):
+        """Restore a saved boolean without emitting a user preference change."""
+        collapsed = collapsed is True
+        if self._collapsed == collapsed:
+            return
+        self._collapsed = collapsed
         self.setFixedWidth(76 if self._collapsed else 177)
         self.brand_text.setVisible(not self._collapsed)
         self.set_language(self._language)
+
+    def toggle_collapsed(self):
+        self.set_collapsed(not self._collapsed)
+        self.collapsed_changed.emit(self._collapsed)
 
     def set_language(self, language):
         self._language = normalize_language(language)

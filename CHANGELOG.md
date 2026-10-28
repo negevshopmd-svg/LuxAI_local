@@ -1,3 +1,12 @@
+## 0.3.9 — chat attachments and complete command editing (2026-10-28)
+
+- Add local attachment selection, drag/drop and previews for text/code/CSV/JSON/Markdown, images, PDF and DOCX. Send only selected snapshots to the configured cloud provider; use document extraction and image OCR for local processing. Bound file counts, bytes and extracted context; never execute attached content.
+- Show proposed file changes in an explicit original/diff/new-text review. Apply text and compatible same-paragraph DOCX edits only after stale-file checks, preserving recovery copies. Export PDF and structural DOCX changes as text copies; never claim these original documents were rewritten.
+- Rebuild the Commands editor with phrase chips, optional words, ordered actions, voice/hotkey/schedule/event triggers, recording, AI proposals, phrase matching and Run now. Retain the action allowlist, existing command compatibility, the eight-action limit, confirmation and chaining preferences. Triggers work only while the application runs; native Windows hooks and real devices still need target-PC validation.
+- Persist sidebar collapse state without initial autosaves or committing unrelated Settings/API drafts. Remove only the Screenshot/OCR cards from Tools, retaining screen commands and automatic OCR setup.
+- Complete RU/EN/RO labels while preserving user filenames, phrases, action targets and document bodies. Keep all bundled Markdown/tests GitHub-only, retaining safe historical cleanup and personal-data protection.
+- Add offline attachment/extraction/edit regressions, command editor/trigger/recording tests, Qt sidebar integration and localization coverage. These do not establish physical headset, global-hotkey or live cloud-provider behavior on the user's PC.
+
 ## 0.3.8c — keep all bundled Markdown on GitHub
 
 - Omit all bundled `.md` documentation from fresh installations and updates, including user guides, README files and release notes. Keep the source documents on GitHub; no application code depends on them.
