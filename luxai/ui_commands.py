@@ -9,7 +9,8 @@ import uuid
 from collections import defaultdict
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QPoint, QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QPoint, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import (
     QDialog, QFileDialog, QFrame, QHBoxLayout, QInputDialog, QLabel,
     QLineEdit, QMenu, QMessageBox, QPushButton, QToolButton,
@@ -379,14 +380,20 @@ class CommandsPage(QWidget):
                             button.show()
                     self._last_hover = identifier
             elif event.type() == QEvent.Type.Leave:
-                old = self._menu_widgets.get(self._last_hover)
-                pencil = self._edit_widgets.get(self._last_hover)
-                if old and not (old.underMouse() or (pencil and pencil.underMouse())):
-                    old.hide()
-                    if pencil:
-                        pencil.hide()
-                    self._last_hover = None
+                # Entering a child edit/more button also generates a viewport
+                # Leave; defer hiding so controls remain clickable on Windows.
+                QTimer.singleShot(180, self._clear_hover_if_outside)
         return super().eventFilter(watched, event)
+
+    def _clear_hover_if_outside(self):
+        viewport = self.tree.viewport()
+        if viewport.rect().contains(viewport.mapFromGlobal(QCursor.pos())):
+            return
+        for controls in (self._menu_widgets, self._edit_widgets):
+            button = controls.get(self._last_hover)
+            if button:
+                button.hide()
+        self._last_hover = None
 
     def show_context_menu(self, pos):
         item = self.tree.itemAt(pos)
