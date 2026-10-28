@@ -252,7 +252,9 @@ class CommandsPage(QWidget):
             for entry in groups[name]:
                 self._add_entry(category, entry)
             category.setExpanded(False)
+            self._attach_group_power(category, [item["id"] for item in groups[name]])
         root.setExpanded(True)
+        self._attach_group_power(root, [item["id"] for item in default_entries])
 
         user_groups = defaultdict(list)
         for entry in personal:
@@ -274,6 +276,8 @@ class CommandsPage(QWidget):
             for entry in items:
                 self._add_entry(category, entry)
             category.setExpanded(bool(items))
+            if items:
+                self._attach_group_power(category, [item["id"] for item in items])
         self.summary.setText(
             f"{len(entries)} " + tr("команды", self.interface_language) + "\n"
             f"{len(personal)} " + tr("мои / выученные", self.interface_language) + "\n"
@@ -304,6 +308,34 @@ class CommandsPage(QWidget):
                 "word": "Управление Word",
             }.get(entry.get("target"), "Другие приложения")
         return category or "Другие приложения"
+
+    def _attach_group_power(self, item, identifiers):
+        """Give folders the same right-hand power control as the reference UI."""
+        if not identifiers:
+            return
+        button = QToolButton(self.tree)
+        button.setObjectName("LibraryGroupPower")
+        button.setText("⏻")
+        button.setFixedSize(27, 28)
+        button.setToolTip(tr("Включить / отключить группу", self.interface_language))
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.setStyleSheet("QToolButton#LibraryGroupPower {color:#32d978; border:0; background:transparent; font-size:21px;}")
+        button.clicked.connect(lambda _checked=False, ids=tuple(identifiers): self._toggle_group(ids))
+        self.tree.setItemWidget(item, 4, button)
+
+    def _toggle_group(self, identifiers):
+        entries = {entry["id"]: entry for entry in self.registry.entries()}
+        members = [entries[k] for k in identifiers if k in entries]
+        if not members:
+            return
+        desired = not all(entry["enabled"] for entry in members)
+        try:
+            for entry in members:
+                self.registry.set_enabled(entry["id"], desired)
+            self.refresh()
+            self.changed.emit()
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, tr("Ошибка", self.interface_language), str(exc))
 
     def _add_entry(self, category, entry):
         item = QTreeWidgetItem([tr(entry["title"], self.interface_language)
