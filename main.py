@@ -4,12 +4,12 @@ import queue
 import threading
 import hashlib
 from pathlib import Path
-from PySide6.QtCore import QEvent, QPoint, Qt, QThread, Signal, QTimer
+from PySide6.QtCore import QEvent, QPoint, Qt, QThread, Signal, QTimer, Slot
 from PySide6.QtGui import QFontDatabase, QFont, QAction
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QCheckBox, QLineEdit, QTextEdit, QFileDialog, QMessageBox,
-    QComboBox, QStackedWidget, QFrame, QSlider, QSizePolicy, QSystemTrayIcon, QMenu
+    QComboBox, QStackedWidget, QFrame, QSlider, QSizePolicy, QSystemTrayIcon, QMenu, QScrollArea
 )
 
 from luxai.agent import LocalAgent
@@ -33,7 +33,7 @@ from luxai.secure_keys import store_api_key, get_api_key, key_storage_status
 from luxai.api_verification import check_api_key_detailed
 from luxai.cloud_status import cloud_status_text
 from luxai.api_providers import PROVIDERS
-from luxai.command_registry import CommandRegistry
+from luxai.command_registry import CommandRegistry, checked_command
 from luxai.ui_commands import CommandsPage
 from luxai.command_wizard import CommandWizard, is_create_command_request
 from luxai.discord_research import (
@@ -209,6 +209,9 @@ class AudioDiagnosticsWorker(QThread):
             self.completed.emit({"error": type(exc).__name__})
 
 class MainWindow(QMainWindow):
+    command_hotkey = Signal(str)
+    command_editor_plan_ready = Signal(object, object, str)
+    attachment_reply_ready = Signal(int, object, str)
     online_plan_ready = Signal(str, object)
     local_reply_ready = Signal(str, str)
     api_test_result = Signal(str, bool, str, object)
@@ -278,6 +281,10 @@ class MainWindow(QMainWindow):
         self.api_test_result.connect(self._on_api_test_result)
         self.cloud_check_result.connect(self._on_cloud_check_result)
         self.tts_played.connect(self._on_tts_played)
+        self.command_editor_plan_ready.connect(self._on_editor_plan_ready)
+        self.attachment_reply_ready.connect(self._on_attachment_reply)
+        self._attachment_token = 0
+        self._attachment_active = None
         self._command_queue = []
         self._active_text = None
         self._processing = False
@@ -330,6 +337,8 @@ class MainWindow(QMainWindow):
         outer.setSpacing(0)
 
         self.sidebar = NavigationSidebar()
+        self.sidebar.set_collapsed(self.cfg.get("ui_sidebar_collapsed", False))
+        self.sidebar.collapsed_changed.connect(self._save_sidebar_state)
         self.sidebar.page_selected.connect(self.show_page)
         self.nav_buttons = self.sidebar.nav_buttons
         outer.addWidget(self.sidebar)
@@ -396,6 +405,7 @@ class MainWindow(QMainWindow):
         self._foreground_observer.setInterval(450)
         self._foreground_observer.timeout.connect(self._remember_external_window)
         self._foreground_observer.start()
+        self._setup_command_triggers()
 
         if self.cfg.get("microphone_enabled", True):
             self.start_listener()
@@ -481,8 +491,23 @@ class MainWindow(QMainWindow):
         """Show editable built-in and learned commands instead of only history."""
         self.commands_page = CommandsPage(self.command_registry)
         self.commands_page.run_requested.connect(self.run_saved_command)
+        self.commands_page.run_entry_requested.connect(
+            lambda entry: self.run_command_entry({**entry, "enabled": True}))
+        self.commands_page.ai_requested.connect(self._generate_editor_actions)
+        self.commands_page.set_context(self.online_planner, self.cfg)
         self.commands_page.voice_create_requested.connect(self.start_voice_command_wizard)
         self.pages.addWidget(self.commands_page)
+
+    def _save_sidebar_state(self, collapsed):
+        """Persist navigation without committing unfinished settings/API drafts."""
+        previous = self.cfg.get("ui_sidebar_collapsed", False)
+        self.cfg["ui_sidebar_collapsed"] = bool(collapsed)
+        try:
+            save_config(self.cfg)
+        except OSError:
+            self.cfg["ui_sidebar_collapsed"] = previous
+            self.sidebar.set_collapsed(previous)
+            self.append_message("Jarvis", tr("Ошибка сохранения config.json."), "#a5b9dc")
 
     def _wizard_response(self, message):
         if not message:
@@ -538,13 +563,86 @@ class MainWindow(QMainWindow):
         self._wizard_response(response)
 
     def run_saved_command(self, entry):
-        if not isinstance(entry, dict) or not entry.get("enabled"):
+        self.run_command_entry(entry)
+
+    def run_command_entry(self, entry, *, triggered=False):
+        """Manual/global triggers execute the validated entry, independent of voice."""
+        if self._closed or not isinstance(entry, dict) or entry.get("enabled") is False:
             return
-        self.show_page(3)  # command result is visible in the chat log
-        phrase = entry.get("phrases", [""])
-        if phrase:
-            self.append_message("Tu", phrase[0], "#79a6ff")
-            self.run_command(phrase[0])
+        try:
+            verified = checked_command(entry, builtin=bool(entry.get("builtin")))
+        except (ValueError, TypeError) as exc:
+            self.append_message("Jarvis", tr("Недопустимая команда:") + " " + str(exc), "#a5b9dc")
+            return
+        if len(self._command_queue) >= 8:
+            self.mic_status.setText(tr("Очередь заполнена. Подождите завершения команды."))
+            return
+        self.show_page(3)
+        text = (verified.get("phrases") or [verified["title"]])[0]
+        self.append_message("Tu", verified["title"], "#79a6ff")
+        self._command_queue.append({"parts": [text], "saved_entry": verified,
+                                    "triggered_id": verified["id"] if triggered else "",
+                                    "answers": [], "routes": [], "original_text": text})
+        self._dispatch_command()
+
+    def _setup_command_triggers(self):
+        from luxai.command_triggers import CommandTriggerEngine, WindowsHotkeyListener
+        self._trigger_engine = CommandTriggerEngine(
+            self.command_registry, lambda entry: self.run_command_entry(entry, triggered=True))
+        self._hotkey_listener = WindowsHotkeyListener(self.command_hotkey.emit)
+        self.command_hotkey.connect(self._on_command_hotkey)
+        self._trigger_timer = QTimer(self)
+        self._trigger_timer.setInterval(1000)
+        self._trigger_timer.timeout.connect(self._poll_command_triggers)
+        self._last_trigger_errors = ()
+        self.commands_page.changed.connect(self._configure_command_triggers)
+        self._configure_command_triggers()
+
+    @Slot(str)
+    def _on_command_hotkey(self, identifier):
+        if not self._closed:
+            self._trigger_engine.handle_hotkey(identifier)
+
+    def _configure_command_triggers(self):
+        entries = self.command_registry.entries()
+        self._hotkey_listener.sync(entries)
+        active = any(item.get("enabled") and any(item.get(key) for key in ("hotkey", "schedule", "event"))
+                     for item in entries)
+        self._trigger_timer.start() if active else self._trigger_timer.stop()
+        if active:
+            self._poll_command_triggers()
+
+    def _poll_command_triggers(self):
+        if self._closed:
+            return
+        try:
+            self._trigger_engine.poll()
+            self.commands_page.setToolTip(str(getattr(self._trigger_engine, "last_error", "") or ""))
+            errors = tuple(sorted(getattr(self._hotkey_listener, "errors", {}).items()))
+            if errors and errors != self._last_trigger_errors:
+                self.append_message("Jarvis", tr("Не удалось включить горячую клавишу:")
+                                    + "\n" + "\n".join(tr(value) for _, value in errors), "#a5b9dc")
+            self._last_trigger_errors = errors
+        except (OSError, RuntimeError, ValueError) as exc:
+            self.commands_page.setToolTip(tr("Ошибка проверки запуска команд:") + " " + str(exc))
+
+    def _generate_editor_actions(self, description, editor):
+        config = dict(self.cfg)
+        def work():
+            planner = OnlinePlanner(config)
+            try:
+                plan = planner.plan_macro(description) if planner.enabled() else None
+                error = planner.last_error or tr("Настройте облачный AI в настройках.") if plan is None else ""
+            except Exception as exc:
+                plan, error = None, self._error_message(exc)
+            if not self._closed:
+                self.command_editor_plan_ready.emit(editor, plan, error)
+        threading.Thread(target=work, daemon=True, name="JarvisCommandEditorAI").start()
+
+    def _on_editor_plan_ready(self, editor, plan, error):
+        from shiboken6 import isValid
+        if not self._closed and isValid(editor) and editor.isVisible():
+            editor.apply_ai_result(plan, error)
 
     def build_addons(self):
         page = QWidget()
@@ -572,8 +670,6 @@ class MainWindow(QMainWindow):
         layout.addWidget(cloud_frame)
         self._update_cloud_indicator()
         for name, description, action in [
-            ("Снимок экрана", "Сохранить снимок текущего экрана на этом компьютере.", self.screen_action),
-            ("Распознавание текста (OCR)", "Сделать снимок и извлечь из него видимый текст.", self.ocr_action),
             ("Выбрать локальную AI-модель", "Указать путь к файлу модели .gguf на компьютере.", self.pick_model),
         ]:
             frame, box = card()
@@ -617,11 +713,36 @@ class MainWindow(QMainWindow):
         self.chat_activity.setWordWrap(True)
         self.chat_activity.hide()
         box.addWidget(self.chat_activity)
+        self.attachment_edits = QScrollArea()
+        self.attachment_edits.setObjectName("AttachmentEdits")
+        self.attachment_edits.setWidgetResizable(True)
+        self.attachment_edits.setFrameShape(QFrame.Shape.NoFrame)
+        self.attachment_edits.setMaximumHeight(144)
+        edit_panel = QWidget()
+        self.attachment_edit_layout = QVBoxLayout(edit_panel)
+        self.attachment_edit_layout.setContentsMargins(0, 0, 0, 0)
+        self.attachment_edits.setWidget(edit_panel)
+        self.attachment_edits.hide()
+        box.addWidget(self.attachment_edits)
+        from luxai.ui_attachments import AttachmentTray
+        self.attachment_tray = AttachmentTray(self)
+        self.attachment_tray.add_requested.connect(self._pick_chat_attachments)
+        self.attachment_tray.error.connect(
+            lambda message: self.append_message("Jarvis", message, "#a5b9dc"))
+        self.attachment_tray.loading_changed.connect(self._attachment_loading_changed)
+        self.attachment_tray.changed.connect(self._refresh_attachment_route)
+        self._attachment_dialogs = []
+        box.addWidget(self.attachment_tray)
         row = QHBoxLayout()
         self.command = QLineEdit()
         self.command.setPlaceholderText("Напишите сообщение или команду…")
         self.command.returnPressed.connect(self.submit_command)
         row.addWidget(self.command, 1)
+        self.cancel_attachment = QPushButton(tr("Отменить чтение"))
+        set_button_icon(self.cancel_attachment, "x")
+        self.cancel_attachment.clicked.connect(lambda: self.run_command("cancel task"))
+        self.cancel_attachment.hide()
+        row.addWidget(self.cancel_attachment)
         self.send = QPushButton("Отправить")
         self.send.setObjectName("Primary")
         set_button_icon(self.send, "send", role="white")
@@ -630,6 +751,93 @@ class MainWindow(QMainWindow):
         box.addLayout(row)
         layout.addWidget(frame, 1)
         self.pages.addWidget(page)
+        self._refresh_attachment_route()
+
+    def _pick_chat_attachments(self):
+        chosen, _ = QFileDialog.getOpenFileNames(
+            self, tr("Добавить фотографии и файлы"), "",
+            tr("Фотографии и документы") + " (*.png *.jpg *.jpeg *.webp *.txt *.md *.csv *.json *.py *.js *.html *.css *.xml *.yaml *.yml *.log *.pdf *.docx);;"
+            + tr("Все файлы") + " (*)")
+        if chosen:
+            self.attachment_tray.add_paths(chosen)
+
+    def _attachment_loading_changed(self, loading):
+        self.send.setEnabled(not loading)
+
+    def _refresh_attachment_route(self):
+        if hasattr(self, "attachment_tray"):
+            self.attachment_tray.set_delivery_mode(self.online_planner.enabled())
+
+    def _start_attachment_chat(self, text, attachments, *, config=None, allow_cloud=None):
+        from luxai.attachment_chat import respond_to_attachments
+        self._attachment_token += 1
+        token = self._attachment_token
+        self._attachment_active = (token, text)
+        self.cancel_attachment.show()
+        config = dict(self.cfg) if config is None else dict(config)
+        if allow_cloud is None:
+            allow_cloud = self.online_planner.enabled()
+        self.mic_status.setText(tr("Читаю прикреплённые файлы…"))
+        def work():
+            try:
+                result = respond_to_attachments(OnlinePlanner(config), LocalAgent(config),
+                                                text, tuple(attachments), allow_cloud=allow_cloud)
+                error = ""
+            except Exception as exc:
+                result, error = None, self._error_message(exc)
+            if not self._closed:
+                self.attachment_reply_ready.emit(token, result, error)
+        threading.Thread(target=work, daemon=True, name="JarvisAttachmentChat").start()
+
+    def _on_attachment_reply(self, token, result, error):
+        if self._closed or not self._attachment_active or token != self._attachment_active[0]:
+            return
+        _, text = self._attachment_active
+        self._attachment_active = None
+        self.cancel_attachment.hide()
+        while self.attachment_edit_layout.count():
+            item = self.attachment_edit_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        if result is not None:
+            self._current_route = "cloud: файлы" if result.source == "cloud" else "локальные файлы"
+            for proposal in result.edits:
+                label = tr("Просмотреть изменения:") + " " + proposal.attachment.name
+                button = QPushButton()
+                button.setText(button.fontMetrics().elidedText(
+                    label, Qt.TextElideMode.ElideMiddle,
+                    max(280, self.attachment_edits.viewport().width() - 48)))
+                button.setAccessibleName(label)
+                button.setStyleSheet("text-align: left;")
+                button.setProperty("i18n_skip", True)
+                button.setToolTip(proposal.attachment.name)
+                button.setMinimumWidth(0)
+                button.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+                set_button_icon(button, "file-text", role="accent")
+                button.clicked.connect(lambda _checked=False, edit=proposal: self._preview_attachment_edit(edit))
+                self.attachment_edit_layout.addWidget(button)
+            self.attachment_edits.setVisible(bool(result.edits))
+            answer = result.text
+            if result.warnings:
+                answer += "\n\n" + "\n".join(result.warnings)
+        else:
+            self._current_route = "файлы"
+            self.attachment_edits.hide()
+            answer = error or tr("Не удалось прочитать прикреплённые файлы.")
+        self._resolved_command(text, answer)
+
+    def _preview_attachment_edit(self, proposal):
+        from luxai.ui_attachments import AttachmentEditDialog
+        dialog = AttachmentEditDialog(proposal, self)
+        self._attachment_dialogs.append(dialog)
+        dialog.applied.connect(self.attachment_tray.replace_attachment)
+        dialog.applied.connect(lambda _item: self.append_message(
+            "Jarvis", tr("Изменения сохранены. Исходная копия сохранена в резервной папке."), "#a5b9dc"))
+        dialog.saved_copy.connect(lambda path: self.append_message(
+            "Jarvis", tr("Копия сохранена:") + " " + path, "#a5b9dc"))
+        dialog.finished.connect(lambda _code: self._attachment_dialogs.remove(dialog)
+                                if dialog in self._attachment_dialogs else None)
+        dialog.open()
 
     def build_settings(self):
         self.settings_panel = SettingsPanel(
@@ -662,6 +870,8 @@ class MainWindow(QMainWindow):
         self.commands_page.interface_language = language
         self.commands_page.refresh()
         translate_widgets(self, language)
+        if hasattr(self, "attachment_tray"):
+            self.attachment_tray.set_language(language)
         self.settings_panel.retranslate(language)
         self._refresh_history_colors()
         self._update_cloud_indicator()
@@ -853,6 +1063,9 @@ class MainWindow(QMainWindow):
         if self.agent:
             self.agent.update_config(self.cfg)
         self.online_planner.update_config(self.cfg)
+        if hasattr(self, "commands_page"):
+            self.commands_page.set_context(self.online_planner, self.cfg)
+        self._refresh_attachment_route()
         if self._cloud_signature() != old_signature:
             self.online_planner.reset_connection_state()
         self._cloud_applied_signature = self._cloud_signature()
@@ -1595,6 +1808,31 @@ class MainWindow(QMainWindow):
 
     def submit_command(self):
         text = self.command.text().strip()
+        from luxai.task_intents import is_task_cancel
+        if self._attachment_active and (is_task_cancel(text) or text.casefold() in (
+                "cancel", "abort", "отмена", "anulează", "anuleaza")):
+            self.command.clear()
+            self.run_command("cancel task")
+            return
+        if hasattr(self, "attachment_tray") and self.attachment_tray.loading:
+            self.mic_status.setText(tr("Дождитесь загрузки файлов."))
+            return
+        attachments = self.attachment_tray.attachments() if hasattr(self, "attachment_tray") else ()
+        if attachments:
+            if self.apply_settings() is False:
+                return
+            if len(self._command_queue) >= 8:
+                self.mic_status.setText(tr("Очередь заполнена. Подождите завершения команды."))
+                return
+            text = text or tr("Опиши прикреплённые файлы.")
+            self.command.clear()
+            self.append_message("Tu", text + "\n" + ", ".join(item.name for item in attachments), "#79a6ff")
+            self._command_queue.append({"parts": [text], "attachments": tuple(attachments),
+                                        "answers": [], "routes": [], "original_text": text,
+                                        "attachment_config": dict(self.cfg),
+                                        "attachments_allow_cloud": self.online_planner.enabled()})
+            self._dispatch_command()
+            return
         if not text:
             return
         self.command.clear()
@@ -1664,6 +1902,12 @@ class MainWindow(QMainWindow):
         if not text:
             return
         from luxai.task_intents import is_task_cancel
+        if is_task_cancel(text) and getattr(self, "_attachment_active", None):
+            self._attachment_token += 1
+            self._attachment_active = None
+            self.cancel_attachment.hide()
+            self._resolved_command(text, tr("Обработка файлов отменена."))
+            return
         if getattr(self, "_pending_discord_message", None) is not None:
             self._continue_discord_message(text)
             return
@@ -1730,6 +1974,26 @@ class MainWindow(QMainWindow):
             word.strip() for word in self.cfg.get("command_chain_words", "и затем, потом").split(",")
             if word.strip()
         ]
+        if isinstance(self.command_registry, CommandRegistry):
+            chain_words = list(dict.fromkeys(connectors + [
+                "и затем", "потом", "и", "and then", "then", "and", "și apoi", "si apoi", "apoi", "și", "si",
+            ]))
+            prefix = self.cfg.get("wake_prefix", "Jarvis")
+            if self.command_registry.chain_blocked(text, prefix, chain_words):
+                self.append_message("Jarvis", tr("Для этой команды отключена связка с другими командами."), "#a5b9dc")
+                return
+            saved_chain = self.command_registry.match_chain(text, prefix, chain_words)
+            if len(saved_chain) == 1:
+                # Preserve a complete saved phrase containing conjunctions,
+                # while retaining dedicated native/verified routing priority.
+                connectors = []
+            elif len(saved_chain) > 1:
+                self._command_queue.append({
+                    "parts": [(item.get("phrases") or [item["title"]])[0] for item in saved_chain],
+                    "saved_entries": list(saved_chain), "answers": [], "routes": [], "original_text": text,
+                })
+                self._dispatch_command()
+                return
         from luxai.task_intents import steam_self_nickname_request
         from luxai.discord_headphones_visual import discord_headphones_mode
         from luxai.discord_call_visual import detect_discord_call_request
@@ -2201,6 +2465,25 @@ class MainWindow(QMainWindow):
         self._processing = True
         self.mic_status.setText({"ru": "Обрабатываю запрос…", "ro": "Procesez cererea…", "en": "Processing the request…"}[reply_language(self.cfg, text)])
         try:
+            direct_entry = current.pop("saved_entry", None)
+            if direct_entry is None and current.get("saved_entries"):
+                direct_entry = current["saved_entries"].pop(0)
+            if direct_entry is not None:
+                triggered_id = current.pop("triggered_id", "")
+                if triggered_id:
+                    latest = next((item for item in self.command_registry.entries()
+                                   if item["id"] == triggered_id), None)
+                    if not latest or not latest.get("enabled") or latest != direct_entry:
+                        self._resolved_command(text, tr("Команда изменилась или отключена до запуска."))
+                        return
+                self._execute_registered(text, direct_entry)
+                return
+            attachments = current.pop("attachments", None)
+            if attachments is not None:
+                self._start_attachment_chat(text, attachments,
+                    config=current.pop("attachment_config", None),
+                    allow_cloud=current.pop("attachments_allow_cloud", None))
+                return
             resume = current.pop("adaptive_resume", None)
             if resume:
                 self._start_adaptive_task(text, runtime=resume["runtime"], task_id=resume["task_id"], clarification=resume["clarification"])
@@ -2497,6 +2780,10 @@ class MainWindow(QMainWindow):
             self._resolved_command(text, self._error_message(exc))
 
     def _execute_registered(self, text, saved):
+        if saved.get("ask_before_run") and not self.confirm_action(
+                tr("Запустить команду:") + " " + saved["title"], force=True):
+            self._resolved_command(text, tr("Команда отменена."))
+            return
         if saved.get("steps"):
             self._run_saved_steps(text, saved["steps"])
             return
@@ -3918,7 +4205,7 @@ class MainWindow(QMainWindow):
             # Report in text only: a failed voice must not enqueue itself again.
             self.append_message("Jarvis", message, "#a5b9dc")
 
-    def confirm_action(self, description):
+    def confirm_action(self, description, *, force=False):
         # Ordinary app launches, documents, sites, text and hotkeys execute
         # immediately. Previous config.json files used
         # confirm_desktop_actions=True by default; ignore that legacy option
@@ -3926,7 +4213,7 @@ class MainWindow(QMainWindow):
         # Explicit risky operations still present a dialog even when the
         # general confirmation toggle is disabled.
         risk = "⚠" in str(description)
-        if not risk and not self.cfg.get("confirm_all_actions", False):
+        if not risk and not force and not self.cfg.get("confirm_all_actions", False):
             return True
         dialog = QMessageBox(self)
         accent = theme_colors(self.cfg.get("ui_theme", "dark"), self.cfg.get("ui_accent", "#3978f6"))["accent"]
@@ -3999,6 +4286,10 @@ class MainWindow(QMainWindow):
         if self.tray_icon:
             self.tray_icon.hide()
         self._closed = True
+        self._attachment_token += 1
+        if hasattr(self, "_trigger_timer"):
+            self._trigger_timer.stop()
+            self._hotkey_listener.stop()
         if getattr(self, "_adaptive_runtime", None):
             self._adaptive_runtime.cancel_event.set()
         self.stop_speaking()

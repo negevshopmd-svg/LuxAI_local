@@ -1,5 +1,17 @@
 # LuxAI_local
 
+## 0.3.9: chat attachments and a complete command editor — 2026-10-28
+
+Use **Attach** or drag files into the chat, enter a question and press **Send**. Supported inputs include text, code, CSV, JSON, Markdown, PDF, DOCX and photos. Selection and preview stay local. Sending with cloud AI enabled shares the selected files with that provider; image analysis requires an image-capable model. Local processing uses document text and image OCR, rather than local image vision. Limits: 8 files, 10 MB per file and 20 MB per message.
+
+For requested file changes, Jarvis proposes edits for review. Compare the original, changes and new text before choosing **Apply** or **Save copy**. Text files and compatible DOCX edits with the same paragraph structure can be applied after a stale-file check, with the original backed up in `.luxai_data/file_edits`. PDF changes and structural DOCX changes are exported as a text copy; they do not rewrite the original document. Attached code is read as data, never executed.
+
+The redesigned **Commands** editor groups phrases, optional words, triggers and ordered actions. Add voice phrases, a keyboard shortcut, a schedule or an application/headphone event; record supported Windows actions or ask AI to propose steps, then review them. Recording letters/digits is opt-in and limited to Dota 2, Counter-Strike 2, War Thunder and Undertale. **Test phrase** checks matching without running anything; **Run now** executes the reviewed draft. Up to 8 actions, whole-command confirmation and chaining preferences are supported. Schedules, events and global shortcuts work only while Jarvis is running. Native Windows recording/hooks still need testing on the target PC.
+
+The sidebar remembers whether it was collapsed. The Screenshot and OCR cards have been removed from **Tools**; their existing commands and automatic OCR setup remain available. Interface labels follow Russian, English or Romanian without translating personal filenames, phrases or document contents.
+
+Close Jarvis, run `Update.bat`, then `run_windows.bat`. Settings, models and personal files are preserved. All bundled `.md` files and tests remain GitHub-only; `README_RO.txt` and required license notices stay installed.
+
 ## 0.3.8c: Markdown documentation stays on GitHub
 
 Installation and updates omit all bundled `.md` files, including README files, user guides and release notes. These documents remain available in this GitHub repository; Jarvis does not need them to run. `Update.bat` also removes unchanged Markdown copies shipped by earlier versions. Personal notes, edited documents, settings and models are preserved. Required license notices and `README_RO.txt` remain installed.
@@ -172,7 +184,7 @@ On another computer, always extract a fresh ZIP without a copied `.venv`. Avoid 
 
 ## Interface languages
 
-Open **Settings → Interface → Interface language** and choose **Русский**, **English**, or **Română**, then press **Save settings**. Menu labels, settings, home controls, command editor and tool panels switch immediately without restarting the program. The preference is saved as `ui_language` in the local `config.json` and restored on next launch.
+Open **Settings → Interface → Interface language** and choose **Русский**, **English**, or **Română**. Changes save automatically. Menu labels, settings, home controls, command editor and tool panels switch immediately without restarting the program. The preference is saved as `ui_language` in the local `config.json` and restored on next launch.
 
 Interface language is separate from **Voice input → Recognition language** (the existing `language` setting). Changing interface text does **not** change Whisper transcription, spoken answers, custom command phrases, API keys, or user-entered fields. Free-form agent responses, user-provided command names and third-party error messages remain in their original language.
 
@@ -210,7 +222,7 @@ The newest package release is not always compatible with every Python version or
 
 Local GGUF messages use **UTF-8 in both directions**, including Windows systems whose default character set cannot encode Romanian `ș`, `ț` or Cyrillic. After updating, say a phrase containing Romanian diacritics to confirm the chat no longer returns `'charmap' codec can't encode character`.
 
-API keys are encrypted using the current Windows account's Data Protection API (DPAPI). New keys are saved in **`%LOCALAPPDATA%\LuxAI_Local\secrets`** instead of the copy of LuxAI on the Desktop, so extracting or updating LuxAI elsewhere does not lose the key. Old readable keys in `.luxai_secrets` are migrated automatically for the same Windows user. After clicking **Save settings**, LuxAI verifies the saved key can be decrypted. If not, it keeps the entered text and reports the error. DPAPI cannot decrypt a key created under another Windows account; each user must save their own key.
+API keys are encrypted using the current Windows account's Data Protection API (DPAPI). New keys are saved in **`%LOCALAPPDATA%\LuxAI_Local\secrets`** instead of the copy of LuxAI on the Desktop, so extracting or updating LuxAI elsewhere does not lose the key. Old readable keys in `.luxai_secrets` are migrated automatically for the same Windows user. When editing finishes or an explicit key test succeeds, LuxAI saves the key and verifies it can be decrypted. If not, it keeps the entered text and reports the error. DPAPI cannot decrypt a key created under another Windows account; each user must save their own key.
 
 Open **Tools / Instrumente / Дополнения** to see Cloud AI status. A **green** indicator means a real authenticated test request has succeeded with the selected provider and model during the current session. Yellow means configured but not yet checked (or disabled); red means a missing key or failed check. Use **Check cloud AI** to run another test. A test may consume a small amount of the provider's quota. Never confuse having a stored key with confirmed live connectivity.
 

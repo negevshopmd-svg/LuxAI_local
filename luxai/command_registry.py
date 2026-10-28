@@ -123,6 +123,42 @@ def normalize_phrase(text):
     return s
 
 
+def phrase_matches(item, spoken, prefix="Jarvis", *, source="voice"):
+    """Match complete phrases, allowing only explicitly optional edge words.
+
+    Optional words never turn a substring into a command or discard an
+    unrecognised negation. The same pure matcher is used by the editor tester.
+    """
+    if not isinstance(item, dict) or not item.get("enabled", True):
+        return False
+    if source == "voice" and not item.get("voice_enabled", True):
+        return False
+    phrase = normalize_phrase(strip_wake_name(spoken, prefix))
+    if not phrase or len(phrase) > 1000:
+        return False
+    required = {normalize_phrase(value) for value in item.get("phrases", []) if isinstance(value, str)} - {""}
+    if phrase in required:
+        return True
+    words = sorted({normalize_phrase(value) for value in item.get("optional_words", [])
+                    if isinstance(value, str) and value.strip()}, key=len, reverse=True)
+    # Both ends may contain more than one optional word. A bounded worklist
+    # handles overlapping optional phrases without guessing their order.
+    pending, seen = [phrase], set()
+    while pending and len(seen) < 200:
+        candidate = pending.pop()
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        if candidate in required:
+            return True
+        for word in words[:20]:
+            if candidate.startswith(word + " "):
+                pending.append(candidate[len(word) + 1:])
+            if candidate.endswith(" " + word):
+                pending.append(candidate[:-len(word) - 1])
+    return False
+
+
 def checked_command(raw, builtin=False):
     """Validate loaded commands again: local JSON is not executable code."""
     if not isinstance(raw, dict):
@@ -144,7 +180,7 @@ def checked_command(raw, builtin=False):
     phrases = raw.get("phrases", [])
     if action not in ACTIONS or not isinstance(target, str) or not isinstance(title, str):
         raise ValueError("Unsupported command")
-    if len(title) not in range(1, 101) or not isinstance(phrases, list) or len(phrases) not in range(1, 13):
+    if len(title) not in range(1, 101) or not isinstance(phrases, list) or len(phrases) not in range(0, 13):
         raise ValueError("Invalid command title or phrases")
     good_phrases = []
     for phrase in phrases:
@@ -153,8 +189,27 @@ def checked_command(raw, builtin=False):
         normalized = normalize_phrase(phrase)
         if normalized and normalized not in {normalize_phrase(p) for p in good_phrases}:
             good_phrases.append(phrase.strip())
-    if not good_phrases:
+    for flag in ("voice_enabled", "ask_before_run", "allow_chaining"):
+        if flag in raw and not isinstance(raw[flag], bool):
+            raise ValueError("Некорректный параметр команды.")
+    voice_enabled = raw.get("voice_enabled", True)
+    if not good_phrases and voice_enabled:
         raise ValueError("At least one phrase is required")
+    optional_words = raw.get("optional_words", [])
+    if not isinstance(optional_words, list) or len(optional_words) > 20:
+        raise ValueError("Некорректный список необязательных слов.")
+    checked_optional = []
+    for value in optional_words:
+        if (not isinstance(value, str) or not 1 <= len(value.strip()) <= 40
+                or any(ord(char) < 32 for char in value) or not normalize_phrase(value)):
+            raise ValueError("Некорректное необязательное слово.")
+        value = value.strip()
+        if normalize_phrase(value) not in {normalize_phrase(x) for x in checked_optional}:
+            checked_optional.append(value)
+    from luxai.command_triggers import normalize_hotkey, validate_schedule, validate_event
+    hotkey = normalize_hotkey(raw.get("hotkey", ""))
+    schedule = validate_schedule(raw.get("schedule", {}))
+    event = validate_event(raw.get("event", {}))
     if action == "open_app" and target not in APP_TARGETS:
         raise ValueError("Unknown application")
     if action == "launch_game" and target not in GAMES:
@@ -187,6 +242,13 @@ def checked_command(raw, builtin=False):
         "builtin": bool(builtin),
         "learned": bool(raw.get("learned", False)) if not builtin else False,
         "steps": validated_steps,
+        "optional_words": checked_optional,
+        "voice_enabled": voice_enabled,
+        "hotkey": hotkey,
+        "schedule": schedule,
+        "event": event,
+        "ask_before_run": raw.get("ask_before_run", False),
+        "allow_chaining": raw.get("allow_chaining", True),
     }
 
 
@@ -235,23 +297,56 @@ class CommandRegistry:
             result.append(item)
         return result + [dict(item) for item in self.custom]
 
-    def match(self, spoken, prefix="Jarvis"):
+    def match(self, spoken, prefix="Jarvis", *, source="voice"):
         command = normalize_phrase(strip_wake_name(spoken, prefix))
         if not command:
             return None
         # User-created commands override defaults only when exact phrases match.
         for item in list(self.custom) + self.entries()[:len(BUILTINS)]:
-            if item["enabled"] and any(normalize_phrase(p) == command for p in item["phrases"]):
+            if phrase_matches(item, spoken, prefix, source=source):
                 return dict(item)
         return None
+
+    def match_chain(self, spoken, prefix="Jarvis", connectors=("и затем", "потом", "and then", "apoi")):
+        """Resolve an entire saved-command chain before running any member."""
+        whole = self.match(spoken, prefix)
+        if whole is not None:
+            return [whole]
+        text = strip_wake_name(spoken, prefix)
+        separators = [re.escape(str(value).strip()) for value in connectors if str(value).strip()]
+        if not separators:
+            return []
+        parts = [part.strip() for part in re.split(r"\s+(?:" + "|".join(separators) + r")\s+", text, flags=re.I)]
+        if not 2 <= len(parts) <= 8 or not all(parts):
+            return []
+        matched = [self.match(part, "") for part in parts]
+        if any(item is None or not item.get("allow_chaining", True) for item in matched):
+            return []
+        return matched
+
+    def chain_blocked(self, spoken, prefix="Jarvis", connectors=("и затем", "потом")):
+        """Reject compounds containing a saved command that forbids chaining."""
+        if self.match(spoken, prefix) is not None:
+            return False
+        separators = [re.escape(str(value).strip()) for value in connectors if str(value).strip()]
+        if not separators:
+            return False
+        parts = [value.strip() for value in re.split(
+            r"\s+(?:" + "|".join(separators) + r")\s+",
+            strip_wake_name(spoken, prefix), flags=re.I,
+        )]
+        if len(parts) < 2:
+            return False
+        return any((entry := self.match(part, "")) is not None
+                   and not entry.get("allow_chaining", True) for part in parts)
 
     def disabled_match(self, spoken, prefix="Jarvis"):
         """Avoid executing explicitly disabled built-in triggers via looser AI rules."""
         phrase = normalize_phrase(strip_wake_name(spoken, prefix))
-        for item in BUILTINS:
-            if item["id"] not in self.disabled_builtins:
+        for item in self.entries():
+            if item.get("enabled") and item.get("voice_enabled", True):
                 continue
-            if any(normalize_phrase(candidate) == phrase for candidate in item["phrases"]):
+            if phrase_matches(dict(item, enabled=True), spoken, prefix, source="manual"):
                 return True
         return False
 

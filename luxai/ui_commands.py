@@ -51,12 +51,16 @@ from luxai.ui_command_editor import CommandEditor
 
 class CommandsPage(QWidget):
     run_requested = Signal(object)
+    run_entry_requested = Signal(object)
+    ai_requested = Signal(str, object)
     voice_create_requested = Signal()
     changed = Signal()
 
     def __init__(self, registry: CommandRegistry, parent=None):
         super().__init__(parent)
         self.registry = registry
+        self._planner = None
+        self._config = {}
         self.interface_language = get_ui_language()
         self.setObjectName("CommandsPage")
 
@@ -230,8 +234,19 @@ class CommandsPage(QWidget):
                 visible += int(show)
             group.setHidden(visible == 0)
 
+    def set_context(self, planner=None, config=None):
+        self._planner = planner
+        if config is not None:
+            self._config = config
+
+    def _configure_editor(self, dialog):
+        dialog.set_context(self._planner, self._config)
+        dialog.run_requested.connect(self.run_entry_requested.emit)
+        dialog.ai_requested.connect(self.ai_requested.emit)
+        return dialog
+
     def new_command(self):
-        dialog = CommandEditor(parent=self)
+        dialog = self._configure_editor(CommandEditor(parent=self))
         if dialog.exec() == QDialog.DialogCode.Accepted:
             try:
                 self.registry.save_custom(dialog.get_data())
@@ -244,7 +259,7 @@ class CommandsPage(QWidget):
         selected = self._selected()
         if not selected or selected["builtin"]:
             return
-        dialog = CommandEditor(selected, parent=self)
+        dialog = self._configure_editor(CommandEditor(selected, parent=self))
         if dialog.exec() == QDialog.DialogCode.Accepted:
             try:
                 self.registry.save_custom(dialog.get_data())

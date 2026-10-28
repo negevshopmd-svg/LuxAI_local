@@ -15,3 +15,4 @@ Send2Trash>=1.8.3
 psutil>=5.9
 tzdata>=2025.2
 pywinauto>=0.6.8
+pypdf>=6.10
