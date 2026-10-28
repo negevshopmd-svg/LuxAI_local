@@ -255,15 +255,15 @@ class CommandsPage(QWidget):
         user_groups = defaultdict(list)
         for entry in personal:
             user_groups[entry["category"]].append(entry)
-        for kind, names in (("folders", getattr(self.registry, "groups", {}).get("folders", [])),
-                            ("collections", getattr(self.registry, "groups", {}).get("collections", []))):
+        for kind, names in (("folders", self._group_names("folders")),
+                            ("collections", self._group_names("collections"))):
             for name in names:
                 user_groups.setdefault(name, [])
         category_names = ["Мои команды", "Выученные команды"]
         category_names.extend(sorted(name for name in user_groups if name not in category_names))
         for name in category_names:
             items = user_groups.get(name, [])
-            if not items and name not in getattr(self.registry, "groups", {}).get("folders", []) + getattr(self.registry, "groups", {}).get("collections", []):
+            if not items and name not in self._group_names("folders") + self._group_names("collections"):
                 continue
             category = QTreeWidgetItem([tr(name, self.interface_language), f"{len(items)}", "", ""])
             category.setFlags(category.flags() & ~Qt.ItemFlag.ItemIsSelectable)
@@ -283,6 +283,11 @@ class CommandsPage(QWidget):
                     self.tree.setCurrentItem(item)
                     break
         self._selection_changed()
+
+    def _group_names(self, kind):
+        # Mocked registries in tests and older integrations may have no groups.
+        value = getattr(self.registry, "groups", None)
+        return list(value.get(kind, [])) if isinstance(value, dict) else []
 
     @staticmethod
     def _default_group(entry):
@@ -412,8 +417,7 @@ class CommandsPage(QWidget):
                           self.interface_language), self.toggle_selected)
         if not entry["builtin"]:
             menu.addAction(tr("Изменить", self.interface_language), self.edit_selected)
-            folders = list(getattr(self.registry, "groups", {}).get("folders", []))
-            folders += list(getattr(self.registry, "groups", {}).get("collections", []))
+            folders = self._group_names("folders") + self._group_names("collections")
             if folders:
                 move = menu.addMenu(tr("Переместить в папку", self.interface_language))
                 for name in dict.fromkeys(folders):
