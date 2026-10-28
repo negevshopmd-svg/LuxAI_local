@@ -703,6 +703,11 @@ class MainWindow(QMainWindow):
         subtitle.setObjectName("Muted")
         layout.addWidget(subtitle)
         frame, box = card()
+        frame.setObjectName("ChatHistoryFrame")
+        frame.setStyleSheet("""
+            QFrame#ChatHistoryFrame {background: transparent; border: none;}
+            QTextEdit {background: transparent; border: none;}
+        """)
         self.log = QTextEdit()
         self.log.setReadOnly(True)
         self.log.setPlaceholderText("Jarvis появится здесь после первого сообщения.")
@@ -783,8 +788,10 @@ class MainWindow(QMainWindow):
         self.send.setFixedSize(36, 36)
         self.send.clicked.connect(self.submit_command)
         self.attachment_tray.controls.addWidget(self.send)
-        box.addWidget(composer)
         layout.addWidget(frame, 1)
+        # The composer is a separate surface beneath the chat history, not a
+        # second nested card inside the history container.
+        layout.addWidget(composer, 0)
         self.pages.addWidget(page)
         self._refresh_attachment_route()
 
