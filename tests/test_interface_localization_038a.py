@@ -126,7 +126,9 @@ class InterfaceLocalization038aTests(unittest.TestCase):
         for language, builtin in (("en", "Notepad"), ("ro", "Notepad"), ("ru", "Блокнот")):
             page.interface_language = language
             page.refresh()
-            first = page.tree.topLevelItem(0).child(0)
+            defaults = page.tree.topLevelItem(0)
+            self.assertIn(tr("Команды по умолчанию", language), defaults.text(0))
+            first = defaults.child(0).child(0)
             personal = page.tree.topLevelItem(1).child(0)
             self.assertEqual(first.text(0), builtin)
             self.assertEqual(personal.text(0), "Блокнот")

@@ -678,7 +678,9 @@
     ],
     "tests/test_interface_localization_038a.py": [
       "1ee61d8c8c099559598a3fbad56b0c22b0d55cabe854f21ac01f15d7e9b3f823",
-      "893ed9728d0374f091678707c36d1653aa96eafea87a3028dcb6fb7b05b70b54"
+      "893ed9728d0374f091678707c36d1653aa96eafea87a3028dcb6fb7b05b70b54",
+      "a134c4410dc3b56d9c32d06adfb1fcf37d5235c30a0262d4898e2e4c3a8f3aa9",
+      "af92de4aff437a9ba6ae184273b528cf07830543a81599193f2fa0139364820a"
     ],
     "tests/test_local_ai_auto_startup.py": [
       "4ffd698889535aa37b44b15d5c50acf6f506855a614176e20ac5f7247307da8c",
