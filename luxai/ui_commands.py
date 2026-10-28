@@ -226,16 +226,25 @@ class CommandsPage(QWidget):
         self.tree.addTopLevelItem(root)
         groups = defaultdict(list)
         for entry in default_entries:
-            groups[entry["category"]].append(entry)
-        order = ["Windows", "Приложения", "Игры Steam", "Файлы"]
+            groups[self._default_group(entry)].append(entry)
+        order = ["Управление Windows", "Управление Google Chrome",
+                 "Управление YouTube", "Управление Telegram",
+                 "Управление Spotify", "Управление Word",
+                 "Управление Yandex Music", "Другие приложения", "Игры Steam"]
         for name in order + sorted(set(groups) - set(order)):
             if name not in groups:
                 continue
             category = QTreeWidgetItem([tr(name, self.interface_language),
                                        f"{len(groups[name])}", "", ""])
             category.setFlags(category.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-            set_item_icon(category, {"Windows": "monitor", "Приложения": "app-window",
-                                     "Игры Steam": "gamepad-2", "Файлы": "folder"}.get(name, "folder"),
+            set_item_icon(category, {"Управление Windows": "monitor",
+                                     "Управление Google Chrome": "app-window",
+                                     "Управление YouTube": "globe",
+                                     "Управление Telegram": "app-window",
+                                     "Управление Spotify": "app-window",
+                                     "Управление Word": "file-text",
+                                     "Управление Yandex Music": "app-window",
+                                     "Игры Steam": "gamepad-2"}.get(name, "folder"),
                           widget=self.tree, column=0, role="muted")
             root.addChild(category)
             for entry in groups[name]:
@@ -274,6 +283,20 @@ class CommandsPage(QWidget):
                     self.tree.setCurrentItem(item)
                     break
         self._selection_changed()
+
+    @staticmethod
+    def _default_group(entry):
+        category = entry.get("category")
+        if category in ("Windows", "Файлы"):
+            return "Управление Windows"
+        if category == "Приложения":
+            return {
+                "chrome": "Управление Google Chrome",
+                "telegram": "Управление Telegram",
+                "spotify": "Управление Spotify",
+                "word": "Управление Word",
+            }.get(entry.get("target"), "Другие приложения")
+        return category or "Другие приложения"
 
     def _add_entry(self, category, entry):
         item = QTreeWidgetItem([tr(entry["title"], self.interface_language)
