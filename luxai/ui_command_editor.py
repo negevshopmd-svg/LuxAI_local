@@ -73,19 +73,23 @@ def _heading(text, tooltip=""):
     return row
 
 
-class RecordingOverlay(QFrame):
+class RecordingOverlay(QDialog):
     """A small always-on-top Stop/Cancel control; never captures typed content."""
 
     stop_requested = Signal()
     cancel_requested = Signal()
 
     def __init__(self):
-        super().__init__(None, Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint |
+        # The editor is application-modal. A plain top-level QFrame cannot
+        # receive clicks over it on Windows; a modal QDialog can.
+        super().__init__(None, Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint |
                          Qt.WindowType.WindowStaysOnTopHint)
+        self.setWindowModality(Qt.WindowModality.ApplicationModal)
+        self.setModal(True)
         self.setObjectName("RecordingOverlay")
         self.setFixedWidth(350)
         self.setStyleSheet("""
-            QFrame#RecordingOverlay {background: #171c25; border: 1px solid #384458; border-radius: 14px;}
+            QDialog#RecordingOverlay {background: #171c25; border: 1px solid #384458; border-radius: 14px;}
             QLabel {color: #f4f6fa; border: none;}
             QPushButton {background: #303846; border: 1px solid #475263; border-radius: 8px;
                          color: white; padding: 9px;}
@@ -143,8 +147,8 @@ class CommandEditor(QDialog):
         self.setWindowIcon(icon("jarvis"))
         self.setObjectName("CommandEditorDialog")
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
-        self.resize(1190, 720)
-        self.setMinimumSize(760, 560)
+        self.resize(990, 670)
+        self.setMinimumSize(760, 550)
         previous = self.original.get("steps")
         if previous:
             self.steps = [validate_step(step) for step in previous]
@@ -158,7 +162,7 @@ class CommandEditor(QDialog):
                 self._legacy = True
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(20, 16, 20, 16)
+        root.setContentsMargins(20, 14, 20, 14)
         root.setSpacing(15)
         header = QHBoxLayout()
         back = QPushButton()
@@ -178,13 +182,13 @@ class CommandEditor(QDialog):
         close.clicked.connect(self.reject)
         header.addWidget(close)
         root.addLayout(header)
-        root.addWidget(_label(self.windowTitle(), "PageTitle"))
+        # The breadcrumb already displays the editor title; keep form near top.
 
         body = QHBoxLayout()
         body.setSpacing(16)
         self.editor_nav = QFrame()
         self.editor_nav.setObjectName("EditorNav")
-        self.editor_nav.setFixedWidth(145)
+        self.editor_nav.setFixedWidth(0)
         nav = QVBoxLayout(self.editor_nav)
         nav.setContentsMargins(13, 17, 13, 17)
         nav.setSpacing(14)
@@ -197,6 +201,7 @@ class CommandEditor(QDialog):
         nav.addWidget(_label(tr("Новая команда"), "Muted"))
         nav.addStretch()
         body.addWidget(self.editor_nav)
+        self.editor_nav.hide()
         self.main_scroll = QScrollArea()
         self.main_scroll.setObjectName("CommandEditorScroll")
         self.main_scroll.setWidgetResizable(True)
@@ -343,7 +348,7 @@ class CommandEditor(QDialog):
         main.addStretch()
 
         self.sidebar, side = _card()
-        self.sidebar.setFixedWidth(220)
+        self.sidebar.setFixedWidth(206)
         side.addLayout(_heading("Проверка команды"))
         side.addWidget(_label("Проверьте фразу перед сохранением.", "Muted"))
         self.test_phrase = QLineEdit()
@@ -443,7 +448,8 @@ class CommandEditor(QDialog):
     def _sync_responsive_layout(self):
         if not hasattr(self, "sidebar"):
             return
-        self.editor_nav.setVisible(self.width() >= 1140)
+        # Two-column Luxify layout: editor + right review panel.
+        self.editor_nav.setVisible(False)
         compact = self.width() <= 900
         if getattr(self, "_responsive_compact", None) == compact:
             return
@@ -730,13 +736,16 @@ QLabel#ActionNumber {{ color: {p['muted']}; font-size: 12px; }}
             self._record_restore_parent.showMinimized()
         self.showMinimized()
         self._record_overlay = RecordingOverlay()
-        self._record_overlay.stop_requested.connect(self._finish_recording)
+        self._record_overlay.stop_requested.connect(lambda: self._finish_recording(append=True))
         self._record_overlay.cancel_requested.connect(lambda: self._finish_recording(append=False))
         self._record_overlay.show()
+        self._record_overlay.raise_()
+        self._record_overlay.activateWindow()
 
     def _restore_after_recording(self):
         overlay, self._record_overlay = self._record_overlay, None
         if overlay is not None:
+            overlay.setModal(False)
             overlay.close()
             overlay.deleteLater()
         parent, self._record_restore_parent = self._record_restore_parent, None
