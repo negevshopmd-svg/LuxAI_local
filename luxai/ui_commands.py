@@ -210,8 +210,8 @@ class CommandsPage(QWidget):
         }
         built_in, custom = summary_labels.get(self.interface_language, summary_labels["ru"])
         self.summary.setText(
-            f"{built_in}: {len(builtins)}\\n"
-            f"{custom}: {custom_count}\\n"
+            f"{built_in}: {len(builtins)}\n"
+            f"{custom}: {custom_count}\n"
             + tr("Изменения сохраняются между обновлениями.", self.interface_language)
         )
         self._filter(self.search.text())
