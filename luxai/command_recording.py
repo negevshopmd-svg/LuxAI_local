@@ -34,6 +34,11 @@ class RecordingBuffer:
         with self._lock:
             return len(self.steps)
 
+    def preview(self):
+        """Return a bounded read-only snapshot; never include typed text."""
+        with self._lock:
+            return [dict(step) for step in self.steps[-4:]]
+
     def begin(self):
         with self._lock:
             self.steps, self.error, self.active = [], "", True
@@ -117,6 +122,10 @@ class ActionRecorder:
     @property
     def count(self):
         return self._buffer.count
+
+    @property
+    def preview(self):
+        return self._buffer.preview()
 
     def start(self):
         if self.active:

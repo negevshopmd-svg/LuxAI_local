@@ -106,6 +106,11 @@ class RecordingOverlay(QDialog):
         layout.addLayout(header)
         self.steps_label = _label(tr("Поймано") + ": 0")
         layout.addWidget(self.steps_label)
+        self.recent = QListWidget()
+        self.recent.setFixedHeight(88)
+        self.recent.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.recent.setStyleSheet("QListWidget {background:#141920; border:0; color:#c7d0de; padding:5px;}")
+        layout.addWidget(self.recent)
         hint = _label(tr("Нажмите Esc или Стоп, чтобы завершить запись."))
         layout.addWidget(hint)
         controls = QHBoxLayout()
@@ -119,10 +124,18 @@ class RecordingOverlay(QDialog):
         layout.addLayout(controls)
         self._started_at = time.monotonic()
 
-    def update_status(self, count):
+    def update_status(self, count, actions=()):
         seconds = int(time.monotonic() - self._started_at)
         self.elapsed.setText(f"{seconds // 60:02d}:{seconds % 60:02d}")
         self.steps_label.setText(tr("Поймано") + f": {count}")
+        descriptions = []
+        for step in actions[-3:]:
+            action = str(step.get("action", ""))
+            target = str(step.get("target", ""))[:54]
+            descriptions.append((action + (": " + target if target else ""))[:75])
+        if descriptions != [self.recent.item(i).text() for i in range(self.recent.count())]:
+            self.recent.clear()
+            self.recent.addItems(descriptions)
 
 
 class CommandEditor(QDialog):
@@ -746,6 +759,11 @@ QLabel#ActionNumber {{ color: {p['muted']}; font-size: 12px; }}
         self._record_overlay.stop_requested.connect(lambda: self._finish_recording(append=True))
         self._record_overlay.cancel_requested.connect(lambda: self._finish_recording(append=False))
         self._record_overlay.show()
+        screen = self._record_overlay.screen()
+        if screen is not None:
+            area = screen.availableGeometry()
+            self._record_overlay.move(area.center().x() - self._record_overlay.width() // 2,
+                                      area.top() + 16)
         self._record_overlay.raise_()
         self._record_overlay.activateWindow()
 
@@ -768,7 +786,7 @@ QLabel#ActionNumber {{ color: {p['muted']}; font-size: 12px; }}
         if self._recorder is not None and not self._recorder.active:
             self._finish_recording()
         elif self._recorder is not None and self._record_overlay is not None:
-            self._record_overlay.update_status(self._recorder.count)
+            self._record_overlay.update_status(self._recorder.count, self._recorder.preview)
 
     def _finish_recording(self, append=True):
         recorder, self._recorder = self._recorder, None
