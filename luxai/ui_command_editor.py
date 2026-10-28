@@ -124,6 +124,11 @@ class RecordingOverlay(QDialog):
         layout.addLayout(controls)
         self._started_at = time.monotonic()
 
+    def reject(self):
+        # Escape must release the recorder rather than merely closing its
+        # only visible control while the modal editor remains minimized.
+        self.cancel_requested.emit()
+
     def update_status(self, count, actions=()):
         seconds = int(time.monotonic() - self._started_at)
         self.elapsed.setText(f"{seconds // 60:02d}:{seconds % 60:02d}")
