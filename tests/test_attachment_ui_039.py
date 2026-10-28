@@ -86,7 +86,8 @@ class AttachmentUI039Tests(unittest.TestCase):
             with self.subTest(code=code):
                 tray.set_language(code)
                 tray.set_delivery_mode(False)
-                self.assertEqual(tray.add_button.text(), add_label)
+                self.assertEqual(tray.add_button.text(), "+")
+                self.assertEqual(tray.add_button.accessibleName(), add_label)
                 self.assertIn(local_marker, tray.route_hint.text())
                 tray.set_delivery_mode(True)
                 self.assertIn(cloud_marker, tray.route_hint.text())

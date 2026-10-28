@@ -75,12 +75,12 @@ class ActionCatalogTests(unittest.TestCase):
                     "action": "run_cmd", "target": "x",
                     "steps": [{"action": "run_cmd", "target": "echo hello\nother"}],
                 })
-            with self.assertRaises(ValueError):
-                registry.save_custom({
-                    "title": "Too many", "phrases": ["more"],
-                    "action": "time", "target": "",
-                    "steps": [{"action": "noop"}] * 9,
-                })
+            many = registry.save_custom({
+                "title": "Long macro", "phrases": ["more"],
+                "action": "time", "target": "",
+                "steps": [{"action": "noop"}] * 9,
+            })
+            self.assertEqual(len(many["steps"]), 9)
 
     def test_user_selected_keyboard_action_runs_without_prompt(self):
         agent = LocalAgent({"language": "ru"})
