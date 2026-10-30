@@ -6,18 +6,18 @@ from pathlib import Path
 import threading
 
 from PySide6.QtCore import Qt, Signal, QSize
-from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtGui import QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QDialog, QDialogButtonBox, QFileDialog, QFrame, QHBoxLayout, QLabel,
     QListWidget, QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton,
-    QScrollArea, QTabWidget, QVBoxLayout, QWidget,
+    QScrollArea, QSizePolicy, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from luxai.chat_attachments import (
     AttachmentError, apply_text_edit, load_attachment, load_attachments,
     propose_text_edit, save_text_copy,
 )
-from luxai.icons import icon, set_button_icon
+from luxai.icons import icon, set_label_icon
 from luxai.ui_i18n import get_ui_language, normalize_language
 
 
@@ -40,6 +40,16 @@ def _image(item):
         except (ValueError, IndexError):
             pass
     return value
+
+
+class _ElidingLabel(QLabel):
+    """Keep the full accessible/tooltip text while painting a bounded line."""
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setPen(self.palette().color(self.foregroundRole()))
+        caption = self.fontMetrics().elidedText(self.text(), Qt.TextElideMode.ElideRight,
+                                               max(0, self.contentsRect().width()))
+        painter.drawText(self.contentsRect(), Qt.AlignmentFlag.AlignVCenter, caption)
 
 
 class AttachmentPreviewDialog(QDialog):
@@ -74,6 +84,57 @@ class AttachmentPreviewDialog(QDialog):
         outer.addWidget(close)
 
 
+class AttachmentChip(QFrame):
+    """A bounded preview card; removing it only unpins its snapshot."""
+    activated = Signal()
+    removed = Signal()
+
+    def __init__(self, attachment, parent=None):
+        super().__init__(parent)
+        self.setObjectName("AttachmentChip")
+        self.setProperty("i18n_skip", True)
+        self.setFixedSize(128, 102)
+        self.setAccessibleName(attachment.name)
+        self.setToolTip(attachment.name + "\n" + attachment.kind.upper())
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        content = QVBoxLayout(self)
+        content.setContentsMargins(8, 8, 8, 7)
+        content.setSpacing(4)
+        picture = QLabel()
+        picture.setObjectName("AttachmentThumbnail")
+        picture.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        picture.setFixedSize(110, 62)
+        pixmap = _image(attachment)
+        if pixmap.isNull():
+            picture.setProperty("jarvisIconBoxSize", 62)
+            set_label_icon(picture, "file-text", size=34, role="muted")
+        else:
+            picture.setPixmap(pixmap.scaled(picture.size(), Qt.AspectRatioMode.KeepAspectRatio,
+                                           Qt.TransformationMode.SmoothTransformation))
+        content.addWidget(picture, alignment=Qt.AlignmentFlag.AlignHCenter)
+        filename = _plain_label()
+        filename.setObjectName("AttachmentFilename")
+        filename.setWordWrap(False)
+        filename.setText(filename.fontMetrics().elidedText(attachment.name,
+                                                         Qt.TextElideMode.ElideMiddle, 110))
+        filename.setToolTip(attachment.name)
+        content.addWidget(filename)
+        self.remove_button = QPushButton("×", self)
+        self.remove_button.setObjectName("AttachmentChipRemove")
+        self.remove_button.setFixedSize(21, 21)
+        self.remove_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.remove_button.clicked.connect(self.removed.emit)
+        self.remove_button.move(103, 3)
+        self.remove_button.raise_()
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self.rect().contains(event.position().toPoint()):
+            self.activated.emit()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+
 class AttachmentTray(QFrame):
     """Pinned snapshots, with local asynchronous loading and no uploads."""
     add_requested = Signal()
@@ -105,28 +166,39 @@ class AttachmentTray(QFrame):
         row.setSpacing(8)
         self.add_button = QPushButton()
         self.add_button.setObjectName("AttachmentAddButton")
-        set_button_icon(self.add_button, "file-plus-corner")
+        self.add_button.setFixedSize(34, 34)
         self.add_button.clicked.connect(self.add_requested.emit)
         row.addWidget(self.add_button)
-        self.route_hint = _plain_label()
+        self.route_hint = _ElidingLabel()
+        self.route_hint.setTextFormat(Qt.TextFormat.PlainText)
         self.route_hint.setObjectName("Muted")
+        self.route_hint.setWordWrap(False)
+        self.route_hint.setMinimumWidth(0)
+        self.route_hint.setMaximumWidth(440)
+        self.route_hint.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         row.addWidget(self.route_hint, 1)
+        # Keep + at the leading edge even while the hint is hidden. A hidden
+        # QLabel cannot serve as the only expanding item in a toolbar.
+        row.addStretch(1)
         self.remove_button = QPushButton()
-        set_button_icon(self.remove_button, "x")
         self.remove_button.clicked.connect(self.remove_selected)
         row.addWidget(self.remove_button)
         self.files = QListWidget()
         self.files.setObjectName("AttachmentFiles")
         self.files.setViewMode(QListWidget.ViewMode.IconMode)
         self.files.setFlow(QListWidget.Flow.LeftToRight)
-        self.files.setWrapping(True)
+        self.files.setWrapping(False)
         self.files.setResizeMode(QListWidget.ResizeMode.Adjust)
         self.files.setMovement(QListWidget.Movement.Static)
-        self.files.setGridSize(QSize(150, 105))
-        self.files.setIconSize(QSize(58, 58))
-        self.files.setSpacing(6)
-        self.files.setMaximumHeight(216)
-        self.files.setMinimumHeight(108)
+        self.files.setGridSize(QSize(136, 106))
+        self.files.setSpacing(0)
+        self.files.setHorizontalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
+        self.files.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.files.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.files.setFixedHeight(124)
+        self.files.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.files.viewport().setObjectName("AttachmentFilesViewport")
+        self.files.viewport().setAutoFillBackground(False)
         self.files.itemDoubleClicked.connect(self._preview)
         self.files.itemSelectionChanged.connect(self._update_remove_button)
         outer.addWidget(self.files)
@@ -156,8 +228,16 @@ class AttachmentTray(QFrame):
                                         "Elimină atașamentul din chat", self._language))
         self.files.setToolTip(_t("Двойной щелчок — просмотр вложения", "Double-click to preview an attachment",
                                 "Dublu clic pentru a previzualiza un atașament", self._language))
+        for index in range(self.files.count()):
+            self._translate_chip(self.files.itemWidget(self.files.item(index)))
         self._update_hint()
         self._update_remove_button()
+
+    def _translate_chip(self, chip):
+        if isinstance(chip, AttachmentChip):
+            chip.remove_button.setAccessibleName(_t("Убрать", "Remove", "Elimină", self._language))
+            chip.remove_button.setToolTip(_t("Убрать вложение из чата", "Remove attachment from chat",
+                                            "Elimină atașamentul din chat", self._language))
 
     def set_delivery_mode(self, cloud=False):
         self._cloud = bool(cloud)
@@ -175,11 +255,19 @@ class AttachmentTray(QFrame):
                          "Attachments are processed locally. Drop files here.",
                          "Atașamentele sunt procesate local. Trage fișierele aici.", self._language)
         self.route_hint.setText(caption)
+        self.route_hint.setToolTip(caption)
         self.route_hint.setVisible(bool(self._attachments) or self._loading)
 
     def _update_remove_button(self):
         self.remove_button.setEnabled(not self._loading and self.files.currentItem() is not None)
-        self.remove_button.setVisible(bool(self._attachments))
+        # Retain this compatibility action for integrations; each visible card
+        # has its own close button instead of an unrelated toolbar-wide X.
+        self.remove_button.hide()
+        for index in range(self.files.count()):
+            row = self.files.item(index)
+            chip = self.files.itemWidget(row)
+            if chip is not None:
+                chip.remove_button.setEnabled(not self._loading)
 
     def _set_loading(self, value):
         self._loading = bool(value)
@@ -271,19 +359,20 @@ class AttachmentTray(QFrame):
             row = QListWidgetItem(caption)
             row.setData(Qt.ItemDataRole.UserRole, item.id)
             row.setToolTip(item.name + "\n" + item.kind.upper())
-            pixmap = _image(item)
-            if not pixmap.isNull():
-                from PySide6.QtGui import QIcon
-                row.setIcon(QIcon(pixmap))
-            else:
-                row.setIcon(icon("file-text"))
+            row.setSizeHint(QSize(128, 102))
             self.files.addItem(row)
+            chip = AttachmentChip(item, self.files)
+            chip.activated.connect(lambda row=row: self._preview(row))
+            chip.removed.connect(lambda identifier=item.id: self.remove(identifier))
+            self._translate_chip(chip)
+            self.files.setItemWidget(row, chip)
             if item.id == selected_id:
                 self.files.setCurrentItem(row)
         self.files.setVisible(bool(self._attachments))
         if self.files.currentItem() is None and self.files.count():
             self.files.setCurrentRow(0)
         self._update_remove_button()
+        self._update_hint()
         self.changed.emit()
 
     def _preview(self, row):

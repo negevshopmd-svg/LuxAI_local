@@ -1,4 +1,12 @@
-# LuxAI Local 0.3.9b (Windows 10/11, 64-bit)
+# LuxAI Local 0.9.3.c (Windows 10/11, 64-bit)
+
+## 0.9.3.c: atașamente prin Ctrl+V și comenzi de bază editabile (2026-10-30)
+
+Chatul afișează miniaturi foto și carduri compacte de fișiere deasupra textului, cu eliminare individuală. Butonul **+** rămâne jos în stânga, iar **Trimite** în dreapta. Poți lipi cu **Ctrl+V** fișiere copiate din Explorer și imagini copiate în clipboard; textul obișnuit se lipește ca text. Lipirea creează doar previzualizări locale. Cu AI cloud activ, fișierele se partajează cu furnizorul configurat abia la **Trimite**.
+
+Comenzile de bază pot fi redactate, salvate, dezactivate și șterse. Modificările persistă în biblioteca personală și se păstrează la repornire și actualizare. Meniul cu trei puncte urmează referința Luxify: deschidere, adăugare frază obligatorie/opțională, activare/dezactivare, clonare, copiere, copiere JSON și ștergere. Eliminarea unui folder personal păstrează comenzile din el. Datele copiate sau importate rămân validate și nu sunt executate automat.
+
+Închide Jarvis, rulează `Update.bat`, apoi `run_windows.bat`. Setările, modelele și fișierele personale rămân păstrate; Markdown și testele proiectului rămân pe GitHub.
 
 ## 0.3.9b: corecții după testele de interfață (2026-10-29)
 

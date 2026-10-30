@@ -1,4 +1,16 @@
-LUXAI LOCAL 0.3.9b — ACTUALIZARE 2026-10-28
+LUXAI LOCAL 0.9.3.c — ACTUALIZARE 2026-10-30
+
+0.9.3.c: chat cu miniaturi și carduri compacte de fișiere, eliminare
+individuală, + jos stânga și Trimite jos dreapta. Ctrl+V atașează fișiere
+copiate din Explorer și imagini din clipboard; textul se lipește normal.
+Lipirea este locală; AI cloud primește atașamentele numai la Trimite.
+Comenzile de bază se pot redacta, salva, dezactiva și șterge; modificările
+se păstrează la repornire și actualizare. Meniul cu trei puncte include
+fraze obligatorii/opționale, clonare, copiere, JSON și ștergere.
+Ștergerea unui folder personal păstrează comenzile lui.
+Închide Jarvis, rulează Update.bat, apoi run_windows.bat.
+Setările, modelele și fișierele personale sunt păstrate; Markdown și
+testele proiectului rămân numai pe GitHub.
 
 0.3.9b: interfață de comenzi cu panou de creare, foldere, colecții,
 import/export JSON în dreapta. Editează comenzi din meniul lor contextual,

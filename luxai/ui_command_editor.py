@@ -328,6 +328,25 @@ class CommandEditor(QDialog):
         game_keys_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         game_keys_row.addWidget(game_keys_label, 1)
         actions.addLayout(game_keys_row)
+        self.legacy_panel = QFrame()
+        self.legacy_panel.setObjectName("EditorPlain")
+        legacy_layout = QVBoxLayout(self.legacy_panel)
+        legacy_layout.setContentsMargins(0, 5, 0, 5)
+        legacy_layout.setSpacing(8)
+        legacy_layout.addWidget(_label("Сохранённое действие", "EditorSectionTitle"))
+        self.legacy_summary = _label(
+            str(self.original.get("target") or self.original.get("title", "")), "Muted")
+        self.legacy_summary.setProperty("i18n_skip", True)
+        self.legacy_summary.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        legacy_layout.addWidget(self.legacy_summary)
+        legacy_layout.addWidget(_label(
+            "Исходное действие сохранится, пока вы явно не замените его.", "Muted"))
+        self.replace_action_button = QPushButton("Заменить действие")
+        self.replace_action_button.setObjectName("LegacyReplaceAction")
+        set_button_icon(self.replace_action_button, "pencil")
+        self.replace_action_button.clicked.connect(self.replace_legacy_action)
+        legacy_layout.addWidget(self.replace_action_button, 0, Qt.AlignmentFlag.AlignLeft)
+        actions.addWidget(self.legacy_panel)
         self.actions_list = QListWidget()
         self.actions_list.setObjectName("CommandActionsList")
         self.actions_list.setSpacing(5)
@@ -664,8 +683,6 @@ QLabel#ActionNumber {{ color: {p['muted']}; font-size: 12px; }}
             item.setSizeHint(QSize(0, 78))
             self.actions_list.addItem(item)
             self.actions_list.setItemWidget(item, row)
-        if self._legacy:
-            self.actions_list.addItem(tr("Старая сохранённая команда Steam: действие сохранено без изменений"))
         count = len(self.steps)
         self.actions_list.setFixedHeight(min(350, max(85, count * 88 + 8)))
         if selected is not None and 0 <= selected < count:
@@ -675,11 +692,13 @@ QLabel#ActionNumber {{ color: {p['muted']}; font-size: 12px; }}
         self.empty_hint.setVisible(not count and not self._legacy)
         self.empty_hint.setMinimumHeight(55)
         self.empty_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.actions_list.setVisible(bool(count or self._legacy))
+        self.actions_list.setVisible(bool(count))
+        self.legacy_panel.setVisible(self._legacy)
         self.counter.setText(str(count or int(self._legacy)))
         self.add_button.setEnabled(not self._legacy)
         self.record_button.setEnabled(not self._legacy)
         self.ai_button.setEnabled(not self._legacy and not self._ai_pending)
+        self.record_game_keys.setEnabled(not self._legacy)
         self._update_buttons()
         self._update_readiness()
 
@@ -704,6 +723,23 @@ QLabel#ActionNumber {{ color: {p['muted']}; font-size: 12px; }}
         if picker.exec() == QDialog.DialogCode.Accepted and picker.step:
             self.steps.append(validate_step(picker.step))
             self._refresh_steps(len(self.steps) - 1)
+
+    def replace_legacy_action(self):
+        """Keep opaque legacy presets intact until a replacement is accepted."""
+        if not self._legacy:
+            return
+        picker = ActionPicker(self)
+        if picker.exec() != QDialog.DialogCode.Accepted or not picker.step:
+            return
+        try:
+            replacement = validate_step(picker.step)
+        except (TypeError, ValueError) as exc:
+            self._feedback(str(exc))
+            return
+        self.steps = [replacement]
+        self._legacy = False
+        self._feedback("")
+        self._refresh_steps(0)
 
     def edit_action(self):
         index = self.actions_list.currentRow()
@@ -854,7 +890,7 @@ QLabel#ActionNumber {{ color: {p['muted']}; font-size: 12px; }}
         if not (self._legacy and not self.steps):
             first = self.steps[0] if self.steps else {"action": "", "target": "", "location": "desktop"}
             data.update({"action": first["action"], "target": first["target"], "location": first["location"],
-                         "steps": [dict(step) for step in self.steps]})
+                         "appid": None, "steps": [dict(step) for step in self.steps]})
         data.update({
             "id": self.original.get("id"), "category": self.original.get("category", "Мои команды"),
             "title": self.title_field.text().strip(), "phrases": self.phrase_chips.get_values(),
