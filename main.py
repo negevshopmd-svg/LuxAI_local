@@ -496,6 +496,7 @@ class MainWindow(QMainWindow):
         self.commands_page.ai_requested.connect(self._generate_editor_actions)
         self.commands_page.set_context(self.online_planner, self.cfg)
         self.commands_page.voice_create_requested.connect(self.start_voice_command_wizard)
+        self.commands_page.chat_requested.connect(lambda: self.show_page(3))
         self.pages.addWidget(self.commands_page)
 
     def _save_sidebar_state(self, collapsed):
@@ -669,29 +670,41 @@ class MainWindow(QMainWindow):
         cloud_box.addWidget(self.cloud_check_button)
         layout.addWidget(cloud_frame)
         self._update_cloud_indicator()
-        for name, description, action in [
-            ("Выбрать локальную AI-модель", "Указать путь к файлу модели .gguf на компьютере.", self.pick_model),
-        ]:
-            frame, box = card()
-            row = QHBoxLayout()
-            col = QVBoxLayout()
-            heading = QLabel(name)
-            heading.setStyleSheet("font-size:16px;font-weight:650;")
-            detail = QLabel(description)
-            detail.setObjectName("Muted")
-            detail.setWordWrap(True)
-            col.addWidget(heading)
-            col.addWidget(detail)
-            row.addLayout(col, 1)
-            button = QPushButton("Запустить")
-            button.setObjectName("Primary")
-            set_button_icon(button, {"Снимок экрана": "camera", "Распознавание текста (OCR)": "scan-text", "Выбрать локальную AI-модель": "brain-circuit"}[name], role="white")
-            button.clicked.connect(action)
-            row.addWidget(button)
-            box.addLayout(row)
-            layout.addWidget(frame)
+        local_frame, local_box = card()
+        self.local_ai_indicator = QLabel()
+        self.local_ai_indicator.setObjectName("LocalAIStatus")
+        self.local_ai_indicator.setWordWrap(True)
+        local_box.addWidget(self.local_ai_indicator)
+        self.local_ai_details = QLabel()
+        self.local_ai_details.setObjectName("Muted")
+        self.local_ai_details.setWordWrap(True)
+        local_box.addWidget(self.local_ai_details)
+        layout.addWidget(local_frame)
+        from luxai.local_ai_status import LocalAIStatusMonitor
+        self._local_ai_monitor = LocalAIStatusMonitor(lambda: dict(self.cfg), parent=page)
+        self._local_ai_monitor.changed.connect(self._render_local_ai_status)
+        self._local_ai_monitor.watch(local_frame)
+        self._render_local_ai_status()
         layout.addStretch()
         self.pages.addWidget(page)
+
+    def _refresh_local_ai_status(self):
+        monitor = getattr(self, "_local_ai_monitor", None)
+        if monitor is not None:
+            monitor.refresh()
+
+    def _render_local_ai_status(self, state=None):
+        from luxai.local_ai_status import status_text
+        monitor = getattr(self, "_local_ai_monitor", None)
+        if monitor is None:
+            return
+        state = state or monitor.current
+        title, detail = status_text(state)
+        self.local_ai_indicator.setText(tr(title))
+        self.local_ai_details.setText(tr(detail))
+        color = {"success": "#32b87a", "error": "#d86b68", "invalid_model": "#d86b68",
+                 "disabled": "#98a3b4", "working": "#6f9df5"}.get(state.state, "#c6a35f")
+        self.local_ai_indicator.setStyleSheet(f"color:{color};font-size:15px;font-weight:650;")
 
     def build_chat(self):
         page = QWidget()
@@ -917,6 +930,7 @@ class MainWindow(QMainWindow):
         self.settings_panel.retranslate(language)
         self._refresh_history_colors()
         self._update_cloud_indicator()
+        self._render_local_ai_status()
         self.show_page(self.pages.currentIndex())
         if hasattr(self, "_audio_event"):
             self._on_audio_state(self._audio_event, self._audio_details)
@@ -935,6 +949,7 @@ class MainWindow(QMainWindow):
             self.window_header.refresh_labels()
         if index == 2 and hasattr(self, "cloud_indicator"):
             self._update_cloud_indicator()
+            self._refresh_local_ai_status()
             if not self._cloud_first_check_done:
                 self._cloud_first_check_done = True
                 self._start_cloud_check()
@@ -1107,6 +1122,11 @@ class MainWindow(QMainWindow):
         self.online_planner.update_config(self.cfg)
         if hasattr(self, "commands_page"):
             self.commands_page.set_context(self.online_planner, self.cfg)
+        monitor = getattr(self, "_local_ai_monitor", None)
+        if monitor is not None:
+            from luxai.local_ai_status import configuration_signature
+            if configuration_signature(self.cfg) != monitor.current.signature:
+                self._refresh_local_ai_status()
         self._refresh_attachment_route()
         if self._cloud_signature() != old_signature:
             self.online_planner.reset_connection_state()
@@ -4340,6 +4360,8 @@ class MainWindow(QMainWindow):
         if self.tray_icon:
             self.tray_icon.hide()
         self._closed = True
+        if getattr(self, "_local_ai_monitor", None) is not None:
+            self._local_ai_monitor.close()
         self._attachment_token += 1
         if hasattr(self, "_trigger_timer"):
             self._trigger_timer.stop()

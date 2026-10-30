@@ -41,6 +41,11 @@ def normalize_phrase(text):
     return s
 
 
+def is_agent_command(entry):
+    """Recognize explicit agent commands and older verified learned shortcuts."""
+    return bool(entry.get("agent", False) or entry.get("learned", False))
+
+
 def phrase_matches(item, spoken, prefix="Jarvis", *, source="voice"):
     """Match complete phrases, allowing only explicitly optional edge words.
 
@@ -107,7 +112,7 @@ def checked_command(raw, builtin=False):
         normalized = normalize_phrase(phrase)
         if normalized and normalized not in {normalize_phrase(p) for p in good_phrases}:
             good_phrases.append(phrase.strip())
-    for flag in ("voice_enabled", "ask_before_run", "allow_chaining"):
+    for flag in ("voice_enabled", "ask_before_run", "allow_chaining", "agent"):
         if flag in raw and not isinstance(raw[flag], bool):
             raise ValueError("Некорректный параметр команды.")
     voice_enabled = raw.get("voice_enabled", True)
@@ -159,6 +164,7 @@ def checked_command(raw, builtin=False):
         "enabled": bool(raw.get("enabled", True)),
         "builtin": bool(builtin),
         "learned": bool(raw.get("learned", False)) if not builtin else False,
+        "agent": raw.get("agent", False) if not builtin else False,
         "steps": validated_steps,
         "optional_words": checked_optional,
         "voice_enabled": voice_enabled,
@@ -178,6 +184,7 @@ class CommandRegistry:
         self.builtin_overrides = {}
         self.deleted_builtins = set()
         self.groups = {"folders": [], "collections": []}
+        self.agent_groups = {"folders": [], "collections": []}
         self.reload()
 
     def reload(self):
@@ -186,6 +193,7 @@ class CommandRegistry:
         self.builtin_overrides = {}
         self.deleted_builtins = set()
         self.groups = {"folders": [], "collections": []}
+        self.agent_groups = {"folders": [], "collections": []}
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
             if not isinstance(data, dict):
@@ -210,6 +218,12 @@ class CommandRegistry:
                     self.groups[kind] = [name for name in names[:100]
                                          if isinstance(name, str) and name.strip()
                                          and len(name) <= 60 and not any(ord(c) < 32 for c in name)]
+                agent_data = data.get("agent_groups", {})
+                names = agent_data.get(kind, []) if isinstance(agent_data, dict) else []
+                if isinstance(names, list):
+                    self.agent_groups[kind] = [name for name in names[:100]
+                                               if isinstance(name, str) and name.strip()
+                                               and len(name) <= 60 and not any(ord(c) < 32 for c in name)]
             records = data.get("commands", [])
             if not isinstance(records, list):
                 records = []
@@ -236,6 +250,7 @@ class CommandRegistry:
             "commands": self.custom,
             "folders": self.groups.get("folders", []),
             "collections": self.groups.get("collections", []),
+            "agent_groups": self.agent_groups,
         }
         temporary = self.path.with_suffix(".tmp")
         temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -245,7 +260,7 @@ class CommandRegistry:
         """Commit related library changes together; failed saves keep the UI honest."""
         if getattr(self, "_batching", False):
             return update()
-        fields = ("custom", "disabled_builtins", "builtin_overrides", "deleted_builtins", "groups")
+        fields = ("custom", "disabled_builtins", "builtin_overrides", "deleted_builtins", "groups", "agent_groups")
         previous = {name: deepcopy(getattr(self, name)) for name in fields}
         try:
             self._batching = True
@@ -259,47 +274,60 @@ class CommandRegistry:
         finally:
             self._batching = False
 
-    def add_group(self, name, kind="folders"):
+    def groups_for(self, agent=False):
+        return self.agent_groups if agent else self.groups
+
+    def add_group(self, name, kind="folders", *, agent=False):
         if kind not in ("folders", "collections"):
             raise ValueError("Unsupported group type")
         name = str(name).strip()
         if not 1 <= len(name) <= 60 or any(ord(char) < 32 for char in name):
             raise ValueError("Invalid group name")
-        if name in self.groups[kind]:
+        groups = self.groups_for(agent)
+        if name in groups[kind]:
             return False
-        if len(self.groups[kind]) >= 100:
+        if any(existing.casefold() == name.casefold()
+               for names in groups.values() for existing in names):
+            raise ValueError("Group already exists")
+        if len(groups[kind]) >= 100:
             raise ValueError("Too many groups")
-        self._change(lambda: self.groups[kind].append(name))
+        self._change(lambda: groups[kind].append(name))
         return True
 
-    def rename_group(self, name, new_name, kind="folders"):
-        if kind not in ("folders", "collections") or name not in self.groups[kind]:
+    def rename_group(self, name, new_name, kind="folders", *, agent=False):
+        groups = self.groups_for(agent)
+        if kind not in ("folders", "collections") or name not in groups[kind]:
             raise ValueError("Unknown group")
         new_name = str(new_name).strip()
         if not 1 <= len(new_name) <= 60 or any(ord(char) < 32 for char in new_name):
             raise ValueError("Invalid group name")
         if name == new_name:
             return False
-        if any(new_name in names for names in self.groups.values()):
+        original_index = groups[kind].index(name)
+        if any(existing.casefold() == new_name.casefold()
+               for group_kind, names in groups.items()
+               for index, existing in enumerate(names)
+               if (group_kind, index) != (kind, original_index)):
             raise ValueError("Group already exists")
         def update():
-            self.groups[kind][self.groups[kind].index(name)] = new_name
+            groups[kind][groups[kind].index(name)] = new_name
             for record in self.custom + list(self.builtin_overrides.values()):
-                if record["category"] == name:
+                if record["category"] == name and is_agent_command(record) == agent:
                     record["category"] = new_name
         self._change(update)
         return True
 
-    def remove_group(self, name, kind="folders"):
+    def remove_group(self, name, kind="folders", *, agent=False):
         """Remove a personal folder while keeping every command it contained."""
-        if kind not in ("folders", "collections") or name not in self.groups[kind]:
+        groups = self.groups_for(agent)
+        if kind not in ("folders", "collections") or name not in groups[kind]:
             raise ValueError("Unknown group")
         def update():
-            self.groups[kind].remove(name)
-            if not any(name in names for names in self.groups.values()):
+            groups[kind].remove(name)
+            if not any(name in names for names in groups.values()):
                 for record in self.custom + list(self.builtin_overrides.values()):
-                    if record["category"] == name:
-                        record["category"] = "Мои команды"
+                    if record["category"] == name and is_agent_command(record) == agent:
+                        record["category"] = "Команды агента" if agent else "Мои команды"
         self._change(update)
 
     def entries(self):

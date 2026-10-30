@@ -4,8 +4,14 @@
 >
 > Repository: https://github.com/negevshopmd-svg/LuxAI_local  
 > OS: Windows 10/11, 64-bit. Python + PySide6. UI and voice responses primarily Russian, with Romanian/English support.  
-> Updated for the **0.9.3.c work**, 2026-10-30. \`Update.bat\` installs the code merged into \`main\`, NOT an open PR.
+> Updated for the **0.9.3.d work**, 2026-10-30. \`Update.bat\` installs the code merged into \`main\`, NOT an open PR.
 > Do NOT include real API keys, private logs, screen captures, model binaries, user audio, or personal paths in Git history.
+
+## 0. Patch 0.9.3.d
+
+The command workspace has separate personal/agent views; persist source metadata and source-scoped empty groups without migrating or discarding older libraries. `command_transfer.py` owns bounded validated collection/file round trips, selected-scope exports, fresh disabled imported identities and atomic writes. `ui_command_tree.py` owns theme-aware branch drawing so Windows does not paint native green hover rectangles. The Addons local AI card is read-only; keep model picking in Settings. Distinguish file/backend readiness from actual worker inference success, bind health to model identity, ignore stale results and never load a model merely to show its status. Runtime health tracking must not expose private prompts or paths. Regenerate cleanup hashes after final tests/docs changes and merge only after full Linux/Windows CI.
+
+Group names are unique across folders/collections within a tab, ignoring case. Older libraries can contain aliases because membership uses only a category string. Export disambiguates their group metadata without rewriting the source and keeps every command once, under the first exact-name group already used by the UI; import maps distinct original spellings separately. Local model health keys resolve Windows short/long paths and normalize case before comparing file metadata.
 
 ## 0. Patch 0.9.3.c
 

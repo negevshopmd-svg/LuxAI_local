@@ -98,7 +98,10 @@ class Release039UiTests(unittest.TestCase):
                 labels = {label.text() for label in addons.findChildren(QLabel)}
                 self.assertNotIn(tr("Снимок экрана", language), labels)
                 self.assertNotIn(tr("Распознавание текста (OCR)", language), labels)
-                self.assertIn(tr("Выбрать локальную AI-модель", language), labels)
+                self.assertNotIn(tr("Выбрать локальную AI-модель", language), labels)
+                self.assertIn(window.local_ai_indicator, addons.findChildren(QLabel))
+                self.assertTrue(hasattr(window.settings_panel, "model_select"))
+                self.assertTrue(callable(window.pick_model))
                 self.assertTrue(callable(window.screen_action))
                 self.assertTrue(callable(window.ocr_action))
 

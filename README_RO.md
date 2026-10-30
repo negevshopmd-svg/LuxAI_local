@@ -1,4 +1,14 @@
-# LuxAI Local 0.9.3.c (Windows 10/11, 64-bit)
+# LuxAI Local 0.9.3.d (Windows 10/11, 64-bit)
+
+## 0.9.3.d: colecții, comenzi ale agentului și starea AI-ului local (2026-10-30)
+
+Săgețile dosarelor și evidențierea rândurilor folosesc tema aplicației inclusiv în Windows. **Exportă în fișier** exportă comanda, dosarul sau colecția selectată; fără selecție exportă fila curentă. Importul păstrează structura dosarelor și colecțiilor, inclusiv grupurile goale, atribuie ID-uri noi și lasă comenzile dezactivate până le activezi. Fișierele exportate de versiunile anterioare rămân acceptate.
+
+Fila **Comenzile agentului** funcționează separat pentru comenzile create cu AI sau învățate. Poți crea și revizui comenzi în editorul existent, gestiona dosarele, importa/exporta sau deschide Jarvis AI din starea goală. Acțiunile și confirmările existente sunt păstrate.
+
+În **Suplimente** apare doar starea AI-ului local. Alegerea modelului rămâne în **Setări**. Un model și un motor disponibile înseamnă „pregătit”; funcționarea este confirmată numai după un răspuns GGUF real. Stările de lucru și eroare urmăresc procesul real. Selectarea modelului nu pornește o inferență de test sau descărcări.
+
+Închide Jarvis, rulează `Update.bat`, apoi `run_windows.bat`. Fișierele personale, modelele, setările și biblioteca de comenzi rămân păstrate; Markdown și testele proiectului rămân pe GitHub.
 
 ## 0.9.3.c: atașamente prin Ctrl+V și comenzi de bază editabile (2026-10-30)
 
