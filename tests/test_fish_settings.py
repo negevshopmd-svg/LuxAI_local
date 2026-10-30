@@ -254,7 +254,7 @@ class FishSettingsIntegrationTests(unittest.TestCase):
         ):
             self.window.preview_voice()
         self.assertEqual(self.window.cfg["fish_voice_id"], other_voice)
-        self.assertEqual(json.loads(self.config.read_text())["fish_voice_id"], other_voice)
+        self.assertEqual(json.loads(self.config.read_text(encoding="utf-8"))["fish_voice_id"], other_voice)
         queue_speech.assert_called_once_with("Здравствуйте. Я Джарвис, ваш голосовой помощник.", "ru")
         self.assertEqual(self.window.cfg["language"], "auto")
 
