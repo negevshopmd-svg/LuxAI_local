@@ -21,6 +21,45 @@ def normalize_language(value):
 
 
 _DATA = r"""
+Формат или версия файла команд не поддерживается.|||The command file format or version is not supported.|||Formatul sau versiunea fișierului de comenzi nu este acceptată.
+Некорректный файл команд.|||Invalid command file.|||Fișier de comenzi nevalid.
+Некорректная команда в файле.|||Invalid command in the file.|||Comandă nevalidă în fișier.
+Некорректные данные папок или коллекций.|||Invalid folder or collection data.|||Date nevalide pentru dosare sau colecții.
+Некорректная вкладка команд.|||Invalid command tab.|||Filă de comenzi nevalidă.
+Некорректное название папки.|||Invalid folder name.|||Nume de dosar nevalid.
+Файл команд превышает ограничение 4 МБ.|||The command file exceeds the 4 MB limit.|||Fișierul de comenzi depășește limita de 4 MB.
+Слишком много пользовательских команд.|||Too many personal commands.|||Prea multe comenzi personale.
+Сохранённые действия агента. Проверьте шаги перед запуском.|||Saved agent actions. Review the steps before running.|||Acțiuni salvate ale agentului. Verifică pașii înainte de executare.
+Здесь пока пусто|||Nothing here yet|||Aici nu este încă nimic
+Нажмите «Новая команда», чтобы собрать действия с AI, или откройте Jarvis AI.|||Choose “New command” to build actions with AI, or open Jarvis AI.|||Apasă „Comandă nouă” pentru a crea acțiuni cu AI sau deschide Jarvis AI.
+Открыть Jarvis AI|||Open Jarvis AI|||Deschide Jarvis AI
+Коллекций: {count}|||Collections: {count}|||Colecții: {count}
+Экспорт выбранной команды|||Export selected command|||Exportă comanda selectată
+Экспорт выбранной коллекции|||Export selected collection|||Exportă colecția selectată
+Экспорт выбранной папки|||Export selected folder|||Exportă dosarul selectat
+Экспорт всех команд этой вкладки|||Export all commands in this tab|||Exportă toate comenzile din această filă
+Локальный AI: проверка состояния…|||Local AI: checking status…|||AI local: verific starea…
+Проверяю модель и локальный движок без загрузки модели.|||Checking the model and local engine without loading the model.|||Verific modelul și motorul local fără să încarc modelul.
+Локальный AI выключен|||Local AI is disabled|||AI-ul local este dezactivat
+Включите локальный AI и выберите модель в настройках.|||Enable local AI and select a model in Settings.|||Activează AI-ul local și alege un model în Setări.
+Локальный AI: модель не выбрана|||Local AI: no model selected|||AI local: niciun model selectat
+Выберите доступный файл .gguf в настройках.|||Select an available .gguf file in Settings.|||Alege un fișier .gguf disponibil în Setări.
+Локальный AI: файл модели недоступен|||Local AI: model file unavailable|||AI local: fișierul modelului nu este disponibil
+Файл GGUF повреждён или неполон. Проверьте модель в настройках.|||The GGUF file is damaged or incomplete. Check the model in Settings.|||Fișierul GGUF este deteriorat sau incomplet. Verifică modelul în Setări.
+Локальный AI: движок подготавливается…|||Local AI: preparing the engine…|||AI local: motorul este în pregătire…
+Автоматическая подготовка движка ещё не завершена.|||Automatic engine setup has not finished yet.|||Pregătirea automată a motorului nu s-a încheiat încă.
+Локальный AI: движок недоступен|||Local AI: engine unavailable|||AI local: motorul nu este disponibil
+Движок подготавливается автоматически при запуске и обновлении. Проверьте состояние в настройках.|||The engine is prepared automatically at startup and during updates. Check its status in Settings.|||Motorul se pregătește automat la pornire și actualizare. Verifică starea în Setări.
+Локальный AI готов к запуску|||Local AI is ready to run|||AI-ul local este pregătit pentru utilizare
+Модель и движок найдены. Работа подтвердится после ответа локальной модели.|||The model and engine were found. Operation will be confirmed after a local model reply.|||Modelul și motorul au fost găsite. Funcționarea se confirmă după un răspuns al modelului local.
+Локальный AI готовит ответ…|||Local AI is generating a reply…|||AI-ul local pregătește un răspuns…
+Сейчас выполняется запрос к выбранной локальной модели.|||A request to the selected local model is running.|||Se execută o cerere către modelul local selectat.
+Локальный AI работает|||Local AI is working|||AI-ul local funcționează
+Выбранная локальная модель успешно вернула ответ в этом сеансе.|||The selected local model successfully returned a reply in this session.|||Modelul local selectat a returnat cu succes un răspuns în această sesiune.
+Локальный AI: последний запрос завершился ошибкой|||Local AI: the last request failed|||AI local: ultima cerere a eșuat
+Проверьте файл модели и доступную память в настройках.|||Check the model file and available memory in Settings.|||Verifică fișierul modelului și memoria disponibilă în Setări.
+Локальный AI: состояние недоступно|||Local AI: status unavailable|||AI local: starea nu este disponibilă
+Не удалось проверить локальную модель. Проверьте настройки.|||Could not check the local model. Check Settings.|||Nu am putut verifica modelul local. Verifică Setările.
 Всего команд: {count}|||Total commands: {count}|||Total comenzi: {count}
 Включить|||Enable|||Activează
 Отключить|||Disable|||Dezactivează

@@ -1,4 +1,14 @@
-LUXAI LOCAL 0.9.3.c — ACTUALIZARE 2026-10-30
+LUXAI LOCAL 0.9.3.d — ACTUALIZARE 2026-10-30
+
+0.9.3.d: săgeți și rânduri de comenzi afișate corect cu tema Windows.
+Exportă comanda, dosarul sau colecția selectată; fără selecție, fila curentă.
+Importul păstrează structura și grupurile goale, folosește ID-uri noi și
+lasă comenzile dezactivate inițial. Comenzile agentului au filă funcțională
+cu editor, dosare și import/export. În Suplimente apare numai starea AI-ului
+local; alegerea modelului rămâne în Setări. Un model disponibil este
+«pregătit», iar funcționarea se confirmă numai după un răspuns GGUF real.
+Închide Jarvis, rulează Update.bat, apoi run_windows.bat.
+Datele personale, setările, comenzile și modelele sunt păstrate.
 
 0.9.3.c: chat cu miniaturi și carduri compacte de fișiere, eliminare
 individuală, + jos stânga și Trimite jos dreapta. Ctrl+V atașează fișiere

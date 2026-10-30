@@ -6,6 +6,7 @@ Imports are validated and never executed.
 from __future__ import annotations
 
 import json
+import tempfile
 import uuid
 from collections import defaultdict
 from pathlib import Path
@@ -13,17 +14,19 @@ from pathlib import Path
 from PySide6.QtCore import QEvent, QMimeData, QPoint, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QCursor, QIcon
 from PySide6.QtWidgets import (
-    QDialog, QFileDialog, QFrame, QHBoxLayout, QInputDialog, QLabel,
+    QButtonGroup, QDialog, QFileDialog, QFrame, QHBoxLayout, QInputDialog, QLabel,
     QLineEdit, QMessageBox, QPushButton, QToolButton,
-    QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QTreeWidgetItem, QVBoxLayout, QWidget,
     QHeaderView, QApplication,
 )
-from luxai.command_registry import CommandRegistry, MAX_USER_COMMANDS, checked_command
+from luxai.command_registry import CommandRegistry, checked_command
 from luxai.ui_i18n import tr, get_ui_language, translate_widgets
 from luxai.icons import icon, refresh_icons, set_button_icon, set_item_icon
 from luxai.action_catalog import CATALOG
 from luxai.ui_command_editor import CommandEditor
 from luxai.ui_command_menu import CommandContextMenu
+from luxai.command_transfer import export_payload, import_payload, is_agent_command
+from luxai.ui_command_tree import CommandTreeWidget
 
 
 GROUP_ROLE = int(Qt.ItemDataRole.UserRole) + 1
@@ -33,6 +36,17 @@ _ERROR_SOURCES = {
     "Unknown group": "Папка не найдена.",
     "Group already exists": "Папка с таким названием уже существует.",
     "Invalid command list": "Некорректный список команд.",
+    "Unsupported command export format or version": "Формат или версия файла команд не поддерживается.",
+    "Invalid command export format": "Некорректный файл команд.",
+    "Invalid command entry": "Некорректная команда в файле.",
+    "Invalid group list": "Некорректные данные папок или коллекций.",
+    "Invalid group": "Некорректные данные папок или коллекций.",
+    "Duplicate group name": "Некорректные данные папок или коллекций.",
+    "Invalid group selection": "Некорректные данные папок или коллекций.",
+    "Invalid command scope": "Некорректная вкладка команд.",
+    "Invalid group name": "Некорректное название папки.",
+    "Command file exceeds the safe 4 MB import limit": "Файл команд превышает ограничение 4 МБ.",
+    "Too many custom commands": "Слишком много пользовательских команд.",
 }
 
 
@@ -51,6 +65,7 @@ class CommandsPage(QWidget):
     ai_requested = Signal(str, object)
     voice_create_requested = Signal()
     changed = Signal()
+    chat_requested = Signal()
 
     def __init__(self, registry: CommandRegistry, parent=None):
         super().__init__(parent)
@@ -61,10 +76,14 @@ class CommandsPage(QWidget):
         self._last_hover = None
         self._menu_widgets = {}
         self._edit_widgets = {}
+        self._agent_mode = False
+        self._tree_mode = False
+        self._view_states = {}
         self.setObjectName("CommandsPage")
         self.setStyleSheet("""
             QFrame#LibraryCard {background: #191c21; border: 1px solid #323943; border-radius: 15px;}
             QFrame#LibrarySidebar {background: #1b1e24; border: 1px solid #323943; border-radius: 15px;}
+            QWidget#AgentCommandsEmpty, QWidget#AgentCommandsEmpty QLabel {background: transparent; border: none;}
             QLabel#LibraryTitle {font-size: 18px; font-weight: 700; color: #f4f6fa;}
             QLabel#LibraryMuted {font-size: 12px; color: #a4aebd;}
             QLabel#LibraryGroup {font-size: 12px; font-weight: 600; color: #b7bfcb;}
@@ -80,7 +99,7 @@ class CommandsPage(QWidget):
                                      outline: none; color: #edf2f8; font-size: 13px;}
             QTreeWidget#CommandTree::item {height: 36px; border-radius: 0; padding: 3px;}
             QTreeWidget#CommandTree::item:hover {background: #2b3443;}
-            QTreeWidget#CommandTree::item:selected {background: #2f425e; color: white;}
+            QTreeWidget#CommandTree::item:selected {background: #2f425e; color: #edf2f8;}
             QHeaderView::section {background: transparent; color: #a9b2c2;
                                   border: none; padding: 4px;}
             QToolButton#LibraryMore {background: transparent; border: 0;
@@ -98,15 +117,22 @@ class CommandsPage(QWidget):
         center_col.setSpacing(12)
         tabs = QHBoxLayout()
         tabs.setSpacing(8)
-        self.my_tab = QPushButton("▣  " + tr("Мои команды", self.interface_language))
+        self.my_tab = QPushButton(tr("Мои команды", self.interface_language))
         self.my_tab.setObjectName("LibraryTab")
         self.my_tab.setCheckable(True)
         self.my_tab.setChecked(True)
+        set_button_icon(self.my_tab, "list-checks")
+        self.my_tab.clicked.connect(lambda: self.set_agent_mode(False))
         tabs.addWidget(self.my_tab)
-        self.agent_tab = QPushButton("✧  " + tr("Команды агента", self.interface_language))
+        self.agent_tab = QPushButton(tr("Команды агента", self.interface_language))
         self.agent_tab.setObjectName("LibraryTab")
-        self.agent_tab.setToolTip(tr("Команды агента пока не настроены.", self.interface_language))
-        self.agent_tab.clicked.connect(self._agent_tab_unavailable)
+        self.agent_tab.setCheckable(True)
+        set_button_icon(self.agent_tab, "bot")
+        self.agent_tab.clicked.connect(lambda: self.set_agent_mode(True))
+        self.library_tabs = QButtonGroup(self)
+        self.library_tabs.setExclusive(True)
+        self.library_tabs.addButton(self.my_tab)
+        self.library_tabs.addButton(self.agent_tab)
         tabs.addWidget(self.agent_tab)
         tabs.addStretch()
         center_col.addLayout(tabs)
@@ -119,6 +145,7 @@ class CommandsPage(QWidget):
         row = QHBoxLayout()
         heading = QLabel(tr("Ваши команды", self.interface_language))
         heading.setObjectName("LibraryTitle")
+        self.library_heading = heading
         row.addWidget(heading)
         row.addStretch()
         self.expand_all = QPushButton("⌄")
@@ -138,9 +165,11 @@ class CommandsPage(QWidget):
         area.addLayout(row)
         subtitle = QLabel(tr("Двойной щелчок по команде — открыть её.", self.interface_language))
         subtitle.setObjectName("LibraryMuted")
+        subtitle.setWordWrap(True)
+        self.library_subtitle = subtitle
         area.addWidget(subtitle)
 
-        self.tree = QTreeWidget()
+        self.tree = CommandTreeWidget()
         self.tree.setObjectName("CommandTree")
         self.tree.setColumnCount(5)
         self.tree.setHeaderHidden(True)
@@ -167,6 +196,34 @@ class CommandsPage(QWidget):
         self.tree.itemClicked.connect(self._item_clicked)
         self.tree.itemDoubleClicked.connect(self.open_selected)
         area.addWidget(self.tree, 1)
+        self.agent_empty = QWidget()
+        self.agent_empty.setObjectName("AgentCommandsEmpty")
+        empty = QVBoxLayout(self.agent_empty)
+        empty.setContentsMargins(20, 30, 20, 30)
+        empty.addStretch()
+        self.agent_empty_icon = QLabel()
+        self.agent_empty_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty.addWidget(self.agent_empty_icon)
+        self.agent_empty_title = QLabel()
+        self.agent_empty_title.setObjectName("LibraryTitle")
+        self.agent_empty_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty.addWidget(self.agent_empty_title)
+        self.agent_empty_description = QLabel()
+        self.agent_empty_description.setObjectName("LibraryMuted")
+        self.agent_empty_description.setWordWrap(True)
+        self.agent_empty_description.setMaximumWidth(440)
+        self.agent_empty_description.setMinimumHeight(80)
+        self.agent_empty_description.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty.addWidget(self.agent_empty_description, 0, Qt.AlignmentFlag.AlignHCenter)
+        self.open_chat_button = QPushButton(tr("Открыть Jarvis AI", self.interface_language))
+        self.open_chat_button.setObjectName("LibraryAction")
+        set_button_icon(self.open_chat_button, "bot")
+        self.open_chat_button.clicked.connect(self.chat_requested.emit)
+        empty.addSpacing(10)
+        empty.addWidget(self.open_chat_button, 0, Qt.AlignmentFlag.AlignHCenter)
+        empty.addStretch()
+        self.agent_empty.hide()
+        area.addWidget(self.agent_empty, 1)
         center_col.addWidget(card, 1)
         root.addWidget(center, 1)
 
@@ -234,32 +291,56 @@ class CommandsPage(QWidget):
         self.run_button.clicked.connect(self.execute_selected)
 
         self.refresh()
+        self._apply_library_theme()
 
-    def _agent_tab_unavailable(self):
-        self.agent_tab.setChecked(False)
-        self.my_tab.setChecked(True)
+    def set_agent_mode(self, enabled):
+        enabled = bool(enabled)
+        if self._agent_mode == enabled:
+            return
+        old_menu = getattr(self, "_active_menu", None)
+        if old_menu is not None:
+            old_menu.close()
+        self._agent_mode = enabled
+        self.agent_tab.setChecked(enabled)
+        self.my_tab.setChecked(not enabled)
+        self.search.clear()
+        self.refresh()
+
+    def _visible_entries(self):
+        return [entry for entry in self.registry.entries()
+                if is_agent_command(entry) == self._agent_mode]
 
     def _show_error(self, error):
         source = _ERROR_SOURCES.get(str(error), str(error))
         QMessageBox.warning(self, tr("Ошибка", self.interface_language), tr(source, self.interface_language))
 
     def refresh(self):
-        previous_id = self._node_key(self.tree.currentItem())
-        expanded = {self._node_key(item): item.isExpanded()
-                    for item in self._iter_nodes() if item.data(0, GROUP_ROLE)}
+        old_menu = getattr(self, "_active_menu", None)
+        if old_menu is not None:
+            old_menu.close()
+        self._view_states[self._tree_mode] = {
+            "selected": self._node_key(self.tree.currentItem()),
+            "expanded": {self._node_key(item): item.isExpanded()
+                         for item in self._iter_nodes() if item.data(0, GROUP_ROLE)},
+        }
+        state = self._view_states.get(self._agent_mode, {})
+        previous_id = state.get("selected")
+        expanded = state.get("expanded", {})
         self.tree.clear()
         self._menu_widgets.clear()
         self._edit_widgets.clear()
         self._last_hover = None
-        entries = self.registry.entries()
+        entries = self._visible_entries()
         named_groups = self._group_names("folders") + self._group_names("collections")
-        default_entries = [entry for entry in entries if entry["builtin"] and entry["category"] not in named_groups]
+        default_entries = ([] if self._agent_mode else
+                           [entry for entry in entries if entry["builtin"] and entry["category"] not in named_groups])
         personal = [entry for entry in entries if entry not in default_entries]
         root = QTreeWidgetItem([tr("Команды по умолчанию", self.interface_language),
                                 f"{len(default_entries)}", "", ""])
         self._set_group_data(root, "defaults", "Команды по умолчанию", default_entries)
         set_item_icon(root, "folder", widget=self.tree, column=0, role="muted")
-        self.tree.addTopLevelItem(root)
+        if not self._agent_mode:
+            self.tree.addTopLevelItem(root)
         groups = defaultdict(list)
         for entry in default_entries:
             groups[self._default_group(entry)].append(entry)
@@ -288,7 +369,8 @@ class CommandsPage(QWidget):
             category.setExpanded(expanded.get("default:" + name, False))
             self._attach_group_power(category, [item["id"] for item in groups[name]])
         root.setExpanded(expanded.get("defaults", True))
-        self._attach_group_power(root, [item["id"] for item in default_entries])
+        if not self._agent_mode:
+            self._attach_group_power(root, [item["id"] for item in default_entries])
 
         user_groups = defaultdict(list)
         for entry in personal:
@@ -297,7 +379,8 @@ class CommandsPage(QWidget):
                             ("collections", self._group_names("collections"))):
             for name in names:
                 user_groups.setdefault(name, [])
-        category_names = ["Мои команды", "Выученные команды"]
+        category_names = (["Команды агента", "Выученные команды", "Мои команды"]
+                          if self._agent_mode else ["Мои команды", "Выученные команды"])
         category_names.extend(sorted(name for name in user_groups if name not in category_names))
         for name in category_names:
             items = user_groups.get(name, [])
@@ -305,7 +388,8 @@ class CommandsPage(QWidget):
                 continue
             kind = next((kind for kind in ("folders", "collections")
                          if name in self._group_names(kind)), None)
-            label = tr(name, self.interface_language) if name in ("Мои команды", "Выученные команды") else name
+            label = tr(name, self.interface_language) if name in (
+                "Мои команды", "Выученные команды", "Команды агента") else name
             category = QTreeWidgetItem([label, f"{len(items)}", "", ""])
             self._set_group_data(category, "user:" + name, name, items, kind)
             set_item_icon(category, "folder", widget=self.tree, column=0)
@@ -316,8 +400,21 @@ class CommandsPage(QWidget):
             self._attach_group_power(category, [item["id"] for item in items])
         self.summary.setText(
             tr("Всего команд: {count}", self.interface_language).format(count=len(entries)) + "\n"
-            f"{len(personal)} " + tr("мои / выученные", self.interface_language) + "\n"
+            + (tr("Коллекций: {count}", self.interface_language).format(count=len(self._group_names("collections")))
+               if self._agent_mode else f"{len(personal)} " + tr("мои / выученные", self.interface_language)) + "\n"
             + tr("Все изменения сохраняются автоматически.", self.interface_language))
+        self.library_heading.setText(tr("Команды агента" if self._agent_mode else "Ваши команды", self.interface_language))
+        self.library_subtitle.setText(tr(
+            "Сохранённые действия агента. Проверьте шаги перед запуском."
+            if self._agent_mode else "Двойной щелчок по команде — открыть её.", self.interface_language))
+        self.agent_empty_title.setText(tr("Здесь пока пусто", self.interface_language))
+        self.agent_empty_description.setText(tr(
+            "Нажмите «Новая команда», чтобы собрать действия с AI, или откройте Jarvis AI.",
+            self.interface_language))
+        empty = self._agent_mode and not entries and not named_groups
+        self.agent_empty.setVisible(empty)
+        self.tree.setVisible(not empty)
+        self._tree_mode = self._agent_mode
         self._filter(self.search.text())
         if previous_id:
             for item in self._iter_nodes():
@@ -328,7 +425,9 @@ class CommandsPage(QWidget):
 
     def _group_names(self, kind):
         # Mocked registries in tests and older integrations may have no groups.
-        value = getattr(self.registry, "groups", None)
+        value = (self.registry.groups_for(agent=self._agent_mode)
+                 if hasattr(self.registry, "groups_for") else
+                 getattr(self.registry, "agent_groups" if self._agent_mode else "groups", None))
         return list(value.get(kind, [])) if isinstance(value, dict) else []
 
     @staticmethod
@@ -340,6 +439,7 @@ class CommandsPage(QWidget):
 
     def _set_group_data(self, item, key, name, members, kind=None):
         item.setData(0, GROUP_ROLE, {"key": key, "name": name, "kind": kind,
+                                    "agent": self._agent_mode,
                                     "ids": [entry["id"] for entry in members]})
         item.setText(1, tr("{count} команд", self.interface_language).format(count=len(members)))
         item.setSizeHint(0, QSize(0, 38))
@@ -472,6 +572,12 @@ class CommandsPage(QWidget):
         self.remove.setEnabled(bool(entry))
         self.toggle.setEnabled(bool(entry))
         self.run_button.setEnabled(bool(entry and entry["enabled"]))
+        current = self.tree.currentItem()
+        group = current.data(0, GROUP_ROLE) if current is not None else None
+        hint = ("Экспорт выбранной команды" if entry else
+                "Экспорт выбранной коллекции" if group and group.get("kind") == "collections" else
+                "Экспорт выбранной папки" if group else "Экспорт всех команд этой вкладки")
+        self.export_button.setToolTip(tr(hint, self.interface_language))
         selected_key = self._node_key(self.tree.currentItem())
         for controls in (self._menu_widgets, self._edit_widgets):
             for key, button in controls.items():
@@ -631,7 +737,8 @@ class CommandsPage(QWidget):
                                               tr("Название", self.interface_language), text=group["name"])
         if accepted and value.strip():
             try:
-                self.registry.rename_group(group["name"], value.strip(), group["kind"])
+                self.registry.rename_group(group["name"], value.strip(), group["kind"],
+                                           agent=bool(group.get("agent")))
                 self.refresh()
                 self.changed.emit()
             except (OSError, ValueError) as exc:
@@ -649,7 +756,7 @@ class CommandsPage(QWidget):
             return
         try:
             if persistent:
-                self.registry.remove_group(group["name"], group["kind"])
+                self.registry.remove_group(group["name"], group["kind"], agent=bool(group.get("agent")))
             else:
                 self.registry.remove_commands(group["ids"])
             self.refresh()
@@ -668,11 +775,11 @@ class CommandsPage(QWidget):
         if not records:
             return
         try:
-            self.registry.add_group(name, "folders")
+            self.registry.add_group(name, "folders", agent=self._agent_mode)
             try:
                 self.registry.save_commands(records)
             except (OSError, ValueError):
-                self.registry.remove_group(name, "folders")
+                self.registry.remove_group(name, "folders", agent=self._agent_mode)
                 raise
             self.refresh()
             self.changed.emit()
@@ -691,6 +798,7 @@ class CommandsPage(QWidget):
     def _clone_data(self, entry, *, category="Мои команды"):
         data = dict(entry)
         data.update(id="user_" + uuid.uuid4().hex[:16], builtin=False, learned=False,
+                    agent=self._agent_mode,
                     category=category, enabled=False, hotkey="", schedule={}, event={})
         data.pop("customized", None)
         return data
@@ -699,7 +807,7 @@ class CommandsPage(QWidget):
         entry = self._selected()
         if not entry:
             return
-        data = self._clone_data(entry)
+        data = self._clone_data(entry, category="Команды агента" if self._agent_mode else "Мои команды")
         suffix = " — " + tr("копия", self.interface_language)
         data["title"] = entry["title"][:100 - len(suffix)] + suffix
         try:
@@ -751,7 +859,7 @@ class CommandsPage(QWidget):
                                         tr("Название", self.interface_language))
         if ok and name.strip():
             try:
-                self.registry.add_group(name, kind)
+                self.registry.add_group(name, kind, agent=self._agent_mode)
                 self.refresh()
                 self.changed.emit()
             except (OSError, ValueError) as exc:
@@ -764,34 +872,15 @@ class CommandsPage(QWidget):
             return
         try:
             file_path = Path(path)
-            if file_path.stat().st_size > 4 * 1024 * 1024:
+            with file_path.open("rb") as source:
+                content = source.read(4 * 1024 * 1024 + 1)
+            if len(content) > 4 * 1024 * 1024:
                 raise ValueError("Command file exceeds the safe 4 MB import limit")
-            payload = json.loads(file_path.read_text(encoding="utf-8"))
-            if not isinstance(payload, dict):
-                raise ValueError("Invalid command export format")
-            records = payload.get("commands")
-            if not isinstance(records, list) or len(records) > MAX_USER_COMMANDS:
-                raise ValueError("Invalid command list")
-            if len(self.registry.custom) + len(records) > MAX_USER_COMMANDS:
-                raise ValueError("Too many custom commands")
-            items = []
-            for record in records:
-                raw = dict(record)
-                raw["id"] = "user_" + uuid.uuid4().hex[:16]
-                raw["builtin"] = False
-                raw["enabled"] = False  # Import never auto-enables potentially dangerous triggers.
-                raw["hotkey"] = ""
-                items.append(checked_command(raw))
-            previous = list(self.registry.custom)
-            try:
-                self.registry.custom = previous + items
-                self.registry._persist()
-            except OSError:
-                self.registry.custom = previous
-                raise
+            payload = json.loads(content.decode("utf-8-sig"))
+            import_payload(self.registry, payload, agent=self._agent_mode)
             self.refresh()
             self.changed.emit()
-        except (OSError, ValueError, TypeError, KeyError) as exc:
+        except (OSError, ValueError, TypeError, KeyError, RecursionError) as exc:
             self._show_error(exc)
 
     def export_commands(self):
@@ -799,14 +888,37 @@ class CommandsPage(QWidget):
                                                "Jarvis_commands.json", "JSON (*.json)")
         if not path:
             return
+        temporary = None
         try:
             file_path = Path(path)
-            data = {"version": 1, "commands": self.registry.custom}
-            temporary = file_path.with_suffix(file_path.suffix + ".tmp")
-            temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            data = self._export_selection()
+            content = json.dumps(data, ensure_ascii=False, indent=2)
+            if len(content.encode("utf-8")) > 4 * 1024 * 1024:
+                raise ValueError("Command file exceeds the safe 4 MB import limit")
+            # An exclusive temporary file cannot overwrite an unrelated .tmp
+            # next to the user's selected export, even if writing fails.
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=file_path.parent,
+                                             prefix=".jarvis-export-", suffix=".tmp", delete=False) as handle:
+                temporary = Path(handle.name)
+                handle.write(content)
             temporary.replace(file_path)
         except (OSError, ValueError) as exc:
             self._show_error(exc)
+        finally:
+            if temporary is not None:
+                try:
+                    temporary.unlink(missing_ok=True)
+                except OSError:
+                    pass
+
+    def _export_selection(self):
+        item = self.tree.currentItem()
+        group = item.data(0, GROUP_ROLE) if item is not None else None
+        identifier = item.data(0, Qt.ItemDataRole.UserRole) if item is not None else None
+        identifiers = (group["ids"] if group is not None else
+                       [identifier] if identifier else [entry["id"] for entry in self._visible_entries()])
+        return export_payload(self.registry, identifiers=identifiers, group=group,
+                              agent=self._agent_mode, include_empty_groups=item is None)
 
     def set_context(self, planner=None, config=None):
         self._planner = planner
@@ -818,6 +930,8 @@ class CommandsPage(QWidget):
         from luxai.styles import theme_colors
         theme = self._config.get("ui_theme", "dark")
         p = theme_colors(theme, self._config.get("ui_accent", "#3978f6"))
+        self.tree.set_colors(p)
+        self.agent_empty_icon.setPixmap(icon("bot", color=p["accent"], size=48).pixmap(48, 48))
         replacements = {
             "#191c21": p["surface"], "#1b1e24": p["surface"],
             "#323943": p["border"], "#f4f6fa": p["text"],
@@ -849,7 +963,14 @@ class CommandsPage(QWidget):
         dialog = self._configure_editor(CommandEditor(parent=self))
         if dialog.exec() == QDialog.DialogCode.Accepted:
             try:
-                self.registry.save_custom(dialog.get_data())
+                data = dialog.get_data()
+                data["agent"] = self._agent_mode
+                data["learned"] = False
+                selected = self.tree.currentItem()
+                group = selected.data(0, GROUP_ROLE) if selected is not None else None
+                data["category"] = (group["name"] if group and group.get("kind")
+                                    else "Команды агента" if self._agent_mode else "Мои команды")
+                self.registry.save_custom(data)
                 self.refresh()
                 self.changed.emit()
             except (OSError, ValueError) as exc:

@@ -1,3 +1,11 @@
+## 0.9.3.d — collection transfer and real command/status views (2026-10-30)
+
+- Paint command-tree branches and selected rows consistently with the selected theme, including Windows hover states.
+- Scope exports to the selected command/folder/collection or current tab, preserving empty groups and structure on validated atomic import. Keep legacy files compatible, fresh imported IDs and disabled imports.
+- Replace the inactive Agent commands button with a separate working command workspace, AI/action editor, folder controls and empty-state chat navigation.
+- Replace the Tools model picker with a read-only local AI indicator. Keep model selection in Settings; distinguish lightweight readiness from actual GGUF request progress, success and failure.
+- Preserve personal settings/models/commands and source-only Markdown/test cleanup.
+
 ## 0.9.3.c — clipboard attachments and editable preset menus (2026-10-30)
 
 - Compact chat previews with individual removal, a left attachment control and right send button; paste Explorer files and clipboard images through the same bounded local attachment pipeline.

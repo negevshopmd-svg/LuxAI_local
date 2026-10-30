@@ -1,5 +1,15 @@
 # LuxAI_local
 
+## 0.9.3.d: collection transfer, agent commands and local AI status (2026-10-30)
+
+Command-tree expansion arrows and selected rows now follow the application theme consistently, including Windows hover/selection states. **Export to file** exports the selected command, folder or collection; without a selection it exports the current command tab. Import preserves the collection/folder structure, including empty groups, assigns fresh command IDs and keeps imported commands disabled until you enable them. Existing command export files remain supported.
+
+**Agent commands** is a working separate tab for AI-created and learned commands. Create and review commands with the existing AI/action editor, manage their folders and import/export, or open Jarvis AI from its empty state. Saved command execution still uses the validated local actions and existing confirmations.
+
+**Tools** shows a read-only local AI status. Model selection remains in **Settings**. A model/backend being present is shown as ready, while successful operation is confirmed only by an actual GGUF response; busy/error states follow the real isolated worker. Selecting a model does not trigger a test inference or download.
+
+Close Jarvis, run `Update.bat`, then `run_windows.bat`. Personal files, models, settings and command libraries are preserved. Bundled Markdown and tests remain on GitHub.
+
 ## 0.9.3.c: clipboard attachments and editable command library (2026-10-30)
 
 The chat composer uses compact image thumbnails and file cards above the prompt, with an individual remove button, **+** at the bottom left and **Send** at the bottom right. Paste copied files or images with **Ctrl+V**; ordinary text still pastes as text. Pasting only creates local previews: files are shared with the configured cloud provider when you press Send.

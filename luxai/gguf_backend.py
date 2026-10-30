@@ -12,6 +12,8 @@ import subprocess
 import sys
 import threading
 
+from luxai.local_ai_health import begin_inference, finish_inference, has_generated_text
+
 ROOT = Path(__file__).resolve().parents[1]
 SENTINEL = "LUXAI_RESPONSE_JSON:"
 TIMEOUT_SECONDS = 150
@@ -53,7 +55,11 @@ class IsolatedGGUF:
             request["n_ctx"] = context
         if not _INFERENCE_LOCK.acquire(timeout=INFERENCE_LOCK_TIMEOUT_SECONDS):
             raise GGUFWorkerError("The local model is busy. Wait for the current request and try again.", code="busy")
+        token = None
+        succeeded = False
+        failure_code = "failed"
         try:
+            token = begin_inference(self.model_path)
             # Explicit UTF-8 on BOTH pipe ends. Windows cp1251/cp1252 default
             # codecs cannot encode Romanian ș/ț or arbitrary GGUF prompts.
             environment = os.environ.copy()
@@ -65,28 +71,36 @@ class IsolatedGGUF:
                 env=environment, cwd=ROOT, capture_output=True,
                 timeout=EXTENDED_TIMEOUT_SECONDS if n_ctx is not None else TIMEOUT_SECONDS, check=False,
             )
+            if completed.returncode != 0:
+                failure_code = "worker_failed"
+                raise GGUFWorkerError(
+                    "Local GGUF process failed or was stopped. Check model compatibility, "
+                    "available RAM and logs/local_ai_install.log. The engine is prepared "
+                    "automatically at startup/update. Jarvis remains running."
+                )
+            failure_code = "invalid_reply"
+            for line in reversed(completed.stdout.splitlines()):
+                if line.startswith(SENTINEL):
+                    try:
+                        result = json.loads(line[len(SENTINEL):])
+                    except (ValueError, TypeError) as error:
+                        raise GGUFWorkerError("Invalid reply from local GGUF worker") from error
+                    if not isinstance(result, dict):
+                        raise GGUFWorkerError("Invalid GGUF worker response")
+                    succeeded = has_generated_text(result)
+                    if not succeeded:
+                        failure_code = "empty_reply"
+                    return result
+            raise GGUFWorkerError("No response from local GGUF worker")
         except subprocess.TimeoutExpired as error:
+            failure_code = "timeout"
             raise GGUFWorkerError("Local GGUF model timed out; try a smaller model or more RAM.") from error
         except (OSError, UnicodeError) as error:
             raise GGUFWorkerError("Could not start the isolated GGUF process.") from error
         finally:
+            if token is not None:
+                finish_inference(token, succeeded, failure_code)
             _INFERENCE_LOCK.release()
-        if completed.returncode != 0:
-            raise GGUFWorkerError(
-                "Local GGUF process failed or was stopped. Check model compatibility, "
-                "available RAM and logs/local_ai_install.log. The engine is prepared "
-                "automatically at startup/update. Jarvis remains running."
-            )
-        for line in reversed(completed.stdout.splitlines()):
-            if line.startswith(SENTINEL):
-                try:
-                    result = json.loads(line[len(SENTINEL):])
-                except (ValueError, TypeError) as error:
-                    raise GGUFWorkerError("Invalid reply from local GGUF worker") from error
-                if not isinstance(result, dict):
-                    raise GGUFWorkerError("Invalid GGUF worker response")
-                return result
-        raise GGUFWorkerError("No response from local GGUF worker")
 
     def create_chat_completion(self, *, messages, max_tokens=96, temperature=0.2, n_ctx=None, **kwargs):
         return self._request(messages=messages, max_tokens=max_tokens, temperature=temperature, n_ctx=n_ctx)
