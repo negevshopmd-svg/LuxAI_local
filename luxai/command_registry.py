@@ -286,6 +286,9 @@ class CommandRegistry:
         groups = self.groups_for(agent)
         if name in groups[kind]:
             return False
+        if any(existing.casefold() == name.casefold()
+               for names in groups.values() for existing in names):
+            raise ValueError("Group already exists")
         if len(groups[kind]) >= 100:
             raise ValueError("Too many groups")
         self._change(lambda: groups[kind].append(name))
@@ -300,7 +303,11 @@ class CommandRegistry:
             raise ValueError("Invalid group name")
         if name == new_name:
             return False
-        if any(new_name in names for names in groups.values()):
+        original_index = groups[kind].index(name)
+        if any(existing.casefold() == new_name.casefold()
+               for group_kind, names in groups.items()
+               for index, existing in enumerate(names)
+               if (group_kind, index) != (kind, original_index)):
             raise ValueError("Group already exists")
         def update():
             groups[kind][groups[kind].index(name)] = new_name

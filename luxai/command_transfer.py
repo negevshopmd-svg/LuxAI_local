@@ -45,6 +45,43 @@ def _group(name, kind, agent):
     return {"name": _name(name), "kind": kind, "agent": agent}
 
 
+def _available_name(name, used):
+    candidate, number = name, 2
+    while candidate.casefold() in used:
+        suffix = f" ({number})"
+        candidate = name[:60 - len(suffix)] + suffix
+        number += 1
+    used.add(candidate.casefold())
+    return candidate
+
+
+def _export_group_names(groups, records):
+    """Represent legacy aliases without changing the source registry.
+
+    Old files could name a folder and collection identically, although commands
+    store only their category name. The first exact alias owns those commands,
+    as it does in the tree; later aliases remain present as empty groups. Case-
+    distinct categories retain their own members under separate export names.
+    """
+    declared = {(group["name"], group["agent"]) for group in groups}
+    # Renaming an alias must not take the name of a separate implicit category
+    # which has no metadata row of its own (for example an existing "Work (2)").
+    used = {scope: {record["category"].casefold() for record in records
+                    if is_agent_command(record) == scope
+                    and (record["category"], scope) not in declared}
+            for scope in (False, True)}
+    categories, renamed = {}, []
+    for group in groups:
+        scope, original = group["agent"], group["name"]
+        name = _available_name(original, used[scope])
+        categories.setdefault((original, scope), name)
+        renamed.append(dict(group, name=name))
+    records = [dict(record, category=categories.get(
+        (record["category"], is_agent_command(record)), record["category"]))
+        for record in records]
+    return renamed, records
+
+
 def export_payload(registry, *, identifiers=None, group=None, agent=None,
                    include_empty_groups=None):
     """Export exact selected members, or personal records when no IDs are given.
@@ -100,6 +137,7 @@ def export_payload(registry, *, identifiers=None, group=None, agent=None,
                 for name in names[kind]:
                     if whole or (name, source) in categories:
                         groups.append(_group(name, kind, source))
+    groups, records = _export_group_names(groups, records)
     payload = {"format": FORMAT, "version": VERSION,
                "commands": [checked_command(record, builtin=record.get("builtin", False)) for record in records],
                "groups": groups}
@@ -180,15 +218,10 @@ def import_payload(registry, payload, *, agent=None):
     def allocate(name, kind, scope, source_scope):
         # Two source tabs may each have a collection named "Work". Forcing
         # both into one destination tab must still keep the collections apart.
-        key = (name.casefold(), source_scope)
+        key = (name, source_scope)
         if key in mapping:
             return mapping[key]
-        candidate, number = name, 2
-        while candidate.casefold() in used[scope]:
-            suffix = f" ({number})"
-            candidate = name[:60 - len(suffix)] + suffix
-            number += 1
-        used[scope].add(candidate.casefold())
+        candidate = _available_name(name, used[scope])
         mapping[key] = candidate
         planned.append(_group(candidate, kind, scope))
         return candidate
@@ -199,7 +232,7 @@ def import_payload(registry, payload, *, agent=None):
     for item, source_scope in zip(items, source_scopes):
         scope = is_agent_command(item)
         category = item["category"]
-        key = (category.casefold(), source_scope)
+        key = (category, source_scope)
         if key in mapping:
             item["category"] = mapping[key]
         elif category not in _DEFAULT_CATEGORIES:

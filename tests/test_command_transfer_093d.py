@@ -234,6 +234,84 @@ class CommandTransfer093dTests(unittest.TestCase):
         self.assertFalse(self.destination.custom)
         self.assertFalse(self.destination.path.exists())
 
+    def test_new_group_names_are_unique_across_kinds_and_case_within_each_tab(self):
+        self.source.add_group("Work", "folders")
+        before = self.source.path.read_bytes()
+        self.assertFalse(self.source.add_group("Work", "folders"))
+        for name, kind in (("Work", "collections"), ("work", "folders"), ("WORK", "collections")):
+            with self.subTest(name=name, kind=kind), self.assertRaisesRegex(ValueError, "already exists"):
+                self.source.add_group(name, kind)
+        self.assertEqual(self.source.path.read_bytes(), before)
+        self.assertTrue(self.source.add_group("Work", "collections", agent=True))
+
+    def test_group_rename_rejects_case_collisions_but_allows_own_case_change(self):
+        self.source.add_group("Work", "folders")
+        self.source.add_group("Reports", "collections")
+        existing = self.record(category="Work")
+        before = self.source.path.read_bytes()
+        with self.assertRaisesRegex(ValueError, "already exists"):
+            self.source.rename_group("Work", "REPORTS", "folders")
+        self.assertEqual(self.source.path.read_bytes(), before)
+        self.source.rename_group("Work", "work", "folders")
+        saved = next(item for item in self.source.custom if item["id"] == existing["id"])
+        self.assertEqual(saved["category"], "work")
+        self.assertEqual(self.source.groups["folders"], ["work"])
+
+    def test_raw_legacy_group_aliases_export_without_rewriting_or_losing_members(self):
+        first = self.record(identifier="user_upper", title="Uppercase", category="Work")
+        second = self.record(identifier="user_lower", title="Lowercase", category="work",
+                             steps=[{"action": "speak_text", "target": "Second workflow"}])
+        legacy = json.loads(self.source.path.read_text())
+        legacy.update(folders=["Work", "work"], collections=["Work"])
+        self.source.path.write_text(json.dumps(legacy, ensure_ascii=False))
+        before = self.source.path.read_bytes()
+        source = CommandRegistry(self.source.path)
+        payload = export_payload(source, agent=False)
+        self.assertEqual(source.path.read_bytes(), before)
+        self.assertEqual(source.groups, {"folders": ["Work", "work"], "collections": ["Work"]})
+        self.assertEqual([(group["name"], group["kind"]) for group in payload["groups"]],
+                         [("Work", "folders"), ("work (2)", "folders"), ("Work (3)", "collections")])
+        imported = import_payload(self.destination, payload, agent=False)
+        self.assertEqual(len(imported), 2)
+        by_title = {record["title"]: record for record in imported}
+        self.assertEqual(by_title["Uppercase"]["steps"], first["steps"])
+        self.assertEqual(by_title["Lowercase"]["steps"], second["steps"])
+        self.assertEqual(by_title["Uppercase"]["category"], "Work")
+        self.assertEqual(by_title["Lowercase"]["category"], "work (2)")
+        self.assertTrue(all(record["category"] != "Work (3)" for record in imported))
+        self.assertEqual(self.destination.groups["collections"], ["Work (3)"])
+
+    def test_old_implicit_case_only_categories_remain_separate_on_import(self):
+        upper = self.record(identifier="user_upper", title="Uppercase", category="Work")
+        lower = self.record(identifier="user_lower", title="Lowercase", category="work")
+        imported = import_payload(self.destination, {"version": 1, "commands": [upper, lower]})
+        self.assertEqual([(item["title"], item["category"]) for item in imported],
+                         [("Uppercase", "Work"), ("Lowercase", "work (2)")])
+
+    def test_export_alias_suffix_cannot_take_an_existing_implicit_category(self):
+        for number, category in enumerate(("Work", "work", "work (2)")):
+            self.record(identifier=f"user_{number}", title=f"Task {number}", category=category)
+        legacy = json.loads(self.source.path.read_text())
+        legacy["folders"] = ["Work", "work"]
+        self.source.path.write_text(json.dumps(legacy))
+        source = CommandRegistry(self.source.path)
+        payload = export_payload(source, agent=False)
+        imported = import_payload(self.destination, payload, agent=False)
+        self.assertEqual(len(imported), 3)
+        self.assertEqual(len({record["category"] for record in imported}), 3)
+        self.assertEqual(next(record for record in imported if record["title"] == "Task 2")["category"],
+                         "work (2)")
+
+    def test_selecting_one_legacy_collection_still_exports_only_its_exact_members(self):
+        first = self.record(identifier="user_upper", title="Uppercase", category="Work")
+        self.record(identifier="user_lower", title="Lowercase", category="work")
+        payload = export_payload(self.source, group={
+            "name": "Work", "kind": "collections", "ids": [first["id"]],
+        }, agent=False)
+        imported = import_payload(self.destination, payload, agent=False)
+        self.assertEqual([record["title"] for record in imported], ["Uppercase"])
+        self.assertEqual(self.destination.groups["collections"], ["Work"])
+
 
 if __name__ == "__main__":
     unittest.main()
