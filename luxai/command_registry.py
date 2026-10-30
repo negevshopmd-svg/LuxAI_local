@@ -174,11 +174,13 @@ class CommandRegistry:
         self.path = Path(path) if path else REGISTRY_FILE
         self.custom = []
         self.disabled_builtins = set()
+        self.groups = {"folders": [], "collections": []}
         self.reload()
 
     def reload(self):
         self.custom = []
         self.disabled_builtins = set()
+        self.groups = {"folders": [], "collections": []}
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
             if not isinstance(data, dict):
@@ -187,6 +189,12 @@ class CommandRegistry:
                 x for x in data.get("disabled_builtins", [])
                 if isinstance(x, str) and x.startswith("built_")
             )
+            for kind in ("folders", "collections"):
+                names = data.get(kind, [])
+                if isinstance(names, list):
+                    self.groups[kind] = [name for name in names[:100]
+                                         if isinstance(name, str) and name.strip()
+                                         and len(name) <= 60 and not any(ord(c) < 32 for c in name)]
             for item in data.get("commands", [])[:MAX_USER_COMMANDS]:
                 try:
                     self.custom.append(checked_command(item))
@@ -201,10 +209,26 @@ class CommandRegistry:
             "version": 1,
             "disabled_builtins": sorted(self.disabled_builtins),
             "commands": self.custom,
+            "folders": self.groups.get("folders", []),
+            "collections": self.groups.get("collections", []),
         }
         temporary = self.path.with_suffix(".tmp")
         temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         temporary.replace(self.path)
+
+    def add_group(self, name, kind="folders"):
+        if kind not in ("folders", "collections"):
+            raise ValueError("Unsupported group type")
+        name = str(name).strip()
+        if not 1 <= len(name) <= 60 or any(ord(char) < 32 for char in name):
+            raise ValueError("Invalid group name")
+        if name in self.groups[kind]:
+            return False
+        if len(self.groups[kind]) >= 100:
+            raise ValueError("Too many groups")
+        self.groups[kind].append(name)
+        self._persist()
+        return True
 
     def entries(self):
         result = []

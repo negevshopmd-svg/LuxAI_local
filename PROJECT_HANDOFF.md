@@ -4,8 +4,12 @@
 >
 > Repository: https://github.com/negevshopmd-svg/LuxAI_local  
 > OS: Windows 10/11, 64-bit. Python + PySide6. UI and voice responses primarily Russian, with Romanian/English support.  
-> Updated for the **0.3.9a work**, 2026-10-28. \`Update.bat\` installs the code merged into \`main\`, NOT an open PR.
+> Updated for the **0.3.9b work**, 2026-10-29. \`Update.bat\` installs the code merged into \`main\`, NOT an open PR.
 > Do NOT include real API keys, private logs, screen captures, model binaries, user audio, or personal paths in Git history.
+
+## 0. Patch 0.3.9b
+
+The screenshot-led Commands workspace in `luxai/ui_commands.py` now has a nested default library and a right-side toolbar with working JSON import/export and persistent user folders/collections (metadata in `luxai/command_registry.py`). User actions belong on each command's three-dot/hover/right-click menu. Imports are allowlist-validated and disabled initially. `luxai/ui_chat_composer.py` provides the expanding multiline chat prompt; `main.py::build_chat` places file previews before that prompt. The editor in `luxai/ui_command_editor.py` uses a two-column form + review layout, with buttons in the right column. RecordingOverlay is a QDialog with ApplicationModal modality: the previous QFrame could not accept clicks over a modal editor. Always preserve Windows input exclusions, secure key handling and command validation. Test native recorder and visual fidelity on an actual Windows desktop in addition to CI.
 
 ## 0. Patch 0.3.9a
 

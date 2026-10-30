@@ -1,4 +1,12 @@
-LUXAI LOCAL 0.3.9a — ACTUALIZARE 2026-10-28
+LUXAI LOCAL 0.3.9b — ACTUALIZARE 2026-10-28
+
+0.3.9b: interfață de comenzi cu panou de creare, foldere, colecții,
+import/export JSON în dreapta. Editează comenzi din meniul lor contextual,
+nu din panoul drept. Chatul are atașamente deasupra textului, buton + jos
+stânga și Trimite jos dreapta. Enter trimite, Shift+Enter adaugă rând nou.
+Editorul are două coloane cu Salvează/Anulează în dreapta.
+Înregistrarea folosește un dialog modal independent, cu Stop/Anulează
+clicabile, iar ferestrele se restaurează după captură.
 
 0.3.9a: chat compact cu buton + și atașamente integrate; comenzile de
 bază au folder separat. Editorul are informații vizibile la hover sau clic.

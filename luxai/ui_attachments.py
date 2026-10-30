@@ -6,7 +6,7 @@ from pathlib import Path
 import threading
 
 from PySide6.QtCore import Qt, Signal, QSize
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QDialog, QDialogButtonBox, QFileDialog, QFrame, QHBoxLayout, QLabel,
     QListWidget, QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton,
@@ -92,8 +92,13 @@ class AttachmentTray(QFrame):
         self._language = get_ui_language()
         self._dialogs = []
         self.setAcceptDrops(True)
+        self.setStyleSheet("""
+            QFrame#AttachmentTray {background: transparent; border: none;}
+            QPushButton#AttachmentAddButton {background: transparent; border: none;}
+            QListWidget#AttachmentFiles {background: transparent; border: none;}
+        """)
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 3, 0, 3)
+        outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(5)
         row = QHBoxLayout()
         self.controls = row
@@ -117,11 +122,11 @@ class AttachmentTray(QFrame):
         self.files.setWrapping(True)
         self.files.setResizeMode(QListWidget.ResizeMode.Adjust)
         self.files.setMovement(QListWidget.Movement.Static)
-        self.files.setGridSize(QSize(132, 102))
+        self.files.setGridSize(QSize(150, 105))
         self.files.setIconSize(QSize(58, 58))
         self.files.setSpacing(6)
         self.files.setMaximumHeight(216)
-        self.files.setMinimumHeight(105)
+        self.files.setMinimumHeight(108)
         self.files.itemDoubleClicked.connect(self._preview)
         self.files.itemSelectionChanged.connect(self._update_remove_button)
         outer.addWidget(self.files)
@@ -139,10 +144,12 @@ class AttachmentTray(QFrame):
 
     def set_language(self, language):
         self._language = normalize_language(language)
+        self.add_button.setIcon(QIcon())  # '+' only, no doubled file-plus glyph
         self.add_button.setText("+")
         self.add_button.setAccessibleName(_t("Прикрепить", "Attach", "Atașează", self._language))
         self.add_button.setToolTip(_t("Добавить фотографии и файлы", "Add photos and files",
                                      "Adaugă fotografii și fișiere", self._language))
+        self.remove_button.setIcon(QIcon())
         self.remove_button.setText("×")
         self.remove_button.setAccessibleName(_t("Убрать", "Remove", "Elimină", self._language))
         self.remove_button.setToolTip(_t("Убрать вложение из чата", "Remove attachment from chat",

@@ -73,19 +73,23 @@ def _heading(text, tooltip=""):
     return row
 
 
-class RecordingOverlay(QFrame):
+class RecordingOverlay(QDialog):
     """A small always-on-top Stop/Cancel control; never captures typed content."""
 
     stop_requested = Signal()
     cancel_requested = Signal()
 
     def __init__(self):
-        super().__init__(None, Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint |
+        # The editor is application-modal. A plain top-level QFrame cannot
+        # receive clicks over it on Windows; a modal QDialog can.
+        super().__init__(None, Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint |
                          Qt.WindowType.WindowStaysOnTopHint)
+        self.setWindowModality(Qt.WindowModality.ApplicationModal)
+        self.setModal(True)
         self.setObjectName("RecordingOverlay")
         self.setFixedWidth(350)
         self.setStyleSheet("""
-            QFrame#RecordingOverlay {background: #171c25; border: 1px solid #384458; border-radius: 14px;}
+            QDialog#RecordingOverlay {background: #171c25; border: 1px solid #384458; border-radius: 14px;}
             QLabel {color: #f4f6fa; border: none;}
             QPushButton {background: #303846; border: 1px solid #475263; border-radius: 8px;
                          color: white; padding: 9px;}
@@ -102,6 +106,11 @@ class RecordingOverlay(QFrame):
         layout.addLayout(header)
         self.steps_label = _label(tr("Поймано") + ": 0")
         layout.addWidget(self.steps_label)
+        self.recent = QListWidget()
+        self.recent.setFixedHeight(88)
+        self.recent.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.recent.setStyleSheet("QListWidget {background:#141920; border:0; color:#c7d0de; padding:5px;}")
+        layout.addWidget(self.recent)
         hint = _label(tr("Нажмите Esc или Стоп, чтобы завершить запись."))
         layout.addWidget(hint)
         controls = QHBoxLayout()
@@ -115,10 +124,23 @@ class RecordingOverlay(QFrame):
         layout.addLayout(controls)
         self._started_at = time.monotonic()
 
-    def update_status(self, count):
+    def reject(self):
+        # Escape must release the recorder rather than merely closing its
+        # only visible control while the modal editor remains minimized.
+        self.cancel_requested.emit()
+
+    def update_status(self, count, actions=()):
         seconds = int(time.monotonic() - self._started_at)
         self.elapsed.setText(f"{seconds // 60:02d}:{seconds % 60:02d}")
         self.steps_label.setText(tr("Поймано") + f": {count}")
+        descriptions = []
+        for step in actions[-3:]:
+            action = str(step.get("action", ""))
+            target = str(step.get("target", ""))[:54]
+            descriptions.append((action + (": " + target if target else ""))[:75])
+        if descriptions != [self.recent.item(i).text() for i in range(self.recent.count())]:
+            self.recent.clear()
+            self.recent.addItems(descriptions)
 
 
 class CommandEditor(QDialog):
@@ -143,8 +165,8 @@ class CommandEditor(QDialog):
         self.setWindowIcon(icon("jarvis"))
         self.setObjectName("CommandEditorDialog")
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
-        self.resize(1190, 720)
-        self.setMinimumSize(760, 560)
+        self.resize(990, 670)
+        self.setMinimumSize(760, 550)
         previous = self.original.get("steps")
         if previous:
             self.steps = [validate_step(step) for step in previous]
@@ -158,7 +180,7 @@ class CommandEditor(QDialog):
                 self._legacy = True
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(20, 16, 20, 16)
+        root.setContentsMargins(20, 14, 20, 14)
         root.setSpacing(15)
         header = QHBoxLayout()
         back = QPushButton()
@@ -178,13 +200,13 @@ class CommandEditor(QDialog):
         close.clicked.connect(self.reject)
         header.addWidget(close)
         root.addLayout(header)
-        root.addWidget(_label(self.windowTitle(), "PageTitle"))
+        # The breadcrumb already displays the editor title; keep form near top.
 
         body = QHBoxLayout()
         body.setSpacing(16)
         self.editor_nav = QFrame()
         self.editor_nav.setObjectName("EditorNav")
-        self.editor_nav.setFixedWidth(145)
+        self.editor_nav.setFixedWidth(0)
         nav = QVBoxLayout(self.editor_nav)
         nav.setContentsMargins(13, 17, 13, 17)
         nav.setSpacing(14)
@@ -197,6 +219,7 @@ class CommandEditor(QDialog):
         nav.addWidget(_label(tr("Новая команда"), "Muted"))
         nav.addStretch()
         body.addWidget(self.editor_nav)
+        self.editor_nav.hide()
         self.main_scroll = QScrollArea()
         self.main_scroll.setObjectName("CommandEditorScroll")
         self.main_scroll.setWidgetResizable(True)
@@ -239,8 +262,9 @@ class CommandEditor(QDialog):
         voice_row.addWidget(self.voice_enabled)
         voice_row.addWidget(_label("Голосом"))
         voice_row.addStretch()
-        form.addLayout(voice_row)
+        # Match Luxify's launch controls: voice beside the other triggers.
         triggers = QHBoxLayout()
+        triggers.addLayout(voice_row)
         self._trigger_row = triggers
         triggers.setSpacing(7)
         self.hotkey_toggle = self._trigger_button("+ Клавиша", "keyboard", bool(self.original.get("hotkey")))
@@ -343,7 +367,7 @@ class CommandEditor(QDialog):
         main.addStretch()
 
         self.sidebar, side = _card()
-        self.sidebar.setFixedWidth(220)
+        self.sidebar.setFixedWidth(206)
         side.addLayout(_heading("Проверка команды"))
         side.addWidget(_label("Проверьте фразу перед сохранением.", "Muted"))
         self.test_phrase = QLineEdit()
@@ -376,12 +400,12 @@ class CommandEditor(QDialog):
         footer.addWidget(self.footer_status, 1)
         self.cancel_button = QPushButton("Отмена")
         self.cancel_button.clicked.connect(self.reject)
-        footer.addWidget(self.cancel_button)
+        side.addWidget(self.cancel_button)
         self.save_button = QPushButton("Сохранить команду")
         self.save_button.setObjectName("Primary")
         set_button_icon(self.save_button, "save", role="white")
         self.save_button.clicked.connect(self._validate_accept)
-        footer.addWidget(self.save_button)
+        side.addWidget(self.save_button)
         footer.addWidget(QSizeGrip(self), 0, Qt.AlignmentFlag.AlignBottom)
         root.addLayout(footer)
 
@@ -443,7 +467,8 @@ class CommandEditor(QDialog):
     def _sync_responsive_layout(self):
         if not hasattr(self, "sidebar"):
             return
-        self.editor_nav.setVisible(self.width() >= 1140)
+        # Two-column Luxify layout: editor + right review panel.
+        self.editor_nav.setVisible(False)
         compact = self.width() <= 900
         if getattr(self, "_responsive_compact", None) == compact:
             return
@@ -575,7 +600,13 @@ QLabel#Muted {{ color: {p['muted']}; font-size: 12px; }}
 QToolButton#EditorExpander {{ border: none; background: transparent; padding: 2px 0; font-size: 13px; font-weight: 600; }}
 QPushButton#EditorIconButton, QToolButton#EditorIconButton {{ border: none; background: transparent; padding: 4px; }}
 QPushButton#PhraseChip {{ background: {p['selection']}; color: {p['text']}; border: 1px solid {p['border']}; padding: 5px 9px; border-radius: 9px; font-size: 12px; text-align: left; }}
-QPushButton#TriggerButton {{ padding: 7px 5px; font-size: 11px; border-radius: 8px; }}
+QPushButton#TriggerButton {{ padding: 8px 6px; font-size: 11px; border-radius: 9px; }}
+QLineEdit {{ border-radius: 8px; }}
+QPushButton#Primary {{ background: #397ef6; color: white; border: 0; border-radius: 9px;
+                       padding: 9px 12px; font-weight: 600; }}
+QFrame#CommandCard {{ background: #1b1d21; border: 1px solid #353a45; border-radius: 13px; }}
+QLabel#EditorSectionTitle {{ color: #eef0f6; font-size: 14px; font-weight: 600; }}
+QLabel#Muted {{ color: #a4aebe; font-size: 12px; }}
 QPushButton#TriggerButton:checked {{ background: {p['selection']}; border-color: {p['accent']}; }}
 QListWidget#CommandActionsList {{ background: transparent; border: none; padding: 0; }}
 QListWidget#CommandActionsList::item {{ padding: 0; margin: 0; border: none; background: transparent; }}
@@ -730,13 +761,21 @@ QLabel#ActionNumber {{ color: {p['muted']}; font-size: 12px; }}
             self._record_restore_parent.showMinimized()
         self.showMinimized()
         self._record_overlay = RecordingOverlay()
-        self._record_overlay.stop_requested.connect(self._finish_recording)
+        self._record_overlay.stop_requested.connect(lambda: self._finish_recording(append=True))
         self._record_overlay.cancel_requested.connect(lambda: self._finish_recording(append=False))
         self._record_overlay.show()
+        screen = self._record_overlay.screen()
+        if screen is not None:
+            area = screen.availableGeometry()
+            self._record_overlay.move(area.center().x() - self._record_overlay.width() // 2,
+                                      area.top() + 16)
+        self._record_overlay.raise_()
+        self._record_overlay.activateWindow()
 
     def _restore_after_recording(self):
         overlay, self._record_overlay = self._record_overlay, None
         if overlay is not None:
+            overlay.setModal(False)
             overlay.close()
             overlay.deleteLater()
         parent, self._record_restore_parent = self._record_restore_parent, None
@@ -752,7 +791,7 @@ QLabel#ActionNumber {{ color: {p['muted']}; font-size: 12px; }}
         if self._recorder is not None and not self._recorder.active:
             self._finish_recording()
         elif self._recorder is not None and self._record_overlay is not None:
-            self._record_overlay.update_status(self._recorder.count)
+            self._record_overlay.update_status(self._recorder.count, self._recorder.preview)
 
     def _finish_recording(self, append=True):
         recorder, self._recorder = self._recorder, None

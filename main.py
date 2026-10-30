@@ -703,6 +703,11 @@ class MainWindow(QMainWindow):
         subtitle.setObjectName("Muted")
         layout.addWidget(subtitle)
         frame, box = card()
+        frame.setObjectName("ChatHistoryFrame")
+        frame.setStyleSheet("""
+            QFrame#ChatHistoryFrame {background: #171a20; border: none; border-radius: 14px;}
+            QTextEdit {background: transparent; border: none;}
+        """)
         self.log = QTextEdit()
         self.log.setReadOnly(True)
         self.log.setPlaceholderText("Jarvis появится здесь после первого сообщения.")
@@ -732,24 +737,43 @@ class MainWindow(QMainWindow):
         self.attachment_tray.loading_changed.connect(self._attachment_loading_changed)
         self.attachment_tray.changed.connect(self._refresh_attachment_route)
         self._attachment_dialogs = []
-        # One compact composer: message above, attachments and actions below.
+        # Compact ChatGPT-style composer with a growing multiline prompt and
+        # bottom toolbar. Keep the existing file routing and send handlers.
+        from luxai.ui_chat_composer import ChatPromptEdit
         composer = QFrame()
         composer.setObjectName("ChatComposer")
         composer.setStyleSheet("""
-            QFrame#ChatComposer {background: #2b3038; border: 1px solid #48505e; border-radius: 16px;}
-            QLineEdit#ChatMessageField {background: transparent; border: none; padding: 8px 5px;
-                                      font-size: 14px; color: #f2f5fa;}
-            QPushButton#AttachmentAddButton {background: transparent; border: none; color: #e5e8ee;
-                                             font-size: 21px; min-width: 34px; min-height: 34px;}
-            QPushButton#ChatSendButton {background: #3978f6; border: none; border-radius: 17px;
-                                        color: white; font-size: 17px;}
+            QFrame#ChatComposer {background: #303035; border: 1px solid #41444d;
+                                 border-radius: 20px;}
+            QPlainTextEdit#ChatMessageField {background: transparent; border: none;
+                                            color: #f4f4f6; padding: 7px 8px;
+                                            selection-background-color: #3b75ea;
+                                            font-size: 14px;}
+            QPushButton#AttachmentAddButton {background: transparent; border: none;
+                                             color: #f0f1f5; font-size: 25px;
+                                             min-width: 34px; min-height: 34px;}
+            QPushButton#ChatSendButton {background: #397df6; color: #fff;
+                                        border: none; border-radius: 18px;
+                                        font-size: 21px; font-weight: 600;}
+            QFrame#AttachmentTray {background: transparent; border: none;}
+            QListWidget#AttachmentFiles {background: transparent; border: none;
+                                         outline: none; padding: 0;}
+            QListWidget#AttachmentFiles::item {background: #15171d; color: #f0f3f8;
+                                               border: 1px solid #444852;
+                                               border-radius: 10px; padding: 6px;}
+            QListWidget#AttachmentFiles::item:selected {border: 1px solid #4282ff;
+                                                        background: #232f46;}
+            QLabel#Muted {color: #d4a685; border: none; font-size: 11px;}
         """)
         composer_layout = QVBoxLayout(composer)
-        composer_layout.setContentsMargins(12, 9, 10, 9)
-        composer_layout.setSpacing(3)
-        self.command = QLineEdit()
-        self.command.setObjectName("ChatMessageField")
-        self.command.setPlaceholderText("Напишите сообщение или команду…")
+        composer_layout.setContentsMargins(13, 9, 12, 8)
+        composer_layout.setSpacing(1)
+        # Attachment cards appear ABOVE the prompt text (ChatGPT layout),
+        # while the +/send actions stay BELOW it in AttachmentTray.
+        self.attachment_tray.layout().removeWidget(self.attachment_tray.files)
+        self.attachment_tray.files.setParent(composer)
+        composer_layout.addWidget(self.attachment_tray.files)
+        self.command = ChatPromptEdit()
         self.command.returnPressed.connect(self.submit_command)
         composer_layout.addWidget(self.command)
         composer_layout.addWidget(self.attachment_tray)
@@ -761,11 +785,13 @@ class MainWindow(QMainWindow):
         self.send = QPushButton("↑")
         self.send.setObjectName("ChatSendButton")
         self.send.setToolTip(tr("Отправить"))
-        self.send.setFixedSize(34, 34)
+        self.send.setFixedSize(36, 36)
         self.send.clicked.connect(self.submit_command)
         self.attachment_tray.controls.addWidget(self.send)
-        box.addWidget(composer)
         layout.addWidget(frame, 1)
+        # The composer is a separate surface beneath the chat history, not a
+        # second nested card inside the history container.
+        layout.addWidget(composer, 0)
         self.pages.addWidget(page)
         self._refresh_attachment_route()
 

@@ -1,5 +1,9 @@
 # LuxAI_local
 
+## 0.3.9b: command workspace and composer rebuild (2026-10-29)
+
+The chat input is a compact charcoal, expanding multiline composer: attachments render **above the text**, while a + attachment control and circular send arrow stay on the bottom row. Enter sends, Shift+Enter adds a newline. The Commands page now follows the Luxify screenshot's **right-side** create/file toolbar, with functional JSON import/export, persistent folders/collections, nested default presets, and actions on each command's hover/three-dot/right-click menu. Default commands remain read-only; imported personal commands are validated and start disabled. The editor returns to two columns with Save/Cancel in the right review panel. The recording Stop/Cancel dialog has application modality so it can accept clicks while the original modal editor is minimized. See CHANGELOG for details. Native Windows hooks require a target-machine smoke test.
+
 ## 0.3.9a: Luxify-style chat and command workflows (2026-10-28)
 
 The chat composer now places the attachment **+** and send arrow on the bottom row with file previews inside the composer. The cloud-sharing notice appears when files are attached. Built-in commands are stored in `luxai/default_commands.py` and grouped under a separate **Default commands** folder, while user commands stay separate and persistent. The right management panel is more compact. The command editor includes a navigation rail and explicit high-contrast explanations when hovering or clicking the info icons.
