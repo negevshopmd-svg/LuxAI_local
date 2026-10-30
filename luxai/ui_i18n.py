@@ -21,6 +21,25 @@ def normalize_language(value):
 
 
 _DATA = r"""
+Локальные голоса Piper и Windows или Fish Audio через интернет.|||Local Piper and Windows voices, or Fish Audio over the internet.|||Voci locale Piper și Windows sau Fish Audio prin internet.
+Fish Audio — бесплатно|||Fish Audio — free|||Fish Audio — gratuit
+Fish Audio озвучивает ответы через интернет: текст отправляется Fish Audio. Используется только бесплатная модель s2.1-pro-free с ограничениями fair use. Нужны аккаунт и свой API-ключ.|||Fish Audio reads replies over the internet: text is sent to Fish Audio. Only the free s2.1-pro-free model is used, subject to fair-use limits. An account and your own API key are required.|||Fish Audio redă răspunsurile prin internet: textul este trimis către Fish Audio. Se folosește doar modelul gratuit s2.1-pro-free, cu limite de utilizare rezonabilă. Ai nevoie de un cont și de propria cheie API.
+Введите ссылку на голос Fish Audio или его ID из 32 символов.|||Enter a Fish Audio voice link or its 32-character ID.|||Introdu un link către o voce Fish Audio sau ID-ul ei de 32 de caractere.
+Ключ Fish Audio уже настроен|||Fish Audio key already configured|||Cheia Fish Audio este deja configurată
+Введите свой ключ Fish Audio|||Enter your Fish Audio key|||Introdu cheia ta Fish Audio
+Ключ Fish Audio найден на этом компьютере. Подключение проверяется при озвучке.|||Fish Audio key found on this computer. The connection is checked when speaking.|||Cheia Fish Audio a fost găsită pe calculator. Conexiunea se verifică la redarea vocii.
+Ключ Fish Audio не настроен. Получите его в своём аккаунте.|||Fish Audio key is not configured. Get it from your account.|||Cheia Fish Audio nu este configurată. Obține-o din contul tău.
+Не удалось сохранить ключ Fish Audio. Поле не очищено; повторите сохранение.|||Could not save the Fish Audio key. The field was kept; try saving again.|||Nu am putut salva cheia Fish Audio. Câmpul a fost păstrat; încearcă din nou.
+Выбрать русский голос Джарвиса|||Select the Russian Jarvis voice|||Alege vocea rusă a lui Jarvis
+Голос Fish Audio|||Fish Audio voice|||Vocea Fish Audio
+Вставьте ссылку из библиотеки или ID голоса.|||Paste a library link or voice ID.|||Lipește un link din bibliotecă sau ID-ul vocii.
+Удалить сохранённый ключ Fish Audio|||Delete saved Fish Audio key|||Șterge cheia Fish Audio salvată
+API-ключ Fish Audio|||Fish Audio API key|||Cheia API Fish Audio
+На Windows ключ хранится зашифрованным отдельно от config.json.|||On Windows, the key is encrypted and stored separately from config.json.|||Pe Windows, cheia este criptată și păstrată separat de config.json.
+Получить ключ Fish Audio|||Get a Fish Audio key|||Obține o cheie Fish Audio
+Библиотека голосов|||Voice library|||Biblioteca de voci
+Добавьте API-ключ Fish Audio в настройках синтеза речи.|||Add your Fish Audio API key in speech synthesis settings.|||Adaugă cheia API Fish Audio în setările de sinteză vocală.
+Создаю пример голоса через Fish Audio…|||Generating a voice sample with Fish Audio…|||Generez un exemplu de voce prin Fish Audio…
 Формат или версия файла команд не поддерживается.|||The command file format or version is not supported.|||Formatul sau versiunea fișierului de comenzi nu este acceptată.
 Некорректный файл команд.|||Invalid command file.|||Fișier de comenzi nevalid.
 Некорректная команда в файле.|||Invalid command in the file.|||Comandă nevalidă în fișier.

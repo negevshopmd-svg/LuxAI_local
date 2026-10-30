@@ -1,5 +1,13 @@
 # LuxAI_local
 
+## 0.3.9.e: optional Fish Audio Jarvis voice (2026-10-30)
+
+In **Settings → Speech synthesis**, select **Fish Audio**, add your Fish API key and use the preset Russian **ДЖАРВИС** voice. Paste another Fish voice link or ID to change it, then use the voice preview. Create a free account and key at [Fish Audio API keys](https://fish.audio/app/api-keys/). The key is stored with Windows DPAPI, separately from chat AI credentials; it is never included in `config.json`. `FISH_API_KEY` is also supported.
+
+Fish speech requires internet and sends the text to be spoken to Fish Audio. Requests explicitly select **`s2.1-pro-free`**, currently offered at $0 under fair-use limits, with no switch to a paid model. Website generation quotas and API access are separate. The website preview uses Drama 3, so the free model may sound different. See the official [API pricing](https://docs.fish.audio/developer-guide/models-pricing/pricing-and-rate-limits) and [quick start](https://docs.fish.audio/developer-guide/getting-started/quickstart).
+
+Piper remains the default local voice. Fish makes no startup synthesis requests; preview and normal replies use the existing volume, speed and stop controls. An unavailable Fish voice reports a voice error rather than using a paid service. Close Jarvis, run `Update.bat`, then `run_windows.bat`; existing personal settings, models and command libraries are preserved.
+
 ## 0.9.3.d: collection transfer, agent commands and local AI status (2026-10-30)
 
 Command-tree expansion arrows and selected rows now follow the application theme consistently, including Windows hover/selection states. **Export to file** exports the selected command, folder or collection; without a selection it exports the current command tab. Import preserves the collection/folder structure, including empty groups, assigns fresh command IDs and keeps imported commands disabled until you enable them. Existing command export files remain supported.

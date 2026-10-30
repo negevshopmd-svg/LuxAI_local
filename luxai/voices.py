@@ -1,4 +1,4 @@
-"""Local speech playback using Piper models, with language-aware Windows fallback.
+"""Piper/Windows speech playback and optional Fish Audio free-tier synthesis.
 
 Russian speech prefers the ru_RU-dmitri-medium neural voice even if other
 Piper models are installed. Never substitute an English SAPI voice for Russian.
@@ -27,7 +27,8 @@ CONFIG_PATH = ROOT / "config.json"
 ERROR_LOG = ROOT / "voice_error.log"
 playback_active = threading.Event()
 # Available only while the actual voice output is playing, not while Piper
-# downloads or synthesizes speech. The microphone may listen for "stop" then.
+# downloads or Fish Audio synthesizes speech. The microphone may listen for
+# "stop" then.
 barge_in_ready = threading.Event()
 _cancel_lock = threading.Lock()
 _cancel_generation = 0
@@ -45,7 +46,7 @@ def _was_cancelled(token: int) -> bool:
 
 
 def stop_speaking() -> None:
-    """Interrupt current Piper or SAPI playback immediately (no thread kill)."""
+    """Stop audio and invalidate pending synthesis before it can start playback."""
     global _cancel_generation
     with _cancel_lock:
         _cancel_generation += 1
@@ -256,7 +257,9 @@ class VoiceManager:
         snapshot = dict(settings)
         if not snapshot.get("tts_enabled", True):
             return False
-        if str(snapshot.get("voice_engine", "piper") or "piper").lower() == "windows":
+        if str(snapshot.get("voice_engine", "piper") or "piper").lower() in ("windows", "fish"):
+            # Fish is requested only for actual speech/explicit preview. Startup
+            # must not send text or consume even free provider capacity.
             return False
         from luxai.response_language import reply_language
         language = reply_language(snapshot)
@@ -349,6 +352,58 @@ class VoiceManager:
                 barge_in_ready.clear()
         return False
 
+    def _fish_speak(self, text: str, language: str, cancel_token: int) -> bool:
+        """Use the explicitly selected free cloud voice, preserving stop behavior."""
+        from luxai import fish_tts
+        from luxai.secure_keys import get_api_key
+
+        if _was_cancelled(cancel_token):
+            return False
+        try:
+            key = get_api_key("fish")
+            if not key:
+                self._log("Fish Audio key not configured; add it in speech synthesis settings.")
+                return False
+            speed = max(0.7, min(1.4, float(self.config.get("voice_speed", 1.0))))
+            volume = max(0.0, min(1.0, float(self.config.get("voice_volume", 80)) / 100))
+            wav_data = fish_tts.synthesize(
+                text, key,
+                voice_id=self.config.get("fish_voice_id") or fish_tts.DEFAULT_FISH_VOICE,
+                speed=speed, language=language,
+                is_cancelled=lambda: _was_cancelled(cancel_token),
+            )
+            if _was_cancelled(cancel_token):
+                return False
+            # The adapter validates mono PCM16 WAV metadata and bounds the
+            # response before decoding, so a network reply cannot request an
+            # unbounded sample allocation. No speech audio is persisted.
+            import soundfile as sf
+            audio, sample_rate = sf.read(io.BytesIO(wav_data), dtype="float32")
+            if _was_cancelled(cancel_token):
+                return False
+            import sounddevice as sd
+            with _cancel_lock:
+                if cancel_token != _cancel_generation:
+                    return False
+                sd.play(audio * volume, sample_rate)
+                barge_in_ready.set()
+            try:
+                sd.wait()
+            finally:
+                barge_in_ready.clear()
+            return not _was_cancelled(cancel_token)
+        except fish_tts.FishTTSError as exc:
+            if not _was_cancelled(cancel_token):
+                self._log(f"Fish Audio synthesis failed ({exc.code}).")
+        except Exception as exc:
+            # HTTP/decoder exceptions may contain the user's text or key.
+            # Only the exception type is suitable for the diagnostic log.
+            if not _was_cancelled(cancel_token):
+                self._log(f"Fish Audio playback failed ({type(exc).__name__}).")
+        finally:
+            barge_in_ready.clear()
+        return False
+
     def speak(self, text: str, language: str | None = None, cancel_token: int = 0) -> bool:
         # Startup preparation and previews can reach the shared manager from
         # different workers. Piper's model and mutable config stay serialized.
@@ -366,6 +421,8 @@ class VoiceManager:
             language = "ru" if re.search(r"[а-яё]", text, flags=re.IGNORECASE) else "ro"
 
         voice_engine = str(self.config.get("voice_engine", "piper") or "piper").lower()
+        if voice_engine == "fish":
+            return self._fish_speak(text, language, cancel_token)
         if voice_engine == "windows":
             if self._windows_speak(text, language, cancel_token):
                 return True

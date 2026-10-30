@@ -26,8 +26,20 @@ SECRET_DIR = (
 LEGACY_OPENAI_FILE = LEGACY_SECRET_DIR / "openai_key.dpapi"
 
 
+def _validate_secret_provider(provider: str) -> None:
+    # Speech credentials share DPAPI storage, but Fish is not a chat/agent
+    # provider and must never be offered as an OpenAI-compatible endpoint.
+    if provider != "fish":
+        provider_config(provider)
+
+
+def _environment_variable(provider: str) -> str:
+    _validate_secret_provider(provider)
+    return "FISH_API_KEY" if provider == "fish" else ENV_VARS[provider]
+
+
 def _secret_file(provider: str) -> Path:
-    provider_config(provider)
+    _validate_secret_provider(provider)
     return SECRET_DIR / f"{provider}_key.dpapi"
 
 
@@ -71,7 +83,7 @@ def _win_crypt(data: bytes, encrypt: bool) -> bytes:
 
 
 def _legacy_secret_file(provider: str) -> Path:
-    provider_config(provider)
+    _validate_secret_provider(provider)
     return LEGACY_SECRET_DIR / f"{provider}_key.dpapi"
 
 
@@ -97,12 +109,12 @@ def _saved_key(provider: str) -> str:
 
 def key_storage_status(provider: str = "openai") -> str:
     """Present/missing/unreadable without ever exposing secret values."""
-    provider_config(provider)
+    _validate_secret_provider(provider)
     # Use the same precedence as get_api_key: the key explicitly saved in the
     # UI overrides an inherited environment variable.
     if _saved_key(provider):
         return "saved"
-    if os.environ.get(ENV_VARS[provider], "").strip():
+    if os.environ.get(_environment_variable(provider), "").strip():
         return "environment"
     if _secret_file(provider).exists() or _legacy_secret_file(provider).exists():
         return "unreadable"
@@ -111,11 +123,11 @@ def key_storage_status(provider: str = "openai") -> str:
 
 def get_api_key(provider: str = "openai") -> str:
     """Prefer encrypted key chosen in UI; fall back to an environment key."""
-    provider_config(provider)
+    _validate_secret_provider(provider)
     stored = _saved_key(provider)
     if stored:
         return stored
-    return os.environ.get(ENV_VARS[provider], "").strip()
+    return os.environ.get(_environment_variable(provider), "").strip()
 
 
 def has_api_key(provider: str = "openai") -> bool:
@@ -124,7 +136,7 @@ def has_api_key(provider: str = "openai") -> bool:
 
 def store_api_key(key: str, provider: str = "openai") -> None:
     """DPAPI round-trip verified before replacing the previous saved key."""
-    provider_config(provider)
+    _validate_secret_provider(provider)
     key = str(key).strip()
     if not key or len(key) > 2048 or any(ord(ch) < 33 or ord(ch) == 127 for ch in key):
         raise ValueError("Invalid API key")

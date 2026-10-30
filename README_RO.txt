@@ -1,4 +1,18 @@
-LUXAI LOCAL 0.9.3.d — ACTUALIZARE 2026-10-30
+LUXAI LOCAL 0.3.9.e — ACTUALIZARE 2026-10-30
+
+0.3.9.e: voce Jarvis prin Fish Audio, opțională.
+În Setări → Sinteză vocală alege Fish Audio și introdu cheia API Fish.
+Vocea rusească ДЖАРВИС este presetată. Poți lipi linkul sau ID-ul altei voci
+și asculta proba. Cont/cheie: https://fish.audio/app/api-keys/
+Cheia se păstrează criptat în Windows, separat de cheia pentru AI-ul din chat;
+nu intră în config.json. Este acceptată și variabila FISH_API_KEY.
+Fish necesită internet și primește textul care trebuie rostit.
+Se folosește numai modelul s2.1-pro-free, oferit acum gratuit în limitele
+serviciului. Nu se trece automat la modele plătite. Proba de pe site folosește
+Drama 3, deci modelul gratuit poate suna diferit. Piper rămâne implicit și local.
+Nu se generează audio Fish la pornire. Volumul, viteza și oprirea funcționează
+și cu Fish. Închide Jarvis → Update.bat → run_windows.bat.
+Datele personale, setările, comenzile și modelele sunt păstrate.
 
 0.9.3.d: săgeți și rânduri de comenzi afișate corect cu tema Windows.
 Exportă comanda, dosarul sau colecția selectată; fără selecție, fila curentă.

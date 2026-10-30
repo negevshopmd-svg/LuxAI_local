@@ -8,8 +8,9 @@ from __future__ import annotations
 from pathlib import Path
 import webbrowser
 
-from luxai.secure_keys import has_api_key, clear_api_key
+from luxai.secure_keys import has_api_key, clear_api_key, key_storage_status
 from luxai.api_providers import PROVIDERS
+from luxai.fish_tts import DEFAULT_FISH_VOICE, normalize_voice_id
 
 from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtWidgets import (
@@ -139,6 +140,7 @@ class SettingsPanel(QWidget):
         self._autosave_busy = False
         self._autosave_force = False
         self._api_key_commit_ready = False
+        self._fish_key_commit_ready = False
         self._autosave_snapshot = self.collect()
         self._autosave_timer = QTimer(self)
         self._autosave_timer.setSingleShot(True)
@@ -171,6 +173,80 @@ class SettingsPanel(QWidget):
         # Save it only after editing finishes or a separate key test succeeds.
         self.api_key_entry.textChanged.connect(self._on_api_key_draft_changed)
         self.api_key_entry.editingFinished.connect(self._queue_api_key_save)
+        self.fish_api_key.textChanged.connect(self._on_fish_key_draft_changed)
+        self.fish_api_key.editingFinished.connect(self._queue_fish_key_save)
+        self.fish_voice_id.editingFinished.connect(self._commit_fish_voice)
+
+    def _on_fish_key_draft_changed(self, *_):
+        self._fish_key_commit_ready = False
+        self._fish_key_error = False
+
+    def _queue_fish_key_save(self):
+        if self.fish_api_key.text().strip():
+            self._fish_key_commit_ready = True
+            self._autosave_force = True
+            self._queue_auto_save()
+
+    def fish_key_ready_for_save(self):
+        return self.fish_api_key.text().strip() if self._fish_key_commit_ready else ""
+
+    def _commit_fish_voice(self):
+        """Validate complete edits; unrelated saves retain the last valid voice."""
+        try:
+            voice_id = normalize_voice_id(self.fish_voice_id.text().strip())
+        except ValueError:
+            self._fish_voice_invalid = True
+            self.fish_voice_status.setText(tr("Введите ссылку на голос Fish Audio или его ID из 32 символов."))
+            return False
+        self._fish_voice_invalid = False
+        self.fish_voice_status.clear()
+        self.fish_voice_id.setText(voice_id)
+        if voice_id != self._fish_voice_id:
+            self._fish_voice_id = voice_id
+            self._queue_auto_save()
+        return True
+
+    def prepare_fish_preview(self):
+        """A deliberate preview submits the complete voice/key currently shown."""
+        if not self._commit_fish_voice():
+            return False
+        self._queue_fish_key_save()
+        return True
+
+    def fish_key_save_failed(self):
+        self._fish_key_error = True
+        self.fish_key_status.setText(tr("Не удалось сохранить ключ Fish Audio. Поле не очищено; повторите сохранение."))
+
+    def refresh_fish_key_status(self):
+        self._fish_key_error = False
+        status = key_storage_status("fish")
+        stored = status in ("saved", "environment")
+        self.fish_api_key.setPlaceholderText(tr("Ключ Fish Audio уже настроен" if stored else "Введите свой ключ Fish Audio"))
+        self.fish_key_status.setText(tr(
+            "Ключ Fish Audio найден на этом компьютере. Подключение проверяется при озвучке."
+            if stored else "Ключ Fish Audio не настроен. Получите его в своём аккаунте."
+        ))
+        self.fish_clear_key.setEnabled(status in ("saved", "unreadable"))
+
+    def _clear_fish_key(self):
+        try:
+            clear_api_key("fish")
+        except (OSError, RuntimeError, ValueError):
+            self.fish_key_save_failed()
+            return
+        self.fish_api_key.clear()
+        self.refresh_fish_key_status()
+
+    def _use_jarvis_fish_voice(self):
+        self.fish_voice_id.setText(DEFAULT_FISH_VOICE)
+        self._commit_fish_voice()
+
+    def _sync_synthesis_provider(self, *_):
+        engine = self.voice_engine.currentData()
+        self.fish_controls.setVisible(engine == "fish")
+        self.voice_id.setEnabled(engine == "piper")
+        if hasattr(self, "_section_sync_timer"):
+            self._queue_section_sync()
 
     def _queue_auto_save(self, *_):
         if not self._autosave_busy:
@@ -1056,12 +1132,83 @@ class SettingsPanel(QWidget):
                        size=17, role="success" if stored else "muted")
 
     def _build_synthesis(self):
-        panel = self._section("Синтез речи", "Локальный Piper или голос Windows (если установлен нужный язык).")
+        panel = self._section("Синтез речи", "Локальные голоса Piper и Windows или Fish Audio через интернет.")
         self.voice_engine = self._combo(
-            [("Piper", "piper"), ("Windows", "windows")],
+            [("Piper", "piper"), ("Windows", "windows"), ("Fish Audio — бесплатно", "fish")],
             self.cfg.get("voice_engine", "piper"),
         )
         self._row(panel, "Провайдер синтеза", "Выбранный голос Piper загружается при первом использовании.", self.voice_engine)
+        self.fish_controls = QWidget()
+        self.fish_controls.setObjectName("FishSpeechControls")
+        self.fish_controls.setStyleSheet("QWidget#FishSpeechControls { background: transparent; }")
+        fish = QVBoxLayout(self.fish_controls)
+        fish.setContentsMargins(0, 0, 0, 0)
+        fish.setSpacing(12)
+        description = QLabel(
+            "Fish Audio озвучивает ответы через интернет: текст отправляется Fish Audio. "
+            "Используется только бесплатная модель s2.1-pro-free с ограничениями fair use. "
+            "Нужны аккаунт и свой API-ключ."
+        )
+        description.setWordWrap(True)
+        description.setObjectName("Muted")
+        fish.addWidget(description)
+        try:
+            self._fish_voice_id = normalize_voice_id(self.cfg.get("fish_voice_id", DEFAULT_FISH_VOICE))
+        except ValueError:
+            self._fish_voice_id = DEFAULT_FISH_VOICE
+        self._fish_voice_invalid = False
+        self.fish_voice_id = QLineEdit(self._fish_voice_id)
+        self.fish_voice_id.setMaxLength(350)
+        self.fish_voice_id.setPlaceholderText("https://fish.audio/ru/m/…/")
+        voice_controls = QWidget()
+        voice_row = QHBoxLayout(voice_controls)
+        voice_row.setContentsMargins(0, 0, 0, 0)
+        voice_row.addWidget(self.fish_voice_id, 1)
+        self.fish_jarvis_voice = QPushButton("Jarvis")
+        self.fish_jarvis_voice.setToolTip("Выбрать русский голос Джарвиса")
+        self.fish_jarvis_voice.clicked.connect(self._use_jarvis_fish_voice)
+        voice_row.addWidget(self.fish_jarvis_voice)
+        self._row(fish, "Голос Fish Audio", "Вставьте ссылку из библиотеки или ID голоса.", voice_controls)
+        self.fish_voice_status = QLabel()
+        self.fish_voice_status.setWordWrap(True)
+        self.fish_voice_status.setObjectName("Muted")
+        fish.addWidget(self.fish_voice_status)
+        self.fish_api_key = QLineEdit()
+        self.fish_api_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self.fish_api_key.setMaxLength(2048)
+        self.fish_api_key.setToolTip("Ключ скрыт. Не делитесь им с другими.")
+        key_controls = QWidget()
+        key_row = QHBoxLayout(key_controls)
+        key_row.setContentsMargins(0, 0, 0, 0)
+        key_row.addWidget(self.fish_api_key, 1)
+        self.fish_clear_key = QPushButton()
+        set_button_icon(self.fish_clear_key, "trash-2", role="danger")
+        self.fish_clear_key.setToolTip("Удалить сохранённый ключ Fish Audio")
+        self.fish_clear_key.clicked.connect(self._clear_fish_key)
+        key_row.addWidget(self.fish_clear_key)
+        self._row(fish, "API-ключ Fish Audio", "На Windows ключ хранится зашифрованным отдельно от config.json.", key_controls)
+        self.fish_key_status = QLabel()
+        self.fish_key_status.setObjectName("Muted")
+        self.fish_key_status.setWordWrap(True)
+        fish.addWidget(self.fish_key_status)
+        buttons = QHBoxLayout()
+        self.fish_keys_button = QPushButton("Получить ключ Fish Audio")
+        set_button_icon(self.fish_keys_button, "key-round")
+        self.fish_keys_button.clicked.connect(lambda: webbrowser.open("https://fish.audio/app/api-keys/"))
+        buttons.addWidget(self.fish_keys_button)
+        self.fish_library_button = QPushButton("Библиотека голосов")
+        set_button_icon(self.fish_library_button, "external-link")
+        self.fish_library_button.clicked.connect(lambda: webbrowser.open("https://fish.audio/discovery/"))
+        buttons.addWidget(self.fish_library_button)
+        self.fish_preview_button = QPushButton("Прослушать пример")
+        set_button_icon(self.fish_preview_button, "play")
+        self.fish_preview_button.clicked.connect(self.on_test_voice)
+        buttons.addWidget(self.fish_preview_button)
+        fish.addLayout(buttons)
+        panel.addWidget(self.fish_controls)
+        self.refresh_fish_key_status()
+        self.voice_engine.currentIndexChanged.connect(self._sync_synthesis_provider)
+        self._sync_synthesis_provider()
         self.voice_speed = self._slider(round(float(self.cfg.get("voice_speed", 1.0)) * 100), 70, 140)
         speed_control, self.voice_speed_value = self._slider_value_control(self.voice_speed)
         self._row(panel, "Скорость речи", "70–140% обычной скорости.", speed_control)
@@ -1095,6 +1242,12 @@ class SettingsPanel(QWidget):
         translate_widgets(self, language)
         self.ui_language_control.sync()
         self.refresh_key_status(update_status=False)
+        if self._fish_key_error:
+            self.fish_key_save_failed()
+        else:
+            self.refresh_fish_key_status()
+        if self._fish_voice_invalid:
+            self.fish_voice_status.setText(tr("Введите ссылку на голос Fish Audio или его ID из 32 символов."))
         mode = getattr(self, "_key_status_mode", "storage")
         if mode == "busy":
             self.set_test_busy(True)
@@ -1186,6 +1339,7 @@ class SettingsPanel(QWidget):
             "response_language": self.response_language.currentData(),
             "voice_volume": self.voice_volume.value(),
             "voice_engine": self.voice_engine.currentData(),
+            "fish_voice_id": self._fish_voice_id,
             "voice_speed": round(self.voice_speed.value() / 100, 2),
             "confirm_desktop_actions": False,
             "confirm_all_actions": self.confirm.isChecked(),
