@@ -1,4 +1,12 @@
-# LuxAI Local 0.9.3.d (Windows 10/11, 64-bit)
+# LuxAI Local 0.3.9.e (Windows 10/11, 64-bit)
+
+## 0.3.9.e: voce Jarvis prin Fish Audio (2026-10-30)
+
+În **Setări → Sinteză vocală**, alege **Fish Audio**, introdu cheia API Fish și folosește vocea rusească **ДЖАРВИС**, deja presetată. Poți lipi linkul sau ID-ul altei voci și asculta proba. Creează gratuit contul și cheia la [Chei API Fish Audio](https://fish.audio/app/api-keys/). Cheia se păstrează criptat prin Windows DPAPI, separat de cheia AI-ului din chat, fără a intra în `config.json`. Este acceptată și variabila `FISH_API_KEY`.
+
+Necesită internet; textul de rostit se trimite la Fish Audio. Aplicația alege explicit **`s2.1-pro-free`**, oferit acum la $0 în limitele serviciului, fără trecere la modele plătite. Limitele site-ului sunt separate de API. Proba de pe pagina vocii folosește Drama 3, deci modelul gratuit poate suna diferit. Vezi [tarifele oficiale](https://docs.fish.audio/developer-guide/models-pricing/pricing-and-rate-limits) și [instrucțiunile API](https://docs.fish.audio/developer-guide/getting-started/quickstart).
+
+Piper rămâne vocea locală implicită. Fish nu generează audio la pornire; proba și răspunsurile folosesc volumul, viteza și oprirea existente. Închide Jarvis, rulează `Update.bat`, apoi `run_windows.bat`. Datele personale, setările, comenzile și modelele se păstrează.
 
 ## 0.9.3.d: colecții, comenzi ale agentului și starea AI-ului local (2026-10-30)
 

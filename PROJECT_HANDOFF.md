@@ -4,8 +4,16 @@
 >
 > Repository: https://github.com/negevshopmd-svg/LuxAI_local  
 > OS: Windows 10/11, 64-bit. Python + PySide6. UI and voice responses primarily Russian, with Romanian/English support.  
-> Updated for the **0.9.3.d work**, 2026-10-30. \`Update.bat\` installs the code merged into \`main\`, NOT an open PR.
+> Updated for the **0.3.9.e work**, 2026-10-30. \`Update.bat\` installs the code merged into \`main\`, NOT an open PR.
 > Do NOT include real API keys, private logs, screen captures, model binaries, user audio, or personal paths in Git history.
+
+## 0. Patch 0.3.9.e
+
+The maintainer corrected `version.txt` from `0.9.3.d` to `0.3.9.d` in main commit `3a8bfaa`; continue with `0.3.9.e`. Fish Audio is an explicitly selected optional TTS provider (`voice_engine: fish`), separate from LLM providers. `fish_tts.py` owns the fixed HTTPS endpoint, strict public voice ID/link parsing, bounded PCM synthesis and WAV wrapping. The linked Russian Jarvis default is `4c3eaacc1a0545cdb0295bfddf3e3785`. Always send the literal `model: s2.1-pro-free` header: the documented omitted/unknown-header fallback is PAID `s2.1-pro`. Do not add paid fallbacks, startup synthesis or automatic cloud voice selection. Read current official API pricing before changing the free model; service terms and limits can change.
+
+Fish keys use the existing Windows DPAPI path or `FISH_API_KEY`, never `config.json`, logs or chat-provider configuration. Settings accept a Fish voice link/ID and commit a secret only after editing finishes. `voices.py` retains the serial speech worker, output volume/speed and cancellation-generation protections; only real playback enables barge-in. Network responses arriving after stop must not play. Request/fixture and native Windows CI checks do not replace a live voice preview with the user's personal key; sound quality and account/voice availability require that preview. The linked website demo uses Drama 3 and can differ from the free S2.1 model.
+
+Regenerate `runtime_cleanup_manifest.json` after final source-only tests/docs edits; verify clean-install imports and personal config/model/command preservation, full Linux/Windows CI, then merge. Piper remains the default local voice; existing data and source-only Markdown/tests behavior stays intact.
 
 ## 0. Patch 0.9.3.d
 

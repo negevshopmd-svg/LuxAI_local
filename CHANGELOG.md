@@ -1,3 +1,11 @@
+## 0.3.9.e — optional Fish Audio Russian Jarvis voice (2026-10-30)
+
+- Add Fish Audio as an optional speech provider with the user's linked Russian Jarvis voice preset and editable public voice link/ID.
+- Explicitly request the current free API model `s2.1-pro-free`; never omit the model header or switch to a paid model. Require a personal Fish key and internet, and explain that spoken text is sent to Fish.
+- Keep Fish credentials in the existing Windows DPAPI storage, separately from chat providers; support `FISH_API_KEY`, editing-finished key saving, removal and translated status without plaintext config keys.
+- Bound requests and audio, reject redirects, sanitize errors and preserve playback volume, speed, cancellation and actual-output interruption. Startup preparation makes no Fish API call. Piper remains the default local provider.
+- Continue from the maintainer's corrected `0.3.9.d` version string; preserve personal data and source-only Markdown/test cleanup.
+
 ## 0.9.3.d — collection transfer and real command/status views (2026-10-30)
 
 - Paint command-tree branches and selected rows consistently with the selected theme, including Windows hover states.

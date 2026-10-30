@@ -1103,6 +1103,20 @@ class MainWindow(QMainWindow):
                 return False
             key_field.clear()
             self.settings_panel.refresh_key_status()
+        fish_key = self.settings_panel.fish_key_ready_for_save()
+        if fish_key:
+            try:
+                store_api_key(fish_key, "fish")
+                if get_api_key("fish") != fish_key:
+                    raise OSError("Fish Audio key could not be read back")
+            except (ValueError, OSError, RuntimeError):
+                self.cfg = old_configuration
+                self.settings_panel.fish_key_save_failed()
+                self.mic_status.setText(tr("Не удалось сохранить ключ Fish Audio. Поле не очищено; повторите сохранение."))
+                self._update_cloud_indicator()
+                return False
+            self.settings_panel.fish_api_key.clear()
+            self.settings_panel.refresh_fish_key_status()
         try:
             save_config(self.cfg)
         except OSError:
@@ -1318,19 +1332,32 @@ class MainWindow(QMainWindow):
         self.mic_status.setText(message)
 
     def preview_voice(self):
-        self.save_settings()
+        panel = self.settings_panel
+        fish = panel.voice_engine.currentData() == "fish"
+        if fish and not panel.prepare_fish_preview():
+            self.mic_status.setText(tr("Введите ссылку на голос Fish Audio или его ID из 32 символов."))
+            return
+        if self.save_settings() is False:
+            return
+        if fish and not get_api_key("fish"):
+            message = tr("Добавьте API-ключ Fish Audio в настройках синтеза речи.")
+            panel.fish_key_status.setText(message)
+            self.mic_status.setText(message)
+            return
         language = self.cfg.get("language", "ru")
         # Preview the voice chosen in Settings even if the microphone's
         # recognition language is different. Normal replies still use their
         # actual language; this never alters speech-recognition settings.
         from luxai.voice_presets import VOICE_PRESETS
-        chosen_voice = self.cfg.get("voice_id", "")
+        chosen_voice = self.cfg.get("voice_id", "") if not fish else ""
         for voice_language, preset in VOICE_PRESETS.items():
             if preset["id"] == chosen_voice:
                 language = voice_language
                 break
         if language not in ("ru", "ro", "en"):
             language = "ru"
+        if fish:
+            language = reply_language(self.cfg)
         example = {
             "ru": "Здравствуйте. Я Джарвис, ваш голосовой помощник.",
             "en": "Hello. I am Jarvis, your voice assistant.",
@@ -1341,7 +1368,7 @@ class MainWindow(QMainWindow):
             "en": "Downloading the voice if needed and playing a sample…",
             "ro": "Descarc vocea dacă este necesar și redau un exemplu…",
         }
-        self.mic_status.setText(status[language])
+        self.mic_status.setText(tr("Создаю пример голоса через Fish Audio…") if fish else status[language])
         self._queue_speech(example, language)
 
     def apply_appearance(self):

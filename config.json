@@ -4,6 +4,8 @@
   "wake_prefix": "Jarvis",
   "language": "ru",
   "tts_enabled": true,
+  "voice_engine": "piper",
+  "fish_voice_id": "4c3eaacc1a0545cdb0295bfddf3e3785",
   "whisper_model": "small",
   "whisper_model_path": "",
   "llm_model_path": "C:/Users/vlad/Desktop/LuxAI_Local/models/Qwen3-8B-Q4_K_M.gguf",
