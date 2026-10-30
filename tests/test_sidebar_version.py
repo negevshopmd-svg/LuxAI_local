@@ -86,6 +86,19 @@ class SidebarVersionTests(unittest.TestCase):
             self.assertGreaterEqual(label.contentsRect().height(), label.fontMetrics().height())
             self.assertLessEqual(label.font().pixelSize(), 10)
             self.assertGreaterEqual(label.font().pixelSize(), 8)
+            self.assertEqual(label.font().stretch(), QFont.Stretch.Unstretched)
+
+    def test_long_release_uses_available_collapsed_rail_width(self):
+        sidebar = self.sidebar()
+        sidebar.version_label.setText("0.9.3.c")
+        sidebar.set_collapsed(True)
+        sidebar.show()
+        self.app.processEvents()
+        self.assertEqual(sidebar.width(), 76)
+        self.assertGreaterEqual(sidebar.version_label.contentsRect().width(), 56)
+        self.assertTrue(sidebar.rect().contains(sidebar.version_label.geometry()))
+        sidebar.set_collapsed(False)
+        self.assertEqual(sidebar.layout().contentsMargins().left(), 14)
 
 
 if __name__ == "__main__":

@@ -33,9 +33,13 @@ def _unique_paths(paths):
             raise ClipboardAttachmentError("paths")
         if not (Path(path).is_absolute() or PureWindowsPath(path).is_absolute()):
             raise ClipboardAttachmentError("paths")
-        key = os.path.normcase(path)
+        # QUrl.toLocalFile() uses forward slashes on Windows, while Explorer's
+        # FileNameW and pathlib use native separators. Keep one native spelling
+        # for every input without resolving links or accessing the file here.
+        native_path = str(Path(path))
+        key = os.path.normcase(native_path)
         if key not in seen:
-            result.append(path)
+            result.append(native_path)
             seen.add(key)
     if len(result) > MAX_ATTACHMENTS:
         raise ClipboardAttachmentError("count")

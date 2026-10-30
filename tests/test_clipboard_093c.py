@@ -1,5 +1,6 @@
 """Real Qt paste keeps Explorer/image attachments out of the text draft."""
-from pathlib import Path
+import ntpath
+from pathlib import Path, PureWindowsPath
 import tempfile
 import unittest
 from unittest import mock
@@ -10,6 +11,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 from luxai.chat_attachments import load_attachment
+from luxai import clipboard_attachments
 from luxai.clipboard_attachments import (
     ClipboardAttachmentError, pasted_file_paths,
 )
@@ -182,6 +184,20 @@ class Clipboard093cTests(unittest.TestCase):
         mime.setData(key, b"\xff")
         with self.assertRaises(ClipboardAttachmentError):
             pasted_file_paths(mime)
+
+    def test_windows_slash_and_case_aliases_share_one_native_attachment_path(self):
+        mime = QMimeData()
+        aliases = ("C:/Users/Name/Documents/file.txt",
+                   "C:\\Users\\Name\\Documents\\file.txt",
+                   "c:/users/name/documents/file.txt")
+        key = 'application/x-qt-windows-mime;value="FileNameW"'
+        mime.setData(key, ("\0".join(aliases) + "\0").encode("utf-16-le"))
+        # Exercise Windows lexical path semantics even on the Linux CI job.
+        # PureWindowsPath never resolves a link or reads the filesystem.
+        with (mock.patch.object(clipboard_attachments, "Path", PureWindowsPath),
+              mock.patch.object(clipboard_attachments.os.path, "normcase", ntpath.normcase)):
+            self.assertEqual(pasted_file_paths(mime),
+                             ("C:\\Users\\Name\\Documents\\file.txt",))
 
     def test_image_limits_and_encoding_failure_report_error_without_any_path_paste(self):
         for patcher in (
