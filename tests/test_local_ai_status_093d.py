@@ -1,5 +1,6 @@
 """Availability is not a generated reply; only real GGUF results prove health."""
 import json
+import ntpath
 from pathlib import Path
 import subprocess
 import tempfile
@@ -112,6 +113,38 @@ class LocalAIHealth093dTests(unittest.TestCase):
         with self.model.open("ab") as source:
             source.write(b"replacement")
         self.assertEqual(inspect_local_ai(self.config).state, "available")
+
+    def test_windows_short_long_and_case_aliases_share_physical_file_health(self):
+        short = r"C:\Users\RUNNER~1\models\model.gguf"
+        long = "c:/users/runner admin/models/model.gguf"
+        aliases = {short: r"C:\Users\Runner Admin\models\MODEL.gguf",
+                   long: r"c:\users\runner admin\models\model.gguf"}
+        physical_model = self.model
+
+        class WindowsFile:
+            def __init__(self, name):
+                self.name = name
+
+            def __str__(self):
+                return self.name
+
+            def resolve(self):
+                return WindowsFile(aliases.get(self.name, self.name))
+
+            def stat(self):
+                return physical_model.stat()
+
+        with (mock.patch.object(health, "Path", side_effect=lambda value: WindowsFile(str(value))),
+              mock.patch.object(health, "os", SimpleNamespace(path=SimpleNamespace(normcase=ntpath.normcase)))):
+            token = health.begin_inference(short)
+            identity = health.model_identity(long)
+            self.assertEqual(identity[0], ntpath.normcase(aliases[long]))
+            self.assertEqual(health.inference_status(identity)["state"], "working")
+            health.finish_inference(token, True)
+            self.assertEqual(health.inference_status(identity)["state"], "success")
+            with physical_model.open("ab") as source:
+                source.write(b"replacement")
+            self.assertIsNone(health.inference_status(health.model_identity(long)))
 
 
 class LocalAIStatusMonitor093dTests(unittest.TestCase):

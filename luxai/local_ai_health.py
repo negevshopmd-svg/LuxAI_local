@@ -6,6 +6,7 @@ can produce a successful observation. Records are scoped to exact file identity.
 from __future__ import annotations
 
 from collections import OrderedDict
+import os
 from pathlib import Path
 import threading
 
@@ -19,11 +20,18 @@ _LIMIT = 32
 def model_identity(path):
     path = Path(path)
     try:
+        # The backend and model picker resolve Windows 8.3 names. Match their
+        # physical path before keying observations, including drive/path case.
+        path = path.resolve()
+    except (OSError, RuntimeError):
+        path = path.absolute()
+    name = os.path.normcase(str(path))
+    try:
         stat = path.stat()
-        return (str(path), stat.st_size, stat.st_mtime_ns,
+        return (name, stat.st_size, stat.st_mtime_ns,
                 getattr(stat, "st_dev", 0), getattr(stat, "st_ino", 0))
     except OSError:
-        return (str(path), None, None, None, None)
+        return (name, None, None, None, None)
 
 
 def begin_inference(path):
