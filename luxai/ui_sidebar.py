@@ -48,6 +48,7 @@ class VersionLabel(QLabel):
         font = QFont("Segoe UI")
         font.setPixelSize(pixels)
         font.setWeight(QFont.Weight.Normal)
+        font.setStretch(QFont.Stretch.Unstretched)
         font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 0)
         if self.font() != font:
             self.setFont(font)
@@ -170,6 +171,10 @@ class NavigationSidebar(QFrame):
             return
         self._collapsed = collapsed
         self.setFixedWidth(76 if self._collapsed else 177)
+        # The longer release string also needs room with Windows font metrics.
+        # Keep the icon centres unchanged while using the rail's spare width.
+        margin = 10 if self._collapsed else 14
+        self.layout().setContentsMargins(margin, 18, margin, 18)
         self.brand_text.setVisible(not self._collapsed)
         self.set_language(self._language)
 

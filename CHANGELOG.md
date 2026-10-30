@@ -1,3 +1,10 @@
+## 0.9.3.c — clipboard attachments and editable preset menus (2026-10-30)
+
+- Compact chat previews with individual removal, a left attachment control and right send button; paste Explorer files and clipboard images through the same bounded local attachment pipeline.
+- Persist validated edits and deletions of default commands in the personal registry, with original preset identities preserved across updates. Execute explicitly customized presets through the existing confirmed command route.
+- Match the supplied Luxify three-dot menu with icons, phrase actions, enable/disable, clone, copy/JSON and deletion. Add folder context controls while retaining personal commands when folders are removed.
+- Preserve settings, models, personal files and GitHub-only Markdown/tests. Clipboard selection does not upload files or execute their contents.
+
 ## 0.3.9b — command workspace redesign and functioning recorder controls (2026-10-29)
 
 - Rebuild Commands as a Luxify-style library with top tabs, nested default-command categories, a right-side create/file panel and accessible on-hover or right-click per-command actions. Remove visible global edit/delete controls from the right panel.

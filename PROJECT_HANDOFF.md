@@ -4,8 +4,12 @@
 >
 > Repository: https://github.com/negevshopmd-svg/LuxAI_local  
 > OS: Windows 10/11, 64-bit. Python + PySide6. UI and voice responses primarily Russian, with Romanian/English support.  
-> Updated for the **0.3.9b work**, 2026-10-29. \`Update.bat\` installs the code merged into \`main\`, NOT an open PR.
+> Updated for the **0.9.3.c work**, 2026-10-30. \`Update.bat\` installs the code merged into \`main\`, NOT an open PR.
 > Do NOT include real API keys, private logs, screen captures, model binaries, user audio, or personal paths in Git history.
+
+## 0. Patch 0.9.3.c
+
+Continue from published 0.3.9b; the user explicitly requested version string `0.9.3.c`. The chat composer supports local clipboard files/images and compact previews. Keep clipboard staging cleanup limited to app-owned temporary images, never selected originals; Send remains the cloud-sharing boundary. Default command edits and tombstones belong in the personal registry, never in shipped preset definitions. Customized presets run through `_execute_registered`; untouched presets keep native routing priorities. Obsolete/deleted preset phrases must be checked by `disabled_match` before broader native/AI routes. The Commands menus follow the supplied Luxify order and folder removal preserves children. Maintain allowlist validation, confirmation, secure settings/model handling and source-only cleanup catalog regeneration after final edits.
 
 ## 0. Patch 0.3.9b
 

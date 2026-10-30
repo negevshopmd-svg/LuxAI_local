@@ -704,11 +704,8 @@ class MainWindow(QMainWindow):
         layout.addWidget(subtitle)
         frame, box = card()
         frame.setObjectName("ChatHistoryFrame")
-        frame.setStyleSheet("""
-            QFrame#ChatHistoryFrame {background: #171a20; border: none; border-radius: 14px;}
-            QTextEdit {background: transparent; border: none;}
-        """)
         self.log = QTextEdit()
+        self.log.setObjectName("ChatTranscript")
         self.log.setReadOnly(True)
         self.log.setPlaceholderText("Jarvis появится здесь после первого сообщения.")
         box.addWidget(self.log, 1)
@@ -742,29 +739,8 @@ class MainWindow(QMainWindow):
         from luxai.ui_chat_composer import ChatPromptEdit
         composer = QFrame()
         composer.setObjectName("ChatComposer")
-        composer.setStyleSheet("""
-            QFrame#ChatComposer {background: #303035; border: 1px solid #41444d;
-                                 border-radius: 20px;}
-            QPlainTextEdit#ChatMessageField {background: transparent; border: none;
-                                            color: #f4f4f6; padding: 7px 8px;
-                                            selection-background-color: #3b75ea;
-                                            font-size: 14px;}
-            QPushButton#AttachmentAddButton {background: transparent; border: none;
-                                             color: #f0f1f5; font-size: 25px;
-                                             min-width: 34px; min-height: 34px;}
-            QPushButton#ChatSendButton {background: #397df6; color: #fff;
-                                        border: none; border-radius: 18px;
-                                        font-size: 21px; font-weight: 600;}
-            QFrame#AttachmentTray {background: transparent; border: none;}
-            QListWidget#AttachmentFiles {background: transparent; border: none;
-                                         outline: none; padding: 0;}
-            QListWidget#AttachmentFiles::item {background: #15171d; color: #f0f3f8;
-                                               border: 1px solid #444852;
-                                               border-radius: 10px; padding: 6px;}
-            QListWidget#AttachmentFiles::item:selected {border: 1px solid #4282ff;
-                                                        background: #232f46;}
-            QLabel#Muted {color: #d4a685; border: none; font-size: 11px;}
-        """)
+        self.chat_composer = composer
+        composer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         composer_layout = QVBoxLayout(composer)
         composer_layout.setContentsMargins(13, 9, 12, 8)
         composer_layout.setSpacing(1)
@@ -775,6 +751,10 @@ class MainWindow(QMainWindow):
         composer_layout.addWidget(self.attachment_tray.files)
         self.command = ChatPromptEdit()
         self.command.returnPressed.connect(self.submit_command)
+        self._pasted_attachment_batch = ()
+        self.command.paths_pasted.connect(self._paste_chat_attachments)
+        self.command.attachment_error.connect(self.attachment_tray.error.emit)
+        self.attachment_tray.loading_changed.connect(self._finish_pasted_attachment_load)
         composer_layout.addWidget(self.command)
         composer_layout.addWidget(self.attachment_tray)
         self.cancel_attachment = QPushButton(tr("Отменить чтение"))
@@ -794,6 +774,26 @@ class MainWindow(QMainWindow):
         layout.addWidget(composer, 0)
         self.pages.addWidget(page)
         self._refresh_attachment_route()
+
+    def _paste_chat_attachments(self, paths):
+        """Read pasted files through the same bounded snapshot loader as +."""
+        paths = tuple(str(path) for path in paths)
+        try:
+            accepted = self.attachment_tray.add_paths(paths)
+        except Exception as exc:
+            self.command.release_pasted_files(paths)
+            self.attachment_tray.error.emit(str(exc))
+            return
+        if accepted:
+            self._pasted_attachment_batch = paths
+        else:
+            # An occupied loader may still own a different pasted-image batch.
+            self.command.release_pasted_files(paths)
+
+    def _finish_pasted_attachment_load(self, loading):
+        if not loading and self._pasted_attachment_batch:
+            paths, self._pasted_attachment_batch = self._pasted_attachment_batch, ()
+            self.command.release_pasted_files(paths)
 
     def _pick_chat_attachments(self):
         chosen, _ = QFileDialog.getOpenFileNames(
@@ -2515,7 +2515,8 @@ class MainWindow(QMainWindow):
                 if triggered_id:
                     latest = next((item for item in self.command_registry.entries()
                                    if item["id"] == triggered_id), None)
-                    if not latest or not latest.get("enabled") or latest != direct_entry:
+                    if (not latest or not latest.get("enabled")
+                            or checked_command(latest, builtin=bool(latest.get("builtin"))) != direct_entry):
                         self._resolved_command(text, tr("Команда изменилась или отключена до запуска."))
                         return
                 self._execute_registered(text, direct_entry)
@@ -2546,7 +2547,7 @@ class MainWindow(QMainWindow):
             prefix = self.cfg.get("wake_prefix", "Jarvis")
             if self.command_registry.disabled_match(text, prefix):
                 self._current_route = "выключенная команда"
-                self._resolved_command(text, "Эта команда отключена в библиотеке команд.")
+                self._resolved_command(text, tr("Эта команда отключена в библиотеке команд."))
                 return
 
             saved = self.command_registry.match(text, prefix)
@@ -2565,6 +2566,13 @@ class MainWindow(QMainWindow):
                 ok, result = launch_installed_app("discord")
                 self._current_route = "Discord: проверка видимого окна"
                 self._resolved_command(text, result)
+                return
+            # An explicitly edited preset is the user's saved command. Its
+            # reviewed actions must take effect even when the old preset also
+            # matches a native app/game shortcut. Untouched presets retain
+            # the existing dedicated observation and input routes.
+            if saved is not None and saved.get("customized"):
+                self._execute_registered(text, saved)
                 return
             protected_workflow = bool(is_discord_message_request(text) or detect_research_dm_request(text)
                                       or detect_discord_screen_review(text) or looks_like_discord_screen_review(text))
@@ -2844,6 +2852,10 @@ class MainWindow(QMainWindow):
     def _safe_local_fallback(self, text, reason="", saved=None):
         """Safe non-AI execution fallback; never synthesize fake file actions."""
         try:
+            if self.command_registry.disabled_match(text, self.cfg.get("wake_prefix", "Jarvis")):
+                self._current_route = "выключенная команда"
+                self._resolved_command(text, tr("Эта команда отключена в библиотеке команд."))
+                return
             if saved is None:
                 saved = self.command_registry.match(
                     text, self.cfg.get("wake_prefix", "Jarvis"),

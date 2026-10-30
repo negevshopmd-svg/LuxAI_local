@@ -111,6 +111,128 @@ QFrame#Sidebar {
     background: $side;
     border-right: 1px solid $border;
 }
+QFrame#ChatHistoryFrame {
+    background: $surface;
+    border: none;
+    border-radius: 17px;
+}
+QTextEdit#ChatTranscript {
+    background: transparent;
+    border: none;
+    padding: 8px;
+    font-size: 14px;
+}
+QFrame#ChatComposer {
+    background: $control;
+    border: 1px solid $border;
+    border-radius: 22px;
+}
+QPlainTextEdit#ChatMessageField {
+    background: transparent;
+    color: $text;
+    border: none;
+    padding: 5px 7px;
+    font-size: 14px;
+    selection-background-color: $accent;
+}
+QFrame#AttachmentTray, QWidget#AttachmentFilesViewport {
+    background: transparent;
+    border: none;
+}
+QListWidget#AttachmentFiles {
+    background: transparent;
+    border: none;
+    outline: none;
+    padding: 0;
+    margin: 0;
+}
+QListWidget#AttachmentFiles::item, QListWidget#AttachmentFiles::item:selected {
+    background: transparent;
+    border: none;
+    padding: 0;
+    margin: 0;
+}
+QListWidget#AttachmentFiles QScrollBar:horizontal {
+    background: transparent;
+    height: 8px;
+    margin: 0;
+}
+QListWidget#AttachmentFiles QScrollBar::handle:horizontal {
+    background: $scroll;
+    border-radius: 4px;
+    min-width: 24px;
+}
+QListWidget#AttachmentFiles QScrollBar::add-line:horizontal,
+QListWidget#AttachmentFiles QScrollBar::sub-line:horizontal {
+    width: 0;
+    background: transparent;
+    border: none;
+}
+QListWidget#AttachmentFiles QScrollBar::add-page:horizontal,
+QListWidget#AttachmentFiles QScrollBar::sub-page:horizontal {
+    background: transparent;
+}
+QFrame#AttachmentChip {
+    background: $surface;
+    border: 1px solid $border;
+    border-radius: 11px;
+}
+QFrame#AttachmentChip:hover {
+    border-color: $accent;
+}
+QLabel#AttachmentFilename {
+    background: transparent;
+    color: $text;
+    font-size: 11px;
+}
+QLabel#AttachmentThumbnail {
+    background: transparent;
+    border: none;
+}
+QPushButton#AttachmentChipRemove {
+    background: $control;
+    color: $text;
+    border: 1px solid $border;
+    border-radius: 10px;
+    padding: 0;
+    margin: 0;
+    font-size: 15px;
+}
+QPushButton#AttachmentAddButton {
+    background: transparent;
+    color: $text;
+    border: none;
+    border-radius: 17px;
+    padding: 0;
+    margin: 0;
+    min-width: 34px;
+    max-width: 34px;
+    min-height: 34px;
+    max-height: 34px;
+    font-size: 25px;
+}
+QPushButton#AttachmentAddButton:hover, QPushButton#AttachmentChipRemove:hover {
+    background: $hover;
+}
+QFrame#AttachmentTray QLabel#Muted {
+    background: transparent;
+    color: $muted;
+    font-size: 11px;
+}
+QPushButton#ChatSendButton {
+    background: $accent;
+    color: white;
+    border: none;
+    border-radius: 18px;
+    padding: 0;
+    margin: 0;
+    font-size: 21px;
+    font-weight: 600;
+}
+QPushButton#ChatSendButton:disabled {
+    background: $selection;
+    color: $muted;
+}
 QLabel#SidebarBrand {
     color: $text;
 }

@@ -1,5 +1,13 @@
 # LuxAI_local
 
+## 0.9.3.c: clipboard attachments and editable command library (2026-10-30)
+
+The chat composer uses compact image thumbnails and file cards above the prompt, with an individual remove button, **+** at the bottom left and **Send** at the bottom right. Paste copied files or images with **Ctrl+V**; ordinary text still pastes as text. Pasting only creates local previews: files are shared with the configured cloud provider when you press Send.
+
+Default commands can now be edited, saved, disabled or deleted just like personal commands. Changes persist in the user's command library and survive restarts and updates. The three-dot menu follows the supplied Luxify reference: open, add required/optional phrases, enable/disable, clone, copy, copy as JSON and delete. Folder controls preserve personal commands when removing a folder. Copied/imported command data remains validated and never runs automatically.
+
+Close Jarvis, run `Update.bat`, then `run_windows.bat`. Settings, models and personal files are preserved; bundled Markdown and tests remain on GitHub.
+
 ## 0.3.9b: command workspace and composer rebuild (2026-10-29)
 
 The chat input is a compact charcoal, expanding multiline composer: attachments render **above the text**, while a + attachment control and circular send arrow stay on the bottom row. Enter sends, Shift+Enter adds a newline. The Commands page now follows the Luxify screenshot's **right-side** create/file toolbar, with functional JSON import/export, persistent folders/collections, nested default presets, and actions on each command's hover/three-dot/right-click menu. Default commands remain read-only; imported personal commands are validated and start disabled. The editor returns to two columns with Save/Cancel in the right review panel. The recording Stop/Cancel dialog has application modality so it can accept clicks while the original modal editor is minimized. See CHANGELOG for details. Native Windows hooks require a target-machine smoke test.

@@ -21,6 +21,37 @@ def normalize_language(value):
 
 
 _DATA = r"""
+Всего команд: {count}|||Total commands: {count}|||Total comenzi: {count}
+Включить|||Enable|||Activează
+Отключить|||Disable|||Dezactivează
+Включить / отключить группу|||Enable / disable group|||Activează / dezactivează grupul
+Развернуть все|||Expand all|||Extinde tot
+Свернуть все|||Collapse all|||Restrânge tot
+Команды агента пока не настроены.|||Agent commands are not configured yet.|||Comenzile agentului nu sunt încă configurate.
+команды|||commands|||comenzi
+мои / выученные|||personal / learned|||personale / învățate
+Открыть|||Open|||Deschide
+{count} команд|||{count} commands|||{count} comenzi
+Добавить обязательную фразу|||Add required phrase|||Adaugă o frază obligatorie
+Добавить необязательную фразу|||Add optional phrase|||Adaugă o frază opțională
+Клонировать|||Clone|||Clonează
+Копировать|||Copy|||Copiază
+копия|||copy|||copie
+Фраза|||Phrase|||Frază
+Префикс перед фразами всех команд папки|||Prefix for every command phrase in this folder|||Prefix pentru frazele tuturor comenzilor din acest dosar
+Переименовать|||Rename|||Redenumește
+Удалить папку?|||Delete folder?|||Ștergi dosarul?
+Удалить папку «{title}»? Команды будут перемещены в «Мои команды».|||Delete folder “{title}”? Its commands will move to “My commands”.|||Ștergi dosarul „{title}”? Comenzile vor fi mutate în „Comenzile mele”.
+Удалить все команды из папки «{title}»?|||Delete all commands in folder “{title}”?|||Ștergi toate comenzile din dosarul „{title}”?
+Команда была удалена.|||The command was deleted.|||Comanda a fost ștearsă.
+Команда не найдена.|||Command not found.|||Comanda nu a fost găsită.
+Папка не найдена.|||Folder not found.|||Dosarul nu a fost găsit.
+Папка с таким названием уже существует.|||A folder with this name already exists.|||Există deja un dosar cu acest nume.
+Некорректный список команд.|||Invalid command list.|||Listă de comenzi nevalidă.
+Сохранённое действие|||Saved action|||Acțiune salvată
+Исходное действие сохранится, пока вы явно не замените его.|||The original action is preserved until you explicitly replace it.|||Acțiunea originală se păstrează până când o înlocuiești explicit.
+Заменить действие|||Replace action|||Înlocuiește acțiunea
+Эта команда отключена в библиотеке команд.|||This command is disabled in the command library.|||Această comandă este dezactivată în biblioteca de comenzi.
 Мои команды|||My commands|||Comenzile mele
 Команды агента|||Agent commands|||Comenzile agentului
 Ваши команды|||Your commands|||Comenzile tale

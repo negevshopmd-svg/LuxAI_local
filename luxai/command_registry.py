@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
+from copy import deepcopy
 from pathlib import Path
 
 from luxai.fast_intents import strip_wake_name
@@ -174,30 +175,52 @@ class CommandRegistry:
         self.path = Path(path) if path else REGISTRY_FILE
         self.custom = []
         self.disabled_builtins = set()
+        self.builtin_overrides = {}
+        self.deleted_builtins = set()
         self.groups = {"folders": [], "collections": []}
         self.reload()
 
     def reload(self):
         self.custom = []
         self.disabled_builtins = set()
+        self.builtin_overrides = {}
+        self.deleted_builtins = set()
         self.groups = {"folders": [], "collections": []}
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
             if not isinstance(data, dict):
                 return
-            self.disabled_builtins = set(
-                x for x in data.get("disabled_builtins", [])
-                if isinstance(x, str) and x.startswith("built_")
-            )
+            builtin_ids = {item["id"] for item in BUILTINS}
+            for field in ("disabled_builtins", "deleted_builtins"):
+                values = data.get(field, [])
+                if isinstance(values, list):
+                    setattr(self, field, {x for x in values if isinstance(x, str) and x in builtin_ids})
+            overrides = data.get("builtin_overrides", {})
+            if isinstance(overrides, dict):
+                for identifier, raw in overrides.items():
+                    if identifier not in builtin_ids or not isinstance(raw, dict) or raw.get("id") != identifier:
+                        continue
+                    try:
+                        self.builtin_overrides[identifier] = checked_command(raw, builtin=True)
+                    except (ValueError, TypeError):
+                        continue
             for kind in ("folders", "collections"):
                 names = data.get(kind, [])
                 if isinstance(names, list):
                     self.groups[kind] = [name for name in names[:100]
                                          if isinstance(name, str) and name.strip()
                                          and len(name) <= 60 and not any(ord(c) < 32 for c in name)]
-            for item in data.get("commands", [])[:MAX_USER_COMMANDS]:
+            records = data.get("commands", [])
+            if not isinstance(records, list):
+                records = []
+            seen = set()
+            for item in records[:MAX_USER_COMMANDS]:
                 try:
-                    self.custom.append(checked_command(item))
+                    validated = checked_command(item)
+                    if validated["id"].startswith("built_") or validated["id"] in seen:
+                        continue
+                    self.custom.append(validated)
+                    seen.add(validated["id"])
                 except (ValueError, TypeError):
                     continue
         except (OSError, ValueError, TypeError):
@@ -208,6 +231,8 @@ class CommandRegistry:
         data = {
             "version": 1,
             "disabled_builtins": sorted(self.disabled_builtins),
+            "builtin_overrides": self.builtin_overrides,
+            "deleted_builtins": sorted(self.deleted_builtins),
             "commands": self.custom,
             "folders": self.groups.get("folders", []),
             "collections": self.groups.get("collections", []),
@@ -215,6 +240,24 @@ class CommandRegistry:
         temporary = self.path.with_suffix(".tmp")
         temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         temporary.replace(self.path)
+
+    def _change(self, update):
+        """Commit related library changes together; failed saves keep the UI honest."""
+        if getattr(self, "_batching", False):
+            return update()
+        fields = ("custom", "disabled_builtins", "builtin_overrides", "deleted_builtins", "groups")
+        previous = {name: deepcopy(getattr(self, name)) for name in fields}
+        try:
+            self._batching = True
+            result = update()
+            self._persist()
+            return result
+        except Exception:
+            for name, value in previous.items():
+                setattr(self, name, value)
+            raise
+        finally:
+            self._batching = False
 
     def add_group(self, name, kind="folders"):
         if kind not in ("folders", "collections"):
@@ -226,24 +269,58 @@ class CommandRegistry:
             return False
         if len(self.groups[kind]) >= 100:
             raise ValueError("Too many groups")
-        self.groups[kind].append(name)
-        self._persist()
+        self._change(lambda: self.groups[kind].append(name))
         return True
+
+    def rename_group(self, name, new_name, kind="folders"):
+        if kind not in ("folders", "collections") or name not in self.groups[kind]:
+            raise ValueError("Unknown group")
+        new_name = str(new_name).strip()
+        if not 1 <= len(new_name) <= 60 or any(ord(char) < 32 for char in new_name):
+            raise ValueError("Invalid group name")
+        if name == new_name:
+            return False
+        if any(new_name in names for names in self.groups.values()):
+            raise ValueError("Group already exists")
+        def update():
+            self.groups[kind][self.groups[kind].index(name)] = new_name
+            for record in self.custom + list(self.builtin_overrides.values()):
+                if record["category"] == name:
+                    record["category"] = new_name
+        self._change(update)
+        return True
+
+    def remove_group(self, name, kind="folders"):
+        """Remove a personal folder while keeping every command it contained."""
+        if kind not in ("folders", "collections") or name not in self.groups[kind]:
+            raise ValueError("Unknown group")
+        def update():
+            self.groups[kind].remove(name)
+            if not any(name in names for names in self.groups.values()):
+                for record in self.custom + list(self.builtin_overrides.values()):
+                    if record["category"] == name:
+                        record["category"] = "Мои команды"
+        self._change(update)
 
     def entries(self):
         result = []
         for original in BUILTINS:
-            item = checked_command(original, builtin=True)
-            item["enabled"] = item["id"] not in self.disabled_builtins
+            identifier = original["id"]
+            if identifier in self.deleted_builtins:
+                continue
+            item = checked_command(self.builtin_overrides.get(identifier, original), builtin=True)
+            item["customized"] = identifier in self.builtin_overrides
+            item["enabled"] = identifier not in self.disabled_builtins and item["enabled"]
             result.append(item)
-        return result + [dict(item) for item in self.custom]
+        return deepcopy(result + self.custom)
 
     def match(self, spoken, prefix="Jarvis", *, source="voice"):
         command = normalize_phrase(strip_wake_name(spoken, prefix))
         if not command:
             return None
         # User-created commands override defaults only when exact phrases match.
-        for item in list(self.custom) + self.entries()[:len(BUILTINS)]:
+        entries = self.entries()
+        for item in [entry for entry in entries if not entry["builtin"]] + [entry for entry in entries if entry["builtin"]]:
             if phrase_matches(item, spoken, prefix, source=source):
                 return dict(item)
         return None
@@ -282,53 +359,101 @@ class CommandRegistry:
                    and not entry.get("allow_chaining", True) for part in parts)
 
     def disabled_match(self, spoken, prefix="Jarvis"):
-        """Avoid executing explicitly disabled built-in triggers via looser AI rules."""
-        phrase = normalize_phrase(strip_wake_name(spoken, prefix))
+        """Do not resurrect disabled, deleted or replaced phrases via native/AI routing."""
+        if self.match(spoken, prefix) is not None:
+            return False
         for item in self.entries():
             if item.get("enabled") and item.get("voice_enabled", True):
                 continue
             if phrase_matches(dict(item, enabled=True), spoken, prefix, source="manual"):
                 return True
+        for original in BUILTINS:
+            if original["id"] in self.deleted_builtins or original["id"] in self.builtin_overrides:
+                if phrase_matches(original, spoken, prefix, source="manual"):
+                    return True
         return False
 
-    def save_custom(self, raw):
+    def save_command(self, raw):
         data = dict(raw)
         if not data.get("id"):
             data["id"] = "user_" + uuid.uuid4().hex[:16]
+        identifier = data["id"]
+        builtin = isinstance(identifier, str) and identifier in {item["id"] for item in BUILTINS}
+        if isinstance(identifier, str) and identifier.startswith("built_") and not builtin:
+            raise ValueError("Unknown built-in command")
         data["builtin"] = False
-        validated = checked_command(data)
+        validated = checked_command(data, builtin=builtin)
+        if builtin:
+            if identifier in self.deleted_builtins:
+                raise ValueError("Command was deleted")
+            def update_builtin():
+                self.builtin_overrides[identifier] = validated
+                if validated["enabled"]:
+                    self.disabled_builtins.discard(identifier)
+                else:
+                    self.disabled_builtins.add(identifier)
+            self._change(update_builtin)
+            return dict(deepcopy(validated), customized=True)
         existing = next((i for i, x in enumerate(self.custom) if x["id"] == validated["id"]), None)
         if existing is None:
             if len(self.custom) >= MAX_USER_COMMANDS:
                 raise ValueError("Too many custom commands")
-            self.custom.append(validated)
+            self._change(lambda: self.custom.append(validated))
         else:
-            self.custom[existing] = validated
-        self._persist()
-        return validated
+            self._change(lambda: self.custom.__setitem__(existing, validated))
+        return deepcopy(validated)
+
+    # Retain old integrations while allowing the same editor to save presets.
+    save_custom = save_command
+    upsert = save_command
+
+    def save_commands(self, records):
+        """Validate/save a folder edit or clone as a single recoverable change."""
+        if not isinstance(records, (list, tuple)) or len(records) > len(BUILTINS) + MAX_USER_COMMANDS:
+            raise ValueError("Invalid command list")
+        return self._change(lambda: [self.save_command(record) for record in records])
 
     def set_enabled(self, identifier, enabled):
-        if identifier.startswith("built_"):
-            valid_ids = {item["id"] for item in BUILTINS}
-            if identifier not in valid_ids:
-                raise ValueError("Unknown built-in command")
-            if enabled:
+        self.set_group_enabled([identifier], enabled)
+
+    def set_group_enabled(self, identifiers, enabled):
+        identifiers = set(identifiers)
+        entries = {item["id"]: item for item in self.entries()}
+        if not identifiers.issubset(entries):
+            raise ValueError("Unknown command")
+        def update():
+            for identifier in identifiers:
+                if entries[identifier]["builtin"]:
+                    if enabled:
+                        self.disabled_builtins.discard(identifier)
+                    else:
+                        self.disabled_builtins.add(identifier)
+                    if identifier in self.builtin_overrides:
+                        self.builtin_overrides[identifier]["enabled"] = bool(enabled)
+                else:
+                    next(item for item in self.custom if item["id"] == identifier)["enabled"] = bool(enabled)
+        self._change(update)
+
+    def remove_command(self, identifier):
+        if identifier not in {item["id"] for item in self.entries()}:
+            raise ValueError("Command not found")
+        def update():
+            if identifier in {item["id"] for item in BUILTINS}:
+                self.deleted_builtins.add(identifier)
+                self.builtin_overrides.pop(identifier, None)
                 self.disabled_builtins.discard(identifier)
             else:
-                self.disabled_builtins.add(identifier)
-        else:
-            record = next((item for item in self.custom if item["id"] == identifier), None)
-            if record is None:
-                raise ValueError("Unknown custom command")
-            record["enabled"] = bool(enabled)
-        self._persist()
+                self.custom = [item for item in self.custom if item["id"] != identifier]
+        self._change(update)
 
-    def remove_custom(self, identifier):
-        original = len(self.custom)
-        self.custom = [item for item in self.custom if item["id"] != identifier]
-        if len(self.custom) == original:
-            raise ValueError("Command not found or is built-in")
-        self._persist()
+    remove_custom = remove_command
+    delete = remove_command
+
+    def remove_commands(self, identifiers):
+        identifiers = tuple(dict.fromkeys(identifiers))
+        if not set(identifiers).issubset({item["id"] for item in self.entries()}):
+            raise ValueError("Command not found")
+        self._change(lambda: [self.remove_command(identifier) for identifier in identifiers])
 
     def learn(self, phrase, plan, *, success: bool):
         """Record successful, verified commands; never store arbitrary AI scripts."""
