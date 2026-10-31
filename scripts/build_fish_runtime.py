@@ -29,6 +29,7 @@ GGML_COMMIT = "57ea0bc119d722d74594196cc5b494a34dd87be4"
 PACKAGE_NAME = "fish-s2-cpu-win-x64-2c332619-v1.zip"
 VARIANTS = ("cpu-baseline", "cpu-avx2")
 REQUIRED_EXPORTS = (
+    "GetFishCpuFeatureBits",
     "AllocS2Pipeline", "ReleaseS2Pipeline", "SetS2LogLevel", "GetS2LogLevel",
     "InitializeS2PipelineFromFiles", "AllocS2GenerateParams",
     "ReleaseS2GenerateParams", "InitializeS2GenerateParams",
@@ -45,8 +46,29 @@ OS_DLLS = frozenset({
     "iphlpapi.dll", "normaliz.dll", "version.dll", "winmm.dll", "rpcrt4.dll",
     "msvcrt.dll", "ucrtbase.dll",
 })
-_AVX2_ORIGINAL = "list(APPEND ARCH_DEFINITIONS GGML_AVX2 GGML_FMA GGML_F16C)"
-_AVX2_PORTABLE = "list(APPEND ARCH_DEFINITIONS GGML_AVX2)"
+_CMAKE_SHARED_TARGET = "    add_library(s2_shared SHARED ${S2_LIBRARY_SOURCES})\n"
+CPU_FEATURE_SOURCE = r'''// LuxAI Local compatibility probe; no model or inference changes.
+// The host must load the SSE2 baseline DLL before asking whether AVX2 is safe.
+#include <cstdint>
+#include <intrin.h>
+
+extern "C" __declspec(dllexport) std::uint32_t GetFishCpuFeatureBits() {
+    int registers[4] = {};
+    __cpuid(registers, 0);
+    if (registers[0] < 7) return 0;
+    __cpuidex(registers, 1, 0);
+    const auto ecx = static_cast<std::uint32_t>(registers[2]);
+    constexpr std::uint32_t osxsave = 1u << 27;
+    constexpr std::uint32_t avx = 1u << 28;
+    if ((ecx & (osxsave | avx)) != (osxsave | avx)) return 0;
+    if ((_xgetbv(0) & 0x6u) != 0x6u) return 0;
+    const bool fma = (ecx & (1u << 12)) != 0;
+    const bool f16c = (ecx & (1u << 29)) != 0;
+    __cpuidex(registers, 7, 0);
+    const bool avx2 = (static_cast<std::uint32_t>(registers[1]) & (1u << 5)) != 0;
+    return (avx2 ? 1u : 0u) | (fma ? 2u : 0u) | (f16c ? 4u : 0u);
+}
+'''
 
 
 def run(arguments: list[str], *, cwd: Path | None = None) -> str:
@@ -81,19 +103,30 @@ def checkout_source(directory: Path) -> None:
         raise ValueError("Fish runtime source/submodule pin mismatch")
 
 
-def apply_cpu_contract_patch(source: Path) -> str:
-    """AVX2 alone must not silently enable FMA/F16C instructions in MSVC."""
-    path = source / "ggml/src/ggml-cpu/CMakeLists.txt"
+def add_cpu_probe_export(source: Path) -> str:
+    """Add a baseline CPUID probe without changing upstream arithmetic code."""
+    path = source / "CMakeLists.txt"
     original = path.read_text(encoding="utf-8")
-    if original.count(_AVX2_ORIGINAL) != 1:
-        raise ValueError("Pinned ggml AVX2 CMake branch no longer matches")
-    modified = original.replace(_AVX2_ORIGINAL, _AVX2_PORTABLE)
+    helper = source / "luxai_cpu_features.cpp"
+    if original.count(_CMAKE_SHARED_TARGET) != 1 or helper.exists():
+        raise ValueError("Pinned S2 shared target no longer matches")
+    addition = (
+        _CMAKE_SHARED_TARGET + "    if(WIN32)\n"
+        "        target_sources(s2_shared PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/luxai_cpu_features.cpp)\n"
+        "    endif()\n"
+    )
+    modified = original.replace(_CMAKE_SHARED_TARGET, addition)
     path.write_text(modified, encoding="utf-8", newline="\n")
-    return "".join(difflib.unified_diff(
+    helper.write_text(CPU_FEATURE_SOURCE, encoding="utf-8", newline="\n")
+    cmake_diff = "".join(difflib.unified_diff(
         original.splitlines(keepends=True), modified.splitlines(keepends=True),
-        fromfile="a/ggml/src/ggml-cpu/CMakeLists.txt",
-        tofile="b/ggml/src/ggml-cpu/CMakeLists.txt",
+        fromfile="a/CMakeLists.txt", tofile="b/CMakeLists.txt",
     ))
+    source_diff = "".join(difflib.unified_diff(
+        [], CPU_FEATURE_SOURCE.splitlines(keepends=True),
+        fromfile="/dev/null", tofile="b/luxai_cpu_features.cpp",
+    ))
+    return cmake_diff + source_diff
 
 
 def cmake_options(variant: str) -> list[str]:
@@ -104,8 +137,8 @@ def cmake_options(variant: str) -> list[str]:
         "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_POLICY_DEFAULT_CMP0091": "NEW",
         "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded",
-        "CMAKE_C_FLAGS_RELEASE": "/O2 /DNDEBUG /fp:strict",
-        "CMAKE_CXX_FLAGS_RELEASE": "/O2 /DNDEBUG /fp:strict",
+        "CMAKE_C_FLAGS_RELEASE": "/O2 /DNDEBUG",
+        "CMAKE_CXX_FLAGS_RELEASE": "/O2 /DNDEBUG",
         "CMAKE_SHARED_LINKER_FLAGS": "/Brepro",
         "CMAKE_EXE_LINKER_FLAGS": "/Brepro",
         "S2_BUILD_SHARED_LIBRARIES": "ON",
@@ -116,7 +149,8 @@ def cmake_options(variant: str) -> list[str]:
         "GGML_CCACHE": "OFF", "GGML_CPU_ALL_VARIANTS": "OFF",
         "GGML_SSE42": "OFF", "GGML_AVX": "ON" if avx2 else "OFF",
         "GGML_AVX2": "ON" if avx2 else "OFF",
-        "GGML_FMA": "OFF", "GGML_F16C": "OFF", "GGML_BMI2": "OFF",
+        "GGML_FMA": "ON" if avx2 else "OFF",
+        "GGML_F16C": "ON" if avx2 else "OFF", "GGML_BMI2": "OFF",
         "GGML_AVX_VNNI": "OFF", "GGML_AVX512": "OFF",
         "GGML_AVX512_VBMI": "OFF", "GGML_AVX512_VNNI": "OFF",
         "GGML_AVX512_BF16": "OFF", "GGML_AMX_TILE": "OFF",
@@ -130,8 +164,8 @@ def visual_studio_generator() -> str:
     vswhere = root / "Microsoft Visual Studio/Installer/vswhere.exe"
     data = json.loads(run([
         str(vswhere), "-latest", "-products", "*", "-requires",
-        "Microsoft.VisualStudio.Component.VC.Tools.x86.x64", "-format", "json",
-    ]))
+        "Microsoft.VisualStudio.Component.VC.Tools.x86.x64", "-format", "json", "-utf8",
+    ]).lstrip("\ufeff"))
     if not data:
         raise RuntimeError("MSVC x64 build tools were not found")
     major = int(data[0]["installationVersion"].split(".", 1)[0])
@@ -208,6 +242,14 @@ def verify_cpu_imports(path: Path) -> list[str]:
     if unwanted:
         raise ValueError("CPU runtime has external DLL dependencies: " + ", ".join(unwanted))
     return imports
+
+
+def cpu_features(path: Path) -> int:
+    """Call only the baseline DLL before loading an optimized variant."""
+    dll = ctypes.CDLL(str(path.resolve()))
+    dll.GetFishCpuFeatureBits.argtypes = []
+    dll.GetFishCpuFeatureBits.restype = ctypes.c_uint32
+    return int(dll.GetFishCpuFeatureBits())
 
 
 def smoke_library(path: Path) -> None:
@@ -309,13 +351,16 @@ def build_runtime(work_dir: Path, output_dir: Path, jobs: int) -> Path:
     work_dir.mkdir(parents=True, exist_ok=True)
     source = work_dir / "source"
     checkout_source(source)
-    own_patch = apply_cpu_contract_patch(source)
+    own_patch = add_cpu_probe_export(source)
     generator = visual_studio_generator()
     stage = work_dir / "package"
     stage.mkdir()
     flags = {}
     dependencies = {}
+    baseline_features = 0
     for variant in VARIANTS:
+        if variant == "cpu-avx2" and baseline_features & 7 != 7:
+            raise RuntimeError("The CI CPU lacks AVX2/FMA/F16C; the optimized DLL cannot be smoke-tested")
         build_dir = work_dir / variant
         flags[variant] = cmake_options(variant)
         run(["cmake", "-S", str(source), "-B", str(build_dir), "-G", generator,
@@ -329,6 +374,12 @@ def build_runtime(work_dir: Path, output_dir: Path, jobs: int) -> Path:
         destination = stage / variant / "s2.dll"
         destination.parent.mkdir()
         shutil.copyfile(candidates[0], destination)
+        if variant == "cpu-baseline":
+            # Feature detection runs in a separate process, and is performed
+            # only through the baseline DLL before optimized code can load.
+            feature_output = run([sys.executable, str(Path(__file__).resolve()),
+                                  "--probe-library", str(destination)])
+            baseline_features = json.loads(feature_output)["cpu_features"]
         # Loading from a Unicode directory proves UTF-8 file handling at the
         # ABI boundary without loading weights or executing a synthesis.
         with tempfile.TemporaryDirectory(prefix="Проба Știință ", dir=work_dir) as folder:
@@ -352,10 +403,13 @@ def build_runtime(work_dir: Path, output_dir: Path, jobs: int) -> Path:
         "See LICENSE.txt for permitted research/non-commercial use and terms.\n"
         "ggml attribution and license are retained in GGML-LICENSE.txt.\n"
         "CPU baseline: x64/SSE2, no GPU or vendor runtime dependency.\n"
-        "CPU AVX2: AVX2 required; FMA, F16C and BMI2 are disabled.\n"
-        "The build modifies ggml's MSVC AVX2 CMake branch to remove its "
-        "implicit FMA/F16C definitions, uses strict floating-point compilation, "
-        "and applies the pinned upstream patches. Full changes: BUILD-PATCHES.txt.\n"
+        "CPU AVX2: AVX2, FMA and F16C required; BMI2 is disabled.\n"
+        "Always query GetFishCpuFeatureBits in the baseline DLL before loading "
+        "the optimized DLL. Bits: 1=AVX2, 2=FMA, 4=F16C; all require OSXSAVE "
+        "and XGETBV-enabled SSE/YMM state. Missing probe or incomplete mask: use baseline.\n"
+        "The build adds only a CPU capability export to S2 and applies the "
+        "pinned upstream patches. It does not modify inference arithmetic. "
+        "Full added source and build changes: BUILD-PATCHES.txt.\n"
         "No model weights, tokenizer, user text, reference audio, keys or "
         "network services are included in this archive.\n"
     )
@@ -366,7 +420,8 @@ def build_runtime(work_dir: Path, output_dir: Path, jobs: int) -> Path:
         "ggml_commit": GGML_COMMIT, "generator": generator,
         "cmake_version": run(["cmake", "--version"]).splitlines()[0],
         "variants": {variant: {"path": f"{variant}/s2.dll",
-            "required_cpu": "avx2" if variant == "cpu-avx2" else "x64-sse2",
+            "required_cpu": "avx2+fma+f16c" if variant == "cpu-avx2" else "x64-sse2",
+            "required_cpu_mask": 7 if variant == "cpu-avx2" else 0,
             "imports": dependencies[variant], "cmake_options": flags[variant]}
             for variant in VARIANTS},
         "gpu": False, "model_weights_included": False,
@@ -380,9 +435,15 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--jobs", type=int, default=4)
     parser.add_argument("--smoke-library", type=Path)
+    parser.add_argument("--probe-library", type=Path)
     args = parser.parse_args()
     if args.smoke_library:
         smoke_library(args.smoke_library)
+        return 0
+    if args.probe_library:
+        if sys.platform != "win32":
+            raise RuntimeError("The Windows CPU probe requires Windows")
+        print(json.dumps({"cpu_features": cpu_features(args.probe_library)}), flush=True)
         return 0
     if args.work_dir is None or args.output_dir is None:
         parser.error("--work-dir and --output-dir are required for a build")

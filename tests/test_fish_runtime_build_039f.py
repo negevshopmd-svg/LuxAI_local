@@ -49,28 +49,32 @@ class FishRuntimeBuildTests(unittest.TestCase):
         avx2 = build.cmake_options("cpu-avx2")
         for options in (baseline, avx2):
             for expected in ("-DS2_CUDA=OFF", "-DS2_VULKAN=OFF", "-DGGML_NATIVE=OFF",
-                             "-DGGML_FMA=OFF", "-DGGML_F16C=OFF", "-DGGML_BMI2=OFF",
+                             "-DGGML_BMI2=OFF",
                              "-DGGML_OPENMP=OFF", "-DBUILD_SHARED_LIBS=OFF",
                              "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded"):
                 self.assertIn(expected, options)
         self.assertIn("-DGGML_AVX2=OFF", baseline)
+        self.assertIn("-DGGML_FMA=OFF", baseline)
+        self.assertIn("-DGGML_F16C=OFF", baseline)
         self.assertIn("-DGGML_AVX2=ON", avx2)
+        self.assertIn("-DGGML_FMA=ON", avx2)
+        self.assertIn("-DGGML_F16C=ON", avx2)
         with self.assertRaises(ValueError):
             build.cmake_options("cuda")
 
-    def test_compat_patch_is_small_and_rejects_a_changed_source(self):
+    def test_probe_addition_does_not_change_inference_and_rejects_a_changed_source(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
-            path = root / "ggml/src/ggml-cpu/CMakeLists.txt"
-            path.parent.mkdir(parents=True)
-            path.write_text("before\n" + build._AVX2_ORIGINAL + "\nafter\n", encoding="utf-8")
-            patch = build.apply_cpu_contract_patch(root)
-            self.assertIn("-" + build._AVX2_ORIGINAL, patch)
-            self.assertIn("+" + build._AVX2_PORTABLE, patch)
-            self.assertEqual(path.read_text(encoding="utf-8"),
-                             "before\n" + build._AVX2_PORTABLE + "\nafter\n")
+            path = root / "CMakeLists.txt"
+            path.write_text("before\n" + build._CMAKE_SHARED_TARGET + "after\n", encoding="utf-8")
+            patch = build.add_cpu_probe_export(root)
+            self.assertIn("+extern \"C\" __declspec(dllexport) std::uint32_t GetFishCpuFeatureBits()", patch)
+            self.assertIn("target_sources(s2_shared", path.read_text(encoding="utf-8"))
+            self.assertNotIn("ggml-cpu", patch)
+            self.assertEqual((root / "luxai_cpu_features.cpp").read_text(encoding="utf-8"),
+                             build.CPU_FEATURE_SOURCE)
             with self.assertRaises(ValueError):
-                build.apply_cpu_contract_patch(root)
+                build.add_cpu_probe_export(root)
 
     def test_pe_imports_reject_gpu_and_external_runtime_dependencies(self):
         with tempfile.TemporaryDirectory() as folder:
