@@ -76,6 +76,26 @@ class FishRuntimeBuildTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 build.add_cpu_probe_export(root)
 
+    def test_tokenizer_patch_only_replaces_the_filesystem_opener(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            path = root / "src/s2_tokenizer.cpp"
+            path.parent.mkdir()
+            original = ('#include "../include/s2_tokenizer.h"\n'
+                        'bool load(const std::string & path) {\n'
+                        '    std::ifstream f(path);\n'
+                        '    return f.is_open();\n}\n')
+            path.write_text(original, encoding="utf-8")
+            patch = build.apply_unicode_tokenizer_patch(root)
+            modified = path.read_text(encoding="utf-8")
+            self.assertIn('#include "../third_party/filesystem.hpp"', modified)
+            self.assertIn("ghc::filesystem::ifstream f{ghc::filesystem::u8path(path)};", modified)
+            self.assertIn("return f.is_open();", modified)
+            self.assertIn("-    std::ifstream f(path);", patch)
+            self.assertNotIn("ggml", patch)
+            with self.assertRaises(ValueError):
+                build.apply_unicode_tokenizer_patch(root)
+
     def test_pe_imports_reject_gpu_and_external_runtime_dependencies(self):
         with tempfile.TemporaryDirectory() as folder:
             dll = Path(folder) / "s2.dll"

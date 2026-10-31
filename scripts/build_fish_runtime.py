@@ -37,7 +37,8 @@ REQUIRED_EXPORTS = (
     "GetS2AudioBufferDataPointer", "S2Synthesize",
     "AllocS2AudioPromptCodes", "ReleaseS2AudioPromptCodes",
     "InitializeAudioPromptCodes", "S2SynthesizeStreaming",
-    "S2SynthesizeStreamingEx",
+    "S2SynthesizeStreamingEx", "AllocS2Tokenizer", "InitializeS2Tokenizer",
+    "ReleaseS2Tokenizer",
 )
 OS_DLLS = frozenset({
     "kernel32.dll", "kernelbase.dll", "ntdll.dll", "advapi32.dll",
@@ -127,6 +128,24 @@ def add_cpu_probe_export(source: Path) -> str:
         fromfile="/dev/null", tofile="b/luxai_cpu_features.cpp",
     ))
     return cmake_diff + source_diff
+
+
+def apply_unicode_tokenizer_patch(source: Path) -> str:
+    """Open UTF-8 tokenizer paths through upstream's existing wide-path wrapper."""
+    path = source / "src/s2_tokenizer.cpp"
+    original = path.read_text(encoding="utf-8")
+    include = '#include "../include/s2_tokenizer.h"\n'
+    open_file = "    std::ifstream f(path);"
+    if original.count(include) != 1 or original.count(open_file) != 1:
+        raise ValueError("Pinned S2 tokenizer file opener no longer matches")
+    modified = original.replace(
+        include, include + '#include "../third_party/filesystem.hpp"\n',
+    ).replace(open_file, "    ghc::filesystem::ifstream f{ghc::filesystem::u8path(path)};")
+    path.write_text(modified, encoding="utf-8", newline="\n")
+    return "".join(difflib.unified_diff(
+        original.splitlines(keepends=True), modified.splitlines(keepends=True),
+        fromfile="a/src/s2_tokenizer.cpp", tofile="b/src/s2_tokenizer.cpp",
+    ))
 
 
 def cmake_options(variant: str) -> list[str]:
@@ -269,7 +288,8 @@ def smoke_library(path: Path) -> None:
     assert dll.GetS2LogLevel() == 0
     allocators = (("AllocS2Pipeline", "ReleaseS2Pipeline", []),
                   ("AllocS2GenerateParams", "ReleaseS2GenerateParams", []),
-                  ("AllocS2AudioBuffer", "ReleaseS2AudioBuffer", [ctypes.c_int]))
+                  ("AllocS2AudioBuffer", "ReleaseS2AudioBuffer", [ctypes.c_int]),
+                  ("AllocS2Tokenizer", "ReleaseS2Tokenizer", []))
     handles = []
     try:
         for alloc_name, free_name, arguments in allocators:
@@ -281,7 +301,17 @@ def smoke_library(path: Path) -> None:
             if not handle:
                 raise RuntimeError("A native allocation failed")
             handles.append((handle, release))
-        pipeline, params, buffer = (handle for handle, _ in handles)
+        pipeline, params, buffer, tokenizer = (handle for handle, _ in handles)
+        tokenizer_path = path.parent / "токенизатор-Știință.json"
+        tokenizer_path.write_text(json.dumps({
+            "model": {"vocab": {"a": 0, "Привет": 1}, "merges": []},
+            "added_tokens": [],
+        }, ensure_ascii=False), encoding="utf-8")
+        dll.InitializeS2Tokenizer.argtypes = [pointer, ctypes.c_char_p]
+        dll.InitializeS2Tokenizer.restype = ctypes.c_int
+        assert dll.InitializeS2Tokenizer(tokenizer, str(tokenizer_path).encode("utf-8")) == 1, (
+            "A valid UTF-8 tokenizer must load from a Unicode Windows path"
+        )
         dll.InitializeS2GenerateParams.argtypes = [pointer, integer, ctypes.c_float,
             ctypes.c_float, integer, integer, integer, ctypes.c_int]
         dll.InitializeS2GenerateParams.restype = ctypes.c_int
@@ -351,7 +381,7 @@ def build_runtime(work_dir: Path, output_dir: Path, jobs: int) -> Path:
     work_dir.mkdir(parents=True, exist_ok=True)
     source = work_dir / "source"
     checkout_source(source)
-    own_patch = add_cpu_probe_export(source)
+    own_patch = add_cpu_probe_export(source) + apply_unicode_tokenizer_patch(source)
     generator = visual_studio_generator()
     stage = work_dir / "package"
     stage.mkdir()
@@ -407,8 +437,9 @@ def build_runtime(work_dir: Path, output_dir: Path, jobs: int) -> Path:
         "Always query GetFishCpuFeatureBits in the baseline DLL before loading "
         "the optimized DLL. Bits: 1=AVX2, 2=FMA, 4=F16C; all require OSXSAVE "
         "and XGETBV-enabled SSE/YMM state. Missing probe or incomplete mask: use baseline.\n"
-        "The build adds only a CPU capability export to S2 and applies the "
-        "pinned upstream patches. It does not modify inference arithmetic. "
+        "The build adds a CPU capability export to S2, opens UTF-8 tokenizer "
+        "paths through upstream's existing wide-path filesystem wrapper, "
+        "and applies the pinned upstream patches. It does not modify inference arithmetic. "
         "Full added source and build changes: BUILD-PATCHES.txt.\n"
         "No model weights, tokenizer, user text, reference audio, keys or "
         "network services are included in this archive.\n"
