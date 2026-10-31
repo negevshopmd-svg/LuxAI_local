@@ -20,6 +20,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import wave
 import zipfile
 
 
@@ -38,7 +39,8 @@ REQUIRED_EXPORTS = (
     "AllocS2AudioPromptCodes", "ReleaseS2AudioPromptCodes",
     "InitializeAudioPromptCodes", "S2SynthesizeStreaming",
     "S2SynthesizeStreamingEx", "AllocS2Tokenizer", "InitializeS2Tokenizer",
-    "ReleaseS2Tokenizer",
+    "ReleaseS2Tokenizer", "ValidateFishAudioReferenceFile",
+    "ValidateFishModelFileOpen",
 )
 OS_DLLS = frozenset({
     "kernel32.dll", "kernelbase.dll", "ntdll.dll", "advapi32.dll",
@@ -51,7 +53,11 @@ _CMAKE_SHARED_TARGET = "    add_library(s2_shared SHARED ${S2_LIBRARY_SOURCES})\
 CPU_FEATURE_SOURCE = r'''// LuxAI Local compatibility probe; no model or inference changes.
 // The host must load the SSE2 baseline DLL before asking whether AVX2 is safe.
 #include <cstdint>
+#include <cstdio>
+#include <cstring>
 #include <intrin.h>
+#include "ggml.h"
+#include "s2_audio.h"
 
 extern "C" __declspec(dllexport) std::uint32_t GetFishCpuFeatureBits() {
     int registers[4] = {};
@@ -68,6 +74,28 @@ extern "C" __declspec(dllexport) std::uint32_t GetFishCpuFeatureBits() {
     __cpuidex(registers, 7, 0);
     const bool avx2 = (static_cast<std::uint32_t>(registers[1]) & (1u << 5)) != 0;
     return (avx2 ? 1u : 0u) | (fma ? 2u : 0u) | (f16c ? 4u : 0u);
+}
+
+// File-system smoke helpers use the same upstream readers as the pipeline.
+// They need no model weights and are not called by normal speech synthesis.
+extern "C" __declspec(dllexport) int ValidateFishAudioReferenceFile(const char* path) {
+    if (!path) return 0;
+    try {
+        s2::AudioData audio;
+        return s2::audio_read(path, audio) && !audio.samples.empty() && audio.sample_rate > 0 ? 1 : 0;
+    } catch (...) {
+        return 0;
+    }
+}
+
+extern "C" __declspec(dllexport) int ValidateFishModelFileOpen(const char* path) {
+    if (!path) return 0;
+    std::FILE* file = ggml_fopen(path, "rb");
+    if (!file) return 0;
+    char magic[4] = {};
+    const auto count = std::fread(magic, 1, sizeof(magic), file);
+    std::fclose(file);
+    return count == sizeof(magic) && std::memcmp(magic, "GGUF", 4) == 0 ? 1 : 0;
 }
 '''
 
@@ -139,13 +167,69 @@ def apply_unicode_tokenizer_patch(source: Path) -> str:
     if original.count(include) != 1 or original.count(open_file) != 1:
         raise ValueError("Pinned S2 tokenizer file opener no longer matches")
     modified = original.replace(
-        include, include + '#include "../third_party/filesystem.hpp"\n',
+        include, include + '#ifdef _WIN32\n#ifndef NOMINMAX\n#define NOMINMAX\n#endif\n#endif\n'
+        '#include "../third_party/filesystem.hpp"\n',
     ).replace(open_file, "    ghc::filesystem::ifstream f{ghc::filesystem::u8path(path)};")
     path.write_text(modified, encoding="utf-8", newline="\n")
     return "".join(difflib.unified_diff(
         original.splitlines(keepends=True), modified.splitlines(keepends=True),
         fromfile="a/src/s2_tokenizer.cpp", tofile="b/src/s2_tokenizer.cpp",
     ))
+
+
+def apply_unicode_audio_model_patches(source: Path) -> str:
+    """Use wide-path readers for reference audio and GGUF tensor reopens."""
+    path = source / "src/s2_audio.cpp"
+    original = path.read_text(encoding="utf-8")
+    include = '#include "../include/s2_audio.h"\n'
+    wav_reader = (
+        "        float * data = drwav_open_file_and_read_pcm_frames_f32(\n"
+        "            path.c_str(), &channels, &sample_rate, &total_frames, nullptr);"
+    )
+    wav_wide = (
+        "#ifdef _WIN32\n"
+        "        const auto wide_path = ghc::filesystem::u8path(path).wstring();\n"
+        "        float * data = drwav_open_file_and_read_pcm_frames_f32_w(\n"
+        "            wide_path.c_str(), &channels, &sample_rate, &total_frames, nullptr);\n"
+        "#else\n" + wav_reader + "\n#endif"
+    )
+    mp3_reader = (
+        "        float * data = drmp3_open_file_and_read_pcm_frames_f32(\n"
+        "            path.c_str(), &config, &total_frames, nullptr);"
+    )
+    mp3_wide = (
+        "#ifdef _WIN32\n"
+        "        const auto wide_path = ghc::filesystem::u8path(path).wstring();\n"
+        "        drmp3 reader;\n"
+        "        float * data = nullptr;\n"
+        "        if (drmp3_init_file_w(&reader, wide_path.c_str(), nullptr)) {\n"
+        "            data = drmp3__full_read_and_close_f32(&reader, &config, &total_frames);\n"
+        "        }\n"
+        "#else\n" + mp3_reader + "\n#endif"
+    )
+    if any(original.count(expected) != 1 for expected in (include, wav_reader, mp3_reader)):
+        raise ValueError("Pinned S2 audio file openers no longer match")
+    modified = original.replace(
+        include, include + '#ifdef _WIN32\n#ifndef NOMINMAX\n#define NOMINMAX\n#endif\n#endif\n'
+        '#include "../third_party/filesystem.hpp"\n',
+    ).replace(wav_reader, wav_wide).replace(mp3_reader, mp3_wide)
+    changes = [(path, original, modified)]
+    narrow = 'std::fopen(gguf_path.c_str(), "rb")'
+    for name in ("s2_model.cpp", "s2_codec.cpp"):
+        model_path = source / "src" / name
+        before = model_path.read_text(encoding="utf-8")
+        if before.count(narrow) != 1:
+            raise ValueError("Pinned S2 GGUF tensor file opener no longer matches")
+        changes.append((model_path, before, before.replace(narrow, 'ggml_fopen(gguf_path.c_str(), "rb")')))
+    patches = []
+    for changed_path, before, after in changes:
+        changed_path.write_text(after, encoding="utf-8", newline="\n")
+        name = changed_path.relative_to(source).as_posix()
+        patches.append("".join(difflib.unified_diff(
+            before.splitlines(keepends=True), after.splitlines(keepends=True),
+            fromfile="a/" + name, tofile="b/" + name,
+        )))
+    return "".join(patches)
 
 
 def cmake_options(variant: str) -> list[str]:
@@ -312,6 +396,24 @@ def smoke_library(path: Path) -> None:
         assert dll.InitializeS2Tokenizer(tokenizer, str(tokenizer_path).encode("utf-8")) == 1, (
             "A valid UTF-8 tokenizer must load from a Unicode Windows path"
         )
+        reference_path = path.parent / "эталон-Știință.wav"
+        with wave.open(str(reference_path), "wb") as reference:
+            reference.setnchannels(1)
+            reference.setsampwidth(2)
+            reference.setframerate(24000)
+            reference.writeframes(b"\0\0" * 128)
+        dll.ValidateFishAudioReferenceFile.argtypes = [ctypes.c_char_p]
+        dll.ValidateFishAudioReferenceFile.restype = ctypes.c_int
+        assert dll.ValidateFishAudioReferenceFile(str(reference_path).encode("utf-8")) == 1, (
+            "A valid WAV reference must decode from a Unicode Windows path"
+        )
+        binary_path = path.parent / "байты-модели-Știință.bin"
+        binary_path.write_bytes(b"GGUF")
+        dll.ValidateFishModelFileOpen.argtypes = [ctypes.c_char_p]
+        dll.ValidateFishModelFileOpen.restype = ctypes.c_int
+        assert dll.ValidateFishModelFileOpen(str(binary_path).encode("utf-8")) == 1, (
+            "The GGUF file opener must read bytes from a Unicode Windows path"
+        )
         dll.InitializeS2GenerateParams.argtypes = [pointer, integer, ctypes.c_float,
             ctypes.c_float, integer, integer, integer, ctypes.c_int]
         dll.InitializeS2GenerateParams.restype = ctypes.c_int
@@ -381,7 +483,8 @@ def build_runtime(work_dir: Path, output_dir: Path, jobs: int) -> Path:
     work_dir.mkdir(parents=True, exist_ok=True)
     source = work_dir / "source"
     checkout_source(source)
-    own_patch = add_cpu_probe_export(source) + apply_unicode_tokenizer_patch(source)
+    own_patch = (add_cpu_probe_export(source) + apply_unicode_tokenizer_patch(source)
+                 + apply_unicode_audio_model_patches(source))
     generator = visual_studio_generator()
     stage = work_dir / "package"
     stage.mkdir()
@@ -437,8 +540,10 @@ def build_runtime(work_dir: Path, output_dir: Path, jobs: int) -> Path:
         "Always query GetFishCpuFeatureBits in the baseline DLL before loading "
         "the optimized DLL. Bits: 1=AVX2, 2=FMA, 4=F16C; all require OSXSAVE "
         "and XGETBV-enabled SSE/YMM state. Missing probe or incomplete mask: use baseline.\n"
-        "The build adds a CPU capability export to S2, opens UTF-8 tokenizer "
-        "paths through upstream's existing wide-path filesystem wrapper, "
+        "The build adds CPU/file-system verification exports to S2, opens UTF-8 "
+        "tokenizer paths through upstream's existing wide-path filesystem wrapper, "
+        "uses wide WAV/MP3 file readers on Windows, and reopens GGUF tensor data "
+        "through ggml_fopen, "
         "and applies the pinned upstream patches. It does not modify inference arithmetic. "
         "Full added source and build changes: BUILD-PATCHES.txt.\n"
         "No model weights, tokenizer, user text, reference audio, keys or "

@@ -88,6 +88,7 @@ class FishRuntimeBuildTests(unittest.TestCase):
             path.write_text(original, encoding="utf-8")
             patch = build.apply_unicode_tokenizer_patch(root)
             modified = path.read_text(encoding="utf-8")
+            self.assertIn("#define NOMINMAX", modified)
             self.assertIn('#include "../third_party/filesystem.hpp"', modified)
             self.assertIn("ghc::filesystem::ifstream f{ghc::filesystem::u8path(path)};", modified)
             self.assertIn("return f.is_open();", modified)
@@ -95,6 +96,35 @@ class FishRuntimeBuildTests(unittest.TestCase):
             self.assertNotIn("ggml", patch)
             with self.assertRaises(ValueError):
                 build.apply_unicode_tokenizer_patch(root)
+
+    def test_audio_and_model_patches_keep_existing_decode_and_tensor_logic(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            directory = root / "src"
+            directory.mkdir()
+            audio = directory / "s2_audio.cpp"
+            audio.write_text(
+                '#include "../include/s2_audio.h"\n'
+                '        float * data = drwav_open_file_and_read_pcm_frames_f32(\n'
+                '            path.c_str(), &channels, &sample_rate, &total_frames, nullptr);\n'
+                '        float * data = drmp3_open_file_and_read_pcm_frames_f32(\n'
+                '            path.c_str(), &config, &total_frames, nullptr);\n', encoding="utf-8")
+            for name in ("s2_model.cpp", "s2_codec.cpp"):
+                (directory / name).write_text(
+                    'before();\nstd::FILE * f = std::fopen(gguf_path.c_str(), "rb");\nafter();\n',
+                    encoding="utf-8")
+            patch = build.apply_unicode_audio_model_patches(root)
+            content = audio.read_text(encoding="utf-8")
+            self.assertIn("drwav_open_file_and_read_pcm_frames_f32_w", content)
+            self.assertIn("drmp3_init_file_w", content)
+            self.assertIn("drmp3__full_read_and_close_f32", content)
+            self.assertIn("#else\n        float * data = drmp3_open_file_and_read_pcm_frames_f32", content)
+            for name in ("s2_model.cpp", "s2_codec.cpp"):
+                content = (directory / name).read_text(encoding="utf-8")
+                self.assertEqual(content, 'before();\nstd::FILE * f = ggml_fopen(gguf_path.c_str(), "rb");\nafter();\n')
+            self.assertNotIn("ggml-cpu", patch)
+            with self.assertRaises(ValueError):
+                build.apply_unicode_audio_model_patches(root)
 
     def test_pe_imports_reject_gpu_and_external_runtime_dependencies(self):
         with tempfile.TemporaryDirectory() as folder:
