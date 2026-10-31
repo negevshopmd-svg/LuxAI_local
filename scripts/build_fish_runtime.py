@@ -101,11 +101,12 @@ extern "C" __declspec(dllexport) int ValidateFishModelFileOpen(const char* path)
 
 
 def run(arguments: list[str], *, cwd: Path | None = None) -> str:
-    completed = subprocess.run(arguments, cwd=cwd, check=True, text=True,
+    completed = subprocess.run(arguments, cwd=cwd, check=False, text=True,
                                encoding="utf-8", errors="replace",
                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     if completed.stdout:
         print(completed.stdout, end="", flush=True)
+    completed.check_returncode()
     return completed.stdout
 
 
