@@ -57,6 +57,13 @@ def stop_speaking() -> None:
             process.terminate()
         except OSError:
             pass
+    # Stop the native Fish worker without waiting for its long model inference.
+    # This is a local subprocess; cloud Fish API is not affected.
+    try:
+        from luxai import fish_local
+        fish_local.stop()
+    except Exception:
+        pass
     # sd.stop releases sd.wait() without terminating the audio thread.
     try:
         import sounddevice as sd
@@ -257,7 +264,7 @@ class VoiceManager:
         snapshot = dict(settings)
         if not snapshot.get("tts_enabled", True):
             return False
-        if str(snapshot.get("voice_engine", "piper") or "piper").lower() in ("windows", "fish"):
+        if str(snapshot.get("voice_engine", "piper") or "piper").lower() in ("windows", "fish", "fish_local"):
             # Fish is requested only for actual speech/explicit preview. Startup
             # must not send text or consume even free provider capacity.
             return False
@@ -404,6 +411,45 @@ class VoiceManager:
             barge_in_ready.clear()
         return False
 
+    def _fish_local_speak(self, text: str, language: str, cancel_token: int) -> bool:
+        """Private local Fish S2 pipeline, cached across replies, without API."""
+        from luxai import fish_local
+        if _was_cancelled(cancel_token):
+            return False
+        try:
+            reference = str(self.config.get("fish_local_reference", "") or "").strip()
+            transcript = str(self.config.get("fish_local_reference_text", "") or "").strip()
+            threads = self.config.get("fish_local_threads", 0)
+            data = fish_local.synthesize(
+                text, reference=reference, transcript=transcript, threads=threads,
+                cancelled=lambda: _was_cancelled(cancel_token),
+            )
+            if _was_cancelled(cancel_token):
+                return False
+            import soundfile as sf
+            audio, rate = sf.read(io.BytesIO(data), dtype="float32")
+            volume = max(0.0, min(1.0, float(self.config.get("voice_volume", 80)) / 100))
+            import sounddevice as sd
+            with _cancel_lock:
+                if cancel_token != _cancel_generation:
+                    return False
+                sd.play(audio * volume, rate)
+                barge_in_ready.set()
+            try:
+                sd.wait()
+            finally:
+                barge_in_ready.clear()
+            return not _was_cancelled(cancel_token)
+        except fish_local.FishLocalError as exc:
+            if not _was_cancelled(cancel_token):
+                self._log(f"Fish S2 local voice: {str(exc)[:85]}")
+        except Exception as exc:
+            if not _was_cancelled(cancel_token):
+                self._log(f"Fish S2 local playback failed ({type(exc).__name__}).")
+        finally:
+            barge_in_ready.clear()
+        return False
+
     def speak(self, text: str, language: str | None = None, cancel_token: int = 0) -> bool:
         # Startup preparation and previews can reach the shared manager from
         # different workers. Piper's model and mutable config stay serialized.
@@ -421,6 +467,8 @@ class VoiceManager:
             language = "ru" if re.search(r"[а-яё]", text, flags=re.IGNORECASE) else "ro"
 
         voice_engine = str(self.config.get("voice_engine", "piper") or "piper").lower()
+        if voice_engine == "fish_local":
+            return self._fish_local_speak(text, language, cancel_token)
         if voice_engine == "fish":
             return self._fish_speak(text, language, cancel_token)
         if voice_engine == "windows":
