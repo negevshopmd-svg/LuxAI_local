@@ -80,9 +80,10 @@ class ResidentEngine:
         self._serial = 0
 
     def stop(self):
-        with self._guard:
-            process, self._process = self._process, None
-            self._signature = None
+        # Called by the UI thread while synthesis holds _guard. Never acquire
+        # that same lock: terminate the subprocess immediately on a barge-in.
+        process, self._process = self._process, None
+        self._signature = None
         if process is not None and process.poll() is None:
             try:
                 process.terminate()
