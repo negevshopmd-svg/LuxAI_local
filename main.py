@@ -1783,6 +1783,7 @@ class MainWindow(QMainWindow):
 
     def install_fish_local(self):
         """Explicit installation in a console; never block the UI or send speech to cloud."""
+        import subprocess
         if sys.platform != "win32":
             self.mic_status.setText("Fish S2 installer requires Windows x64.")
             return
