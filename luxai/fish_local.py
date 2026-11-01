@@ -131,16 +131,11 @@ class ResidentEngine:
         self.stop()
         raise FishLocalError("fish_synthesis_timeout")
 
-    def synthesize(self, text: str, *, reference="", transcript="", threads=0,
-                   cancelled=lambda: False) -> bytes:
+    @staticmethod
+    def _request_signature(reference, transcript, threads):
         valid, error = ready(reference)
         if not valid:
             raise FishLocalError(error)
-        if not isinstance(text, str) or not text.strip():
-            raise FishLocalError("empty_text")
-        text = text.strip()
-        if len(text) > 350:
-            raise FishLocalError("fish_text_too_long")
         if reference and not transcript.strip():
             raise FishLocalError("fish_reference_transcript_required")
         p = paths()
@@ -148,27 +143,60 @@ class ResidentEngine:
         threads = max(1, min(16, int(threads or min(max(1, os.cpu_count() or 4), 8))))
         signature = (str(dll), str(p["model"]), str(p["tokenizer"]),
                      str(reference), str(transcript), threads)
+        return p, dll, threads, signature
+
+    def _ensure_worker(self, p, dll, threads, signature, cancelled):
+        if (self._signature == signature and self._process is not None
+                and self._process.poll() is None):
+            return
+        self.stop()
+        event_queue = queue.Queue()
+        args = [sys.executable, "-u", str(WORKER), "--dll", str(dll),
+                "--model", str(p["model"]), "--tokenizer", str(p["tokenizer"]),
+                "--reference", signature[3], "--transcript", signature[4],
+                "--threads", str(threads)]
+        startup = {"stdin": subprocess.PIPE, "stdout": subprocess.PIPE,
+                   "stderr": subprocess.DEVNULL, "text": True,
+                   "encoding": "utf-8", "errors": "replace", "bufsize": 1}
+        if sys.platform == "win32":
+            startup["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        process = subprocess.Popen(args, **startup)
+        self._process, self._events, self._signature = process, event_queue, signature
+        self._reader = threading.Thread(target=self._listen, args=(process, event_queue),
+                                        name="fish-s2-protocol", daemon=True)
+        self._reader.start()
+        try:
+            self._await(process, event_queue, "ready", time.monotonic() + 240, cancelled)
+        except BaseException:
+            self.stop()
+            raise
+
+    def preload(self, *, reference="", transcript="", threads=0,
+                cancelled=lambda: False):
+        """Load model and voice reference once, without synthesizing speech."""
+        if cancelled():
+            raise FishLocalError("cancelled")
+        p, dll, threads, signature = self._request_signature(reference, transcript, threads)
         with self._guard:
             if cancelled():
                 raise FishLocalError("cancelled")
-            if self._signature != signature or self._process is None or self._process.poll() is not None:
-                self.stop()
-                event_queue = queue.Queue()
-                args = [sys.executable, "-u", str(WORKER), "--dll", str(dll),
-                        "--model", str(p["model"]), "--tokenizer", str(p["tokenizer"]),
-                        "--reference", str(reference), "--transcript", transcript,
-                        "--threads", str(threads)]
-                startup = {"stdin": subprocess.PIPE, "stdout": subprocess.PIPE,
-                           "stderr": subprocess.DEVNULL, "text": True,
-                           "encoding": "utf-8", "errors": "replace", "bufsize": 1}
-                if sys.platform == "win32":
-                    startup["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-                process = subprocess.Popen(args, **startup)
-                self._process, self._events, self._signature = process, event_queue, signature
-                self._reader = threading.Thread(target=self._listen, args=(process, event_queue),
-                                                name="fish-s2-protocol", daemon=True)
-                self._reader.start()
-                self._await(process, event_queue, "ready", time.monotonic() + 240, cancelled)
+            self._ensure_worker(p, dll, threads, signature, cancelled)
+        return True
+
+    def synthesize(self, text: str, *, reference="", transcript="", threads=0,
+                   cancelled=lambda: False) -> bytes:
+        if not isinstance(text, str) or not text.strip():
+            raise FishLocalError("empty_text")
+        text = text.strip()
+        if len(text) > 350 or len(text.encode("utf-8")) > 1500:
+            raise FishLocalError("fish_text_too_long")
+        if cancelled():
+            raise FishLocalError("cancelled")
+        p, dll, threads, signature = self._request_signature(reference, transcript, threads)
+        with self._guard:
+            if cancelled():
+                raise FishLocalError("cancelled")
+            self._ensure_worker(p, dll, threads, signature, cancelled)
             process, events = self._process, self._events
             self._serial += 1
             request_id = self._serial
@@ -185,15 +213,20 @@ class ResidentEngine:
                     if not output.is_file() or not (44 < output.stat().st_size <= MAX_WAV_BYTES):
                         raise FishLocalError("fish_audio_invalid")
                     with wave.open(str(output), "rb") as stream:
-                        if (stream.getnchannels(), stream.getsampwidth()) != (1, 2) or not (16000 <= stream.getframerate() <= 96000):
+                        if ((stream.getnchannels(), stream.getsampwidth()) != (1, 2) or
+                            not (16000 <= stream.getframerate() <= 96000)):
                             raise FishLocalError("fish_audio_format")
                     return output.read_bytes()
                 except (BrokenPipeError, OSError):
                     self.stop()
                     raise FishLocalError("fish_worker_exited") from None
 
-
 _engine = ResidentEngine()
+
+
+def preload(*, reference="", transcript="", threads=0, cancelled=lambda: False):
+    return _engine.preload(reference=reference, transcript=transcript,
+                           threads=threads, cancelled=cancelled)
 
 
 def synthesize(text: str, *, reference="", transcript="", threads=0, cancelled=lambda: False):
