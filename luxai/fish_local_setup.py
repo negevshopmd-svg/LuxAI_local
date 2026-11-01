@@ -110,8 +110,13 @@ def install_runtime():
         raise InstallError("The precompiled runtime is for 64-bit Windows")
     FISH_DIR.mkdir(parents=True, exist_ok=True)
     if (RUNTIME_DIR / "cpu-baseline" / "s2.dll").is_file():
-        print("Fish native runtime is already present", flush=True)
-        return
+        from luxai.fish_local import choose_runtime, FishLocalError
+        try:
+            choose_runtime()
+            print("Fish native runtime is already present", flush=True)
+            return
+        except FishLocalError:
+            print("Outdated or invalid Fish runtime; replacing it.", flush=True)
     with tempfile.TemporaryDirectory(prefix="fish-s2-package-") as tmp:
         package = download(RUNTIME_URL, Path(tmp) / RUNTIME_NAME,
                            RUNTIME_LIMIT, minimum=100_000)

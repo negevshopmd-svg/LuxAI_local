@@ -46,6 +46,10 @@ def choose_runtime():
         dll = ctypes.CDLL(str(baseline.resolve()))
         probe = dll.GetFishCpuFeatureBits
         probe.argtypes, probe.restype = [], ctypes.c_uint32
+        # Older runtime ZIPs do not export the native sample-rate query.
+        # Reject them before any user speech instead of playing at wrong pitch.
+        rate_query = dll.GetFishOutputSampleRate
+        rate_query.argtypes, rate_query.restype = [ctypes.c_void_p], ctypes.c_int
         features = int(probe())
     except (OSError, AttributeError):
         raise FishLocalError("fish_cpu_runtime_invalid") from None
