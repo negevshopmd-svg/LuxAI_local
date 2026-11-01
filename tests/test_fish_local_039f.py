@@ -111,6 +111,20 @@ class FishLocalTests(unittest.TestCase):
         credentials.assert_not_called()
         play.assert_called_once()
 
+    def test_long_speech_is_segmented_not_truncated(self):
+        manager = voices.VoiceManager()
+        sentence = "Модель работает локально и отвечает голосом. "
+        message = sentence * 16
+        cfg = {"voice_engine": "fish_local", "voice_volume": 80, "language": "ru"}
+        with mock.patch.object(manager, "_load_config", return_value=cfg), \
+             mock.patch("luxai.fish_local.synthesize", return_value=wav_sample()) as synth, \
+             mock.patch("sounddevice.play"), mock.patch("sounddevice.wait"):
+            self.assertTrue(manager._speak(message, "ru", voices._cancel_token()))
+        self.assertGreater(synth.call_count, 1)
+        self.assertEqual(" ".join(call.args[0].strip() for call in synth.call_args_list),
+                         " ".join(message.split()))
+        self.assertTrue(all(len(call.args[0]) <= 350 for call in synth.call_args_list))
+
     def test_settings_offer_offline_voice_without_key(self):
         from PySide6.QtWidgets import QApplication
         from luxai.settings_panel import SettingsPanel
