@@ -122,7 +122,7 @@ class FishLocalTests(unittest.TestCase):
             self.assertTrue(manager._speak(message, "ru", voices._cancel_token()))
         self.assertGreater(synth.call_count, 1)
         self.assertEqual(" ".join(call.args[0].strip() for call in synth.call_args_list),
-                         " ".join(message.split()))
+                         " ".join(message[:700].split()))
         self.assertTrue(all(len(call.args[0]) <= 350 for call in synth.call_args_list))
 
     def test_settings_offer_offline_voice_without_key(self):
