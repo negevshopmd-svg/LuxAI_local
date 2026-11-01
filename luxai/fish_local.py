@@ -134,7 +134,9 @@ class ResidentEngine:
             raise FishLocalError(error)
         if not isinstance(text, str) or not text.strip():
             raise FishLocalError("empty_text")
-        text = text.strip()[:350]
+        text = text.strip()
+        if len(text) > 350:
+            raise FishLocalError("fish_text_too_long")
         if reference and not transcript.strip():
             raise FishLocalError("fish_reference_transcript_required")
         p = paths()

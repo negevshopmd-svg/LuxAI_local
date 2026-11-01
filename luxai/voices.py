@@ -420,25 +420,42 @@ class VoiceManager:
             reference = str(self.config.get("fish_local_reference", "") or "").strip()
             transcript = str(self.config.get("fish_local_reference_text", "") or "").strip()
             threads = self.config.get("fish_local_threads", 0)
-            data = fish_local.synthesize(
-                text, reference=reference, transcript=transcript, threads=threads,
-                cancelled=lambda: _was_cancelled(cancel_token),
-            )
-            if _was_cancelled(cancel_token):
-                return False
+            # Keep full answers audible. Segment at word/sentence boundaries
+            # instead of silently dropping everything after 350 characters.
+            segments = []
+            remaining = text
+            while remaining:
+                if len(remaining) <= 300:
+                    segments.append(remaining)
+                    break
+                cut = max(remaining.rfind(mark, 120, 301)
+                          for mark in (". ", "! ", "? ", "; ", ", ", " "))
+                if cut < 120:
+                    cut = 300
+                segments.append(remaining[:cut + 1].strip())
+                remaining = remaining[cut + 1:].strip()
             import soundfile as sf
-            audio, rate = sf.read(io.BytesIO(data), dtype="float32")
-            volume = max(0.0, min(1.0, float(self.config.get("voice_volume", 80)) / 100))
             import sounddevice as sd
-            with _cancel_lock:
-                if cancel_token != _cancel_generation:
+            volume = max(0.0, min(1.0, float(self.config.get("voice_volume", 80)) / 100))
+            for segment in segments:
+                if _was_cancelled(cancel_token):
                     return False
-                sd.play(audio * volume, rate)
-                barge_in_ready.set()
-            try:
-                sd.wait()
-            finally:
-                barge_in_ready.clear()
+                data = fish_local.synthesize(
+                    segment, reference=reference, transcript=transcript,
+                    threads=threads, cancelled=lambda: _was_cancelled(cancel_token),
+                )
+                if _was_cancelled(cancel_token):
+                    return False
+                audio, rate = sf.read(io.BytesIO(data), dtype="float32")
+                with _cancel_lock:
+                    if cancel_token != _cancel_generation:
+                        return False
+                    sd.play(audio * volume, rate)
+                    barge_in_ready.set()
+                try:
+                    sd.wait()
+                finally:
+                    barge_in_ready.clear()
             return not _was_cancelled(cancel_token)
         except fish_local.FishLocalError as exc:
             if not _was_cancelled(cancel_token):
