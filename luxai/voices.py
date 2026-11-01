@@ -264,9 +264,28 @@ class VoiceManager:
         snapshot = dict(settings)
         if not snapshot.get("tts_enabled", True):
             return False
-        if str(snapshot.get("voice_engine", "piper") or "piper").lower() in ("windows", "fish", "fish_local"):
-            # Fish is requested only for actual speech/explicit preview. Startup
-            # must not send text or consume even free provider capacity.
+        engine = str(snapshot.get("voice_engine", "piper") or "piper").lower()
+        if engine == "fish_local":
+            # Run by the existing startup voice-preparation worker, not the UI.
+            # Only locally installed weights are loaded, without generating
+            # speech or contacting any provider. The resident model is reused.
+            from luxai import fish_local
+            reference = str(snapshot.get("fish_local_reference", "") or "").strip()
+            ok, _ = fish_local.ready(reference)
+            if not ok:
+                return False
+            try:
+                fish_local.preload(
+                    reference=reference,
+                    transcript=str(snapshot.get("fish_local_reference_text", "") or ""),
+                    threads=snapshot.get("fish_local_threads", 0),
+                )
+                return True
+            except fish_local.FishLocalError as exc:
+                self._log(f"Fish S2 preload failed: {str(exc)[:85]}")
+                return False
+        if engine in ("windows", "fish"):
+            # Cloud Fish is requested only for explicit speech, never startup.
             return False
         from luxai.response_language import reply_language
         language = reply_language(snapshot)
