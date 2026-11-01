@@ -80,6 +80,10 @@ class Engine:
                 [ptr, ptr, ptr, ptr, ctypes.POINTER(integer), ctypes.c_char_p,
                  ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p,
                  ctypes.POINTER(integer)], ctypes.c_int)
+            self.sample_rate = bind(self.dll, "GetFishOutputSampleRate",
+                                    [ptr], integer)(self.pipeline)
+            if not 16000 <= self.sample_rate <= 96000:
+                raise RuntimeError("unsupported_sample_rate")
             self.audio_data = bind(self.dll, "GetS2AudioBufferDataPointer",
                                    [ptr], ctypes.POINTER(ctypes.c_float))
         except BaseException:
@@ -98,7 +102,7 @@ class Engine:
         if status != 1:
             raise RuntimeError("generation_failed_" + str(status))
         samples = int(length.value)
-        if not 1 <= samples <= 24000 * 120:
+        if not 1 <= samples <= self.sample_rate * 120:
             raise RuntimeError("invalid_audio_size")
         pointer = self.audio_data(self.audio)
         if not pointer:
@@ -109,7 +113,7 @@ class Engine:
             with wave.open(str(temporary), "wb") as out:
                 out.setnchannels(1)
                 out.setsampwidth(2)
-                out.setframerate(24000)
+                out.setframerate(self.sample_rate)
                 # Do not allocate unbounded arrays or expose raw voice data to logs.
                 for start in range(0, samples, 4096):
                     values = []

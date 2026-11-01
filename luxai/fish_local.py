@@ -22,7 +22,7 @@ FISH_DIR = ROOT / "models" / "fishaudio"
 MODEL_NAME = "s2-pro-q4_k_m.gguf"
 RUNTIME_DIR = FISH_DIR / "runtime"
 WORKER = Path(__file__).with_name("fish_local_worker.py")
-MAX_WAV_BYTES = 24_000 * 2 * 120 + 1000
+MAX_WAV_BYTES = 96_000 * 2 * 120 + 1000
 PROTOCOL = "FISH_LOCAL_JSON:"
 
 
@@ -181,7 +181,7 @@ class ResidentEngine:
                     if not output.is_file() or not (44 < output.stat().st_size <= MAX_WAV_BYTES):
                         raise FishLocalError("fish_audio_invalid")
                     with wave.open(str(output), "rb") as stream:
-                        if (stream.getnchannels(), stream.getsampwidth(), stream.getframerate()) != (1, 2, 24000):
+                        if (stream.getnchannels(), stream.getsampwidth()) != (1, 2) or not (16000 <= stream.getframerate() <= 96000):
                             raise FishLocalError("fish_audio_format")
                     return output.read_bytes()
                 except (BrokenPipeError, OSError):

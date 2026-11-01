@@ -30,7 +30,7 @@ GGML_COMMIT = "57ea0bc119d722d74594196cc5b494a34dd87be4"
 PACKAGE_NAME = "fish-s2-cpu-win-x64-2c332619-v1.zip"
 VARIANTS = ("cpu-baseline", "cpu-avx2")
 REQUIRED_EXPORTS = (
-    "GetFishCpuFeatureBits",
+    "GetFishCpuFeatureBits", "GetFishOutputSampleRate",
     "AllocS2Pipeline", "ReleaseS2Pipeline", "SetS2LogLevel", "GetS2LogLevel",
     "InitializeS2PipelineFromFiles", "AllocS2GenerateParams",
     "ReleaseS2GenerateParams", "InitializeS2GenerateParams",
@@ -58,6 +58,7 @@ CPU_FEATURE_SOURCE = r'''// LuxAI Local compatibility probe; no model or inferen
 #include <intrin.h>
 #include "ggml.h"
 #include "s2_audio.h"
+#include "s2_pipeline.h"
 
 extern "C" __declspec(dllexport) std::uint32_t GetFishCpuFeatureBits() {
     int registers[4] = {};
@@ -74,6 +75,11 @@ extern "C" __declspec(dllexport) std::uint32_t GetFishCpuFeatureBits() {
     __cpuidex(registers, 7, 0);
     const bool avx2 = (static_cast<std::uint32_t>(registers[1]) & (1u << 5)) != 0;
     return (avx2 ? 1u : 0u) | (fma ? 2u : 0u) | (f16c ? 4u : 0u);
+}
+
+// Report the native codec's sample rate instead of guessing 24 kHz.
+extern "C" __declspec(dllexport) int GetFishOutputSampleRate(s2::Pipeline* pipeline) {
+    return pipeline ? pipeline->output_sample_rate() : 0;
 }
 
 // File-system smoke helpers use the same upstream readers as the pipeline.
