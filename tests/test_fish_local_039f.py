@@ -18,12 +18,12 @@ from luxai.fish_local_worker import PREFIX, Engine
 from luxai import fish_local_setup
 
 
-def wav_sample():
+def wav_sample(sample_rate=24000):
     buf = io.BytesIO()
     with wave.open(buf, "wb") as f:
         f.setnchannels(1)
         f.setsampwidth(2)
-        f.setframerate(24000)
+        f.setframerate(sample_rate)
         f.writeframes(b"\x00\x00" * 500)
     return buf.getvalue()
 
@@ -124,6 +124,15 @@ class FishLocalTests(unittest.TestCase):
         self.assertEqual(" ".join(call.args[0].strip() for call in synth.call_args_list),
                          " ".join(message[:700].split()))
         self.assertTrue(all(len(call.args[0]) <= 350 for call in synth.call_args_list))
+
+    def test_native_44100_hz_audio_is_played_at_original_sample_rate(self):
+        manager = voices.VoiceManager()
+        cfg = {"voice_engine": "fish_local", "voice_volume": 70, "language": "ru"}
+        with mock.patch.object(manager, "_load_config", return_value=cfg), \
+             mock.patch("luxai.fish_local.synthesize", return_value=wav_sample(44100)), \
+             mock.patch("sounddevice.play") as play, mock.patch("sounddevice.wait"):
+            self.assertTrue(manager._speak("Привет", "ru", voices._cancel_token()))
+        self.assertEqual(play.call_args.args[1], 44100)
 
     def test_settings_offer_offline_voice_without_key(self):
         from PySide6.QtWidgets import QApplication

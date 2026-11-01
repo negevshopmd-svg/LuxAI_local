@@ -44,6 +44,10 @@ def minimal_pe(imports, *, delayed=False):
 
 
 class FishRuntimeBuildTests(unittest.TestCase):
+    def test_runtime_exports_native_sample_rate_query(self):
+        self.assertIn("GetFishOutputSampleRate", build.REQUIRED_EXPORTS)
+        self.assertIn("output_sample_rate()", build.CPU_FEATURE_SOURCE)
+
     def test_variants_have_an_explicit_portable_instruction_contract(self):
         baseline = build.cmake_options("cpu-baseline")
         avx2 = build.cmake_options("cpu-avx2")
