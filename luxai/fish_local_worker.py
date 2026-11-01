@@ -146,6 +146,7 @@ def main():
                         max(1, min(16, args.threads)))
         emit(event="ready")
         for line in sys.stdin:
+            request = None
             try:
                 request = json.loads(line)
                 if request.get("op") == "quit":
