@@ -43,6 +43,37 @@ class FishLocalTests(unittest.TestCase):
                 self.assertFalse(found)
                 self.assertEqual(code, "fish_model_missing")
 
+    def test_preload_reuses_worker_without_generating_audio(self):
+        engine = fish_local.ResidentEngine()
+        signature = ("s2.dll", "model.gguf", "tokenizer.json", "", "", 4)
+        with mock.patch.object(engine, "_request_signature",
+                               return_value=({}, Path("s2.dll"), 4, signature)), \
+             mock.patch.object(engine, "_ensure_worker") as start:
+            self.assertTrue(engine.preload(threads=4))
+        start.assert_called_once()
+        self.assertEqual(start.call_args.args[3], signature)
+
+    def test_startup_preloads_fish_locally_without_cloud_or_speech(self):
+        manager = voices.VoiceManager()
+        cfg = {"tts_enabled": True, "voice_engine": "fish_local",
+               "fish_local_threads": 4, "fish_local_reference": "",
+               "fish_local_reference_text": ""}
+        with mock.patch("luxai.fish_local.ready", return_value=(True, "ready")), \
+             mock.patch("luxai.fish_local.preload", return_value=True) as pre, \
+             mock.patch("luxai.fish_tts.synthesize") as cloud, \
+             mock.patch("sounddevice.play") as play:
+            self.assertTrue(manager.prepare(cfg))
+        pre.assert_called_once()
+        cloud.assert_not_called()
+        play.assert_not_called()
+
+    def test_preload_skips_missing_local_assets_without_network(self):
+        manager = voices.VoiceManager()
+        with mock.patch("luxai.fish_local.ready", return_value=(False, "fish_model_missing")), \
+             mock.patch("luxai.fish_local.preload") as preload:
+            self.assertFalse(manager.prepare({"voice_engine": "fish_local", "tts_enabled": True}))
+        preload.assert_not_called()
+
     def test_cancelled_call_does_not_open_worker_or_fetch_model(self):
         with mock.patch.object(fish_local, "ready", return_value=(True, "ready")):
             with mock.patch.object(fish_local, "choose_runtime", return_value=Path("s2.dll")):
