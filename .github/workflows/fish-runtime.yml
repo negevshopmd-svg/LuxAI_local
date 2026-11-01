@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   windows-cpu-runtime:
@@ -48,3 +48,19 @@ jobs:
             dist/fish-runtime/fish-s2-cpu-win-x64-2c332619-v1.zip.sha256
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish verified native runtime as a stable downloadable Release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "fish-s2-runtime-v1"
+          $folder = "dist/fish-runtime"
+          gh release view $tag --repo ${{ github.repository }} 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --repo ${{ github.repository }} --title "Fish S2 CPU runtime (Windows x64)" --notes "Standalone s2.cpp CPU baseline and AVX2 DLLs with notices. No GGUF weights, voices or user data." --latest=false
+            if ($LASTEXITCODE -ne 0) { throw "Could not create Fish runtime release" }
+          }
+          gh release upload $tag "$folder/fish-s2-cpu-win-x64-2c332619-v1.zip" "$folder/fish-s2-cpu-win-x64-2c332619-v1.zip.sha256" --repo ${{ github.repository }} --clobber
+          if ($LASTEXITCODE -ne 0) { throw "Could not publish Fish runtime archive" }
