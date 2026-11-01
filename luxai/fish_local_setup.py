@@ -147,10 +147,12 @@ def main():
     parser.add_argument("--runtime-only", action="store_true")
     args = parser.parse_args()
     try:
-        if not args.runtime_only:
-            install_model()
+        # Verify the small runtime download first; do not fetch 3.6 GB of
+        # weights if a GitHub Release has not yet been published.
         if not args.model_only:
             install_runtime()
+        if not args.runtime_only:
+            install_model()
         print("Ready. Select Fish S2 Local in Jarvis Settings.", flush=True)
         return 0
     except (InstallError, OSError, zipfile.BadZipFile, KeyError) as exc:
