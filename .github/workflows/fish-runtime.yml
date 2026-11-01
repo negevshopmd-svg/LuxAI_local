@@ -16,8 +16,34 @@ on:
 
 permissions:
   contents: write
+  actions: write
+
+concurrency:
+  group: fish-runtime-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  discard-superseded-pr-runs:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cancel stale checks on previous commits of this same PR branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH_NAME: ${{ github.head_ref }}
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          # Only current repository, same branch, older commits, and nonterminal
+          # runs. No pushes, other branches or newer commits can be cancelled.
+          gh api -X GET "repos/${GITHUB_REPOSITORY}/actions/runs?branch=${BRANCH_NAME}&per_page=100" \
+          | jq -r --arg sha "$EXPECTED_SHA" \
+              '.workflow_runs[] | select(.event == "pull_request" and .head_sha != $sha and (.status == "queued" or .status == "in_progress")) | .id' \
+          | while read -r run_id; do
+              gh run cancel "$run_id" --repo "$GITHUB_REPOSITORY" || true
+            done
+
+
   windows-cpu-runtime:
     runs-on: windows-latest
     timeout-minutes: 30
