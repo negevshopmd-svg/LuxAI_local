@@ -118,6 +118,7 @@ class SettingsPanel(QWidget):
         root.addWidget(sidebar)
         self.set_theme(self.theme.currentData(), self.accent.currentData(), self.background.currentData())
         translate_widgets(self, get_ui_language())
+        self.refresh_local_fish_status()
         self._setup_autosave()
         self._section_sync_timer = QTimer(self)
         self._section_sync_timer.setSingleShot(True)
