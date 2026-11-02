@@ -21,6 +21,21 @@ def normalize_language(value):
 
 
 _DATA = r"""
+Fish S2 Pro — локально (GGUF)|||Fish S2 Pro — local (GGUF)|||Fish S2 Pro — local (GGUF)
+Fish Audio — облако|||Fish Audio — cloud|||Fish Audio — cloud
+Fish S2 Pro Q4_K_M: локальный GGUF в models/fishaudio, без API-ключа. Первая загрузка весов занимает время; на CPU синтез может быть медленным. Скачивание модели (~3,6 ГБ) — только по кнопке ниже.|||Fish S2 Pro Q4_K_M: local GGUF in models/fishaudio, no API key. Initial model loading takes time; CPU synthesis may be slow. Download the model (~3.6 GB) only with the button below.|||Fish S2 Pro Q4_K_M: model GGUF local în models/fishaudio, fără cheie API. Prima încărcare durează; sinteza pe CPU poate fi lentă. Descarcă modelul (~3,6 GB) doar cu butonul de mai jos.
+Установить Fish S2 локально|||Install Fish S2 locally|||Instalează Fish S2 local
+Необязательно: эталон голоса Jarvis (.wav/.mp3)|||Optional: Jarvis reference voice (.wav/.mp3)|||Opțional: mostră de voce Jarvis (.wav/.mp3)
+Точная расшифровка эталонной записи для клонирования|||Exact transcript of reference recording for voice cloning|||Transcrierea exactă a înregistrării pentru clonarea vocii
+Текст эталона|||Reference transcript|||Textul mostrei
+Обязателен при выборе образца голоса.|||Required when a reference voice is selected.|||Obligatoriu când alegi o mostră de voce.
+Потоки CPU|||CPU threads|||Fire CPU
+0 — автоматически, максимум 16.|||0 — automatic, maximum 16.|||0 — automat, maximum 16.
+Автоматически|||Automatic|||Automat
+Локальный Fish S2 готов — речь не отправляется в интернет.|||Local Fish S2 ready — speech is not sent over the internet.|||Fish S2 local este gata — vocea nu este trimisă pe internet.
+Fish S2 не готов:|||Fish S2 not ready:|||Fish S2 nu este pregătit:
+Выполните установку.|||Run the installer.|||Rulează instalarea.
+Эталон голоса Fish S2|||Fish S2 reference voice|||Mostră vocală Fish S2
 Локальные голоса Piper и Windows или Fish Audio через интернет.|||Local Piper and Windows voices, or Fish Audio over the internet.|||Voci locale Piper și Windows sau Fish Audio prin internet.
 Fish Audio — бесплатно|||Fish Audio — free|||Fish Audio — gratuit
 Fish Audio озвучивает ответы через интернет: текст отправляется Fish Audio. Используется только бесплатная модель s2.1-pro-free с ограничениями fair use. Нужны аккаунт и свой API-ключ.|||Fish Audio reads replies over the internet: text is sent to Fish Audio. Only the free s2.1-pro-free model is used, subject to fair-use limits. An account and your own API key are required.|||Fish Audio redă răspunsurile prin internet: textul este trimis către Fish Audio. Se folosește doar modelul gratuit s2.1-pro-free, cu limite de utilizare rezonabilă. Ai nevoie de un cont și de propria cheie API.
