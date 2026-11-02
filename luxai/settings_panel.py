@@ -248,7 +248,7 @@ class SettingsPanel(QWidget):
         self.fish_controls.setVisible(engine == "fish")
         self.local_fish_controls.setVisible(engine == "fish_local")
         self.voice_id.setEnabled(engine == "piper")
-        if engine == "fish_local":
+        if engine == "fish_local" and hasattr(self, "fish_local_status"):
             self.refresh_local_fish_status()
         if hasattr(self, "_section_sync_timer"):
             self._queue_section_sync()
@@ -256,7 +256,7 @@ class SettingsPanel(QWidget):
     def refresh_local_fish_status(self):
         from luxai.fish_local import ready
         valid, message = ready(self.fish_local_reference.text().strip())
-        self.local_fish_status.setText(
+        self.fish_local_status.setText(
             ("Локальный Fish S2 готов — речь не отправляется в интернет."
              if valid else "Fish S2 не готов: " + message + ". Выполните установку.")
         )
