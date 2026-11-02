@@ -453,7 +453,7 @@ class VoiceManager:
                     cut = 300
                 segments.append(remaining[:cut + 1].strip())
                 remaining = remaining[cut + 1:].strip()
-            import soundfile as sf
+            import numpy as np
             import sounddevice as sd
             volume = max(0.0, min(1.0, float(self.config.get("voice_volume", 80)) / 100))
             for segment in segments:
@@ -465,7 +465,28 @@ class VoiceManager:
                 )
                 if _was_cancelled(cancel_token):
                     return False
-                audio, rate = sf.read(io.BytesIO(data), dtype="float32")
+                # s2.cpp produces PCM WAV. Decode without the optional
+                # soundfile package, which is absent in lightweight installs.
+                with wave.open(io.BytesIO(data), "rb") as wav:
+                    rate = wav.getframerate()
+                    channels = wav.getnchannels()
+                    width = wav.getsampwidth()
+                    frames = wav.readframes(wav.getnframes())
+                if width == 2:
+                    audio = np.frombuffer(frames, dtype="<i2").astype("float32") / 32768.0
+                elif width == 1:
+                    audio = (np.frombuffer(frames, dtype="uint8").astype("float32") - 128.0) / 128.0
+                elif width == 4:
+                    audio = np.frombuffer(frames, dtype="<i4").astype("float32") / 2147483648.0
+                elif width == 3:
+                    raw = np.frombuffer(frames, dtype=np.uint8).reshape(-1, 3)
+                    values = (raw[:, 0].astype(np.int32) | (raw[:, 1].astype(np.int32) << 8)
+                              | (raw[:, 2].astype(np.int32) << 16))
+                    audio = ((values ^ 0x800000) - 0x800000).astype("float32") / 8388608.0
+                else:
+                    raise fish_local.FishLocalError("unsupported_pcm_width")
+                if channels > 1:
+                    audio = audio.reshape(-1, channels)
                 with _cancel_lock:
                     if cancel_token != _cancel_generation:
                         return False
