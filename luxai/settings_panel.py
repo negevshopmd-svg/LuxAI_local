@@ -14,7 +14,7 @@ from luxai.fish_tts import DEFAULT_FISH_VOICE, normalize_voice_id
 
 from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit,
+    QCheckBox, QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QProgressBar, QScrollArea, QSlider, QSizePolicy, QSpinBox, QVBoxLayout, QWidget, QMessageBox,
 )
 
@@ -41,7 +41,7 @@ class SettingsPanel(QWidget):
         ("Система", "Автозапуск и сворачивание"),
     )
 
-    def __init__(self, config, on_save, on_pick_model, on_test_voice, on_test_online=None, on_install_local_ai=None):
+    def __init__(self, config, on_save, on_pick_model, on_test_voice, on_test_online=None, on_install_local_ai=None, on_install_fish_local=None):
         super().__init__()
         self.cfg = dict(config)
         self.on_save = on_save
@@ -49,6 +49,7 @@ class SettingsPanel(QWidget):
         self.on_test_voice = on_test_voice
         self.on_test_online = on_test_online
         self.on_install_local_ai = on_install_local_ai
+        self.on_install_fish_local = on_install_fish_local
         self.sections = []
         self.section_buttons = []
 
@@ -117,6 +118,7 @@ class SettingsPanel(QWidget):
         root.addWidget(sidebar)
         self.set_theme(self.theme.currentData(), self.accent.currentData(), self.background.currentData())
         translate_widgets(self, get_ui_language())
+        self.refresh_local_fish_status()
         self._setup_autosave()
         self._section_sync_timer = QTimer(self)
         self._section_sync_timer.setSingleShot(True)
@@ -156,6 +158,7 @@ class SettingsPanel(QWidget):
             "ui_language", "theme", "accent", "background", "transparency",
             "animations", "on_top", "autostart", "tray_on_close",
             "weather_city", "local_llm_fallback", "model_select",
+            "fish_local_reference_text", "fish_local_threads",
             "online_agent_enabled", "online_provider", "online_model",
             "custom_api_url", "online_timeout",
         )
@@ -244,9 +247,29 @@ class SettingsPanel(QWidget):
     def _sync_synthesis_provider(self, *_):
         engine = self.voice_engine.currentData()
         self.fish_controls.setVisible(engine == "fish")
+        self.local_fish_controls.setVisible(engine == "fish_local")
         self.voice_id.setEnabled(engine == "piper")
+        if engine == "fish_local" and hasattr(self, "fish_local_status"):
+            self.refresh_local_fish_status()
         if hasattr(self, "_section_sync_timer"):
             self._queue_section_sync()
+
+    def refresh_local_fish_status(self):
+        from luxai.fish_local import ready
+        valid, message = ready(self.fish_local_reference.text().strip())
+        self.fish_local_status.setText(
+            tr("Локальный Fish S2 готов — речь не отправляется в интернет.")
+            if valid else tr("Fish S2 не готов:") + " " + message + ". " + tr("Выполните установку.")
+        )
+
+    def _browse_fish_local_reference(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Эталон голоса Fish S2", str(Path.home()),
+            "Audio files (*.wav *.mp3)")
+        if path:
+            self.fish_local_reference.setText(path)
+            self.refresh_local_fish_status()
+            self._queue_auto_save()
 
     def _queue_auto_save(self, *_):
         if not self._autosave_busy:
@@ -1134,7 +1157,9 @@ class SettingsPanel(QWidget):
     def _build_synthesis(self):
         panel = self._section("Синтез речи", "Локальные голоса Piper и Windows или Fish Audio через интернет.")
         self.voice_engine = self._combo(
-            [("Piper", "piper"), ("Windows", "windows"), ("Fish Audio — бесплатно", "fish")],
+            [("Piper", "piper"), ("Windows", "windows"),
+             ("Fish S2 Pro — локально (GGUF)", "fish_local"),
+             ("Fish Audio — облако", "fish")],
             self.cfg.get("voice_engine", "piper"),
         )
         self._row(panel, "Провайдер синтеза", "Выбранный голос Piper загружается при первом использовании.", self.voice_engine)
@@ -1206,6 +1231,48 @@ class SettingsPanel(QWidget):
         buttons.addWidget(self.fish_preview_button)
         fish.addLayout(buttons)
         panel.addWidget(self.fish_controls)
+        self.local_fish_controls = QWidget()
+        self.local_fish_controls.setObjectName("FishLocalControls")
+        local = QVBoxLayout(self.local_fish_controls)
+        local.setContentsMargins(0, 0, 0, 0)
+        local.setSpacing(9)
+        notice = QLabel(
+            "Fish S2 Pro Q4_K_M: локальный GGUF в models/fishaudio, без API-ключа. "
+            "Первая загрузка весов занимает время; на CPU синтез может быть медленным. "
+            "Скачивание модели (~3,6 ГБ) — только по кнопке ниже."
+        )
+        notice.setObjectName("Muted")
+        notice.setWordWrap(True)
+        local.addWidget(notice)
+        self.fish_local_status = QLabel()
+        self.fish_local_status.setObjectName("Muted")
+        self.fish_local_status.setWordWrap(True)
+        local.addWidget(self.fish_local_status)
+        install = QPushButton("Установить Fish S2 локально")
+        set_button_icon(install, "download")
+        install.clicked.connect(lambda: self.on_install_fish_local() if self.on_install_fish_local else None)
+        local.addWidget(install)
+        self.fish_local_reference = QLineEdit(str(self.cfg.get("fish_local_reference", "") or ""))
+        self.fish_local_reference.setReadOnly(True)
+        self.fish_local_reference.setPlaceholderText("Необязательно: эталон голоса Jarvis (.wav/.mp3)")
+        choose = QPushButton("Обзор…")
+        choose.clicked.connect(self._browse_fish_local_reference)
+        ref_row = QHBoxLayout()
+        ref_row.addWidget(self.fish_local_reference, 1)
+        ref_row.addWidget(choose)
+        local.addLayout(ref_row)
+        self.fish_local_reference_text = QLineEdit(
+            str(self.cfg.get("fish_local_reference_text", "") or ""))
+        self.fish_local_reference_text.setPlaceholderText(
+            "Точная расшифровка эталонной записи для клонирования")
+        self.fish_local_reference_text.setMaxLength(1000)
+        self._row(local, "Текст эталона", "Обязателен при выборе образца голоса.", self.fish_local_reference_text)
+        self.fish_local_threads = QSpinBox()
+        self.fish_local_threads.setRange(0, 16)
+        self.fish_local_threads.setSpecialValueText("Автоматически")
+        self.fish_local_threads.setValue(int(self.cfg.get("fish_local_threads", 0) or 0))
+        self._row(local, "Потоки CPU", "0 — автоматически, максимум 16.", self.fish_local_threads)
+        panel.addWidget(self.local_fish_controls)
         self.refresh_fish_key_status()
         self.voice_engine.currentIndexChanged.connect(self._sync_synthesis_provider)
         self._sync_synthesis_provider()
@@ -1240,6 +1307,7 @@ class SettingsPanel(QWidget):
 
     def retranslate(self, language):
         translate_widgets(self, language)
+        self.refresh_local_fish_status()
         self.ui_language_control.sync()
         self.refresh_key_status(update_status=False)
         if self._fish_key_error:
@@ -1340,6 +1408,9 @@ class SettingsPanel(QWidget):
             "voice_volume": self.voice_volume.value(),
             "voice_engine": self.voice_engine.currentData(),
             "fish_voice_id": self._fish_voice_id,
+            "fish_local_reference": self.fish_local_reference.text().strip(),
+            "fish_local_reference_text": self.fish_local_reference_text.text().strip(),
+            "fish_local_threads": self.fish_local_threads.value(),
             "voice_speed": round(self.voice_speed.value() / 100, 2),
             "confirm_desktop_actions": False,
             "confirm_all_actions": self.confirm.isChecked(),

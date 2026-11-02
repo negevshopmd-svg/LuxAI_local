@@ -1,3 +1,15 @@
+
+0.3.9.f: VOCE FISH S2 LOCALA (GGUF)
+- Setari > Sinteza vorbirii > Fish S2 Pro - local GGUF.
+- Apasa Instaleaza Fish S2 local sau ruleaza install_fish_audio.bat.
+- Se descarca modelul Q4_K_M (~3,6 GB), tokenizerul si motorul CPU
+  in models/fishaudio. Odata instalat, vorbirea este offline, fara API.
+- Pentru timbrul Jarvis selecteaza o mostra WAV/MP3 pentru care ai drepturi
+  si introdu transcrierea exacta. Linkul Fish Audio nu este o mostra locala.
+- Modelul ramane incarcat intre raspunsuri; Stop intrerupe generarea.
+- Varianta CPU poate fi lenta; viteza depinde de hardware, fara garantie
+  de timp real. Licenta Fish Audio Research limiteaza utilizarea comerciala.
+
 LUXAI LOCAL 0.3.9.e — ACTUALIZARE 2026-10-30
 
 0.3.9.e: voce Jarvis prin Fish Audio, opțională.

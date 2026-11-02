@@ -1,5 +1,10 @@
 # LuxAI_local
 
+## 0.3.9.f: offline Fish S2 Pro GGUF (2026-11-01)
+
+Set Settings → Speech synthesis → **Fish S2 Pro (local GGUF)**. Click **Install Fish S2 locally** to fetch `models/fishaudio/s2-pro-q4_k_m.gguf`, tokenizer and a verified Windows native CPU engine (about 3.6 GB of model weights). The model persists across updates. No Fish API key or network requests are used for speech after installation. For Jarvis-style voice cloning, select your own WAV/MP3 reference and supply its exact transcript; a public Fish Audio voice ID alone cannot act as local reference audio. The persistent worker caches the model and encoded voice prompt between replies; Stop terminates the worker. CPU-only inference may be very slow and is not guaranteed real time; the installer currently does not ship a GPU runtime. See `README_RO.md` for steps and license limitations.
+
+
 ## 0.3.9.e: optional Fish Audio Jarvis voice (2026-10-30)
 
 In **Settings → Speech synthesis**, select **Fish Audio**, add your Fish API key and use the preset Russian **ДЖАРВИС** voice. Paste another Fish voice link or ID to change it, then use the voice preview. Create a free account and key at [Fish Audio API keys](https://fish.audio/app/api-keys/). The key is stored with Windows DPAPI, separately from chat AI credentials; it is never included in `config.json`. `FISH_API_KEY` is also supported.
