@@ -257,8 +257,8 @@ class SettingsPanel(QWidget):
         from luxai.fish_local import ready
         valid, message = ready(self.fish_local_reference.text().strip())
         self.fish_local_status.setText(
-            ("Локальный Fish S2 готов — речь не отправляется в интернет."
-             if valid else "Fish S2 не готов: " + message + ". Выполните установку.")
+            tr("Локальный Fish S2 готов — речь не отправляется в интернет.")
+            if valid else tr("Fish S2 не готов:") + " " + message + ". " + tr("Выполните установку.")
         )
 
     def _browse_fish_local_reference(self):
@@ -1306,6 +1306,7 @@ class SettingsPanel(QWidget):
 
     def retranslate(self, language):
         translate_widgets(self, language)
+        self.refresh_local_fish_status()
         self.ui_language_control.sync()
         self.refresh_key_status(update_status=False)
         if self._fish_key_error:
