@@ -108,9 +108,9 @@ class SettingsDesign038aTests(unittest.TestCase):
     def test_provider_names_are_compact_and_manual_backend_install_button_is_absent(self):
         panel, _ = self.panel()
         self.assertEqual([panel.voice_engine.itemText(i) for i in range(panel.voice_engine.count())],
-                         ["Piper", "Windows", "Fish Audio — бесплатно"])
+                         ["Piper", "Windows", "Fish S2 Pro — локально (GGUF)", "Fish Audio — облако"])
         self.assertEqual([panel.voice_engine.itemData(i) for i in range(panel.voice_engine.count())],
-                         ["piper", "windows", "fish"])
+                         ["piper", "windows", "fish_local", "fish"])
         self.assertFalse(any("llama-cpp-python" in button.text()
                              for button in panel.findChildren(QPushButton)))
 
