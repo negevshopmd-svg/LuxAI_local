@@ -29,6 +29,41 @@ def wav_sample(sample_rate=24000):
 
 
 class FishLocalTests(unittest.TestCase):
+    def test_existing_gguf_repairs_tokenizer_before_runtime(self):
+        calls = []
+        with mock.patch.object(fish_local_setup, "existing_model_ready", return_value=True), \
+             mock.patch.object(fish_local_setup, "install_model",
+                               side_effect=lambda: calls.append("assets")), \
+             mock.patch.object(fish_local_setup, "install_runtime",
+                               side_effect=lambda: calls.append("runtime")), \
+             mock.patch("sys.argv", ["fish-setup"]):
+            self.assertEqual(fish_local_setup.main(), 0)
+        self.assertEqual(calls, ["assets", "runtime"])
+
+    def test_missing_gguf_checks_runtime_before_large_download(self):
+        calls = []
+        with mock.patch.object(fish_local_setup, "existing_model_ready", return_value=False), \
+             mock.patch.object(fish_local_setup, "install_model",
+                               side_effect=lambda: calls.append("assets")), \
+             mock.patch.object(fish_local_setup, "install_runtime",
+                               side_effect=lambda: calls.append("runtime")), \
+             mock.patch("sys.argv", ["fish-setup"]):
+            self.assertEqual(fish_local_setup.main(), 0)
+        self.assertEqual(calls, ["runtime", "assets"])
+
+    def test_existing_gguf_does_not_trigger_a_second_model_download(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            tokenizer = base / "tokenizer.json"
+            tokenizer.write_text(json.dumps({"tokenizer": "sample"}), encoding="utf-8")
+            with mock.patch.object(fish_local_setup, "FISH_DIR", base), \
+                 mock.patch.object(fish_local_setup, "existing_model_ready", return_value=True), \
+                 mock.patch.object(fish_local_setup, "download", return_value=tokenizer) as dl:
+                fish_local_setup.install_model()
+            dl.assert_called_once_with(
+                fish_local_setup.MODEL_BASE + "tokenizer.json",
+                tokenizer, fish_local_setup.TOKENIZER_LIMIT, minimum=1_000_000)
+
     def test_local_engine_is_not_a_cloud_api_provider(self):
         self.assertEqual(fish_local.MODEL_NAME, "s2-pro-q4_k_m.gguf")
         self.assertEqual(fish_local.FISH_DIR.name, "fishaudio")
