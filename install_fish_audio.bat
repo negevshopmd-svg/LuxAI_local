@@ -12,12 +12,15 @@ if exist ".venv\Scripts\python.exe" (
     set "FISH_PY=python"
 )
 "%FISH_PY%" -m luxai.fish_local_setup
-if errorlevel 1 (
+set "FISH_EXIT=%ERRORLEVEL%"
+if not "%FISH_EXIT%"=="0" (
     echo.
     echo Fish S2 setup did not complete. See the error above.
-) else (
-    echo.
-    echo Fish S2 setup completed. Restart Jarvis to refresh settings.
+    pause
+    exit /b %FISH_EXIT%
 )
+echo.
+echo Fish S2 setup completed.
+if /i "%~1"=="--no-pause" exit /b 0
 pause
 endlocal
