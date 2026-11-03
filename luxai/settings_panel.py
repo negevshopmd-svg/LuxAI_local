@@ -257,9 +257,19 @@ class SettingsPanel(QWidget):
     def refresh_local_fish_status(self):
         from luxai.fish_local import ready
         valid, message = ready(self.fish_local_reference.text().strip())
+        descriptions = {
+            "fish_model_missing": "Файл модели Fish S2 (.gguf) отсутствует.",
+            "fish_model_invalid": "Файл модели Fish S2 повреждён.",
+            "fish_tokenizer_missing": "Отсутствует tokenizer.json (около 12 МБ). Модель GGUF повторно скачивать не нужно.",
+            "fish_cpu_runtime_missing": "Отсутствует локальный CPU-движок s2.dll.",
+            "fish_cpu_runtime_invalid": "Локальный CPU-движок s2.dll повреждён или устарел.",
+            "fish_reference_missing": "Не найден выбранный файл образца голоса.",
+        }
         self.fish_local_status.setText(
             tr("Локальный Fish S2 готов — речь не отправляется в интернет.")
-            if valid else tr("Fish S2 не готов:") + " " + message + ". " + tr("Выполните установку.")
+            if valid else (tr("Fish S2 не готов:") + " " +
+                           tr(descriptions.get(message, message)) + " " +
+                           tr("Нажмите кнопку установки для восстановления отсутствующих файлов."))
         )
 
     def _browse_fish_local_reference(self):
@@ -1248,7 +1258,7 @@ class SettingsPanel(QWidget):
         self.fish_local_status.setObjectName("Muted")
         self.fish_local_status.setWordWrap(True)
         local.addWidget(self.fish_local_status)
-        install = QPushButton("Установить Fish S2 локально")
+        install = QPushButton("Установить / восстановить Fish S2")
         set_button_icon(install, "download")
         install.clicked.connect(lambda: self.on_install_fish_local() if self.on_install_fish_local else None)
         local.addWidget(install)
