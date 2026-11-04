@@ -76,7 +76,10 @@ class ChatLayout093cTests(unittest.TestCase):
     def wait_loaded(self):
         end = time.monotonic() + 5
         while self.host.attachment_tray.loading and time.monotonic() < end:
-            QTest.qWait(10)
+            self.app.processEvents()
+            # Yield the GIL explicitly so the Python snapshot worker can
+            # finish, then deliver its queued Qt signal on the next pass.
+            time.sleep(0.001)
         self.assertFalse(self.host.attachment_tray.loading)
         self.app.processEvents()
 

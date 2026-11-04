@@ -561,7 +561,9 @@
       "4181eba1d8bb7f2c9f79de8444b923d27786075f27e400d81a1f36d128fe6533"
     ],
     "tests/test_chat_layout_093c.py": [
+      "0024cfbd43bba85e6729b08dbc72d13ef24d8b40fb5a3f8e101e819af6565b4f",
       "2da3f244294124b62d346ce19284224252a097cb77013d2d85a8cfd78e45d784",
+      "52d16bff9d0abd8ec422aa7db72e05b0fae21a63b3072fb6b2fd05de43f95bc5",
       "82539081e2446be8f99381231659a0b0dec8f757def8bb9c4d66486591211e12"
     ],
     "tests/test_clipboard_093c.py": [
