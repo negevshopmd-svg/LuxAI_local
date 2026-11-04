@@ -105,12 +105,12 @@ public class FixtureCurl {
 
     def test_successful_batch_removes_remaining_fish_s2_folder(self):
         fixture = (
-            "import sys, shutil\\n"
-            "from pathlib import Path\\n"
-            "if sys.argv[1:] == ['--remove-fish-local']:\\n"
-            "    shutil.rmtree('models/fishaudio')\\n"
-            "else:\\n"
-            "    Path('Update.py').write_text(Path(__file__).read_text())\\n"
+            "import sys, shutil\n"
+            "from pathlib import Path\n"
+            "if sys.argv[1:] == ['--remove-fish-local']:\n"
+            "    shutil.rmtree('models/fishaudio')\n"
+            "else:\n"
+            "    Path('Update.py').write_text(Path(__file__).read_text())\n"
         )
         root, result = self.run_batch(fixture, fish_dir=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
