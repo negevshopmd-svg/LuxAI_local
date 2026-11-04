@@ -941,6 +941,11 @@ class MainWindow(QMainWindow):
                 and self.pages.currentWidget() is self.settings_panel):
             self.settings_panel.flush_auto_save()
         self.pages.setCurrentIndex(index)
+        # The header microphone switch belongs to Home only. Its checked
+        # state and the background listener are not changed by navigation.
+        self.window_header.set_microphone_visible(
+            self.pages.currentWidget() is self.home_page
+        )
         titles = ["Главная", "Команды", "Дополнения", "Jarvis AI", "Настройки"]
         self.header_title.setText("Jarvis   |   " + tr(titles[index]))
         self.sidebar.set_active(index)
