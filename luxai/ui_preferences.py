@@ -11,12 +11,53 @@ from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QBoxLayout, QButtonGroup, QColorDialog, QComboBox, QFrame, QHBoxLayout,
-    QLabel, QLayout, QLineEdit, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
+    QLabel, QLayout, QLineEdit, QPushButton, QSizePolicy, QVBoxLayout, QWidget, QDialog,
 )
 
-from luxai.icons import set_button_icon
+from luxai.icons import set_button_icon, set_label_icon
 from luxai.styles import theme_colors
-from luxai.ui_i18n import tr
+from luxai.ui_i18n import tr, translate_widgets
+
+
+class SettingsResetDialog(QDialog):
+    """A scoped reset with an explicit, keyboard-accessible confirmation."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("SettingsResetDialog")
+        self.setWindowTitle(tr("Сброс настроек"))
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
+        self.setModal(True)
+        self.setFixedWidth(388)
+        col = QVBoxLayout(self)
+        col.setContentsMargins(24, 24, 24, 22)
+        col.setSpacing(14)
+        warning = QLabel()
+        warning.setObjectName("ResetWarningIcon")
+        warning.setFixedSize(42, 42)
+        warning.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        set_label_icon(warning, "circle-alert", size=21, role="warning")
+        warning.setFixedSize(42, 42)
+        col.addWidget(warning)
+        title = QLabel("Сброс настроек")
+        title.setObjectName("ResetDialogTitle")
+        col.addWidget(title)
+        body = QLabel("Вернуть настройки озвучки к значениям по умолчанию?")
+        body.setWordWrap(True)
+        col.addWidget(body)
+        buttons = QHBoxLayout()
+        buttons.setContentsMargins(0, 8, 0, 0)
+        buttons.setSpacing(10)
+        self.cancel = QPushButton("Нет")
+        self.confirm = QPushButton("Да")
+        self.confirm.setObjectName("Primary")
+        self.cancel.clicked.connect(self.reject)
+        self.confirm.clicked.connect(self.accept)
+        buttons.addWidget(self.cancel)
+        buttons.addWidget(self.confirm)
+        col.addLayout(buttons)
+        self.cancel.setDefault(True)
+        self.cancel.setFocus()
+        translate_widgets(self)
 
 
 def color_value(value: str) -> str | None:

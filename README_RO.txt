@@ -1,4 +1,16 @@
-LUXAI LOCAL 0.3.9.e — ACTUALIZARE 2026-10-30
+LUXAI LOCAL 0.3.9g — ACTUALIZARE 2026-11-04
+
+0.3.9g: setări inspirate din Luxify, cu rânduri compacte și comutatoare.
+În Intrare vocală poți alege ascultare continuă sau o tastă ținută apăsată
+cât vorbești (Windows), fraze pentru prefix/silențios/oprirea microfonului
+și toleranță conservatoare pentru comenzile salvate. Parafrazarea acceptă
+variante locale de exprimare, fără cerere în cloud. Fraza de oprire
+anulează acțiunile rămase în lanț. Interfața oferă fontul Onest inclus.
+Resetarea vocii cere confirmare și schimbă numai preferințele acelei secțiuni.
+Actualizări afișează versiunea, verifică GitHub și oferă actualizatorul Windows.
+Dacă o activezi, verificarea automată se face la prima deschidere a Setărilor pe sesiune.
+Instalarea închide Jarvis înainte de a porni actualizatorul.
+Închide Jarvis → Update.bat → run_windows.bat. Datele personale se păstrează.
 
 0.3.9.e: voce Jarvis prin Fish Audio, opțională.
 În Setări → Sinteză vocală alege Fish Audio și introdu cheia API Fish.

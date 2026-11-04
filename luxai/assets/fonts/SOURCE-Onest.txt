@@ -1,0 +1,10 @@
+Onest variable font, unmodified
+
+Source: Google Fonts, ofl/onest/Onest[wght].ttf
+https://github.com/google/fonts/tree/main/ofl/onest
+Downloaded 2026-11-04 from:
+https://raw.githubusercontent.com/google/fonts/main/ofl/onest/Onest%5Bwght%5D.ttf
+
+Copyright 2021 The Onest Project Authors
+https://github.com/googlefonts/onest
+Licensed under the SIL Open Font License 1.1; see OFL-Onest.txt.

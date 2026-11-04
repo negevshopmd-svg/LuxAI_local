@@ -1,4 +1,12 @@
-# LuxAI Local 0.3.9.e (Windows 10/11, 64-bit)
+# LuxAI Local 0.3.9g (Windows 10/11, 64-bit)
+
+## 0.3.9g: setări inspirate din Luxify și controale noi de ascultare (2026-11-04)
+
+Setările folosesc rânduri compacte, controale segmentate și comutatoare rotunjite, după capturile Luxify. În **Intrare vocală**, alege ascultarea continuă sau ține apăsată tasta configurată cât vorbești, pe Windows. Poți schimba frazele pentru modul cu prefix, modul silențios și oprirea microfonului, precum și toleranța conservatoare la formulările comenzilor salvate. Opțiunea de parafrazare recunoaște variantele locale acceptate, fără cerere în cloud.
+
+Fraza de oprire anulează acțiunile rămase în lanțul de comenzi. În **Interfață** poți alege fontul **Onest**, inclus în aplicație cu caractere rusești și românești. Resetarea vocii cere confirmare și modifică numai preferințele acelei secțiuni. **Actualizări** afișează versiunea instalată, verifică GitHub și poate deschide actualizatorul Windows existent când există o versiune nouă. Dacă o activezi, verificarea automată se face o dată pe sesiune, la prima deschidere a Setărilor. Instalarea închide Jarvis înainte de a porni actualizatorul.
+
+Închide Jarvis, rulează `Update.bat`, apoi `run_windows.bat`. Setările, modelele, cheile și comenzile personale se păstrează.
 
 ## 0.3.9.e: voce Jarvis prin Fish Audio (2026-10-30)
 

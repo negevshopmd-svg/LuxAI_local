@@ -1,3 +1,11 @@
+## 0.3.9g — Luxify-inspired settings and listening controls (2026-11-04)
+
+- Extend the compact settings rows, segmented language/listening controls, switches and section navigation to follow the supplied Luxify references. Keep existing automatic saving.
+- Add Windows hold-to-talk listening with a configurable key, editable exact phrases for prefix mode, quiet mode and microphone shutdown, and a phrase that cooperatively stops the remaining command chain.
+- Add conservative offline saved-command recognition tolerance and optional lexical paraphrases. Exact triggers keep priority; ambiguous or unrelated requests do not select a guessed command.
+- Bundle the OFL-licensed Onest font with Russian and Romanian glyphs, offer font selection, and add a confirmation dialog for resetting voice-output preferences.
+- Add an Updates section with the installed version, real GitHub version checks, last-check results, release notes and the existing Windows updater. An optional automatic check runs once per session when Settings opens; installation remains a separate action. Preserve settings, models, keys and personal commands.
+
 ## 0.3.9.e — optional Fish Audio Russian Jarvis voice (2026-10-30)
 
 - Add Fish Audio as an optional speech provider with the user's linked Russian Jarvis voice preset and editable public voice link/ID.

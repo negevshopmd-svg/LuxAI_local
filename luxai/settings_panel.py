@@ -12,10 +12,10 @@ from luxai.secure_keys import has_api_key, clear_api_key, key_storage_status
 from luxai.api_providers import PROVIDERS
 from luxai.fish_tts import DEFAULT_FISH_VOICE, normalize_voice_id
 
-from PySide6.QtCore import QEvent, Qt, QTimer
+from PySide6.QtCore import QEvent, Qt, QTimer, QSignalBlocker
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QProgressBar, QScrollArea, QSlider, QSizePolicy, QSpinBox, QVBoxLayout, QWidget, QMessageBox,
+    QPushButton, QProgressBar, QScrollArea, QSlider, QSizePolicy, QSpinBox, QVBoxLayout, QWidget, QMessageBox, QDialog,
 )
 
 from luxai.voices import available_voices
@@ -25,12 +25,12 @@ from luxai.icons import icon, set_button_icon, set_label_icon, theme_color
 from luxai.ui_home import ToggleSwitch
 from luxai.ui_preferences import (
     BackgroundControl, ColorPalette, ColorSwatch, PreferenceRow,
-    SegmentedControl, color_value,
+    SegmentedControl, SettingsResetDialog, color_value,
 )
 
 
 class SettingsPanel(QWidget):
-    SECTION_ICONS = ("mic", "volume-2", "list-checks", "palette", "bot", "audio-lines", "monitor")
+    SECTION_ICONS = ("mic", "volume-2", "list-checks", "palette", "bot", "audio-lines", "monitor", "download")
     SECTIONS = (
         ("Голосовой ввод", "Микрофон, распознавание и обращение"),
         ("Озвучка", "Голос ассистента и громкость"),
@@ -39,6 +39,7 @@ class SettingsPanel(QWidget):
         ("ИИ-провайдер", "Локальная нейросеть и модель"),
         ("Синтез речи", "Движок речи и скорость"),
         ("Система", "Автозапуск и сворачивание"),
+        ("Обновления", "Версия программы и новые выпуски"),
     )
 
     def __init__(self, config, on_save, on_pick_model, on_test_voice, on_test_online=None, on_install_local_ai=None):
@@ -83,6 +84,7 @@ class SettingsPanel(QWidget):
         self._build_ai()
         self._build_synthesis()
         self._build_system()
+        self._build_updates()
 
         # Every actual settings control is monitored and saved automatically.
         # No explicit Save button is needed.
@@ -90,7 +92,7 @@ class SettingsPanel(QWidget):
 
         sidebar = QFrame()
         sidebar.setObjectName("SettingsSidebar")
-        sidebar.setFixedWidth(198)
+        sidebar.setFixedWidth(220)
         side = QVBoxLayout(sidebar)
         side.setContentsMargins(10, 10, 10, 10)
         side.setSpacing(6)
@@ -158,6 +160,9 @@ class SettingsPanel(QWidget):
             "weather_city", "local_llm_fallback", "model_select",
             "online_agent_enabled", "online_provider", "online_model",
             "custom_api_url", "online_timeout",
+            "listen_mode", "listen_hotkey", "recognition_sensitivity",
+            "prefix_mode_phrases", "quiet_mode_phrases", "microphone_off_phrases",
+            "command_stop_phrases", "understand_paraphrases", "font_family",
         )
         for name in controls:
             widget = getattr(self, name)
@@ -176,6 +181,7 @@ class SettingsPanel(QWidget):
         self.fish_api_key.textChanged.connect(self._on_fish_key_draft_changed)
         self.fish_api_key.editingFinished.connect(self._queue_fish_key_save)
         self.fish_voice_id.editingFinished.connect(self._commit_fish_voice)
+        self.updates.preferences_changed.connect(self._queue_auto_save)
 
     def _on_fish_key_draft_changed(self, *_):
         self._fish_key_commit_ready = False
@@ -293,14 +299,17 @@ class SettingsPanel(QWidget):
         frame = QFrame()
         frame.setObjectName("SettingsCard")
         col = QVBoxLayout(frame)
-        col.setContentsMargins(18, 17, 18, 18)
-        col.setSpacing(12)
+        col.setContentsMargins(20, 18, 20, 10)
+        col.setSpacing(0)
         heading = QLabel(title)
         heading.setStyleSheet("font-size:18px; font-weight:700;")
         heading_row = QHBoxLayout()
         heading_row.setSpacing(10)
         heading_icon = QLabel()
+        heading_icon.setObjectName("SettingsSectionIcon")
+        heading_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         set_label_icon(heading_icon, self.SECTION_ICONS[len(self.sections)], size=21, role="accent")
+        heading_icon.setFixedSize(36, 36)
         heading_row.addWidget(heading_icon)
         heading_row.addWidget(heading)
         heading_row.addStretch()
@@ -308,6 +317,7 @@ class SettingsPanel(QWidget):
         hint = QLabel(subtitle)
         hint.setObjectName("Muted")
         hint.setWordWrap(True)
+        hint.setContentsMargins(0, 5, 0, 14)
         col.addWidget(hint)
         self.body_layout.addWidget(frame)
         self.sections.append(frame)
@@ -315,28 +325,15 @@ class SettingsPanel(QWidget):
 
     @staticmethod
     def _row(layout, title, subtitle, control):
-        line = QHBoxLayout()
-        line.setSpacing(12)
-        labels = QVBoxLayout()
-        labels.setSpacing(3)
-        name = QLabel(title)
-        name.setStyleSheet("font-weight:600;")
-        labels.addWidget(name)
-        if subtitle:
-            hint = QLabel(subtitle)
-            hint.setObjectName("Muted")
-            hint.setWordWrap(True)
-            hint.setStyleSheet("font-size:11px;")
-            labels.addWidget(hint)
-        line.addLayout(labels, 3)
-        if isinstance(control, ToggleSwitch):
-            line.addWidget(control, 0, Qt.AlignmentFlag.AlignRight)
-        elif isinstance(control, QWidget):
-            control.setMinimumWidth(150)
-            line.addWidget(control, 2)
-        else:
-            line.addLayout(control, 2)
-        layout.addLayout(line)
+        if isinstance(control, QWidget) and not isinstance(control, ToggleSwitch):
+            control.setMinimumWidth(280 if isinstance(control, QLineEdit) else 150)
+            control.setMaximumWidth(320)
+            control.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+            if isinstance(control, QLineEdit):
+                control.setCursorPosition(0)
+        row = PreferenceRow(title, subtitle, control)
+        layout.addWidget(row)
+        return row
 
     @staticmethod
     def _combo(items, selected):
@@ -373,6 +370,7 @@ class SettingsPanel(QWidget):
     @staticmethod
     def _slider(value, bottom, top):
         slider = QSlider(Qt.Orientation.Horizontal)
+        slider.setMinimumWidth(160)
         slider.setRange(bottom, top)
         slider.setValue(max(bottom, min(top, int(value))))
         return slider
@@ -401,7 +399,17 @@ class SettingsPanel(QWidget):
             [("Быстрее", 1), ("Сбалансированно", 2), ("Точнее", 4)],
             int(self.cfg.get("whisper_beam_size", 1)),
         )
-        self._row(panel, "Повышенная точность", "Более точное распознавание может работать медленнее.", self.recognition_quality)
+        self.enhanced_accuracy = self._toggle(self.recognition_quality.currentData() > 1)
+        self.enhanced_accuracy.toggled.connect(lambda enabled: self.recognition_quality.setCurrentIndex(
+            self.recognition_quality.findData(4 if enabled else 1)))
+        def sync_accuracy():
+            blocker = QSignalBlocker(self.enhanced_accuracy)
+            self.enhanced_accuracy.setChecked(self.recognition_quality.currentData() > 1)
+            del blocker
+        self.recognition_quality.currentIndexChanged.connect(sync_accuracy)
+        self._row(panel, "Повышенная точность", "Меньше ошибок в живой речи; распознавание может работать медленнее.", self.enhanced_accuracy)
+        self.recognition_quality.hide()
+        self.recognition_quality.setParent(self)
         self.whisper_model = self._combo(
             [("Small — standard (about 500 MB)", "small"),
              ("Medium — more accurate Romanian (about 1.5 GB, slower)", "medium"),
@@ -415,7 +423,28 @@ class SettingsPanel(QWidget):
             [("Авто", "auto"), ("Русский", "ru"), ("English", "en"), ("Română", "ro")],
             self.cfg.get("language", "ru"),
         )
-        self._row(panel, "Язык распознавания", "Также задаёт язык ответов ассистента.", self.language)
+        # Keep combo models for storage and live translation; show compact tabs.
+        self.language_control = SegmentedControl(self.language)
+        self._row(panel, "Язык распознавания", "Авто определяет язык речи. Язык интерфейса настраивается отдельно.", self.language_control)
+        self.listen_mode = self._combo(
+            [("Всегда", "always"), ("Пока держу клавишу", "hold")],
+            self.cfg.get("listen_mode", "always"),
+        )
+        self.listen_mode_control = SegmentedControl(self.listen_mode)
+        self._row(panel, "Слушать команды", "Всегда или только пока зажата клавиша.", self.listen_mode_control)
+        self.listen_hotkey = self._combo(
+            [("Ctrl + Space", "ctrl+space"), ("F8", "f8"), ("F9", "f9")],
+            self.cfg.get("listen_hotkey", "ctrl+space"),
+        )
+        self._row(panel, "Клавиша прослушивания", "Windows: держите клавишу нажатой, пока говорите.", self.listen_hotkey)
+        self.listen_hotkey.setEnabled(self.listen_mode.currentData() == "hold")
+        self.listen_mode.currentIndexChanged.connect(
+            lambda: self.listen_hotkey.setEnabled(self.listen_mode.currentData() == "hold"))
+        self.recognition_sensitivity = self._slider(int(self.cfg.get("recognition_sensitivity", 100)), 0, 100)
+        sensitivity_control, self.recognition_sensitivity_value = self._slider_value_control(self.recognition_sensitivity)
+        self._row(panel, "Чувствительность распознавания", "Выше — прощает небольшие ошибки в начале сохранённой команды.", sensitivity_control)
+        self.understand_paraphrases = self._toggle(self.cfg.get("understand_paraphrases", False))
+        self._row(panel, "Понимать перефразировки", "Учитывать близкие глаголы и вежливые формы сохранённых команд, без нейросети.", self.understand_paraphrases)
 
         self.mic_device = QComboBox()
         self._microphone_metadata = {}
@@ -475,6 +504,16 @@ class SettingsPanel(QWidget):
         self._row(panel, "Обращение (префикс)", "Реагировать только после имени Jarvis.", self.prefix)
         self.prefix_text = QLineEdit(self.cfg.get("wake_prefix", "джарвис, жарвис, jarvis"))
         self._row(panel, "Варианты обращения", "Несколько вариантов через запятую.", self.prefix_text)
+        phrase_heading = QLabel("Фразы для переключения режимов")
+        phrase_heading.setObjectName("SettingsGroupLabel")
+        phrase_heading.setContentsMargins(0, 16, 0, 6)
+        panel.addWidget(phrase_heading)
+        self.prefix_mode_phrases = QLineEdit(self.cfg.get("prefix_mode_phrases", "перейди в режим префикса"))
+        self._row(panel, "Режим префикса", "Включить обращение по имени. Несколько фраз через запятую.", self.prefix_mode_phrases)
+        self.quiet_mode_phrases = QLineEdit(self.cfg.get("quiet_mode_phrases", "перейди в тихий режим"))
+        self._row(panel, "Тихий режим", "Отключить озвучивание ответов голосовой фразой.", self.quiet_mode_phrases)
+        self.microphone_off_phrases = QLineEdit(self.cfg.get("microphone_off_phrases", "выключи микрофон"))
+        self._row(panel, "Выключить микрофон", "Остановить прослушивание голосовой фразой.", self.microphone_off_phrases)
 
     def refresh_microphone_devices(self, initial=False):
         """Display each Windows microphone once; retain exact recording IDs."""
@@ -599,6 +638,14 @@ class SettingsPanel(QWidget):
 
     def _build_voice_output(self):
         panel = self._section("Озвучка", "Голос, которым звучат ответы Jarvis.")
+        self.voice_reset = QPushButton()
+        self.voice_reset.setObjectName("InterfaceReset")
+        self.voice_reset.setFixedSize(30, 30)
+        self.voice_reset.setToolTip(tr("Сбросить настройки озвучки"))
+        self.voice_reset.setAccessibleName(tr("Сбросить настройки озвучки"))
+        set_button_icon(self.voice_reset, "rotate-cw", size=17, role="muted")
+        self.voice_reset.clicked.connect(self._reset_voice_output)
+        panel.itemAt(0).layout().addWidget(self.voice_reset)
         self.tts = self._toggle(self.cfg.get("tts_enabled", True))
         self._row(panel, "Голосовой ответ", "Озвучивать текст ответа.", self.tts)
         installed = {voice["id"]: voice for voice in available_voices() if voice["ready"]}
@@ -651,6 +698,19 @@ class SettingsPanel(QWidget):
         preview.clicked.connect(self.on_test_voice)
         panel.addWidget(preview)
 
+    def _reset_voice_output(self):
+        if SettingsResetDialog(self).exec() != QDialog.DialogCode.Accepted:
+            return
+        blockers = [QSignalBlocker(control) for control in
+                    (self.tts, self.voice_id, self.response_language, self.voice_volume)]
+        self.tts.setChecked(True)
+        self.voice_id.setCurrentIndex(self.voice_id.findData(""))
+        self.response_language.setCurrentIndex(self.response_language.findData("auto"))
+        self.voice_volume.setValue(80)
+        del blockers
+        self.voice_volume_value.setText("80%")
+        self._queue_auto_save()
+
     def refresh_voice_status(self):
         """Refresh installed/download icon without resetting the user's choice."""
         installed = {voice["id"] for voice in available_voices() if voice["ready"]}
@@ -686,13 +746,30 @@ class SettingsPanel(QWidget):
         self._row(panel, "Слова «да»", "Варианты голосового подтверждения через запятую.", self.confirm_yes)
         self.confirm_no = QLineEdit(self.cfg.get("confirm_no_words", "нет, отмена, отмени, не надо"))
         self._row(panel, "Слова «нет»", "Варианты голосового отказа через запятую.", self.confirm_no)
+        self.commands_advanced_toggle = QPushButton("Дополнительные настройки")
+        self.commands_advanced_toggle.setObjectName("SettingsDisclosure")
+        self.commands_advanced_toggle.setCheckable(True)
+        set_button_icon(self.commands_advanced_toggle, "chevron-down", size=16)
+        panel.addWidget(self.commands_advanced_toggle)
+        self.commands_advanced = QWidget()
+        self.commands_advanced.setObjectName("SettingsAdvanced")
+        advanced = QVBoxLayout(self.commands_advanced)
+        advanced.setContentsMargins(0, 0, 0, 0)
+        advanced.setSpacing(0)
+        panel.addWidget(self.commands_advanced)
+        self.commands_advanced.hide()
+        self.commands_advanced_toggle.toggled.connect(self.commands_advanced.setVisible)
+        self.commands_advanced_toggle.toggled.connect(lambda expanded: set_button_icon(
+            self.commands_advanced_toggle, "chevron-up" if expanded else "chevron-down", size=16))
         self.confirm_timeout = QSpinBox()
         self.confirm_timeout.setRange(5, 180)
         self.confirm_timeout.setSuffix(" сек")
         self.confirm_timeout.setValue(int(self.cfg.get("confirmation_timeout", 30)))
-        self._row(panel, "Автоотмена подтверждения", "Отмена, если нет ответа в течение заданного времени.", self.confirm_timeout)
+        self._row(advanced, "Автоотмена подтверждения", "Отмена, если нет ответа в течение заданного времени.", self.confirm_timeout)
         self.chain_words = QLineEdit(self.cfg.get("command_chain_words", "и затем, потом"))
-        self._row(panel, "Связка команд", "Разделите две простые команды одним из этих выражений.", self.chain_words)
+        self._row(advanced, "Связка команд", "Разделите две простые команды одним из этих выражений.", self.chain_words)
+        self.command_stop_phrases = QLineEdit(self.cfg.get("command_stop_phrases", "стоп, stop, oprește"))
+        self._row(advanced, "Остановить всю цепочку", "Прервать оставшиеся команды. Несколько фраз через запятую.", self.command_stop_phrases)
 
     def _build_interface(self):
         panel = self._section("Интерфейс", "Цвет темы, фон, прозрачность и язык. Изменения видны сразу.")
@@ -705,6 +782,11 @@ class SettingsPanel(QWidget):
         set_button_icon(self.interface_reset, "rotate-cw", size=17, role="muted")
         self.interface_reset.clicked.connect(self._reset_interface)
         panel.itemAt(0).layout().addWidget(self.interface_reset)
+        self.font_family = self._combo(
+            [("Onest — как в Luxify", "Onest"), ("Системный", "system"), ("Arial", "Arial")],
+            self.cfg.get("ui_font_family", "Onest"),
+        )
+        panel.addWidget(PreferenceRow("Шрифт программы", "Применяется сразу ко всему интерфейсу.", self.font_family))
         self.theme = self._combo(
             [("Тёмное", "dark"), ("Светлое", "light")],
             self.cfg.get("ui_theme", "dark"),
@@ -761,6 +843,13 @@ class SettingsPanel(QWidget):
         self.transparency.setValue(0)
         self.animations.setChecked(True)
         self.on_top.setChecked(False)
+        self.font_family.setCurrentIndex(self.font_family.findData("Onest"))
+
+    def _build_updates(self):
+        from luxai.settings_updates import SettingsUpdates
+        panel = self._section("Обновления", "Версия программы и новые выпуски.")
+        self.updates = SettingsUpdates(self.cfg, self)
+        panel.addWidget(self.updates)
 
     def set_theme(self, theme, accent, background=None):
         for control in self.findChildren(ToggleSwitch) + self.findChildren(ColorSwatch):
@@ -1244,6 +1333,9 @@ class SettingsPanel(QWidget):
     def retranslate(self, language):
         translate_widgets(self, language)
         self.ui_language_control.sync()
+        self.language_control.sync()
+        self.listen_mode_control.sync()
+        self.updates.retranslate()
         self.refresh_key_status(update_status=False)
         if self._fish_key_error:
             self.fish_key_save_failed()
@@ -1314,9 +1406,13 @@ class SettingsPanel(QWidget):
     def _filter(self, text):
         query = text.strip().casefold()
         for (_name, _), section, button in zip(self.SECTIONS, self.sections, self.section_buttons):
-            match = not query or query in button.text().casefold()
+            labels = " ".join(label.text() for label in section.findChildren(QLabel))
+            match = not query or query in (button.text() + " " + labels).casefold()
             section.setVisible(match)
             button.setVisible(match)
+        if query and any(query in label.text().casefold()
+                         for label in self.commands_advanced.findChildren(QLabel)):
+            self.commands_advanced_toggle.setChecked(True)
         # Hidden sections are already known before Qt lays out the remaining
         # ones. Clear/select immediately, then resync their new geometry.
         # On Windows, layout events can restart the zero-delay timer after
@@ -1350,6 +1446,16 @@ class SettingsPanel(QWidget):
             "confirm_no_words": self.confirm_no.text().strip(),
             "confirmation_timeout": self.confirm_timeout.value(),
             "command_chain_words": self.chain_words.text().strip(),
+            "listen_mode": self.listen_mode.currentData(),
+            "listen_hotkey": self.listen_hotkey.currentData(),
+            "recognition_sensitivity": self.recognition_sensitivity.value(),
+            "understand_paraphrases": self.understand_paraphrases.isChecked(),
+            "prefix_mode_phrases": self.prefix_mode_phrases.text().strip(),
+            "quiet_mode_phrases": self.quiet_mode_phrases.text().strip(),
+            "microphone_off_phrases": self.microphone_off_phrases.text().strip(),
+            "command_stop_phrases": self.command_stop_phrases.text().strip(),
+            "ui_font_family": self.font_family.currentData(),
+            **self.updates.collect(),
             "ui_language": self.ui_language.currentData(),
             "ui_theme": self.theme.currentData(),
             "ui_accent": self.accent.currentData(),
