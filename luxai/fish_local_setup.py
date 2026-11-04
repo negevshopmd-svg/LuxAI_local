@@ -32,15 +32,41 @@ class InstallError(RuntimeError):
 
 
 class SafeRedirect(urllib.request.HTTPRedirectHandler):
+    """Accept only official download CDNs for the original provider.
+
+    Hugging Face serves Xet/LFS files from region-specific CDN hosts. Keep an
+    explicit list instead of permitting arbitrary redirect domains or HTTP.
+    Do not mix the Hugging Face and GitHub release redirect chains.
+    """
+    HF_HOSTS = frozenset((
+        "huggingface.co", "hf.co",
+        "cas-bridge.xethub.hf.co", "cas-bridge.xethub-eu.hf.co",
+        "cas-server.xethub.hf.co", "cas-server.xethub-eu.hf.co",
+        "transfer.xethub.hf.co", "transfer.xethub-eu.hf.co",
+        "us.aws.cdn.hf.co", "us.gcp.cdn.hf.co",
+        "cdn-lfs.hf.co", "cdn-lfs-us-1.hf.co", "cdn-lfs-eu-1.hf.co",
+    ))
+    GITHUB_HOSTS = frozenset((
+        "github.com", "release-assets.githubusercontent.com",
+        "objects.githubusercontent.com",
+    ))
+
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         from urllib.parse import urlsplit
-        host = (urlsplit(newurl).hostname or "").lower()
-        allowed = ("huggingface.co", "hf.co", "github.com", "release-assets.githubusercontent.com",
-                   "objects.githubusercontent.com", "cas-bridge.xethub.hf.co",
-                   "cas-server.xethub.hf.co", "cdn-lfs.hf.co", "cdn-lfs-us-1.hf.co")
-        if not (newurl.startswith("https://") and (host in allowed or
-                host.endswith(".xethub.hf.co") or host.endswith(".huggingface.co"))):
-            raise InstallError("Unexpected download redirect host")
+
+        origin = urlsplit(req.full_url)
+        target = urlsplit(newurl)
+        origin_host = (origin.hostname or "").lower()
+        target_host = (target.hostname or "").lower()
+        permitted = (self.HF_HOSTS if origin_host in self.HF_HOSTS else
+                     self.GITHUB_HOSTS if origin_host in self.GITHUB_HOSTS else
+                     frozenset())
+        if (target.scheme.lower() != "https" or target_host not in permitted or
+                target.port not in (None, 443) or
+                target.username is not None or target.password is not None):
+            # Only expose the hostname; presigned URLs contain private tokens.
+            raise InstallError("Unexpected download redirect host: " +
+                               (target_host or "(missing)"))
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
