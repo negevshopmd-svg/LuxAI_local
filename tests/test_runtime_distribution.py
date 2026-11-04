@@ -221,6 +221,81 @@ class RuntimeDistributionTests(unittest.TestCase):
         for help_file in retained_files:
             self.assertEqual((self.root / help_file).read_bytes(), (REPO / help_file).read_bytes())
 
+    def test_rollback_removes_only_fish_s2_assets_and_restores_cloud_engine(self):
+        self.put("models/fishaudio/s2-pro-q4_k_m.gguf", "local-model")
+        self.put("models/fishaudio/tokenizer.json", "tokenizer")
+        self.put("models/fishaudio/runtime/cpu-baseline/s2.dll", "local-runtime")
+        for path in ("install_fish_audio.bat", "luxai/fish_local.py",
+                     "luxai/fish_local_setup.py", "luxai/fish_local_worker.py",
+                     "scripts/build_fish_runtime.py"):
+            self.put(path, "old-local-code")
+        self.put("models/private.gguf", "other-local-llm")
+        self.put("voices/ru_RU-dmitri-medium.onnx", "piper-voice")
+        self.put(".luxai_secrets/secret.bin", "cloud-credential")
+        self.put("recordings/voice.wav", "personal-recording")
+        self.put("config.json", json.dumps({
+            "voice_engine": "fish_local", "fish_local_threads": 4,
+            "fish_local_reference_text": "old prompt",
+            "fish_local_reference": "recordings/voice.wav",
+            "fish_voice_id": "keep-cloud-voice", "ui_language": "ro",
+        }))
+        self.assertTrue(updater.cleanup_retired_fish_local())
+        self.assertFalse((self.root / "models/fishaudio").exists())
+        for path in ("install_fish_audio.bat", "luxai/fish_local.py",
+                     "luxai/fish_local_setup.py", "luxai/fish_local_worker.py",
+                     "scripts/build_fish_runtime.py"):
+            self.assertFalse((self.root / path).exists(), path)
+        for path, content in (
+            ("models/private.gguf", "other-local-llm"),
+            ("voices/ru_RU-dmitri-medium.onnx", "piper-voice"),
+            (".luxai_secrets/secret.bin", "cloud-credential"),
+            ("recordings/voice.wav", "personal-recording"),
+        ):
+            self.assertEqual((self.root / path).read_text(), content)
+        config = json.loads((self.root / "config.json").read_text(encoding="utf-8"))
+        self.assertEqual(config["voice_engine"], "fish")
+        self.assertEqual(config["fish_voice_id"], "keep-cloud-voice")
+        self.assertEqual(config["ui_language"], "ro")
+        self.assertFalse(any(key.startswith("fish_local_") for key in config))
+        self.assertTrue(updater.cleanup_retired_fish_local())
+
+    def test_rollback_keeps_existing_cloud_voice_selection_and_others(self):
+        self.put("config.json", '{"voice_engine":"fish","fish_voice_id":"preset"}')
+        before = (self.root / "config.json").read_bytes()
+        self.put("models/another.gguf", "unrelated")
+        self.assertTrue(updater.cleanup_retired_fish_local())
+        self.assertEqual((self.root / "config.json").read_bytes(), before)
+        self.assertEqual((self.root / "models/another.gguf").read_text(), "unrelated")
+
+    def test_rollback_rejects_links_before_removing_a_local_model(self):
+        model = self.put("models/fishaudio/s2-pro-q4_k_m.gguf", "private")
+        real_is_link = updater._is_link
+        with mock.patch.object(updater, "_is_link",
+                               side_effect=lambda path: path == model.parent or real_is_link(path)):
+            self.assertFalse(updater.cleanup_retired_fish_local())
+        self.assertEqual(model.read_text(), "private")
+
+    def test_rollback_runs_as_part_of_successful_update_only(self):
+        self.catalog({"PROJECT_HANDOFF.md": ["old guide"]})
+        self.put("models/fishaudio/s2-pro-q4_k_m.gguf", "local")
+        result, _ = self.update(self.archive(), dependencies=False)
+        self.assertEqual(result, 1)
+        self.assertTrue((self.root / "models/fishaudio/s2-pro-q4_k_m.gguf").exists())
+        result, _ = self.update(self.archive())
+        self.assertEqual(result, 0)
+        self.assertFalse((self.root / "models/fishaudio").exists())
+
+    def test_rollback_cleanup_cli_handles_installation_without_network(self):
+        shutil.copyfile(REPO / "Update.py", self.root / "Update.py")
+        self.put("models/fishaudio/s2-pro-q4_k_m.gguf", "legacy")
+        self.put("config.json", '{"voice_engine":"fish_local","ui_language":"en"}')
+        result = subprocess.run(
+            [sys.executable, str(self.root / "Update.py"), "--remove-fish-local"],
+            capture_output=True, text=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.root / "models/fishaudio").exists())
+        self.assertEqual(json.loads((self.root / "config.json").read_text())["voice_engine"], "fish")
+
     def test_git_directory_or_worktree_file_preserves_sources(self):
         self.catalog({"PROJECT_HANDOFF.md": ["bundled guide"], "README.md": ["bundled help"]})
         self.put("PROJECT_HANDOFF.md", "bundled guide")

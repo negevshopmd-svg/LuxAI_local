@@ -902,7 +902,6 @@ class MainWindow(QMainWindow):
             on_test_voice=self.preview_voice,
             on_test_online=self.test_online_api,
             on_install_local_ai=self.install_local_ai,
-            on_install_fish_local=self.install_fish_local,
         )
         self.mic = self.settings_panel.mic
         self.prefix = self.settings_panel.prefix
@@ -1357,8 +1356,7 @@ class MainWindow(QMainWindow):
                 break
         if language not in ("ru", "ro", "en"):
             language = "ru"
-        local_fish = panel.voice_engine.currentData() == "fish_local"
-        if fish or local_fish:
+        if fish:
             language = reply_language(self.cfg)
         example = {
             "ru": "Здравствуйте. Я Джарвис, ваш голосовой помощник.",
@@ -1370,10 +1368,7 @@ class MainWindow(QMainWindow):
             "en": "Downloading the voice if needed and playing a sample…",
             "ro": "Descarc vocea dacă este necesar și redau un exemplu…",
         }
-        self.mic_status.setText(
-            "Создаю пример локально в Fish S2…" if local_fish else
-            (tr("Создаю пример голоса через Fish Audio…") if fish else status[language])
-        )
+        self.mic_status.setText(tr("Создаю пример голоса через Fish Audio…") if fish else status[language])
         self._queue_speech(example, language)
 
     def apply_appearance(self):
@@ -1780,46 +1775,6 @@ class MainWindow(QMainWindow):
         if getattr(self, "_listener_restart_pending", False) and not self._closed:
             self._listener_restart_pending = False
             QTimer.singleShot(0, self.start_listener)
-
-    def install_fish_local(self):
-        """Explicit installation in a console; never block the UI or send speech to cloud."""
-        import subprocess
-        if sys.platform != "win32":
-            self.mic_status.setText("Fish S2 installer requires Windows x64.")
-            return
-        script = BASE / "install_fish_audio.bat"
-        if not script.is_file():
-            self.mic_status.setText("install_fish_audio.bat missing. Run Update.bat.")
-            return
-        if getattr(self, "_fish_install_process", None) is not None:
-            if self._fish_install_process.poll() is None:
-                self.mic_status.setText("Fish S2 installation is already running.")
-                return
-        try:
-            self._fish_install_process = subprocess.Popen(
-                ["cmd.exe", "/c", str(script), "--no-pause"], cwd=str(BASE),
-                creationflags=subprocess.CREATE_NEW_CONSOLE)
-            self.mic_status.setText("Fish S2 repairing missing assets in a separate window.")
-            QTimer.singleShot(1000, self._poll_fish_local_install)
-        except OSError:
-            self.mic_status.setText("Could not launch Fish S2 installer.")
-
-    def _poll_fish_local_install(self):
-        """Refresh settings automatically after the explicitly started installer exits."""
-        process = getattr(self, "_fish_install_process", None)
-        if process is None or getattr(self, "_closed", False):
-            return
-        code = process.poll()
-        if code is None:
-            QTimer.singleShot(1000, self._poll_fish_local_install)
-            return
-        self._fish_install_process = None
-        self.settings_panel.refresh_local_fish_status()
-        if code == 0:
-            self.mic_status.setText("Fish S2 installation finished. The voice is ready for testing.")
-        else:
-            self.mic_status.setText(
-                "Fish S2 installation failed. Read the installer console for the error.")
 
     def install_local_ai(self):
         """Explicit opt-in: install official prebuilt CPU backend in this .venv."""

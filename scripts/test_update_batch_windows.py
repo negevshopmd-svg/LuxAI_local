@@ -59,12 +59,15 @@ public class FixtureCurl {
     def tearDownClass(cls):
         cls.temp.cleanup()
 
-    def run_batch(self, updater_source):
+    def run_batch(self, updater_source, *, fish_dir=False):
         folder = tempfile.TemporaryDirectory(prefix="instalare ășț-", dir=self.base)
         self.addCleanup(folder.cleanup)
         root = Path(folder.name)
         venv.EnvBuilder(with_pip=False).create(root / ".venv")
         shutil.copyfile(REPO / "Update.bat", root / "Update.bat")
+        if fish_dir:
+            (root / "models/fishaudio").mkdir(parents=True)
+            (root / "models/fishaudio/s2-pro-q4_k_m.gguf").write_text("old model")
         installed = root / "Update.py"
         installed.write_text("# previous working updater\n", encoding="utf-8")
         source = root / "downloaded fixture.py"
@@ -99,6 +102,19 @@ public class FixtureCurl {
             "Inchide Jarvis inainte de actualizare.",
             "Descarc versiunea actuala a programului de actualizare din GitHub...",
         ])
+
+    def test_successful_batch_removes_remaining_fish_s2_folder(self):
+        fixture = (
+            "import sys, shutil\n"
+            "from pathlib import Path\n"
+            "if sys.argv[1:] == ['--remove-fish-local']:\n"
+            "    shutil.rmtree('models/fishaudio')\n"
+            "else:\n"
+            "    Path('Update.py').write_text(Path(__file__).read_text())\n"
+        )
+        root, result = self.run_batch(fixture, fish_dir=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse((root / "models/fishaudio").exists())
 
     def test_failed_downloaded_updater_preserves_installed_copy_and_failure_exit(self):
         root, result = self.run_batch("raise SystemExit(7)\n")

@@ -586,6 +586,116 @@ def ensure_local_ai_backend() -> bool:
     return False
 
 
+
+def cleanup_retired_fish_local() -> bool:
+    """Remove only the discontinued Fish S2 local installation.
+
+    Cloud Fish Audio (luxai/fish_tts.py), Piper models, other GGUF models,
+    credentials and personal recordings outside models/fishaudio are retained.
+    Never follow user-controlled symlinks or Windows junctions.
+    """
+    if (ROOT / ".git").exists() or (ROOT / ".git").is_symlink():
+        report("Fish S2 cleanup skipped in a Git working tree.")
+        return True
+    if _is_link(ROOT):
+        report("Fish S2 cleanup blocked: installation path is a link.")
+        return False
+
+    success = True
+    models = ROOT / "models"
+    fish_dir = models / "fishaudio"
+    try:
+        if models.exists() and _is_link(models):
+            report("Fish S2 cleanup blocked: models is a link.")
+            success = False
+        elif fish_dir.is_symlink() or (fish_dir.exists() and _is_link(fish_dir)):
+            report("Fish S2 cleanup blocked: fishaudio is a link.")
+            success = False
+        elif fish_dir.exists():
+            if not fish_dir.is_dir() or _tree_has_links(fish_dir):
+                report("Fish S2 cleanup blocked: untrusted link inside fishaudio.")
+                success = False
+            else:
+                shutil.rmtree(fish_dir)
+                report("Removed models/fishaudio (local GGUF, tokenizer and CPU runtime).")
+    except OSError as exc:
+        report(f"Fish S2 cleanup could not remove the model folder: {type(exc).__name__}.")
+        success = False
+
+    # The incremental updater deliberately does not delete obsolete application
+    # files on its own. Remove exactly the retired Fish S2 entry points.
+    retired = (
+        "install_fish_audio.bat",
+        "luxai/fish_local.py",
+        "luxai/fish_local_setup.py",
+        "luxai/fish_local_worker.py",
+        "luxai/fish_local_reference.py",
+        "scripts/build_fish_runtime.py",
+    )
+    for name in retired:
+        target = ROOT / name
+        try:
+            if any(_is_link(parent) for parent in target.parents if parent != ROOT and parent.exists()):
+                report(f"Fish S2 cleanup blocked: linked parent of {name}.")
+                success = False
+            elif target.is_symlink() or (target.exists() and _is_link(target)):
+                report(f"Fish S2 cleanup blocked: linked file {name}.")
+                success = False
+            elif target.is_file():
+                target.unlink()
+        except OSError as exc:
+            report(f"Could not remove retired Fish S2 file {name}: {type(exc).__name__}.")
+            success = False
+
+    cache = ROOT / "luxai" / "__pycache__"
+    try:
+        if cache.is_dir() and not _is_link(cache) and not _is_link(cache.parent):
+            for path in cache.glob("fish_local*.pyc"):
+                if path.is_symlink() or _is_link(path):
+                    success = False
+                else:
+                    path.unlink()
+    except OSError:
+        success = False
+
+    # A retained config may still select the removed engine. Switch only that
+    # engine back to Fish cloud, preserving its independently stored API key.
+    config_file = ROOT / "config.json"
+    if config_file.exists():
+        try:
+            if _is_link(config_file):
+                report("Fish S2 cleanup blocked: config.json is a link.")
+                return False
+            config = json.loads(config_file.read_text(encoding="utf-8"))
+            if isinstance(config, dict):
+                changed = False
+                if config.get("voice_engine") == "fish_local":
+                    config["voice_engine"] = "fish"
+                    changed = True
+                for key in ("fish_local_reference", "fish_local_reference_text",
+                            "fish_local_threads"):
+                    if key in config:
+                        config.pop(key)
+                        changed = True
+                if changed:
+                    fd, temporary_name = tempfile.mkstemp(
+                        prefix=".luxai-fish-migrate-", suffix=".json", dir=ROOT)
+                    os.close(fd)
+                    temporary = Path(temporary_name)
+                    try:
+                        temporary.write_text(
+                            json.dumps(config, ensure_ascii=False, indent=2) + "\n",
+                            encoding="utf-8")
+                        os.replace(temporary, config_file)
+                    finally:
+                        temporary.unlink(missing_ok=True)
+                    report("Voice settings migrated from local Fish S2 to Fish Audio cloud.")
+        except (OSError, ValueError, TypeError) as exc:
+            report(f"Could not migrate Fish voice settings: {type(exc).__name__}.")
+            success = False
+    return success
+
+
 def perform_update() -> int:
     report("=== Lux AI | Actualizare automată din GitHub ===")
     report(f"Repository: https://github.com/{OWNER}/{REPO}")
@@ -612,6 +722,7 @@ def perform_update() -> int:
             ensure_local_ai_backend()
             cleanup_development_files()
             cleanup_legacy_backups()
+            cleanup_retired_fish_local()
             return 0
     except Exception as e:
         report(f"Nu pot verifica GitHub: {e}")
@@ -693,8 +804,9 @@ def perform_update() -> int:
             report("Actualizare instalată cu succes.")
             cleanup_development_files()
             cleanup_legacy_backups()
+            cleanup_retired_fish_local()
             report("Nu păstrez backupuri permanente ale fișierelor programului.")
-            report("Folderul models și config.json au fost păstrate.")
+            report("Modelele personale si config.json au fost pastrate, cu exceptia Fish S2 local.")
             report("Pornește Lux AI cu run_windows.bat.")
             return 0
         except Exception as e:
@@ -717,6 +829,8 @@ if __name__ == "__main__":
         if sys.argv[1:] == ["--clean-installation"]:
             cleanup_development_files()
             raise SystemExit(0)
+        if sys.argv[1:] == ["--remove-fish-local"]:
+            raise SystemExit(0 if cleanup_retired_fish_local() else 1)
         raise SystemExit(main())
     except KeyboardInterrupt:
         report("\nActualizare anulată.")

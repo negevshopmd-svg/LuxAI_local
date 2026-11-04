@@ -1,13 +1,3 @@
-## 0.3.9.f — Fish S2 Pro offline GGUF synthesis (2026-11-01)
-
-- Add explicit **Fish S2 Pro — local GGUF** speech engine; never send synthesis text to Fish Audio. Cloud Fish remains a separate opt-in choice.
-- Install model `s2-pro-q4_k_m.gguf` and `tokenizer.json` under `models/fishaudio`, with resumable HTTPS download, bounded size and GGUF/tokenizer checks. Model weights are not committed or bundled.
-- Build and verify portable Windows x64 CPU SSE2/AVX2 native runtimes from pinned s2.cpp; publish archive with file SHA-256s and license notices. Only use optimized DLL after baseline CPU feature probe.
-- Persist model loaded in an isolated Python worker subprocess between replies; cache encoded voice reference prompt, cap length/output, keep audio locally, terminate worker on Stop without blocking the UI.
-- Add one-time `install_fish_audio.bat` and an in-app install button, voice reference WAV/MP3 selection, its transcript, and CPU thread configuration. No cloud API key required.
-- CPU inference can still be slow, especially on first use. No GPU build is shipped with this release; do not promise real-time results. The selected public Fish voice ID is not a local cloning reference; the user must supply a suitable licensed audio reference and exact transcript.
-- Native release and regression tests require full Linux/Windows CI; local hardware and audio output require a separate Windows smoke test. Fish model license is non-commercial/research; see the model page.
-
 ## 0.3.9.e — optional Fish Audio Russian Jarvis voice (2026-10-30)
 
 - Add Fish Audio as an optional speech provider with the user's linked Russian Jarvis voice preset and editable public voice link/ID.
