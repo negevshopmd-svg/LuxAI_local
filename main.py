@@ -1791,12 +1791,35 @@ class MainWindow(QMainWindow):
         if not script.is_file():
             self.mic_status.setText("install_fish_audio.bat missing. Run Update.bat.")
             return
+        if getattr(self, "_fish_install_process", None) is not None:
+            if self._fish_install_process.poll() is None:
+                self.mic_status.setText("Fish S2 installation is already running.")
+                return
         try:
-            subprocess.Popen(["cmd.exe", "/c", str(script)], cwd=str(BASE),
-                             creationflags=subprocess.CREATE_NEW_CONSOLE)
-            self.mic_status.setText("Fish S2 installing in a separate window. Check progress there.")
+            self._fish_install_process = subprocess.Popen(
+                ["cmd.exe", "/c", str(script), "--no-pause"], cwd=str(BASE),
+                creationflags=subprocess.CREATE_NEW_CONSOLE)
+            self.mic_status.setText("Fish S2 repairing missing assets in a separate window.")
+            QTimer.singleShot(1000, self._poll_fish_local_install)
         except OSError:
             self.mic_status.setText("Could not launch Fish S2 installer.")
+
+    def _poll_fish_local_install(self):
+        """Refresh settings automatically after the explicitly started installer exits."""
+        process = getattr(self, "_fish_install_process", None)
+        if process is None or getattr(self, "_closed", False):
+            return
+        code = process.poll()
+        if code is None:
+            QTimer.singleShot(1000, self._poll_fish_local_install)
+            return
+        self._fish_install_process = None
+        self.settings_panel.refresh_local_fish_status()
+        if code == 0:
+            self.mic_status.setText("Fish S2 installation finished. The voice is ready for testing.")
+        else:
+            self.mic_status.setText(
+                "Fish S2 installation failed. Read the installer console for the error.")
 
     def install_local_ai(self):
         """Explicit opt-in: install official prebuilt CPU backend in this .venv."""

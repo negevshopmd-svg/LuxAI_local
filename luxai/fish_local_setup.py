@@ -85,14 +85,19 @@ def download(url: str, dest: Path, limit: int, minimum: int = 1):
     return dest
 
 
+def existing_model_ready():
+    """Recognize a user-provided GGUF without reading its multi-GB payload."""
+    model = FISH_DIR / MODEL_NAME
+    if not model.is_file() or not 3_000_000_000 <= model.stat().st_size <= MODEL_LIMIT:
+        return False
+    with model.open("rb") as stream:
+        return stream.read(4) == b"GGUF"
+
+
 def install_model():
     FISH_DIR.mkdir(parents=True, exist_ok=True)
-    model = download(MODEL_BASE + MODEL_NAME, FISH_DIR / MODEL_NAME,
-                     MODEL_LIMIT, minimum=3_000_000_000)
-    with model.open("rb") as f:
-        if f.read(4) != b"GGUF":
-            model.unlink(missing_ok=True)
-            raise InstallError("Downloaded model does not have GGUF header")
+    # Repair the small tokenizer first. Existing 3.6 GB GGUF files are reused:
+    # download() returns without opening the network for an in-range file.
     tok = download(MODEL_BASE + "tokenizer.json", FISH_DIR / "tokenizer.json",
                    TOKENIZER_LIMIT, minimum=1_000_000)
     try:
@@ -102,6 +107,15 @@ def install_model():
     except (OSError, ValueError, json.JSONDecodeError):
         tok.unlink(missing_ok=True)
         raise InstallError("Tokenizer is invalid") from None
+    if existing_model_ready():
+        print("Existing Fish GGUF detected; reusing model without downloading it", flush=True)
+    else:
+        model = download(MODEL_BASE + MODEL_NAME, FISH_DIR / MODEL_NAME,
+                         MODEL_LIMIT, minimum=3_000_000_000)
+        with model.open("rb") as f:
+            if f.read(4) != b"GGUF":
+                model.unlink(missing_ok=True)
+                raise InstallError("Downloaded model does not have GGUF header")
     print("Fish S2 model and tokenizer installed in models/fishaudio", flush=True)
 
 
@@ -152,12 +166,18 @@ def main():
     parser.add_argument("--runtime-only", action="store_true")
     args = parser.parse_args()
     try:
-        # Verify the small runtime download first; do not fetch 3.6 GB of
-        # weights if a GitHub Release has not yet been published.
-        if not args.model_only:
-            install_runtime()
-        if not args.runtime_only:
+        # If a GGUF is already present, repair the tokenizer first so a
+        # missing runtime download cannot also block recovery of that asset.
+        # Otherwise verify the small runtime before fetching 3.6 GB weights.
+        if not args.runtime_only and existing_model_ready():
             install_model()
+            if not args.model_only:
+                install_runtime()
+        else:
+            if not args.model_only:
+                install_runtime()
+            if not args.runtime_only:
+                install_model()
         print("Ready. Select Fish S2 Local in Jarvis Settings.", flush=True)
         return 0
     except (InstallError, OSError, zipfile.BadZipFile, KeyError) as exc:

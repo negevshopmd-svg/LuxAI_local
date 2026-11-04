@@ -21,6 +21,14 @@ def normalize_language(value):
 
 
 _DATA = r"""
+Установить / восстановить Fish S2|||Install / repair Fish S2|||Instalează / repară Fish S2
+Файл модели Fish S2 (.gguf) отсутствует.|||Fish S2 model file (.gguf) is missing.|||Lipsește modelul Fish S2 (.gguf).
+Файл модели Fish S2 повреждён.|||Fish S2 model file is invalid.|||Fișierul modelului Fish S2 este invalid.
+Отсутствует tokenizer.json (около 12 МБ). Модель GGUF повторно скачивать не нужно.|||tokenizer.json is missing (about 12 MB). The GGUF model does not need to be downloaded again.|||Lipsește tokenizer.json (aproximativ 12 MB). Modelul GGUF nu trebuie descărcat din nou.
+Отсутствует локальный CPU-движок s2.dll.|||The local CPU engine s2.dll is missing.|||Lipsește motorul local CPU s2.dll.
+Локальный CPU-движок s2.dll повреждён или устарел.|||The local CPU engine s2.dll is invalid or outdated.|||Motorul local CPU s2.dll este invalid sau învechit.
+Не найден выбранный файл образца голоса.|||The selected voice reference file was not found.|||Fișierul ales ca mostră vocală nu a fost găsit.
+Нажмите кнопку установки для восстановления отсутствующих файлов.|||Use the install button to repair missing files.|||Apasă butonul de instalare pentru a repara fișierele lipsă.
 Fish S2 Pro — локально (GGUF)|||Fish S2 Pro — local (GGUF)|||Fish S2 Pro — local (GGUF)
 Fish Audio — облако|||Fish Audio — cloud|||Fish Audio — cloud
 Fish S2 Pro Q4_K_M: локальный GGUF в models/fishaudio, без API-ключа. Первая загрузка весов занимает время; на CPU синтез может быть медленным. Скачивание модели (~3,6 ГБ) — только по кнопке ниже.|||Fish S2 Pro Q4_K_M: local GGUF in models/fishaudio, no API key. Initial model loading takes time; CPU synthesis may be slow. Download the model (~3.6 GB) only with the button below.|||Fish S2 Pro Q4_K_M: model GGUF local în models/fishaudio, fără cheie API. Prima încărcare durează; sinteza pe CPU poate fi lentă. Descarcă modelul (~3,6 GB) doar cu butonul de mai jos.
