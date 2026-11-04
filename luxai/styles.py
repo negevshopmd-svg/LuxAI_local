@@ -308,6 +308,10 @@ QFrame#Card, QFrame#SettingsCard, QFrame#SettingsSidebar {
     border: 1px solid $border;
     border-radius: 15px;
 }
+QWidget#ApiKeyControls, QWidget#FishKeyControls, QWidget#FishVoiceControls {
+    background: transparent;
+    border: none;
+}
 QFrame#InterfaceRow {
     background: transparent;
     border: none;
