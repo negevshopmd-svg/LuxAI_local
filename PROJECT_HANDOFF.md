@@ -4,14 +4,8 @@
 >
 > Repository: https://github.com/negevshopmd-svg/LuxAI_local  
 > OS: Windows 10/11, 64-bit. Python + PySide6. UI and voice responses primarily Russian, with Romanian/English support.  
-> Updated for the **0.3.9.f work**, 2026-11-01. \`Update.bat\` installs the code merged into \`main\`, NOT an open PR.
+> Updated for the **0.3.9.e work**, 2026-10-30. \`Update.bat\` installs the code merged into \`main\`, NOT an open PR.
 > Do NOT include real API keys, private logs, screen captures, model binaries, user audio, or personal paths in Git history.
-
-## 0. Patch 0.3.9.f — offline Fish S2
-
-Branch `codex/release-0.3.9.f` adds CPU-only pinned Windows s2.cpp DLL build scripts and release publication workflow, explicitly installed by `luxai/fish_local_setup.py` / `install_fish_audio.bat`. Model files are downloaded only after user opts in, stored under protected `models/fishaudio`. `luxai/fish_local_worker.py` loads the GGUF once and caches reference audio codebooks; `luxai/fish_local.py` owns process lifetime and safe AVX2 detection; `luxai/voices.py` routes `voice_engine=fish_local` without cloud keys. The existing `voice_engine=fish` must remain unchanged. Stop interrupts the native subprocess, not the UI event thread. Settings expose model readiness, optional local sample WAV/MP3, transcript, thread count, and explicit install. No user voice data, binaries, prompts or model weights in Git.
-
-Windows x64 CPU SSE2 fallback/AVX2 only; GPU not shipped, latency on CPU may be high. The model is experimental under Fish Audio Research License. Public Fish voice ID is not a local reference audio. Any new changes require full Linux/Windows CI and real Windows speech and interruption smoke test. Preserve per-user data and updater development-file catalog hashes.
 
 ## 0. Patch 0.3.9.e
 
