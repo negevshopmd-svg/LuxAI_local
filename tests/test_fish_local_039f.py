@@ -141,6 +141,43 @@ class FishLocalTests(unittest.TestCase):
         self.assertEqual(outcome, [True])
         self.assertTrue(p.killed)
 
+    def test_huggingface_redirects_accept_official_eu_us_cdn_hosts(self):
+        from urllib.request import Request
+        redirect = fish_local_setup.SafeRedirect()
+        source = Request(fish_local_setup.MODEL_BASE + "tokenizer.json")
+        for host in (
+            "cas-bridge.xethub.hf.co", "cas-bridge.xethub-eu.hf.co",
+            "cas-server.xethub-eu.hf.co", "transfer.xethub-eu.hf.co",
+            "us.aws.cdn.hf.co", "us.gcp.cdn.hf.co",
+            "cdn-lfs-eu-1.hf.co", "cdn-lfs-us-1.hf.co",
+        ):
+            with self.subTest(host=host):
+                new_url = "https://" + host + "/download?signature=private"
+                result = redirect.redirect_request(source, None, 302, "Found", {}, new_url)
+                self.assertEqual(result.full_url, new_url)
+
+    def test_redirects_reject_cross_provider_http_and_malicious_hosts(self):
+        from urllib.request import Request
+        redirect = fish_local_setup.SafeRedirect()
+        model = Request(fish_local_setup.MODEL_BASE + "tokenizer.json")
+        release = Request(fish_local_setup.RUNTIME_URL)
+        allowed_release = redirect.redirect_request(
+            release, None, 302, "Found", {},
+            "https://release-assets.githubusercontent.com/fish-runtime")
+        self.assertIn("release-assets.githubusercontent.com", allowed_release.full_url)
+        for source, url in (
+            (model, "https://github.com/unrelated.zip"),
+            (release, "https://huggingface.co/unrelated.gguf"),
+            (model, "http://cdn-lfs-eu-1.hf.co/file"),
+            (model, "https://cdn-lfs-eu-1.hf.co.attacker.test/file"),
+            (model, "https://user@cdn-lfs-eu-1.hf.co/file"),
+            (model, "https://cdn-lfs-eu-1.hf.co:4443/file"),
+            (model, "https://example.com/file"),
+        ):
+            with self.subTest(url=url), self.assertRaisesRegex(
+                    fish_local_setup.InstallError, "Unexpected download redirect host"):
+                redirect.redirect_request(source, None, 302, "Found", {}, url)
+
     def test_install_package_rejects_remote_path_expansion(self):
         redirect = fish_local_setup.SafeRedirect()
         req = __import__("urllib.request", fromlist=["Request"]).Request(
