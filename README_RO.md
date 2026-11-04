@@ -1,15 +1,4 @@
-# LuxAI Local 0.3.9.f (Windows 10/11, 64-bit)
-
-## 0.3.9.f — Fish Audio local GGUF (2026-11-01)
-
-Jarvis are acum o opțiune separată **Fish S2 Pro — local** în Setări → Sinteză vocală. Când o selectezi, textul este sintetizat pe calculator, fără cheie API și fără solicitări la Fish Audio. Motorul cloud anterior rămâne o alegere distinctă.
-
-1. Închide Jarvis și actualizează cu `Update.bat`. Pornește `run_windows.bat`.
-2. În Setări → Sinteză vocală alege **Fish S2 Pro — local (GGUF)** și apasă **Instalează Fish S2 local**. Se deschide o consolă separată; se descarcă aprox. 3,6 GB plus tokenizerul și motorul Windows. Nu întrerupe consola. Descărcările incomplete pot fi reluate.
-3. Resursele se instalează în `models/fishaudio`. După instalare, modelul este păstrat între actualizări. Pentru vocea Jarvis, alege o mostră vocală proprie/licențiată WAV sau MP3 și completează transcrierea exactă; doar ID-ul public de pe fish.audio nu este suficient pentru clonare offline.
-4. Apasă **Ascultă exemplul**. Prima încărcare poate fi lentă; modelul rămâne în memorie într-un proces separat pentru răspunsurile următoare. **Stop** termină imediat procesul de generare dacă încă sintetizează.
-
-**Viteză:** varianta publicată include CPU optimizat AVX2 când este sigur, cu fallback SSE2. Nu include accelerare GPU. Nu există o garanție de timp real; pe hardware modest poate dura mult. Fish S2/s2.cpp sunt experimentale. Respectă licența Fish Audio Research (uz necomercial/de cercetare, licență separată pentru uz comercial).
+# LuxAI Local 0.3.9.e (Windows 10/11, 64-bit)
 
 ## 0.3.9.e: voce Jarvis prin Fish Audio (2026-10-30)
 
