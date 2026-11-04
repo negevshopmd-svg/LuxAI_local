@@ -67,6 +67,18 @@ rem The current updater filters development sources and safely trims old bundled
         exit /b 1
     ) else (
         del /q "Update.py.new" >nul 2>nul
+        rem Also retry removing the discontinued local Fish S2 installation
+        rem after a successful update. Update.py handles link/junction safety.
+        if exist "models\fishaudio\" (
+            echo Elimin fisierele Fish S2 local din models\fishaudio...
+            %LUXAI_PYTHON% Update.py --remove-fish-local
+            if errorlevel 1 (
+                echo AVERTISMENT: Fish S2 local nu a putut fi eliminat complet.
+                echo Inchide Jarvis si ruleaza din nou Update.bat.
+                pause
+                exit /b 1
+            )
+        )
         exit /b 0
     )
 )
