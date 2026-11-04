@@ -132,7 +132,7 @@ class SettingsUsability038Tests(unittest.TestCase):
         bar = panel.scroll.verticalScrollBar()
         bar.setValue(bar.maximum())
         self.app.processEvents()
-        self.assertEqual(self.selected(panel), [6])
+        self.assertEqual(self.selected(panel), [len(panel.sections) - 1])
         self.assertFalse(panel._autosave_timer.isActive())
         panel.flush_auto_save()
         self.assertEqual(calls, [])

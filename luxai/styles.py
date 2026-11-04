@@ -65,7 +65,7 @@ def theme_colors(theme="dark", accent="#3978f6", background=None) -> dict:
     return palette
 
 
-def build_styles(theme="dark", accent="#3978f6", background=None):
+def build_styles(theme="dark", accent="#3978f6", background=None, *, font_family="Onest"):
     p = theme_colors(theme, accent, background)
     accent = p["accent"]
 
@@ -73,7 +73,7 @@ def build_styles(theme="dark", accent="#3978f6", background=None):
 QWidget {
     background: $bg;
     color: $text;
-    font-family: 'Segoe UI', 'Arial';
+    font-family: $font_family;
     font-size: 13px;
 }
 QMainWindow, QWidget#MainContent {
@@ -307,6 +307,40 @@ QFrame#Card, QFrame#SettingsCard, QFrame#SettingsSidebar {
     background: $surface;
     border: 1px solid $border;
     border-radius: 15px;
+}
+QLabel#SettingsSectionIcon {
+    background: $control;
+    border-radius: 11px;
+}
+QLabel#SettingsGroupLabel {
+    color: $muted;
+    font-size: 12px;
+    font-weight: 600;
+}
+QWidget#SettingsAdvanced {
+    background: transparent;
+}
+QPushButton#SettingsDisclosure {
+    text-align: left;
+    border: none;
+    border-top: 1px solid $border;
+    border-radius: 0;
+    background: transparent;
+    padding: 13px 0;
+}
+QDialog#SettingsResetDialog {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 $selection, stop:1 $surface);
+    border: 1px solid $border;
+    border-radius: 16px;
+}
+QLabel#ResetDialogTitle {
+    font-size: 19px;
+    font-weight: 700;
+}
+QLabel#ResetWarningIcon {
+    background: $selection;
+    border-radius: 12px;
 }
 QFrame#InterfaceRow {
     background: transparent;
@@ -610,6 +644,9 @@ QPushButton#WindowControl:focus, QPushButton#WindowClose:focus {
 """
     for key, value in p.items():
         css = css.replace("$" + key, value)
+    family = {"Onest": "'Onest', 'Segoe UI', 'Arial'", "Arial": "'Arial'",
+              "system": "'Segoe UI', 'Arial'"}.get(str(font_family), "'Onest', 'Segoe UI', 'Arial'")
+    css = css.replace("$font_family", family)
     css = css.replace("$accent", accent)
     # Qt URLs preserve spaces and Unicode paths on Windows installations.
     arrow_theme = "light" if theme == "light" else "dark"

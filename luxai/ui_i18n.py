@@ -21,6 +21,58 @@ def normalize_language(value):
 
 
 _DATA = r"""
+Режим префикса включён.|||Prefix mode enabled.|||Modul cu prefix este activat.
+Тихий режим включён.|||Quiet mode enabled.|||Modul silențios este activat.
+Цепочка команд остановлена.|||Command chain stopped.|||Lanțul de comenzi a fost oprit.
+Обновления|||Updates|||Actualizări
+Версия программы и новые выпуски|||Application version and new releases|||Versiunea aplicației și lansări noi
+Версия программы и новые выпуски.|||Application version and new releases.|||Versiunea aplicației și lansări noi.
+Меньше ошибок в живой речи; распознавание может работать медленнее.|||Fewer errors in natural speech; recognition may be slower.|||Mai puține erori în vorbirea naturală; recunoașterea poate fi mai lentă.
+Авто определяет язык речи. Язык интерфейса настраивается отдельно.|||Auto detects the spoken language. Interface language is set separately.|||Auto detectează limba vorbită. Limba interfeței se setează separat.
+Всегда|||Always|||Mereu
+Пока держу клавишу|||While holding a key|||Cât țin tasta apăsată
+Слушать команды|||Listen for commands|||Ascultă comenzile
+Всегда или только пока зажата клавиша.|||Always or only while a key is held.|||Mereu sau doar cât timp ții tasta apăsată.
+Клавиша прослушивания|||Listening key|||Tasta de ascultare
+Windows: держите клавишу нажатой, пока говорите.|||Windows: hold the key while speaking.|||Windows: ține tasta apăsată în timp ce vorbești.
+Чувствительность распознавания|||Recognition sensitivity|||Sensibilitatea recunoașterii
+Выше — прощает небольшие ошибки в начале сохранённой команды.|||Higher values allow minor errors at the start of a saved command.|||Valorile mai mari permit mici erori la începutul unei comenzi salvate.
+Понимать перефразировки|||Understand paraphrases|||Înțelege reformulările
+Учитывать близкие глаголы и вежливые формы сохранённых команд, без нейросети.|||Recognize similar verbs and polite forms of saved commands, without AI.|||Recunoaște verbe similare și forme politicoase ale comenzilor salvate, fără AI.
+Фразы для переключения режимов|||Phrases for switching modes|||Fraze pentru schimbarea modurilor
+Режим префикса|||Prefix mode|||Mod cu prefix
+Включить обращение по имени. Несколько фраз через запятую.|||Enable activation by name. Separate multiple phrases with commas.|||Activează adresarea pe nume. Separă mai multe fraze prin virgulă.
+Отключить озвучивание ответов голосовой фразой.|||Turn off spoken replies with a voice phrase.|||Oprește redarea vocală a răspunsurilor printr-o frază.
+Выключить микрофон|||Turn off the microphone|||Oprește microfonul
+Остановить прослушивание голосовой фразой.|||Stop listening with a voice phrase.|||Oprește ascultarea printr-o frază.
+Сбросить настройки озвучки|||Reset voice output settings|||Resetează setările de redare vocală
+Сброс настроек|||Reset settings|||Resetarea setărilor
+Вернуть настройки озвучки к значениям по умолчанию?|||Restore voice output settings to their defaults?|||Restabilești valorile implicite ale setărilor de redare vocală?
+Дополнительные настройки|||Advanced settings|||Setări avansate
+Остановить всю цепочку|||Stop the entire chain|||Oprește întregul lanț
+Прервать оставшиеся команды. Несколько фраз через запятую.|||Cancel remaining commands. Separate multiple phrases with commas.|||Anulează comenzile rămase. Separă mai multe fraze prin virgulă.
+Onest — как в Luxify|||Onest — like Luxify|||Onest — ca în Luxify
+Системный|||System|||Sistem
+Шрифт программы|||Application font|||Fontul aplicației
+Применяется сразу ко всему интерфейсу.|||Applies immediately throughout the interface.|||Se aplică imediat în întreaga interfață.
+Обновления ещё не проверялись|||Updates have not been checked yet|||Actualizările nu au fost încă verificate
+Установленная версия|||Installed version|||Versiunea instalată
+Что нового|||What's new|||Noutăți
+Проверить обновления|||Check for updates|||Verifică actualizările
+Закрыть Jarvis и обновить|||Close Jarvis and update|||Închide Jarvis și actualizează
+Проверять обновления автоматически|||Check for updates automatically|||Verifică automat actualizările
+Один раз при открытии настроек. Установка запускается только по вашей кнопке.|||Once when opening Settings. Installation starts only when you click its button.|||O dată la deschiderea Setărilor. Instalarea începe doar când apeși butonul ei.
+На Windows обновление выполняется через Update.bat после закрытия Jarvis.|||On Windows, updates run through Update.bat after Jarvis closes.|||Pe Windows, actualizarea se face prin Update.bat după închiderea lui Jarvis.
+Проверяю обновления…|||Checking for updates…|||Verific actualizările…
+Не удалось проверить обновления. Проверьте подключение и повторите.|||Could not check for updates. Check your connection and try again.|||Nu am putut verifica actualizările. Verifică conexiunea și încearcă din nou.
+Не удалось определить установленную версию.|||Could not determine the installed version.|||Nu am putut determina versiunea instalată.
+Доступна версия {version}|||Version {version} is available|||Este disponibilă versiunea {version}
+У вас последняя версия|||You have the latest version|||Ai cea mai recentă versiune
+Установленная версия новее опубликованной|||The installed version is newer than the published version|||Versiunea instalată este mai nouă decât cea publicată
+Закрыть Jarvis и запустить обновление? Настройки и модели сохранятся.|||Close Jarvis and start the update? Your settings and models will be preserved.|||Închizi Jarvis și pornești actualizarea? Setările și modelele vor fi păstrate.
+Не удалось запустить Update.bat. Закройте Jarvis и запустите его вручную.|||Could not start Update.bat. Close Jarvis and run it manually.|||Nu am putut porni Update.bat. Închide Jarvis și pornește fișierul manual.
+Последняя проверка: {time}|||Last checked: {time}|||Ultima verificare: {time}
+Последняя проверка: ещё не выполнялась|||Last checked: never|||Ultima verificare: încă nu a fost efectuată
 Локальные голоса Piper и Windows или Fish Audio через интернет.|||Local Piper and Windows voices, or Fish Audio over the internet.|||Voci locale Piper și Windows sau Fish Audio prin internet.
 Fish Audio — бесплатно|||Fish Audio — free|||Fish Audio — gratuit
 Fish Audio озвучивает ответы через интернет: текст отправляется Fish Audio. Используется только бесплатная модель s2.1-pro-free с ограничениями fair use. Нужны аккаунт и свой API-ключ.|||Fish Audio reads replies over the internet: text is sent to Fish Audio. Only the free s2.1-pro-free model is used, subject to fair-use limits. An account and your own API key are required.|||Fish Audio redă răspunsurile prin internet: textul este trimis către Fish Audio. Se folosește doar modelul gratuit s2.1-pro-free, cu limite de utilizare rezonabilă. Ai nevoie de un cont și de propria cheie API.

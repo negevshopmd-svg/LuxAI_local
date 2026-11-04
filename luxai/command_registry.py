@@ -46,6 +46,122 @@ def is_agent_command(entry):
     return bool(entry.get("agent", False) or entry.get("learned", False))
 
 
+def _phrase_candidates(phrase, optional_words):
+    """Remove only declared optional edge words, with bounded exploration."""
+    words = sorted({normalize_phrase(value) for value in optional_words
+                    if isinstance(value, str) and value.strip()}, key=len, reverse=True)
+    pending, seen = [phrase], set()
+    while pending and len(seen) < 200:
+        candidate = pending.pop()
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        yield candidate
+        for word in words[:20]:
+            if candidate.startswith(word + " "):
+                pending.append(candidate[len(word) + 1:])
+            if candidate.endswith(" " + word):
+                pending.append(candidate[:-len(word) - 1])
+
+
+# These are intentionally lexical equivalents, not an open-ended intent model.
+# Everything after the leading verb (the app, file, person, number, etc.) must
+# still match. Cross-language names and targets are never guessed.
+_VERB_GROUPS = {
+    "open": ("open", "launch", "start", "открой", "открыть", "открывай", "запусти",
+             "запустить", "запускай", "deschide", "pornește", "porneste", "lansează", "lanseaza"),
+    "close": ("close", "shut", "закрой", "закрыть", "închide", "inchide"),
+    "create": ("create", "make", "создай", "создать", "creează", "creeaza", "crează", "creaza"),
+    "show": ("show", "display", "list", "покажи", "показать", "arată", "arata", "afișează", "afiseaza"),
+    "minimize": ("minimize", "сверни", "свернуть", "minimizează", "minimizeaza"),
+    "delete": ("delete", "remove", "erase", "удали", "удалить", "șterge", "sterge"),
+    # Keep other real action verbs distinct even when they are one letter
+    # from an alias above (for example clone/close or send/tend).
+    **{verb: (verb,) for verb in (
+        "clone", "copy", "move", "rename", "send", "save", "stop", "pause", "play",
+        "копируй", "перемести", "переименуй", "отправь", "сохрани", "останови",
+        "copiază", "copiaza", "mută", "muta", "trimite", "salvează", "salveaza", "oprește", "opreste",
+    )},
+}
+_VERB_CANONICAL = {word: verb for verb, words in _VERB_GROUPS.items() for word in words}
+_POLITE_PREFIXES = (
+    "could you please", "would you please", "can you please", "could you", "would you", "can you", "please",
+    "пожалуйста", "можешь пожалуйста", "можешь ли ты", "можешь", "прошу",
+    "ai putea să", "ai putea sa", "poți să", "poti sa", "te rog să", "te rog sa", "te rog",
+)
+_POLITE_SUFFIXES = ("please", "пожалуйста", "te rog")
+_NEGATIONS = {"not", "no", "never", "don't", "dont", "cannot", "can't", "не", "нет", "нельзя", "nu", "nici"}
+
+
+def _canonical_trigger(phrase):
+    for prefix in _POLITE_PREFIXES:
+        if phrase.startswith(prefix + " "):
+            phrase = phrase[len(prefix) + 1:]
+            break
+    for suffix in _POLITE_SUFFIXES:
+        if phrase.endswith(" " + suffix):
+            phrase = phrase[:-len(suffix) - 1]
+            break
+    words = phrase.split()
+    if words:
+        words[0] = _VERB_CANONICAL.get(words[0], words[0])
+    return words
+
+
+def _one_typo(first, second):
+    """Allow one substitution/insertion/deletion or adjacent transposition."""
+    if abs(len(first) - len(second)) > 1:
+        return False
+    if len(first) == len(second):
+        different = [index for index, pair in enumerate(zip(first, second)) if pair[0] != pair[1]]
+        if len(different) == 1:
+            return True
+        return (len(different) == 2 and different[1] == different[0] + 1
+                and first[different[0]] == second[different[1]]
+                and first[different[1]] == second[different[0]])
+    shorter, longer = sorted((first, second), key=len)
+    return any(longer[:index] + longer[index + 1:] == shorter for index in range(len(longer)))
+
+
+def _recognition_score(item, spoken, prefix, sensitivity, paraphrases, *, source="voice"):
+    """Conservative optional matching; exact matching always runs first."""
+    if not item.get("enabled", True) or (source == "voice" and not item.get("voice_enabled", True)):
+        return 0.0
+    phrase = normalize_phrase(strip_wake_name(spoken, prefix))
+    if not phrase or len(phrase) > 1000 or _NEGATIONS.intersection(phrase.split()):
+        return 0.0
+    try:
+        sensitivity = max(0, min(100, int(sensitivity)))
+    except (TypeError, ValueError, OverflowError):
+        sensitivity = 0
+    best = 0.0
+    for candidate in _phrase_candidates(phrase, item.get("optional_words", [])):
+        actual = _canonical_trigger(candidate) if paraphrases else candidate.split()
+        for required in item.get("phrases", []):
+            required = normalize_phrase(required)
+            if _NEGATIONS.intersection(required.split()):
+                continue
+            expected = _canonical_trigger(required) if paraphrases else required.split()
+            if paraphrases and actual == expected and len(actual) >= 2:
+                return 1.0
+            # A short or single-word trigger is too easy to confuse. Never
+            # change a target word, digit, word order, or a known opposing verb.
+            if (not sensitivity or len(actual) < 2 or len(actual) != len(expected)
+                    or actual[1:] != expected[1:]):
+                continue
+            first, second = actual[0], expected[0]
+            if (min(len(first), len(second)) < 4 or not first.isalpha() or not second.isalpha()
+                    or first == second or not _one_typo(first, second)):
+                continue
+            known_first, known_second = _VERB_CANONICAL.get(first), _VERB_CANONICAL.get(second)
+            if known_first and known_second and known_first != known_second:
+                continue
+            score = 1.0 - 1.0 / max(len(first), len(second))
+            if score >= 1.0 - sensitivity * 0.003:
+                best = max(best, score)
+    return best
+
+
 def phrase_matches(item, spoken, prefix="Jarvis", *, source="voice"):
     """Match complete phrases, allowing only explicitly optional edge words.
 
@@ -62,24 +178,7 @@ def phrase_matches(item, spoken, prefix="Jarvis", *, source="voice"):
     required = {normalize_phrase(value) for value in item.get("phrases", []) if isinstance(value, str)} - {""}
     if phrase in required:
         return True
-    words = sorted({normalize_phrase(value) for value in item.get("optional_words", [])
-                    if isinstance(value, str) and value.strip()}, key=len, reverse=True)
-    # Both ends may contain more than one optional word. A bounded worklist
-    # handles overlapping optional phrases without guessing their order.
-    pending, seen = [phrase], set()
-    while pending and len(seen) < 200:
-        candidate = pending.pop()
-        if candidate in seen:
-            continue
-        seen.add(candidate)
-        if candidate in required:
-            return True
-        for word in words[:20]:
-            if candidate.startswith(word + " "):
-                pending.append(candidate[len(word) + 1:])
-            if candidate.endswith(" " + word):
-                pending.append(candidate[:-len(word) - 1])
-    return False
+    return any(candidate in required for candidate in _phrase_candidates(phrase, item.get("optional_words", [])))
 
 
 def checked_command(raw, builtin=False):
@@ -342,7 +441,15 @@ class CommandRegistry:
             result.append(item)
         return deepcopy(result + self.custom)
 
-    def match(self, spoken, prefix="Jarvis", *, source="voice"):
+    def _blocked_entries(self, entries):
+        """Include historical presets so fuzzy matching cannot restore them."""
+        blocked = [dict(item, enabled=True, voice_enabled=True) for item in entries
+                   if not item.get("enabled", True) or not item.get("voice_enabled", True)]
+        blocked.extend(dict(original, enabled=True, voice_enabled=True) for original in BUILTINS
+                       if original["id"] in self.deleted_builtins or original["id"] in self.builtin_overrides)
+        return blocked
+
+    def match(self, spoken, prefix="Jarvis", *, source="voice", sensitivity=100, paraphrases=False):
         command = normalize_phrase(strip_wake_name(spoken, prefix))
         if not command:
             return None
@@ -351,11 +458,29 @@ class CommandRegistry:
         for item in [entry for entry in entries if not entry["builtin"]] + [entry for entry in entries if entry["builtin"]]:
             if phrase_matches(item, spoken, prefix, source=source):
                 return dict(item)
+        blocked = self._blocked_entries(entries) if source == "voice" else []
+        if any(phrase_matches(item, spoken, prefix) for item in blocked):
+            return None
+        ranked = []
+        for item, disabled in [(entry, False) for entry in entries] + [(entry, True) for entry in blocked]:
+            score = _recognition_score(item, spoken, prefix, sensitivity, paraphrases, source=source)
+            if score:
+                ranked.append((score, item, disabled))
+        ranked.sort(key=lambda result: result[0], reverse=True)
+        if ranked:
+            score, best, disabled = ranked[0]
+            # Approximate ties never inherit custom/default ordering. Require
+            # a clear winner, including disabled commands in the comparison.
+            if not disabled and not any(other["id"] != best["id"] or is_disabled
+                                        for other_score, other, is_disabled in ranked[1:]
+                                        if score - other_score < 0.06):
+                return dict(best)
         return None
 
-    def match_chain(self, spoken, prefix="Jarvis", connectors=("и затем", "потом", "and then", "apoi")):
+    def match_chain(self, spoken, prefix="Jarvis", connectors=("и затем", "потом", "and then", "apoi"),
+                    *, sensitivity=100, paraphrases=False):
         """Resolve an entire saved-command chain before running any member."""
-        whole = self.match(spoken, prefix)
+        whole = self.match(spoken, prefix, sensitivity=sensitivity, paraphrases=paraphrases)
         if whole is not None:
             return [whole]
         text = strip_wake_name(spoken, prefix)
@@ -365,14 +490,15 @@ class CommandRegistry:
         parts = [part.strip() for part in re.split(r"\s+(?:" + "|".join(separators) + r")\s+", text, flags=re.I)]
         if not 2 <= len(parts) <= 8 or not all(parts):
             return []
-        matched = [self.match(part, "") for part in parts]
+        matched = [self.match(part, "", sensitivity=sensitivity, paraphrases=paraphrases) for part in parts]
         if any(item is None or not item.get("allow_chaining", True) for item in matched):
             return []
         return matched
 
-    def chain_blocked(self, spoken, prefix="Jarvis", connectors=("и затем", "потом")):
+    def chain_blocked(self, spoken, prefix="Jarvis", connectors=("и затем", "потом"),
+                      *, sensitivity=100, paraphrases=False):
         """Reject compounds containing a saved command that forbids chaining."""
-        if self.match(spoken, prefix) is not None:
+        if self.match(spoken, prefix, sensitivity=sensitivity, paraphrases=paraphrases) is not None:
             return False
         separators = [re.escape(str(value).strip()) for value in connectors if str(value).strip()]
         if not separators:
@@ -383,23 +509,17 @@ class CommandRegistry:
         )]
         if len(parts) < 2:
             return False
-        return any((entry := self.match(part, "")) is not None
+        return any((entry := self.match(part, "", sensitivity=sensitivity, paraphrases=paraphrases)) is not None
                    and not entry.get("allow_chaining", True) for part in parts)
 
-    def disabled_match(self, spoken, prefix="Jarvis"):
+    def disabled_match(self, spoken, prefix="Jarvis", *, sensitivity=100, paraphrases=False):
         """Do not resurrect disabled, deleted or replaced phrases via native/AI routing."""
-        if self.match(spoken, prefix) is not None:
+        entries = self.entries()
+        if any(phrase_matches(item, spoken, prefix) for item in entries):
             return False
-        for item in self.entries():
-            if item.get("enabled") and item.get("voice_enabled", True):
-                continue
-            if phrase_matches(dict(item, enabled=True), spoken, prefix, source="manual"):
-                return True
-        for original in BUILTINS:
-            if original["id"] in self.deleted_builtins or original["id"] in self.builtin_overrides:
-                if phrase_matches(original, spoken, prefix, source="manual"):
-                    return True
-        return False
+        return any(phrase_matches(item, spoken, prefix)
+                   or _recognition_score(item, spoken, prefix, sensitivity, paraphrases)
+                   for item in self._blocked_entries(entries))
 
     def save_command(self, raw):
         data = dict(raw)

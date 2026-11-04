@@ -35,9 +35,14 @@ class VoiceListener:
     def __init__(self, model_path="small", prefix_enabled=True, prefix="Jarvis",
                  language="auto", microphone_device=-1, beam_size=1,
                  microphone_name="", microphone_hostapi="", sensitivity=1.0,
-                 status_callback=None, level_callback=None, speech_pause=2.3):
+                 status_callback=None, level_callback=None, speech_pause=2.3,
+                 capture_allowed=None, interrupt_predicate=None,
+                 preserve_interrupt_text=False):
         self.status_callback = status_callback
         self.level_callback = level_callback
+        self.capture_allowed = capture_allowed
+        self.interrupt_predicate = interrupt_predicate or is_stop_speech_command
+        self.preserve_interrupt_text = preserve_interrupt_text
         self._stop_event = threading.Event()
         self.prefix_enabled = prefix_enabled
         self.prefix = (prefix or "Jarvis").strip()
@@ -153,6 +158,16 @@ class VoiceListener:
             sequence = capture["sequence"]
             if status:
                 capture["warning"] = str(status)
+            # Sample the hold-key state with the AUDIO, before Whisper runs.
+            # Releasing the key during transcription must not discard speech
+            # already recorded. Silence also closes a partial held utterance.
+            allowed = True
+            if self.capture_allowed is not None:
+                try:
+                    allowed = bool(self.capture_allowed())
+                except Exception:
+                    allowed = False
+            captured = indata.copy().reshape(-1) if allowed else np.zeros(indata.size, dtype=np.float32)
             # Whisper may still be busy when Jarvis starts speaking. Discard
             # playback at capture time, not only when draining buffered audio.
             # Sequence numbers preserve ordering even when Windows <=3.12's
@@ -162,7 +177,7 @@ class VoiceListener:
                 capture["discard_through"] = sequence
                 if not barge_in_ready.is_set():
                     return
-            item = (sequence, indata.copy().reshape(-1), during_playback)
+            item = (sequence, captured, during_playback, allowed)
             try:
                 chunks.put_nowait(item)
             except queue.Full:
@@ -205,7 +220,7 @@ class VoiceListener:
                 if not getattr(stream, "active", True):
                     raise RuntimeError("The microphone stream stopped. Reconnect your headset and restart the microphone.")
                 try:
-                    sequence, chunk, during_playback = chunks.get(timeout=0.25)
+                    sequence, chunk, during_playback, allowed = chunks.get(timeout=0.25)
                 except queue.Empty:
                     if time.monotonic() - capture["last_frame"] >= 5.0:
                         self._emit("input_stalled", message="The microphone driver is no longer sending audio.")
@@ -218,6 +233,11 @@ class VoiceListener:
                     warned_drops = capture["dropped"]
                     self._emit("input_warning", message="Audio processing fell behind; older microphone frames were dropped.",
                                dropped_frames=warned_drops)
+                if not allowed:
+                    # Synthetic silence while the key is released is expected,
+                    # rather than a disconnected or muted recording device.
+                    last_nonzero = time.monotonic()
+                    warned_silent = False
                 if during_playback or playback_active.is_set() or sequence <= capture["discard_through"]:
                     pre_roll.clear()
                     parts = []
@@ -270,8 +290,9 @@ class VoiceListener:
                                             **recognition_options(self.language, self.beam_size),
                                         )
                                         stop_text = " ".join(seg.text.strip() for seg in detected_segments).strip()
-                                        if is_stop_speech_command(stop_text):
-                                            yield "stop"
+                                        if self.interrupt_predicate(stop_text):
+                                            yield (stop_text if self.preserve_interrupt_text
+                                                   else "stop" if is_stop_speech_command(stop_text) else stop_text)
                                     except (OSError, RuntimeError, ValueError):
                                         logging.getLogger(__name__).debug("Stop-word recognition failed")
                     else:

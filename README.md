@@ -1,5 +1,13 @@
 # LuxAI_local
 
+## 0.3.9g: Luxify-inspired settings and new listening controls (2026-11-04)
+
+Settings now use compact rows, segmented controls and rounded switches inspired by the supplied Luxify screenshots. In **Voice input**, choose continuous listening or hold a configured key while speaking on Windows, edit the phrases for prefix mode, quiet mode and microphone shutdown, and adjust conservative saved-command recognition tolerance. Optional paraphrases recognize supported local wording variations without a cloud request.
+
+Use the stop-chain phrase to cancel remaining queued actions. **Interface** offers the bundled **Onest** font, including Russian and Romanian characters. The voice-output reset asks for confirmation and restores only that section's preferences. **Updates** shows the installed version, checks GitHub and opens the existing Windows updater when an update is available. Automatic checking runs once per session when this section is first shown; it can be disabled. Choosing installation closes Jarvis before starting the updater.
+
+Close Jarvis, run `Update.bat`, then `run_windows.bat`. Existing settings, models, keys and personal commands are preserved.
+
 ## 0.3.9.e: optional Fish Audio Jarvis voice (2026-10-30)
 
 In **Settings → Speech synthesis**, select **Fish Audio**, add your Fish API key and use the preset Russian **ДЖАРВИС** voice. Paste another Fish voice link or ID to change it, then use the voice preview. Create a free account and key at [Fish Audio API keys](https://fish.audio/app/api-keys/). The key is stored with Windows DPAPI, separately from chat AI credentials; it is never included in `config.json`. `FISH_API_KEY` is also supported.
