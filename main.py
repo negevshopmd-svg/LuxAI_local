@@ -19,6 +19,7 @@ from luxai.voices import (
     barge_in_ready as voice_output_playing,
 )
 from luxai.voice_rules import is_stop_speech_command, is_hallucinated_outro
+from luxai.listening_controls import capture_allowed, mode_control
 from luxai.screen import capture_screen, read_screen_text
 from luxai.settings_panel import SettingsPanel
 from luxai.ui_home import HomePage
@@ -151,6 +152,11 @@ class VoiceWorker(QThread):
                 "speech_pause": self.cfg.get("speech_pause_seconds", 2.3),
                 "status_callback": lambda event, details: self.state.emit(event, details),
                 "level_callback": self.level.emit,
+                "capture_allowed": lambda: capture_allowed(self.cfg),
+                "preserve_interrupt_text": True,
+                "interrupt_predicate": lambda text: (
+                    is_stop_speech_command(text) or mode_control(text, self.cfg) == "stop"
+                ),
             }
             try:
                 self.listener = VoiceListener(model_path=model_choice, **params)
@@ -212,20 +218,20 @@ class MainWindow(QMainWindow):
     command_hotkey = Signal(str)
     command_editor_plan_ready = Signal(object, object, str)
     attachment_reply_ready = Signal(int, object, str)
-    online_plan_ready = Signal(str, object)
-    local_reply_ready = Signal(str, str)
+    online_plan_ready = Signal(str, object, int)
+    local_reply_ready = Signal(str, str, int)
     api_test_result = Signal(str, bool, str, object)
     cloud_check_result = Signal(str, str, bool, str, object)
     tts_played = Signal(bool, int)
     wizard_plan_ready = Signal(str, object)
-    macro_step_ready = Signal(int, bool, str)
-    visual_step_ready = Signal(int, object, str)
-    discord_draft_ready = Signal(int, object, str)
+    macro_step_ready = Signal(int, bool, str, object)
+    visual_step_ready = Signal(int, object, str, object)
+    discord_draft_ready = Signal(int, object, str, object)
     discord_contact_prompt = Signal(object)
-    discord_open_ready = Signal(int, object, str)
-    research_notepad_ready = Signal(int, object, str)
-    discord_send_ready = Signal(int, object, str)
-    discord_review_ready = Signal(int, object, str)
+    discord_open_ready = Signal(int, object, str, object)
+    research_notepad_ready = Signal(int, object, str, object)
+    discord_send_ready = Signal(int, object, str, object)
+    discord_review_ready = Signal(int, object, str, object)
     discord_mic_visual_ready = Signal(str, str)
     discord_headphones_ready = Signal(str, str)
     discord_call_ready = Signal(str, str)
@@ -233,7 +239,7 @@ class MainWindow(QMainWindow):
     visual_reasoner_ready = Signal(str, str)
     adaptive_task_ready = Signal(str, str, object)
     adaptive_task_progress = Signal(str, str)
-    direct_macro_ready = Signal(str, object, str)
+    direct_macro_ready = Signal(str, object, str, int)
     direct_task_ready = Signal(str, str, str)
     screen_inspection_ready = Signal(str, object, str)
     ocr_setup_ready = Signal(bool, str)
@@ -285,6 +291,7 @@ class MainWindow(QMainWindow):
         self.attachment_reply_ready.connect(self._on_attachment_reply)
         self._attachment_token = 0
         self._attachment_active = None
+        self._command_generation = 0
         self._command_queue = []
         self._active_text = None
         self._processing = False
@@ -913,6 +920,7 @@ class MainWindow(QMainWindow):
         self.settings_panel.test_microphone.clicked.connect(self.test_microphone)
         self.settings_panel.restart_microphone.clicked.connect(self.restart_microphone)
         self.settings_panel.export_diagnostics.clicked.connect(self.export_diagnostics)
+        self.settings_panel.updates.quit_requested.connect(self.quit_from_tray)
 
     def apply_ui_language(self):
         """Change UI language in-place without touching the voice/Whisper language."""
@@ -1177,6 +1185,7 @@ class MainWindow(QMainWindow):
         appearance_defaults = {
             "ui_theme": "dark", "ui_accent": "#3978f6", "ui_transparency": 0,
             "ui_background": "",
+            "ui_font_family": "Onest",
             "ui_animations": True, "always_on_top": False,
         }
         if any(old.get(name, default) != self.cfg.get(name, default)
@@ -1238,6 +1247,14 @@ class MainWindow(QMainWindow):
         elif self.worker and self.worker.listener:
             self.worker.listener.prefix_enabled = self.cfg.get("prefix_enabled", False)
             self.worker.listener.prefix = self.cfg.get("wake_prefix", "Jarvis")
+        if self.worker and isinstance(getattr(self.worker, "cfg", None), dict):
+            # These controls are read per audio callback and do not require
+            # restarting the model or interrupting an utterance.
+            self.worker.cfg.update({name: self.cfg.get(name, default) for name, default in (
+                ("listen_mode", "always"), ("listen_hotkey", "ctrl+space"),
+                ("command_stop_phrases", "стоп, stop, oprește"),
+                ("wake_prefix", "Jarvis"),
+            )})
         self.mic_status.setText(tr("Настройки сохранены.") + " " + self._provider_status_text())
         self._on_audio_state(self._audio_event, self._audio_details)
         return True
@@ -1383,7 +1400,15 @@ class MainWindow(QMainWindow):
         accent = theme_colors(theme, self.cfg.get("ui_accent", "#3978f6"), background)["accent"]
         app = QApplication.instance()
         if app is not None:
-            styles = build_styles(theme, accent, background)
+            font_file = BASE / "luxai" / "assets" / "fonts" / "Onest.ttf"
+            if not app.property("luxaiOnestRegistered") and font_file.is_file():
+                app.setProperty("luxaiOnestRegistered", QFontDatabase.addApplicationFont(str(font_file)) >= 0)
+            preference = self.cfg.get("ui_font_family", "Onest")
+            preference = preference if preference in ("Onest", "Arial", "system") else "Onest"
+            family = "Segoe UI" if preference == "system" else preference
+            if app.font().family() != family:
+                app.setFont(QFont(family, 10))
+            styles = build_styles(theme, accent, background, font_family=preference)
             if app.styleSheet() != styles:
                 app.setStyleSheet(styles)
         refresh_icons(self, theme, accent)
@@ -1826,6 +1851,9 @@ class MainWindow(QMainWindow):
         # speaking. Dictation retains its own existing stop behavior.
         if is_hallucinated_outro(text):
             return
+        if not self.dictation_active and self._handle_mode_control(text):
+            self.append_message("Tu (voce)", text.strip(), "#79a6ff")
+            return
         if not self.dictation_active and is_stop_speech_command(text):
             self.append_message("Tu (voce)", text.strip(), "#79a6ff")
             self.stop_speaking()
@@ -1883,6 +1911,66 @@ class MainWindow(QMainWindow):
                 return
         self.mic_status.setText("Команда распознана — выполняю…" if self.cfg.get("language") == "ru" else "Comandă vocală recunoscută — procesez…")
         self.run_command(spoken)
+
+    def _handle_mode_control(self, text):
+        """Recognize whole configured phrases before wake-word filtering."""
+        control = mode_control(text, self.cfg)
+        if control is None:
+            return False
+        if control == "stop":
+            self.stop_command_chain()
+        elif control == "prefix":
+            self.sync_prefix(True)
+            self.mic_status.setText(tr("Режим префикса включён."))
+        elif control == "quiet":
+            self.sync_quiet(True)
+            self.stop_speaking()
+            if hasattr(self, "home_quiet"):
+                self.home_quiet.blockSignals(True)
+                self.home_quiet.setChecked(True)
+                self.home_quiet.blockSignals(False)
+            self.mic_status.setText(tr("Тихий режим включён."))
+        elif control == "microphone_off":
+            self.mic.blockSignals(True)
+            self.mic.setChecked(False)
+            self.mic.blockSignals(False)
+            self.toggle_mic(False)
+        return True
+
+    def stop_command_chain(self):
+        """Discard remaining steps and cooperatively cancel active workers."""
+        had_commands = bool(self._command_queue or self._processing
+                            or self.pending_confirmation_dialog
+                            or getattr(self, "_attachment_active", None)
+                            or self.command_wizard.active)
+        pending = getattr(self, "_pending_agent_task", None)
+        runtime = getattr(self, "_adaptive_runtime", None) or (pending or {}).get("runtime")
+        if runtime:
+            runtime.cancel_event.set()
+        self._adaptive_token = None
+        self._adaptive_runtime = None
+        self._pending_agent_task = None
+        self._pending_discord_message = None
+        self._macro_context = None
+        self._pending_screen_click = None
+        self._attachment_token += 1
+        self._attachment_active = None
+        if hasattr(self, "cancel_attachment"):
+            self.cancel_attachment.hide()
+        self._command_generation = getattr(self, "_command_generation", 0) + 1
+        self._command_queue.clear()
+        self._processing = False
+        self._active_text = None
+        self._current_route = ""
+        dialog = self.pending_confirmation_dialog
+        if dialog is not None:
+            self.pending_confirmation_result = False
+            dialog.done(0)
+        if self.command_wizard.active:
+            self.command_wizard.cancel()
+        self.stop_speaking()
+        if had_commands:
+            self.mic_status.setText(tr("Цепочка команд остановлена."))
 
     def _parse_confirmation(self, text):
         t = text.lower().strip()
@@ -1995,12 +2083,15 @@ class MainWindow(QMainWindow):
         text = str(text or "").strip()
         if not text:
             return
+        if not self.dictation_active and mode_control(text, self.cfg) == "stop":
+            self.stop_command_chain()
+            return
         from luxai.task_intents import is_task_cancel
         if is_task_cancel(text) and getattr(self, "_attachment_active", None):
             self._attachment_token += 1
             self._attachment_active = None
             self.cancel_attachment.hide()
-            self._resolved_command(text, tr("Обработка файлов отменена."))
+            self._resolved_command(self._active_text or text, tr("Обработка файлов отменена."))
             return
         if getattr(self, "_pending_discord_message", None) is not None:
             self._continue_discord_message(text)
@@ -2073,10 +2164,11 @@ class MainWindow(QMainWindow):
                 "и затем", "потом", "и", "and then", "then", "and", "și apoi", "si apoi", "apoi", "și", "si",
             ]))
             prefix = self.cfg.get("wake_prefix", "Jarvis")
-            if self.command_registry.chain_blocked(text, prefix, chain_words):
+            matching = self._command_match_options()
+            if self.command_registry.chain_blocked(text, prefix, chain_words, **matching):
                 self.append_message("Jarvis", tr("Для этой команды отключена связка с другими командами."), "#a5b9dc")
                 return
-            saved_chain = self.command_registry.match_chain(text, prefix, chain_words)
+            saved_chain = self.command_registry.match_chain(text, prefix, chain_words, **matching)
             if len(saved_chain) == 1:
                 # Preserve a complete saved phrase containing conjunctions,
                 # while retaining dedicated native/verified routing priority.
@@ -2556,6 +2648,7 @@ class MainWindow(QMainWindow):
             return
         text = current["parts"].pop(0)
         self._active_text = text
+        self._command_generation = getattr(self, "_command_generation", 0) + 1
         self._processing = True
         self.mic_status.setText({"ru": "Обрабатываю запрос…", "ro": "Procesez cererea…", "en": "Processing the request…"}[reply_language(self.cfg, text)])
         try:
@@ -2597,12 +2690,12 @@ class MainWindow(QMainWindow):
                     self._run_saved_steps(text, plan["steps"])
                 return
             prefix = self.cfg.get("wake_prefix", "Jarvis")
-            if self.command_registry.disabled_match(text, prefix):
+            if self.command_registry.disabled_match(text, prefix, **self._command_match_options()):
                 self._current_route = "выключенная команда"
                 self._resolved_command(text, tr("Эта команда отключена в библиотеке команд."))
                 return
 
-            saved = self.command_registry.match(text, prefix)
+            saved = self.command_registry.match(text, prefix, **self._command_match_options())
             from luxai.macro_planner import is_discord_message_request, discord_message_details
             from luxai.visual_reasoner import is_visual_goal
             feedback = self._command_queue[0].get("visual_feedback", "")
@@ -2754,7 +2847,7 @@ class MainWindow(QMainWindow):
                     return
                 self.mic_status.setText("Проверяю пользователя Discord…")
                 threading.Thread(
-                    target=self._direct_macro_worker, args=(text,),
+                    target=self._direct_macro_worker, args=(text, self._command_generation),
                     daemon=True, name="JarvisDiscordVerifiedContact",
                 ).start()
                 return
@@ -2792,7 +2885,7 @@ class MainWindow(QMainWindow):
                     return
                 self.mic_status.setText("AI планирует всю последовательность действий…")
                 threading.Thread(
-                    target=self._direct_macro_worker, args=(text,),
+                    target=self._direct_macro_worker, args=(text, self._command_generation),
                     daemon=True, name="JarvisLiveMacroPlanner",
                 ).start()
                 return
@@ -2867,7 +2960,7 @@ class MainWindow(QMainWindow):
                 )
                 history = tuple(dict(msg) for msg in self.agent.history[-4:])
                 threading.Thread(
-                    target=self._online_thread, args=(text, history),
+                    target=self._online_thread, args=(text, history, self._command_generation),
                     daemon=True, name="JarvisCloudFirst",
                 ).start()
                 return
@@ -2901,16 +2994,23 @@ class MainWindow(QMainWindow):
         self._current_route = "сохранённая команда"
         self._resolved_command(text, answer or "Команда не выполнена.")
 
+    def _command_match_options(self):
+        return {
+            "sensitivity": self.cfg.get("recognition_sensitivity", 100),
+            "paraphrases": self.cfg.get("understand_paraphrases", False),
+        }
+
     def _safe_local_fallback(self, text, reason="", saved=None):
         """Safe non-AI execution fallback; never synthesize fake file actions."""
         try:
-            if self.command_registry.disabled_match(text, self.cfg.get("wake_prefix", "Jarvis")):
+            if self.command_registry.disabled_match(text, self.cfg.get("wake_prefix", "Jarvis"), **self._command_match_options()):
                 self._current_route = "выключенная команда"
                 self._resolved_command(text, tr("Эта команда отключена в библиотеке команд."))
                 return
             if saved is None:
                 saved = self.command_registry.match(
                     text, self.cfg.get("wake_prefix", "Jarvis"),
+                    **self._command_match_options(),
                 )
             if saved:
                 self._execute_registered(text, saved)
@@ -2955,6 +3055,12 @@ class MainWindow(QMainWindow):
         self._current_route = "готовая команда"
         self._next_macro_step()
 
+    def _schedule_macro_step(self, milliseconds, context):
+        # Timers from a stopped macro must not advance a later macro that
+        # happens to start before the old delay expires.
+        QTimer.singleShot(milliseconds, lambda: self._next_macro_step()
+                          if getattr(self, "_macro_context", None) is context else None)
+
     def _next_macro_step(self):
         if self._closed or not self._processing:
             return
@@ -2973,7 +3079,7 @@ class MainWindow(QMainWindow):
             milliseconds = count * (60000 if step["action"] == "wait_minutes" else 1000)
             unit = "мин" if step["action"] == "wait_minutes" else "сек"
             self.mic_status.setText(f"Пауза {count} {unit} (шаг {ctx['index']})")
-            QTimer.singleShot(milliseconds, self._next_macro_step)
+            self._schedule_macro_step(milliseconds, ctx)
             return
         if step["action"] == "research_notepad_facts":
             self.mic_status.setText("Получаю три факта из Википедии и проверяю Блокнот…")
@@ -3045,7 +3151,7 @@ class MainWindow(QMainWindow):
             self.mic_status.setText("Discord: проверяю пользователя и готовлю черновик…")
             threading.Thread(
                 target=self._discord_draft_worker,
-                args=(dict(step), ctx["index"]),
+                args=(dict(step), ctx["index"], ctx),
                 daemon=True, name="JarvisDiscordUserTextDraft",
             ).start()
             return
@@ -3075,7 +3181,7 @@ class MainWindow(QMainWindow):
             self.mic_status.setText(f"Ищу информацию и чат Discord @{username}…")
             threading.Thread(
                 target=self._discord_draft_worker,
-                args=(dict(step), ctx["index"]),
+                args=(dict(step), ctx["index"], ctx),
                 daemon=True, name="JarvisDiscordResearch",
             ).start()
             return
@@ -3121,7 +3227,7 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(
                 350, lambda: threading.Thread(
                     target=self._visual_worker,
-                    args=(dict(step), ctx["index"], hwnd),
+                    args=(dict(step), ctx["index"], hwnd, ctx),
                     daemon=True, name="JarvisVisualLocator",
                 ).start()
             )
@@ -3153,7 +3259,7 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(
                 300, lambda: threading.Thread(
                     target=self._macro_worker,
-                    args=(dict(step), ctx["index"]),
+                    args=(dict(step), ctx["index"], ctx),
                     daemon=True, name="JarvisCloseWindow",
                 ).start()
             )
@@ -3168,7 +3274,7 @@ class MainWindow(QMainWindow):
                 return
             threading.Thread(
                 target=self._macro_worker,
-                args=(dict(step), ctx["index"]),
+                args=(dict(step), ctx["index"], ctx),
                 daemon=True, name="JarvisRecycleBin",
             ).start()
             return
@@ -3182,13 +3288,13 @@ class MainWindow(QMainWindow):
             self.tray_icon.show()
             self.hide()
             ctx["messages"].append("Jarvis свёрнут в системный трей.")
-            QTimer.singleShot(0, self._next_macro_step)
+            self._schedule_macro_step(0, ctx)
             return
         if step["action"] in {
             "display_info", "mouse_move", "mouse_right_click", "mouse_click",
         }:
             threading.Thread(
-                target=self._macro_worker, args=(dict(step), ctx["index"]),
+                target=self._macro_worker, args=(dict(step), ctx["index"], ctx),
                 daemon=True, name="JarvisLocalMouseStep",
             ).start()
             return
@@ -3214,7 +3320,7 @@ class MainWindow(QMainWindow):
             self.mic_status.setText(f"Выполняется шаг {ctx['index']}: {title}")
             threading.Thread(
                 target=self._macro_worker,
-                args=(dict(step), ctx["index"]),
+                args=(dict(step), ctx["index"], ctx),
                 daemon=True,
                 name="JarvisManualAction",
             ).start()
@@ -3248,7 +3354,7 @@ class MainWindow(QMainWindow):
             self._resolved_command(ctx["text"], output)
             return
         # Schedule instead of recursion so UI remains responsive.
-        QTimer.singleShot(0, self._next_macro_step)
+        self._schedule_macro_step(0, ctx)
 
     def _finish_visual_macro(self):
         ctx = getattr(self, "_macro_context", None)
@@ -3259,6 +3365,8 @@ class MainWindow(QMainWindow):
         self._resolved_command(ctx["text"], output)
 
     def _research_notepad_worker(self, topic, index, context):
+        if self._closed or self._macro_context is not context:
+            return
         try:
             from luxai.research_notepad import write_researched_facts_to_notepad
             result = write_researched_facts_to_notepad(
@@ -3269,14 +3377,16 @@ class MainWindow(QMainWindow):
             result, error = None, f"{type(exc).__name__}: {str(exc)[:170]}"
         except Exception:
             result, error = None, "Не получилось подтвердить факты или окно Блокнота."
-        if not self._closed:
+        if not self._closed and self._macro_context is context:
             try:
-                self.research_notepad_ready.emit(index, result, error)
+                self.research_notepad_ready.emit(index, result, error, context)
             except RuntimeError:
                 pass
 
-    def _on_research_notepad_ready(self, index, result, error):
+    def _on_research_notepad_ready(self, index, result, error, context=None):
         ctx = getattr(self, "_macro_context", None)
+        if context is not None and context is not ctx:
+            return
         if (self._closed or ctx is None or not self._processing
                 or ctx["index"] != index):
             return
@@ -3287,9 +3397,11 @@ class MainWindow(QMainWindow):
             self._finish_visual_macro()
             return
         ctx["messages"].append(result)
-        QTimer.singleShot(0, self._next_macro_step)
+        self._schedule_macro_step(0, ctx)
 
     def _discord_open_worker(self, username, index, context):
+        if self._closed or self._macro_context is not context:
+            return
         try:
             from luxai.discord_navigation import open_discord_contact
             result = open_discord_contact(
@@ -3303,14 +3415,16 @@ class MainWindow(QMainWindow):
             result, error = None, f"{type(exc).__name__}: {str(exc)[:180]}"
         except Exception:
             result, error = None, "Не получилось подтвердить открытие чата Discord."
-        if not self._closed:
+        if not self._closed and self._macro_context is context:
             try:
-                self.discord_open_ready.emit(index, result, error)
+                self.discord_open_ready.emit(index, result, error, context)
             except RuntimeError:
                 pass
 
-    def _on_discord_open_ready(self, index, result, error):
+    def _on_discord_open_ready(self, index, result, error, context=None):
         ctx = getattr(self, "_macro_context", None)
+        if context is not None and context is not ctx:
+            return
         if (self._closed or ctx is None or not self._processing
                 or ctx["index"] != index):
             return
@@ -3321,9 +3435,11 @@ class MainWindow(QMainWindow):
             self._finish_visual_macro()
             return
         ctx["messages"].append(result)
-        QTimer.singleShot(0, self._next_macro_step)
+        self._schedule_macro_step(0, ctx)
 
     def _discord_review_worker(self, username, index, context):
+        if self._closed or self._macro_context is not context:
+            return
         try:
             result = run_discord_screen_review(
                 self.online_planner, username,
@@ -3341,14 +3457,16 @@ class MainWindow(QMainWindow):
                 error = f"{type(exc).__name__}: {str(exc)[:170]}"
         except Exception:
             result, error = None, "Не удалось безопасно исследовать окно Discord."
-        if not self._closed:
+        if not self._closed and self._macro_context is context:
             try:
-                self.discord_review_ready.emit(index, result, error)
+                self.discord_review_ready.emit(index, result, error, context)
             except RuntimeError:
                 pass
 
-    def _on_discord_review_ready(self, index, result, error):
+    def _on_discord_review_ready(self, index, result, error, context=None):
         ctx = getattr(self, "_macro_context", None)
+        if context is not None and context is not ctx:
+            return
         if self._closed or ctx is None or not self._processing or ctx["index"] != index:
             return
         if result is None or error:
@@ -3359,7 +3477,7 @@ class MainWindow(QMainWindow):
             self._finish_visual_macro()
             return
         ctx["messages"].append(result)
-        QTimer.singleShot(0, self._next_macro_step)
+        self._schedule_macro_step(0, ctx)
 
     def _confirm_discord_contact_in_ui(self, spoken, displayed, context):
         """Ask the GUI thread before clicking a visually similar contact.
@@ -3401,9 +3519,11 @@ class MainWindow(QMainWindow):
         finally:
             response["event"].set()
 
-    def _discord_draft_worker(self, step, index):
+    def _discord_draft_worker(self, step, index, context=None):
+        context = context or getattr(self, "_macro_context", None)
+        if self._closed or context is None or self._macro_context is not context:
+            return
         try:
-            context = getattr(self, "_macro_context", None)
             if step["action"] == "discord_send_text":
                 from luxai.discord_research import validate_discord_text_target
                 person, message = validate_discord_text_target(step["target"])
@@ -3436,14 +3556,16 @@ class MainWindow(QMainWindow):
                 error = str(exc)[:220]
         except Exception:
             draft, error = None, "Не удалось подготовить сообщение в Discord."
-        if not self._closed:
+        if not self._closed and self._macro_context is context:
             try:
-                self.discord_draft_ready.emit(index, draft, error)
+                self.discord_draft_ready.emit(index, draft, error, context)
             except RuntimeError:
                 pass
 
-    def _on_discord_draft_ready(self, index, draft, error):
+    def _on_discord_draft_ready(self, index, draft, error, context=None):
         ctx = getattr(self, "_macro_context", None)
+        if context is not None and context is not ctx:
+            return
         if self._closed or ctx is None or not self._processing or ctx["index"] != index:
             return
         if draft is None:
@@ -3480,6 +3602,8 @@ class MainWindow(QMainWindow):
         ).start()
 
     def _discord_send_worker(self, draft, index, context):
+        if self._closed or self._macro_context is not context:
+            return
         try:
             result = submit_discord_draft(
                 draft, self.online_planner,
@@ -3499,14 +3623,16 @@ class MainWindow(QMainWindow):
                 error = f"{type(exc).__name__}: {str(exc)[:160]}"
         except Exception:
             result, error = None, "Не удалось безопасно проверить отправку Discord."
-        if not self._closed:
+        if not self._closed and self._macro_context is context:
             try:
-                self.discord_send_ready.emit(index, result, error)
+                self.discord_send_ready.emit(index, result, error, context)
             except RuntimeError:
                 pass
 
-    def _on_discord_send_ready(self, index, result, error):
+    def _on_discord_send_ready(self, index, result, error, context=None):
         ctx = getattr(self, "_macro_context", None)
+        if context is not None and context is not ctx:
+            return
         if self._closed or ctx is None or not self._processing or ctx["index"] != index:
             return
         if result is None or error:
@@ -3516,14 +3642,18 @@ class MainWindow(QMainWindow):
             self._finish_visual_macro()
             return
         ctx["messages"].append(result)
-        QTimer.singleShot(0, self._next_macro_step)
+        self._schedule_macro_step(0, ctx)
 
-    def _visual_worker(self, step, index, hwnd):
+    def _visual_worker(self, step, index, hwnd, context=None):
+        context = context or getattr(self, "_macro_context", None)
+        if self._closed or context is None or self._macro_context is not context:
+            return
         try:
             label, count = parse_click_target(step["target"])
             screenshot = capture_window(hwnd)
             point = find_visual_target(self.online_planner, label, screenshot, precise=True)
-            result = {"capture": screenshot, "point": point, "count": count, "label": label}
+            result = {"capture": screenshot, "point": point, "count": count, "label": label,
+                      "macro_context": context}
             error = ""
         except Exception as exc:
             result = None
@@ -3544,14 +3674,18 @@ class MainWindow(QMainWindow):
                 )
             else:
                 error = f"{type(exc).__name__}: {str(exc)[:180]}"
-        if not self._closed:
+        if not self._closed and self._macro_context is context:
             try:
-                self.visual_step_ready.emit(index, result, error)
+                self.visual_step_ready.emit(index, result, error, context)
             except RuntimeError:
                 pass
 
-    def _on_visual_step_ready(self, index, result, error):
+    def _on_visual_step_ready(self, index, result, error, context=None):
         ctx = getattr(self, "_macro_context", None)
+        if context is not None and context is not ctx:
+            return
+        if result and result.get("macro_context", ctx) is not ctx:
+            return
         if self._closed or not ctx or not self._processing or ctx["index"] != index:
             return
         if result is None or error:
@@ -3572,9 +3706,12 @@ class MainWindow(QMainWindow):
             )
             self._finish_visual_macro()
             return
-        QTimer.singleShot(0, self._next_macro_step)
+        self._schedule_macro_step(0, ctx)
 
-    def _macro_worker(self, step, index):
+    def _macro_worker(self, step, index, context=None):
+        context = context or getattr(self, "_macro_context", None)
+        if self._closed or context is None or self._macro_context is not context:
+            return
         from luxai.desktop_actions import execute_desktop_step
         try:
             output = execute_desktop_step(step)
@@ -3582,14 +3719,16 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             output = str(exc)
             ok = False
-        if not self._closed:
+        if not self._closed and self._macro_context is context:
             try:
-                self.macro_step_ready.emit(index, ok, output)
+                self.macro_step_ready.emit(index, ok, output, context)
             except RuntimeError:
                 pass
 
-    def _on_macro_step_ready(self, index, ok, message):
+    def _on_macro_step_ready(self, index, ok, message, context=None):
         ctx = getattr(self, "_macro_context", None)
+        if context is not None and context is not ctx:
+            return
         if self._closed or not ctx or not self._processing or ctx["index"] != index:
             return
         if message:
@@ -3600,7 +3739,7 @@ class MainWindow(QMainWindow):
             self._macro_context = None
             self._resolved_command(ctx["text"], result)
         else:
-            QTimer.singleShot(0, self._next_macro_step)
+            self._schedule_macro_step(0, ctx)
 
     def _allow_cloud_screenshots(self):
         """Request permission once per run, not for every screenshot."""
@@ -3998,7 +4137,7 @@ class MainWindow(QMainWindow):
         self._current_route = "Discord: визуальное управление"
         self._resolved_command(text, answer)
 
-    def _direct_macro_worker(self, text):
+    def _direct_macro_worker(self, text, generation=None):
         try:
             from luxai.macro_planner import (
                 validate_generated_macro, plan_known_visual_sequence, detect_discord_text_request,
@@ -4057,13 +4196,19 @@ class MainWindow(QMainWindow):
                 error = self.online_planner.last_error if proposal is None else ""
         except Exception:
             proposal, error = None, "Не удалось обработать команду."
-        if not self._closed:
+        if (not self._closed and (generation is None
+                or generation == getattr(self, "_command_generation", 0))):
             try:
-                self.direct_macro_ready.emit(text, proposal, error)
+                if generation is None:
+                    self.direct_macro_ready.emit(text, proposal, error)
+                else:
+                    self.direct_macro_ready.emit(text, proposal, error, generation)
             except RuntimeError:
                 pass
 
-    def _on_direct_macro_ready(self, text, proposal, error):
+    def _on_direct_macro_ready(self, text, proposal, error, generation=None):
+        if generation is not None and generation != getattr(self, "_command_generation", 0):
+            return
         if self._closed or not self._processing or self._active_text != text:
             return
         if proposal is None:
@@ -4097,18 +4242,21 @@ class MainWindow(QMainWindow):
             return
         self._run_saved_steps(text, steps)
 
-    def _online_thread(self, text, history):
+    def _online_thread(self, text, history, generation=None):
         try:
             proposal = self.online_planner.plan(text, history=history)
         except Exception:
             proposal = None
-        if not self._closed:
+        if (not self._closed and (generation is None
+                or generation == getattr(self, "_command_generation", 0))):
             try:
-                self.online_plan_ready.emit(text, proposal)
+                self.online_plan_ready.emit(text, proposal, getattr(self, "_command_generation", 0) if generation is None else generation)
             except RuntimeError:
                 pass
 
-    def _on_online_plan(self, text, proposal):
+    def _on_online_plan(self, text, proposal, generation=None):
+        if generation is not None and generation != getattr(self, "_command_generation", 0):
+            return
         if self._closed or not self._processing or text != self._active_text:
             return
         provider = self.cfg.get("online_provider", "openai")
@@ -4168,22 +4316,25 @@ class MainWindow(QMainWindow):
         suffix = f" ({reason})" if reason else ""
         self.mic_status.setText("Локальный ИИ готовит ответ…" + suffix)
         threading.Thread(
-            target=self._local_thread, args=(text,),
+            target=self._local_thread, args=(text, getattr(self, "_command_generation", 0)),
             daemon=True, name="JarvisLocalChat",
         ).start()
 
-    def _local_thread(self, text):
+    def _local_thread(self, text, generation=None):
         try:
             answer = self.agent.handle_chat(text)
         except Exception as exc:
             answer = self._error_message(exc)
-        if not self._closed:
+        if (not self._closed and (generation is None
+                or generation == getattr(self, "_command_generation", 0))):
             try:
-                self.local_reply_ready.emit(text, answer)
+                self.local_reply_ready.emit(text, answer, getattr(self, "_command_generation", 0) if generation is None else generation)
             except RuntimeError:
                 pass
 
-    def _on_local_reply(self, text, answer):
+    def _on_local_reply(self, text, answer, generation=None):
+        if generation is not None and generation != getattr(self, "_command_generation", 0):
+            return
         if not self._closed and self._processing and text == self._active_text:
             self._resolved_command(text, answer)
 
@@ -4207,7 +4358,10 @@ class MainWindow(QMainWindow):
         return f"{prefix}: {exc}"
 
     def _resolved_command(self, text, answer):
-        if not self._command_queue:
+        # A cancelled request can still finish its native/network call. Its
+        # late result must not complete or advance a newly queued request.
+        if (not self._command_queue or not self._processing
+                or text != self._active_text):
             return
         group = self._command_queue[0]
         group["answers"].append(str(answer or ""))
