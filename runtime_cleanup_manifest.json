@@ -1187,6 +1187,10 @@
       "a105f0f9998131dec3f844f089d1eaaac8a193ff12d18970397de6b0c9b4b5fa",
       "c5797dbee880b61ffdc98670f704560b2e813238f47a6778bc20f7f29bbed862",
       "ff5f304b6fe38d05d251e7c1709d389808629d0bab3123514abd30e5a41ddb00"
+    ],
+    "tests/test_home_microphone_visibility.py": [
+      "4ff584c1b67974dfdc8a7e2d682a824b1aaae2b2832f14c138f3ce4d141e1afc",
+      "fcdb8955948b6e2e8f804e08854a1114c9da1726d810c8a0c7c0d7ae38ee4551"
     ]
   }
 }
