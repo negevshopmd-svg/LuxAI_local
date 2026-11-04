@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 from luxai.voices import available_voices
 from luxai.voice_presets import VOICE_PRESETS
 from luxai.ui_i18n import LANGUAGES, get_ui_language, tr, translate_widgets
+from luxai.ui_fonts import PROJECT_FONT, normalize_font_family
 from luxai.icons import icon, set_button_icon, set_label_icon, theme_color
 from luxai.ui_home import ToggleSwitch
 from luxai.ui_preferences import (
@@ -783,8 +784,8 @@ class SettingsPanel(QWidget):
         self.interface_reset.clicked.connect(self._reset_interface)
         panel.itemAt(0).layout().addWidget(self.interface_reset)
         self.font_family = self._combo(
-            [("Onest — как в Luxify", "Onest"), ("Системный", "system"), ("Arial", "Arial")],
-            self.cfg.get("ui_font_family", "Onest"),
+            [("Onest — как в Luxify", "Onest"), ("Системный", "system"), (PROJECT_FONT, PROJECT_FONT)],
+            normalize_font_family(self.cfg.get("ui_font_family", "Onest")),
         )
         panel.addWidget(PreferenceRow("Шрифт программы", "Применяется сразу ко всему интерфейсу.", self.font_family))
         self.theme = self._combo(

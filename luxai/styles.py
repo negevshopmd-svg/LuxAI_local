@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 
 from PySide6.QtCore import QUrl
+from luxai.ui_fonts import font_stack
 
 
 DARK = {
@@ -648,9 +649,7 @@ QPushButton#WindowControl:focus, QPushButton#WindowClose:focus {
 """
     for key, value in p.items():
         css = css.replace("$" + key, value)
-    family = {"Onest": "'Onest', 'Segoe UI', 'Arial'", "Arial": "'Arial'",
-              "system": "'Segoe UI', 'Arial'"}.get(str(font_family), "'Onest', 'Segoe UI', 'Arial'")
-    css = css.replace("$font_family", family)
+    css = css.replace("$font_family", font_stack(font_family))
     css = css.replace("$accent", accent)
     # Qt URLs preserve spaces and Unicode paths on Windows installations.
     arrow_theme = "light" if theme == "light" else "dark"

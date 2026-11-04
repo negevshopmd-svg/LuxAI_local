@@ -1,11 +1,11 @@
 import re
-import sys, os, json, html, urllib.request
+import sys, os, json, html
 import queue
 import threading
 import hashlib
 from pathlib import Path
 from PySide6.QtCore import QEvent, QPoint, Qt, QThread, Signal, QTimer, Slot
-from PySide6.QtGui import QFontDatabase, QFont, QAction
+from PySide6.QtGui import QFont, QAction
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QCheckBox, QLineEdit, QTextEdit, QFileDialog, QMessageBox,
@@ -26,6 +26,7 @@ from luxai.ui_home import HomePage
 from luxai.ui_sidebar import NavigationSidebar
 from luxai.ui_window_chrome import WindowHeader, WindowChrome
 from luxai.styles import build_styles, theme_colors
+from luxai.ui_fonts import normalize_font_family, register_project_fonts
 from luxai.icons import icon, refresh_icons, set_button_icon, set_label_icon
 from luxai.ui_i18n import get_ui_language, set_ui_language, translate_widgets, tr, normalize_language, chat_author, is_user_author
 from luxai.response_language import reply_language
@@ -1408,11 +1409,8 @@ class MainWindow(QMainWindow):
         accent = theme_colors(theme, self.cfg.get("ui_accent", "#3978f6"), background)["accent"]
         app = QApplication.instance()
         if app is not None:
-            font_file = BASE / "luxai" / "assets" / "fonts" / "Onest.ttf"
-            if not app.property("luxaiOnestRegistered") and font_file.is_file():
-                app.setProperty("luxaiOnestRegistered", QFontDatabase.addApplicationFont(str(font_file)) >= 0)
-            preference = self.cfg.get("ui_font_family", "Onest")
-            preference = preference if preference in ("Onest", "Arial", "system") else "Onest"
+            register_project_fonts()
+            preference = normalize_font_family(self.cfg.get("ui_font_family", "Onest"))
             family = "Segoe UI" if preference == "system" else preference
             if app.font().family() != family:
                 app.setFont(QFont(family, 10))
@@ -4577,29 +4575,8 @@ class MainWindow(QMainWindow):
         event.accept()
 
 def load_project_font():
-    """Download Fuzzy Bubbles into the project on first launch and register it in Qt."""
-    font_dir = BASE / "assets" / "fonts"
-    font_dir.mkdir(parents=True, exist_ok=True)
-    fonts = {
-        "FuzzyBubbles-Regular.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/fuzzybubbles/FuzzyBubbles-Regular.ttf",
-        "FuzzyBubbles-Bold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/fuzzybubbles/FuzzyBubbles-Bold.ttf",
-    }
-    loaded = False
-    for filename, url in fonts.items():
-        path = font_dir / filename
-        try:
-            if not path.exists() or path.stat().st_size < 1000:
-                request = urllib.request.Request(url, headers={"User-Agent": "NexoraAI/1.0"})
-                with urllib.request.urlopen(request, timeout=12) as response:
-                    data = response.read()
-                if len(data) < 1000:
-                    raise ValueError("Fișierul fontului descărcat pare invalid.")
-                path.write_bytes(data)
-            if QFontDatabase.addApplicationFont(str(path)) >= 0:
-                loaded = True
-        except Exception as exc:
-            print(f"Nu am putut încărca fontul {filename}: {exc}")
-    return loaded
+    """Register the bundled assets/fonts faces before building the UI."""
+    return register_project_fonts()
 
 def main():
     # Older Windows autostart entries can still invoke main.py directly.
@@ -4617,9 +4594,10 @@ def main():
         except (AttributeError, OSError):
             pass
     app = QApplication(sys.argv)
+    load_project_font()
     app.setWindowIcon(icon("jarvis"))
     app.setStyle("Fusion")
-    app.setFont(QFont("Segoe UI", 10))
+    app.setFont(QFont("Onest", 10))
     app.setStyleSheet(build_styles())
     window = MainWindow()
     window.show()
