@@ -342,6 +342,10 @@ QLabel#ResetWarningIcon {
     background: $selection;
     border-radius: 12px;
 }
+QWidget#ApiKeyControls, QWidget#FishKeyControls, QWidget#FishVoiceControls {
+    background: transparent;
+    border: none;
+}
 QFrame#InterfaceRow {
     background: transparent;
     border: none;

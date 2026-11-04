@@ -5,7 +5,7 @@ from unittest import mock
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QPushButton
+from PySide6.QtWidgets import QApplication, QPushButton, QWidget
 
 from luxai.settings_panel import SettingsPanel
 from luxai.styles import build_styles
@@ -130,6 +130,33 @@ class SettingsDesign038aTests(unittest.TestCase):
         self.assertEqual(panel.api_key_ready_for_save(), "")
         self.assertEqual(panel.collect()["ui_language"], "ru")
         self.assertEqual(saved, [])
+
+    def test_api_key_wrapper_background_matches_settings_card(self):
+        panel, _ = self.panel()
+        wrappers = (
+            panel.api_key_controls,
+            panel.findChild(QWidget, "FishKeyControls"),
+            panel.findChild(QWidget, "FishVoiceControls"),
+        )
+        for wrapper, name in zip(
+                wrappers, ("ApiKeyControls", "FishKeyControls", "FishVoiceControls")):
+            self.assertIsNotNone(wrapper)
+            self.assertEqual(wrapper.objectName(), name)
+        # The general QWidget background is darker than the SettingsCard.
+        # Key fields should retain their own styling, but the layout wrappers
+        # must not paint an opaque rectangle on top of the card.
+        for theme in ("dark", "light"):
+            style = build_styles(theme)
+            panel.setStyleSheet(style)
+            self.app.processEvents()
+            with self.subTest(theme=theme):
+                for name in ("ApiKeyControls", "FishKeyControls", "FishVoiceControls"):
+                    self.assertIn("QWidget#" + name, style)
+                self.assertIn(
+                    "QWidget#ApiKeyControls, QWidget#FishKeyControls, QWidget#FishVoiceControls {\n"
+                    "    background: transparent;\n    border: none;\n}",
+                    style,
+                )
 
     def test_responsive_rows_keep_real_controls_inside_card_after_resize(self):
         panel, saved = self.panel()
