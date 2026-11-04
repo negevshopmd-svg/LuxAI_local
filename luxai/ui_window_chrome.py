@@ -10,6 +10,7 @@ class WindowHeader(QWidget):
     def __init__(self, owner, title, microphone, parent=None):
         super().__init__(parent)
         self._owner = owner
+        self.microphone = microphone
         self._drag_offset = None
         self.setObjectName("WindowHeader")
         self.setStyleSheet("QWidget#WindowHeader {background:transparent;}")
@@ -56,6 +57,10 @@ class WindowHeader(QWidget):
 
     def set_leading_width(self, width):
         self.leading.setFixedWidth(max(300, int(width)))
+
+    def set_microphone_visible(self, visible):
+        """Keep the microphone switch in the header only on Home."""
+        self.microphone.setVisible(bool(visible))
 
     def refresh_labels(self):
         self.setAccessibleName(tr("Переместить окно"))
