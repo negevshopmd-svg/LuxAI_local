@@ -78,6 +78,14 @@ BASE = Path(__file__).resolve().parent
 CONFIG = BASE / "config.json"
 
 
+def _command_match_options(config):
+    """Keep exact-match callers unchanged until optional tolerance is chosen."""
+    sensitivity = config.get("recognition_sensitivity", 100)
+    paraphrases = config.get("understand_paraphrases", False)
+    return ({"sensitivity": sensitivity, "paraphrases": paraphrases}
+            if sensitivity != 100 or paraphrases else {})
+
+
 def load_config():
     try:
         return json.loads(CONFIG.read_text(encoding="utf-8"))
@@ -2083,7 +2091,7 @@ class MainWindow(QMainWindow):
         text = str(text or "").strip()
         if not text:
             return
-        if not self.dictation_active and mode_control(text, self.cfg) == "stop":
+        if not self.dictation_active and mode_control(text, getattr(self, "cfg", {})) == "stop":
             self.stop_command_chain()
             return
         from luxai.task_intents import is_task_cancel
@@ -2164,7 +2172,7 @@ class MainWindow(QMainWindow):
                 "и затем", "потом", "и", "and then", "then", "and", "și apoi", "si apoi", "apoi", "și", "si",
             ]))
             prefix = self.cfg.get("wake_prefix", "Jarvis")
-            matching = self._command_match_options()
+            matching = _command_match_options(self.cfg)
             if self.command_registry.chain_blocked(text, prefix, chain_words, **matching):
                 self.append_message("Jarvis", tr("Для этой команды отключена связка с другими командами."), "#a5b9dc")
                 return
@@ -2690,12 +2698,12 @@ class MainWindow(QMainWindow):
                     self._run_saved_steps(text, plan["steps"])
                 return
             prefix = self.cfg.get("wake_prefix", "Jarvis")
-            if self.command_registry.disabled_match(text, prefix, **self._command_match_options()):
+            if self.command_registry.disabled_match(text, prefix, **_command_match_options(self.cfg)):
                 self._current_route = "выключенная команда"
                 self._resolved_command(text, tr("Эта команда отключена в библиотеке команд."))
                 return
 
-            saved = self.command_registry.match(text, prefix, **self._command_match_options())
+            saved = self.command_registry.match(text, prefix, **_command_match_options(self.cfg))
             from luxai.macro_planner import is_discord_message_request, discord_message_details
             from luxai.visual_reasoner import is_visual_goal
             feedback = self._command_queue[0].get("visual_feedback", "")
@@ -2847,7 +2855,8 @@ class MainWindow(QMainWindow):
                     return
                 self.mic_status.setText("Проверяю пользователя Discord…")
                 threading.Thread(
-                    target=self._direct_macro_worker, args=(text, self._command_generation),
+                    target=self._direct_macro_worker, args=(text,),
+                    kwargs={"generation": self._command_generation},
                     daemon=True, name="JarvisDiscordVerifiedContact",
                 ).start()
                 return
@@ -2885,7 +2894,8 @@ class MainWindow(QMainWindow):
                     return
                 self.mic_status.setText("AI планирует всю последовательность действий…")
                 threading.Thread(
-                    target=self._direct_macro_worker, args=(text, self._command_generation),
+                    target=self._direct_macro_worker, args=(text,),
+                    kwargs={"generation": self._command_generation},
                     daemon=True, name="JarvisLiveMacroPlanner",
                 ).start()
                 return
@@ -2960,7 +2970,8 @@ class MainWindow(QMainWindow):
                 )
                 history = tuple(dict(msg) for msg in self.agent.history[-4:])
                 threading.Thread(
-                    target=self._online_thread, args=(text, history, self._command_generation),
+                    target=self._online_thread, args=(text, history),
+                    kwargs={"generation": self._command_generation},
                     daemon=True, name="JarvisCloudFirst",
                 ).start()
                 return
@@ -2994,23 +3005,17 @@ class MainWindow(QMainWindow):
         self._current_route = "сохранённая команда"
         self._resolved_command(text, answer or "Команда не выполнена.")
 
-    def _command_match_options(self):
-        return {
-            "sensitivity": self.cfg.get("recognition_sensitivity", 100),
-            "paraphrases": self.cfg.get("understand_paraphrases", False),
-        }
-
     def _safe_local_fallback(self, text, reason="", saved=None):
         """Safe non-AI execution fallback; never synthesize fake file actions."""
         try:
-            if self.command_registry.disabled_match(text, self.cfg.get("wake_prefix", "Jarvis"), **self._command_match_options()):
+            if self.command_registry.disabled_match(text, self.cfg.get("wake_prefix", "Jarvis"), **_command_match_options(self.cfg)):
                 self._current_route = "выключенная команда"
                 self._resolved_command(text, tr("Эта команда отключена в библиотеке команд."))
                 return
             if saved is None:
                 saved = self.command_registry.match(
                     text, self.cfg.get("wake_prefix", "Jarvis"),
-                    **self._command_match_options(),
+                    **_command_match_options(self.cfg),
                 )
             if saved:
                 self._execute_registered(text, saved)
@@ -3151,7 +3156,7 @@ class MainWindow(QMainWindow):
             self.mic_status.setText("Discord: проверяю пользователя и готовлю черновик…")
             threading.Thread(
                 target=self._discord_draft_worker,
-                args=(dict(step), ctx["index"], ctx),
+                args=(dict(step), ctx["index"]), kwargs={"context": ctx},
                 daemon=True, name="JarvisDiscordUserTextDraft",
             ).start()
             return
@@ -3181,7 +3186,7 @@ class MainWindow(QMainWindow):
             self.mic_status.setText(f"Ищу информацию и чат Discord @{username}…")
             threading.Thread(
                 target=self._discord_draft_worker,
-                args=(dict(step), ctx["index"], ctx),
+                args=(dict(step), ctx["index"]), kwargs={"context": ctx},
                 daemon=True, name="JarvisDiscordResearch",
             ).start()
             return
@@ -3227,7 +3232,7 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(
                 350, lambda: threading.Thread(
                     target=self._visual_worker,
-                    args=(dict(step), ctx["index"], hwnd, ctx),
+                    args=(dict(step), ctx["index"], hwnd), kwargs={"context": ctx},
                     daemon=True, name="JarvisVisualLocator",
                 ).start()
             )
@@ -3259,7 +3264,7 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(
                 300, lambda: threading.Thread(
                     target=self._macro_worker,
-                    args=(dict(step), ctx["index"], ctx),
+                    args=(dict(step), ctx["index"]), kwargs={"context": ctx},
                     daemon=True, name="JarvisCloseWindow",
                 ).start()
             )
@@ -3274,7 +3279,7 @@ class MainWindow(QMainWindow):
                 return
             threading.Thread(
                 target=self._macro_worker,
-                args=(dict(step), ctx["index"], ctx),
+                args=(dict(step), ctx["index"]), kwargs={"context": ctx},
                 daemon=True, name="JarvisRecycleBin",
             ).start()
             return
@@ -3294,7 +3299,7 @@ class MainWindow(QMainWindow):
             "display_info", "mouse_move", "mouse_right_click", "mouse_click",
         }:
             threading.Thread(
-                target=self._macro_worker, args=(dict(step), ctx["index"], ctx),
+                target=self._macro_worker, args=(dict(step), ctx["index"]), kwargs={"context": ctx},
                 daemon=True, name="JarvisLocalMouseStep",
             ).start()
             return
@@ -3320,7 +3325,7 @@ class MainWindow(QMainWindow):
             self.mic_status.setText(f"Выполняется шаг {ctx['index']}: {title}")
             threading.Thread(
                 target=self._macro_worker,
-                args=(dict(step), ctx["index"], ctx),
+                args=(dict(step), ctx["index"]), kwargs={"context": ctx},
                 daemon=True,
                 name="JarvisManualAction",
             ).start()
@@ -4316,7 +4321,8 @@ class MainWindow(QMainWindow):
         suffix = f" ({reason})" if reason else ""
         self.mic_status.setText("Локальный ИИ готовит ответ…" + suffix)
         threading.Thread(
-            target=self._local_thread, args=(text, getattr(self, "_command_generation", 0)),
+            target=self._local_thread, args=(text,),
+            kwargs={"generation": getattr(self, "_command_generation", 0)},
             daemon=True, name="JarvisLocalChat",
         ).start()
 
