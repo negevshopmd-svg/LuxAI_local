@@ -55,7 +55,7 @@ class VersionLabel(QLabel):
         # A local declaration wins over inherited native/stylesheet fonts.
         # Color still comes from the shared dark/light SidebarVersion rule.
         style = (
-            f"font-family:'Segoe UI','Arial'; font-size:{pixels}px; "
+            f"font-family:'Segoe UI','Onest'; font-size:{pixels}px; "
             "font-weight:400; letter-spacing:0px; padding:0;"
         )
         if self.styleSheet() != style:
