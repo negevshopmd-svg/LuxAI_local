@@ -79,7 +79,7 @@ CONFIG = BASE / "config.json"
 
 
 def _command_match_options(config):
-    """Keep exact-match callers unchanged until optional tolerance is chosen."""
+    """Forward nondefault recognition preferences without redundant arguments."""
     sensitivity = config.get("recognition_sensitivity", 100)
     paraphrases = config.get("understand_paraphrases", False)
     return ({"sensitivity": sensitivity, "paraphrases": paraphrases}
