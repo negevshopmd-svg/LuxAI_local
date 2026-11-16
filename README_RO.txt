@@ -1,4 +1,10 @@
-LUXAI LOCAL 0.3.9g — ACTUALIZARE 2026-11-04
+LUXAI LOCAL 0.4.0 — ACTUALIZARE 2026-11-16
+
+0.4.0: buton nou „Расширения / Extensii” în bara din stânga. Pagina are
+22 de pluginuri pe 5 teme, căutare, vizualizare Plăci/Listă și setări pentru
+fiecare plugin. Funcționează deja: Citire cu voce, Istoric clipboard,
+Inserții rapide, Pauze, Taste media, Convertor imagini, Capturi de ecran și
+Curățenie în Descărcări. Celelalte sunt marcate „Скоро” (în curând).
 
 0.3.9g: setări inspirate din Luxify, cu rânduri compacte și comutatoare.
 În Intrare vocală poți alege ascultare continuă sau o tastă ținută apăsată

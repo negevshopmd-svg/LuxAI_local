@@ -399,6 +399,7 @@ class MainWindow(QMainWindow):
         self.build_addons()
         self.build_chat()
         self.build_settings()
+        self.build_extensions()
         self.home_page.detach_avatar(content)
         # Sample actual playback on the avatar's UI timer. Synthesis/downloads
         # and silent startup preparation must not look like audible speech.
@@ -660,6 +661,47 @@ class MainWindow(QMainWindow):
         from shiboken6 import isValid
         if not self._closed and isValid(editor) and editor.isVisible():
             editor.apply_ai_result(plan, error)
+
+    def build_extensions(self):
+        """0.4.0 Extensions page (stack index 5) and its plugin runtime."""
+        from luxai.extensions_catalog import normalize_state
+        from luxai.extensions_runtime import ExtensionsRuntime
+        from luxai.ui_extensions import ExtensionsPage
+        state = normalize_state(self.cfg.get("extensions"))
+        self.extensions_runtime = ExtensionsRuntime(self, self)
+        self.extensions_runtime.notice.connect(
+            lambda message: self.append_message("Jarvis", message, "#a5b9dc"))
+        self.extensions_page = ExtensionsPage(state, self.extensions_runtime)
+        self.extensions_page.state_changed.connect(self._save_extensions)
+        self.pages.addWidget(self.extensions_page)
+        self.extensions_runtime.apply(state)
+        QTimer.singleShot(800, self._refresh_extension_errors)
+
+    def _save_extensions(self, state):
+        """Persist only the extensions key; unrelated settings drafts stay untouched."""
+        previous = self.cfg.get("extensions")
+        self.cfg["extensions"] = state
+        try:
+            save_config(self.cfg)
+        except OSError:
+            if previous is None:
+                self.cfg.pop("extensions", None)
+            else:
+                self.cfg["extensions"] = previous
+            self.append_message("Jarvis", tr("Ошибка сохранения config.json."), "#a5b9dc")
+            return
+        self.extensions_runtime.apply(state)
+        QTimer.singleShot(800, self._refresh_extension_errors)
+
+    def save_extensions_meta(self):
+        try:
+            save_config(self.cfg)
+        except OSError:
+            pass
+
+    def _refresh_extension_errors(self):
+        if not self._closed and hasattr(self, "extensions_page"):
+            self.extensions_page.set_hotkey_errors(self.extensions_runtime.errors)
 
     def build_addons(self):
         page = QWidget()
@@ -945,6 +987,8 @@ class MainWindow(QMainWindow):
         if hasattr(self, "attachment_tray"):
             self.attachment_tray.set_language(language)
         self.settings_panel.retranslate(language)
+        if hasattr(self, "extensions_page"):
+            self.extensions_page.set_language(language)
         self._refresh_history_colors()
         self._update_cloud_indicator()
         self._render_local_ai_status()
@@ -963,7 +1007,7 @@ class MainWindow(QMainWindow):
         self.window_header.set_microphone_visible(
             self.pages.currentWidget() is self.home_page
         )
-        titles = ["Главная", "Команды", "Дополнения", "Jarvis AI", "Настройки"]
+        titles = ["Главная", "Команды", "Дополнения", "Jarvis AI", "Настройки", "Расширения"]
         self.header_title.setText("Jarvis   |   " + tr(titles[index]))
         self.sidebar.set_active(index)
         self._update_home_backdrop()
@@ -1433,6 +1477,8 @@ class MainWindow(QMainWindow):
             max(0.65, 1.0 - float(self.cfg.get("ui_transparency", 0)) / 100)
         )
         self.home_page.set_theme(theme, accent, background)
+        if hasattr(self, "extensions_page"):
+            self.extensions_page.set_theme(theme, accent, background)
         self.setWindowIcon(icon("jarvis", color=accent))
         if self.tray_icon:
             self.tray_icon.setIcon(icon("jarvis", color=accent))
@@ -4556,6 +4602,8 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_trigger_timer"):
             self._trigger_timer.stop()
             self._hotkey_listener.stop()
+        if getattr(self, "extensions_runtime", None) is not None:
+            self.extensions_runtime.stop()
         if getattr(self, "_adaptive_runtime", None):
             self._adaptive_runtime.cancel_event.set()
         self.stop_speaking()
