@@ -1,3 +1,10 @@
+## 0.4.1d — Converter like Luxify (2026-11-16)
+
+- **Конвертер** now works through a circle at the cursor: select files in Explorer or on the desktop (or copy a picture) and press Ctrl+Alt+X; choose with the mouse, arrow keys or digits. Optional "screen area" key: draw a region and get the circle for that snapshot. "Choose files…" works from the settings page too.
+- Images (Pillow): format (PNG/JPG/WebP/ICO/BMP), compress, downsize (75/50/25 %, 1920/1280 px), rotate/mirror, crop (drag a box), strip metadata, to PDF (several pages), to clipboard. Audio: MP3, M4A, WAV, FLAC, OGG (Opus), OPUS. Video: to MP4 (H.264+AAC), compress, to GIF, audio to MP3, no sound — all via the FFmpeg already bundled in PyAV, nothing to download.
+- Results get new names next to the file or in a chosen folder; originals are never changed. Work runs in the background with a progress pill and a "Done" notification.
+- Settings follow Luxify: Основные (with note), Клавиши, Результат, Сектора круга (two-column switch grid), Компонент для видео, Оформление; the right-hand navigation now scrolls.
+
 ## 0.4.1c — Timers and alarms (2026-11-16)
 
 - **Таймеры и будильники** now work by voice or typed chat in RU/RO/EN: «поставь таймер на 10 минут», «таймер на полтора часа», «напомни через 20 минут выключить плиту», «разбуди в 7:30», «будильник на 7 утра», «сколько осталось», «отмени таймер», «отмени все будильники»; "set a timer for 5 minutes", "wake me up at 6 am"; «pune un cronometru de 10 minute», «trezește-mă la 7:30».

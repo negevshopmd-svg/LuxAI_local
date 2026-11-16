@@ -532,6 +532,8 @@ class ExtensionsRuntime(QObject):
     dictation_done = Signal(str)  # last dictated text, for the settings page
     pc_status_changed = Signal(str, dict)  # state, details (bot name, error)
     timers_changed = Signal()
+    convert_progress = Signal(float)
+    convert_done = Signal(list, list)  # results, errors
     _pc_update = Signal(dict)
     _pc_status = Signal(str, dict)
 
@@ -584,6 +586,10 @@ class ExtensionsRuntime(QObject):
         self._timer_tick.setInterval(1000)
         self._timer_tick.timeout.connect(self._check_timers)
         self._ringing: list = []  # (timer, dialog)
+        self._converting = False
+        self._convert_overlay = None
+        self.convert_progress.connect(self._on_convert_progress)
+        self.convert_done.connect(self._on_convert_done)
         self._ring_until = 0.0
         self._ring_beeper = QTimer(self)
         self._ring_beeper.setInterval(1400)
@@ -718,6 +724,11 @@ class ExtensionsRuntime(QObject):
             press_virtual_key(MEDIA_KEYS[key])
         elif plugin_id == "screenshots":
             self.take_screenshot(window=(key == "window_hotkey"))
+        elif plugin_id == "converter":
+            if key == "region_hotkey":
+                self.start_region_convert()
+            else:
+                self.start_convert_circle()
 
     # -- dialog actions --
     def run_action(self, plugin_id: str, action: str, parent=None, settings: dict | None = None):
@@ -736,7 +747,7 @@ class ExtensionsRuntime(QObject):
             ("smart_dictation", "copy_last"): self.copy_last_dictation,
             ("pc_control", "check"): self.check_pc_connection,
             ("pc_control", "open"): self.open_bot,
-            ("converter", "convert"): lambda: self.convert_dialog(parent),
+            ("converter", "convert"): lambda: self.choose_files_to_convert(parent),
             ("screenshots", "capture"): lambda: QTimer.singleShot(350, self.take_screenshot),
             ("screenshots", "open_folder"): self.open_screenshots_folder,
             ("downloads_cleanup", "preview"): lambda: self.cleanup_dialog(parent, execute=False),
@@ -1227,6 +1238,266 @@ class ExtensionsRuntime(QObject):
         body = (head + ("\n" + result[:3500] if result else "")).strip()
         self._bot_send("sendMessage", {"chat_id": chat, "text": body})
 
+    # -- converter circle --
+    def _cw(self, key, **values):
+        words = {
+            "nothing": ("Выделите файлы в Проводнике или на рабочем столе, или скопируйте картинку.",
+                        "Select files in Explorer or on the desktop, or copy a picture.",
+                        "Selectează fișiere în Explorer sau pe desktop, ori copiază o imagine."),
+            "unsupported": ("Эти файлы не поддерживаются: нужны картинки, звук или видео.",
+                            "These files are not supported: images, audio or video are needed.",
+                            "Fișierele nu sunt acceptate: e nevoie de imagini, sunet sau video."),
+            "busy": ("Конвертер ещё работает.", "The converter is still working.", "Convertorul încă lucrează."),
+            "working": ("Конвертирую… {p}%", "Converting… {p}%", "Convertesc… {p}%"),
+            "done": ("Готово: {names}", "Done: {names}", "Gata: {names}"),
+            "errors": ("Не получилось: {names}", "Failed: {names}", "Nu a reușit: {names}"),
+            "copied": ("Картинка скопирована в буфер обмена.", "Picture copied to the clipboard.", "Imaginea a fost copiată în clipboard."),
+            "files": ("{n} файл(ов)", "{n} file(s)", "{n} fișier(e)"),
+            "area": ("Обведите область — Esc для отмены", "Draw an area — Esc to cancel", "Încadrează o zonă — Esc pentru anulare"),
+            "crop_title": ("Обрезать", "Crop", "Decupează"),
+            "crop_ok": ("Обрезать", "Crop", "Decupează"),
+            "cancel": ("Отмена", "Cancel", "Anulează"),
+            "back": ("Назад", "Back", "Înapoi"),
+        }[key]
+        return _tr3(*words, self.language).format(**values)
+
+    def _convert_out_dir(self, *, forced: bool = False):
+        settings = self.settings("converter")
+        if settings.get("destination") == "folder" or forced:
+            configured = settings.get("folder", "")
+            if configured:
+                return Path(os.path.expandvars(os.path.expanduser(configured)))
+            return downloads_folder() / "Jarvis Converted"
+        return None
+
+    def _circle_theme(self):
+        choice = self.settings("converter").get("circle_theme", "app")
+        cfg = getattr(self.host, "cfg", {}) or {}
+        theme = cfg.get("ui_theme", "dark") if choice == "app" else choice
+        return ("light" if theme == "light" else "dark"), cfg.get("ui_accent", "#3978f6")
+
+    def start_convert_circle(self):
+        """Read the Explorer/desktop selection (or a copied picture), then show the circle."""
+        if self._converting:
+            self._notify(self._cw("busy"))
+            return
+        from luxai.dictation import wait_for_modifiers_released
+        hwnd = int(ctypes.windll.user32.GetForegroundWindow() or 0) if sys.platform == "win32" else 0
+        name = ""
+        if hwnd:
+            buffer = ctypes.create_unicode_buffer(64)
+            ctypes.windll.user32.GetClassNameW(hwnd, buffer, 64)
+            name = buffer.value
+        clipboard = QApplication.clipboard()
+        if name in ("CabinetWClass", "ExploreWClass", "Progman", "WorkerW"):
+            from luxai.selection import capture_clipboard, clipboard_sequence, restore_clipboard
+            saved = capture_clipboard(clipboard)
+            before = clipboard_sequence()
+            wait_for_modifiers_released()
+            try:
+                import pyautogui
+                pyautogui.hotkey("ctrl", "c", interval=0.05)
+            except Exception:
+                pass
+
+            def after_copy():
+                changed = clipboard_sequence() != before
+                sources = self._clipboard_sources(clipboard)
+                if changed and saved is not None:
+                    self._ignore_clipboard_text = clipboard.text() or None
+                    restore_clipboard(clipboard, saved)
+                self._show_convert_circle(sources)
+
+            QTimer.singleShot(350, after_copy)
+            return
+        self._show_convert_circle(self._clipboard_sources(clipboard))
+
+    def _clipboard_sources(self, clipboard):
+        data = clipboard.mimeData()
+        if data is not None and data.hasUrls():
+            paths = [Path(url.toLocalFile()) for url in data.urls() if url.isLocalFile()]
+            return [path for path in paths if path.is_file()][:200]
+        image = clipboard.image()
+        if not image.isNull():
+            folder = self._convert_out_dir(forced=True)
+            folder.mkdir(parents=True, exist_ok=True)
+            target = unique_path(folder / _dt.datetime.now().strftime("Картинка %Y-%m-%d %H-%M-%S.png"))
+            if image.save(str(target), "PNG"):
+                return [target]
+        return []
+
+    def start_region_convert(self):
+        from luxai.ui_convert_circle import RegionSelector
+        selector = RegionSelector(self._cw("area"))
+        selector.selected.connect(self._region_selected)
+        selector.start()
+        self._region_selector = selector
+
+    def _region_selected(self, pixmap):
+        folder = self._convert_out_dir(forced=True)
+        folder.mkdir(parents=True, exist_ok=True)
+        target = unique_path(folder / _dt.datetime.now().strftime("Снимок %Y-%m-%d %H-%M-%S.png"))
+        if pixmap.save(str(target), "PNG"):
+            self._show_convert_circle([target])
+
+    def choose_files_to_convert(self, parent=None):
+        files, _ = QFileDialog.getOpenFileNames(parent, _tr3("Выберите файлы", "Choose files", "Alege fișiere", self.language),
+                                                str(Path.home()))
+        if files:
+            self._show_convert_circle([Path(name) for name in files])
+
+    def convert_sectors(self, kind: str) -> list[tuple[str, str, str]]:
+        settings = self.settings("converter")
+        L3 = lambda ru, en, ro: _tr3(ru, en, ro, self.language)  # noqa: E731
+        catalog = {
+            "image": [("s_format", "format", L3("Формат", "Format", "Format"), "image"),
+                      ("s_compress", "compress", L3("Сжать", "Compress", "Comprimă"), "package"),
+                      ("s_resize", "resize", L3("Уменьшить", "Downsize", "Micșorează"), "minus"),
+                      ("s_rotate", "rotate", L3("Повернуть", "Rotate", "Rotește"), "rotate-cw"),
+                      ("s_crop", "crop", L3("Обрезать", "Crop", "Decupează"), "scan"),
+                      ("s_nometa", "nometa", L3("Без метаданных", "No metadata", "Fără metadate"), "eye-off"),
+                      ("s_pdf", "pdf", L3("В PDF", "To PDF", "În PDF"), "file-text"),
+                      ("s_clipboard", "clipboard", L3("В буфер", "To clipboard", "În clipboard"), "clipboard")],
+            "audio": [(f"s_{fmt}", f"audio:{fmt}", fmt.upper(), "audio-lines")
+                      for fmt in ("mp3", "m4a", "wav", "flac", "ogg", "opus")],
+            "video": [("s_mp4", "video:mp4", L3("В MP4", "To MP4", "În MP4"), "play"),
+                      ("s_vcompress", "video:compress", L3("Сжать видео", "Compress video", "Comprimă video"), "package"),
+                      ("s_gif", "video:gif", L3("В GIF", "To GIF", "În GIF"), "image"),
+                      ("s_tomp3", "audio:mp3", L3("Звук в MP3", "Audio to MP3", "Sunet în MP3"), "audio-lines"),
+                      ("s_mute", "video:mute", L3("Без звука", "No sound", "Fără sunet"), "volume-x")],
+        }[kind]
+        return [(action, label, icon_name) for key, action, label, icon_name in catalog if settings.get(key, True)]
+
+    def _show_convert_circle(self, sources, items=None, title=None):
+        from luxai.converter import kind_of
+        from luxai.ui_convert_circle import RadialMenu
+        if not sources:
+            self._notify(self._cw("nothing"))
+            return
+        kinds = [kind_of(path) for path in sources]
+        kind = next((k for k in ("image", "video", "audio") if k in kinds), "")
+        if not kind:
+            self._notify(self._cw("unsupported"))
+            return
+        sources = [path for path, k in zip(sources, kinds) if k == kind]
+        items = items if items is not None else self.convert_sectors(kind)
+        if not items:
+            return
+        if title is None:
+            title = sources[0].name if len(sources) == 1 else self._cw("files", n=len(sources))
+            if len(title) > 22:
+                title = title[:20] + "…"
+        theme, accent = self._circle_theme()
+        menu = RadialMenu(items, title, theme=theme, accent=accent)
+        menu.picked.connect(lambda action: self._convert_pick(action, sources))
+        menu.show_at()
+        self._circle = menu
+
+    def _convert_pick(self, action, sources):
+        L3 = lambda ru, en, ro: _tr3(ru, en, ro, self.language)  # noqa: E731
+        sub = {
+            "format": [(f"format:{fmt}", fmt.upper(), "image") for fmt in ("png", "jpg", "webp", "ico", "bmp")],
+            "resize": [("resize:75", "75%", "minus"), ("resize:50", "50%", "minus"), ("resize:25", "25%", "minus"),
+                       ("resize:px1920", "1920 px", "monitor"), ("resize:px1280", "1280 px", "monitor")],
+            "rotate": [("rotate:right", L3("90° вправо", "90° right", "90° dreapta"), "rotate-cw"),
+                       ("rotate:left", L3("90° влево", "90° left", "90° stânga"), "rotate-ccw"),
+                       ("rotate:180", "180°", "refresh-cw"),
+                       ("rotate:mirror", L3("Отразить", "Mirror", "Oglindește"), "move")],
+        }
+        if action in sub:
+            self._show_convert_circle(sources, sub[action], title=L3("Выберите", "Choose", "Alege"))
+            return
+        if action == "clipboard":
+            image = QImage(str(sources[0]))
+            if not image.isNull():
+                QApplication.clipboard().setImage(image)
+                self._notify(self._cw("copied"))
+            return
+        if action == "crop":
+            from luxai.ui_convert_circle import CropDialog
+            dialog = CropDialog(sources[0], self._cw("crop_title"), self._cw("crop_ok"), self._cw("cancel"))
+            dialog.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+            if dialog.exec() != QDialog.DialogCode.Accepted or dialog.box is None:
+                return
+            action = "crop:" + ",".join(str(round(value)) for value in dialog.box)
+            sources = sources[:1]
+        self.run_conversion(action, sources)
+
+    def run_conversion(self, action, sources, *, wait: bool = False):
+        """Run one circle action in a worker thread (``wait`` for tests)."""
+        from luxai import converter
+        if self._converting:
+            self._notify(self._cw("busy"))
+            return None
+        quality = int(self.settings("converter").get("quality", 85))
+        out_dir = self._convert_out_dir()
+        self._converting = True
+        if self._convert_overlay is None:
+            self._convert_overlay = DictationOverlay()
+        self._convert_overlay.show_text(self._cw("working", p=0))
+        total = len(sources)
+
+        def work():
+            results, errors = [], []
+            if action == "pdf":
+                try:
+                    results.append(converter.images_to_pdf(sources, out_dir=out_dir))
+                except Exception as error:
+                    errors.append(f"PDF: {error}")
+            else:
+                for index, source in enumerate(sources):
+                    def progress(value, index=index):
+                        self.convert_progress.emit((index + value) / total)
+                    try:
+                        name, _, arg = action.partition(":")
+                        if name == "format":
+                            out = converter.image_format(source, arg, quality=quality, out_dir=out_dir)
+                        elif name == "compress":
+                            out = converter.image_compress(source, quality=quality, out_dir=out_dir)
+                        elif name == "resize":
+                            out = (converter.image_resize(source, max_side=int(arg[2:]), quality=quality, out_dir=out_dir)
+                                   if arg.startswith("px") else
+                                   converter.image_resize(source, percent=int(arg), quality=quality, out_dir=out_dir))
+                        elif name == "rotate":
+                            out = converter.image_rotate(source, arg, quality=quality, out_dir=out_dir)
+                        elif name == "crop":
+                            out = converter.image_crop(source, [float(v) for v in arg.split(",")], quality=quality, out_dir=out_dir)
+                        elif name == "nometa":
+                            out = converter.image_strip_metadata(source, out_dir=out_dir)
+                        elif name == "audio":
+                            tag = "audio" if converter.kind_of(source) == "video" else ""
+                            out = converter.audio_convert(source, arg, out_dir=out_dir, progress=progress, tag=tag)
+                        elif name == "video":
+                            out = converter.video_convert(source, mode=arg, out_dir=out_dir, progress=progress)
+                        else:
+                            raise ValueError(action)
+                        results.append(out)
+                    except Exception as error:
+                        errors.append(f"{Path(source).name}: {error}")
+                    self.convert_progress.emit((index + 1) / total)
+            self.convert_done.emit([str(path) for path in results], errors)
+
+        if wait:
+            work()
+            return True
+        threading.Thread(target=work, daemon=True, name="JarvisConverter").start()
+        return True
+
+    def _on_convert_progress(self, value):
+        if self._converting and self._convert_overlay is not None:
+            self._convert_overlay.show_text(self._cw("working", p=int(value * 100)))
+
+    def _on_convert_done(self, results, errors):
+        self._converting = False
+        if self._convert_overlay is not None:
+            self._convert_overlay.hide()
+        self.last_conversion = (list(results), list(errors))
+        if results:
+            names = ", ".join(Path(path).name for path in results[:3]) + (f" +{len(results) - 3}" if len(results) > 3 else "")
+            self._notify(self._cw("done", names=names))
+        if errors:
+            self._notify(self._cw("errors", names="; ".join(errors[:3])))
+
     # -- timers and alarms --
     @property
     def timer_store(self):
@@ -1604,34 +1875,6 @@ class ExtensionsRuntime(QObject):
         folder.mkdir(parents=True, exist_ok=True)
         if sys.platform == "win32":
             os.startfile(str(folder))  # noqa: S606 - opens our own output folder
-
-    # -- converter --
-    def convert_dialog(self, parent=None):
-        settings = self.settings("converter")
-        files, _ = QFileDialog.getOpenFileNames(
-            parent, _tr3("Выберите картинки", "Choose images", "Alege imagini", self.language), str(Path.home()),
-            "Images (*.png *.jpg *.jpeg *.webp *.bmp *.gif *.tif *.tiff *.ico)")
-        if not files:
-            return []
-        made, errors = [], []
-        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        try:
-            for name in files[:200]:
-                try:
-                    made.append(convert_image(Path(name), settings.get("format", "png"),
-                                              quality=int(settings.get("quality", 85)),
-                                              max_side=int(settings.get("max_side", 0))))
-                except Exception as error:
-                    errors.append(f"{Path(name).name}: {error}")
-        finally:
-            QApplication.restoreOverrideCursor()
-        message = _tr3(f"Готово: {len(made)} файл(ов) рядом с оригиналами.",
-                       f"Done: {len(made)} file(s) next to the originals.",
-                       f"Gata: {len(made)} fișier(e) lângă originale.", self.language)
-        if errors:
-            message += "\n\n" + "\n".join(errors[:10])
-        QMessageBox.information(parent, _tr3("Конвертер", "Converter", "Convertor", self.language), message)
-        return made
 
     # -- downloads cleanup --
     def _cleanup_plan(self):

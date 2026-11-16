@@ -457,20 +457,59 @@ PLUGINS: tuple[Plugin, ...] = (
     Plugin(
         "converter", "files", "images", "#4e9a2f",
         L("Конвертер", "Converter", "Convertor"),
-        L("Переводит картинки в PNG, JPG, WebP, ICO и PDF, сжимает и уменьшает их. "
-          "Оригиналы не трогает — рядом появляются копии.",
-          "Converts images to PNG, JPG, WebP, ICO and PDF, compresses and downsizes them. "
-          "Originals stay untouched — copies appear next to them.",
-          "Convertește imagini în PNG, JPG, WebP, ICO și PDF, le comprimă și le micșorează. "
-          "Originalele rămân neatinse — copiile apar alături."),
+        L("Круг у курсора для выделенных файлов: картинки в PNG, JPG, WebP, ICO и PDF, сжать и уменьшить, "
+          "звук и видео в нужный формат. Оригиналы не трогает.",
+          "A circle at the cursor for selected files: images to PNG, JPG, WebP, ICO and PDF, compress and downsize, "
+          "audio and video to the format you need. Originals stay untouched.",
+          "Un cerc lângă cursor pentru fișierele selectate: imagini în PNG, JPG, WebP, ICO și PDF, comprimare, "
+          "sunet și video în formatul dorit. Originalele rămân neatinse."),
         True,
-        (Setting("format", "choice", L("Формат по умолчанию", "Default format", "Format implicit"), "png",
-                 options=(("png", L("PNG", "PNG", "PNG")), ("jpg", L("JPG", "JPG", "JPG")), ("webp", L("WebP", "WebP", "WebP")),
-                          ("ico", L("ICO", "ICO", "ICO")), ("pdf", L("PDF", "PDF", "PDF")))),
-         Setting("quality", "int", L("Качество JPG / WebP", "JPG / WebP quality", "Calitate JPG / WebP"), 85, minimum=30, maximum=100, suffix=L(" %", " %", " %")),
-         Setting("max_side", "int", L("Уменьшать до (длинная сторона)", "Downsize to (long side)", "Micșorează la (latura lungă)"), 0, minimum=0, maximum=8000,
-                 suffix=L(" px", " px", " px"), hint=L("0 — не уменьшать.", "0 — keep the size.", "0 — păstrează mărimea."))),
-        (("convert", L("Выбрать файлы и конвертировать", "Choose files and convert", "Alege fișiere și convertește")),),
+        (Setting("hotkey", "hotkey", L("Круг для выделенного", "Circle for the selection", "Cerc pentru selecție"), "ctrl+alt+x",
+                 hint=L("Клавиша заработает, когда плагин включён.", "The key works when the plugin is on.",
+                        "Tasta funcționează când pluginul e activ.")),
+         Setting("region_hotkey", "hotkey", L("Снимок области", "Screen area", "Zonă de ecran"), "",
+                 hint=L("По желанию: обведите область экрана — и сразу круг действий над снимком.",
+                        "Optional: draw a screen area — and get the action circle for that snapshot.",
+                        "Opțional: încadrează o zonă a ecranului — și apare cercul de acțiuni pentru captură.")),
+         Setting("destination", "choice", L("Куда класть", "Where to save", "Unde salvez"), "next",
+                 hint=L("Готовый файл получает новое имя — исходник не меняется и не перезаписывается.",
+                        "The result gets a new name — the original is never changed or overwritten.",
+                        "Rezultatul primește un nume nou — originalul nu se schimbă."),
+                 options=(("next", L("Рядом с файлом", "Next to the file", "Lângă fișier")),
+                          ("folder", L("В папку", "To a folder", "Într-un dosar")))),
+         Setting("folder", "folder", L("Папка для результатов", "Results folder", "Dosarul pentru rezultate"), "",
+                 hint=L("Пусто — «Загрузки\\Jarvis Converted». Сюда же попадают снимки и картинки из буфера.",
+                        "Empty — “Downloads\\Jarvis Converted”. Snapshots and clipboard pictures go here too.",
+                        "Gol — „Descărcări\\Jarvis Converted”. Aici ajung și capturile și imaginile din clipboard.")),
+         Setting("quality", "int", L("Качество JPG", "JPG quality", "Calitate JPG"), 85, minimum=30, maximum=100,
+                 hint=L("Для «в JPG» и WebP; 85 — незаметно глазу и заметно легче.", "For JPG and WebP; 85 looks the same and is much lighter.",
+                        "Pentru JPG și WebP; 85 arată la fel și e mult mai ușor.")),
+         Setting("s_format", "bool", L("Формат", "Format", "Format"), True),
+         Setting("s_compress", "bool", L("Сжать", "Compress", "Comprimă"), True),
+         Setting("s_resize", "bool", L("Уменьшить", "Downsize", "Micșorează"), True),
+         Setting("s_rotate", "bool", L("Повернуть", "Rotate", "Rotește"), True),
+         Setting("s_crop", "bool", L("Обрезать", "Crop", "Decupează"), True),
+         Setting("s_nometa", "bool", L("Без метаданных", "No metadata", "Fără metadate"), True),
+         Setting("s_pdf", "bool", L("В PDF", "To PDF", "În PDF"), True),
+         Setting("s_clipboard", "bool", L("В буфер", "To clipboard", "În clipboard"), True),
+         Setting("s_mp3", "bool", L("MP3", "MP3", "MP3"), True),
+         Setting("s_m4a", "bool", L("M4A", "M4A", "M4A"), True),
+         Setting("s_wav", "bool", L("WAV", "WAV", "WAV"), True),
+         Setting("s_flac", "bool", L("FLAC", "FLAC", "FLAC"), True),
+         Setting("s_ogg", "bool", L("OGG", "OGG", "OGG"), True),
+         Setting("s_opus", "bool", L("OPUS", "OPUS", "OPUS"), True),
+         Setting("s_mp4", "bool", L("В MP4", "To MP4", "În MP4"), True),
+         Setting("s_vcompress", "bool", L("Сжать видео", "Compress video", "Comprimă video"), True),
+         Setting("s_gif", "bool", L("В GIF", "To GIF", "În GIF"), True),
+         Setting("s_tomp3", "bool", L("Звук в MP3", "Audio to MP3", "Sunet în MP3"), True),
+         Setting("s_mute", "bool", L("Без звука", "No sound", "Fără sunet"), True),
+         Setting("circle_theme", "choice", L("Оформление круга", "Circle style", "Aspectul cercului"), "app",
+                 hint=L("«Как в программе» берёт светлое или тёмное оформление Jarvis.",
+                        "“Like the app” follows the Jarvis light or dark theme.",
+                        "„Ca în aplicație” urmează tema Jarvis, deschisă sau închisă."),
+                 options=(("app", L("Как в программе", "Like the app", "Ca în aplicație")),
+                          ("dark", L("Тёмное", "Dark", "Închis")), ("light", L("Светлое", "Light", "Deschis"))))),
+        (("convert", L("Выбрать файлы…", "Choose files…", "Alege fișiere…")),),
     ),
     Plugin(
         "screenshots", "files", "scan", "#127a8f",
@@ -535,7 +574,12 @@ class Section:
     title: dict
     subtitle: dict
     keys: tuple
+    groups: tuple = ()  # ((title dict, keys), ...) shown as a 2-column switch grid
 
+
+CONVERTER_IMAGE_SECTORS = ("s_format", "s_compress", "s_resize", "s_rotate", "s_crop", "s_nometa", "s_pdf", "s_clipboard")
+CONVERTER_AUDIO_SECTORS = ("s_mp3", "s_m4a", "s_wav", "s_flac", "s_ogg", "s_opus")
+CONVERTER_VIDEO_SECTORS = ("s_mp4", "s_vcompress", "s_gif", "s_tomp3", "s_mute")
 
 # Settings pages are grouped into cards. Plugins not listed get one generic
 # "Settings" card. The "basic" (on/off) card and the actions/test card are
@@ -554,6 +598,24 @@ SECTIONS = {
                 L("Что бот пишет и что звучит на компьютере.", "What the bot writes and what plays on the PC.",
                   "Ce scrie botul și ce se aude pe PC."),
                 ("notify", "voice_replies")),
+    ),
+    "converter": (
+        Section("keys", "keyboard", L("Клавиши", "Keys", "Taste"),
+                L("Круг для выделенных файлов и снимок области экрана.", "The circle for selected files and a screen-area snapshot.",
+                  "Cercul pentru fișiere selectate și captura unei zone."),
+                ("hotkey", "region_hotkey")),
+        Section("result", "folder", L("Результат", "Result", "Rezultat"),
+                L("Куда класть готовые файлы и качество JPG.", "Where results go and JPG quality.", "Unde ajung rezultatele și calitatea JPG."),
+                ("destination", "folder", "quality")),
+        Section("sectors", "layers", L("Сектора круга", "Circle sectors", "Sectoarele cercului"),
+                L("Что показывать в круге — лишнее можно убрать.", "What the circle shows — hide what you don't need.",
+                  "Ce arată cercul — ascunde ce nu-ți trebuie."),
+                CONVERTER_IMAGE_SECTORS + CONVERTER_AUDIO_SECTORS + CONVERTER_VIDEO_SECTORS,
+                groups=((L("Картинки", "Images", "Imagini"), CONVERTER_IMAGE_SECTORS),
+                        (L("Звук", "Audio", "Sunet"), CONVERTER_AUDIO_SECTORS),
+                        (L("Видео", "Video", "Video"), CONVERTER_VIDEO_SECTORS))),
+        Section("appearance", "palette", L("Оформление", "Appearance", "Aspect"),
+                L("Как выглядит круг.", "How the circle looks.", "Cum arată cercul."), ("circle_theme",)),
     ),
     "timers": (
         Section("signal", "bell-ring", L("Сигнал", "Signal", "Semnal"),
@@ -582,6 +644,7 @@ SECTIONS = {
 
 # A setting is editable only while another setting has one of these values.
 ENABLED_IF = {
+    "converter": {"folder": ("destination", ("folder",))},
     "timers": {"ring_seconds": ("sound", (True,))},
     "smart_dictation": {
         "hotkey": ("trigger", ("hotkey",)),
@@ -595,7 +658,21 @@ ENABLED_IF = {
 BASIC_LAST = {"pc_control"}
 BASIC_KEYS = {"pc_control": ("autostart",)}
 
+# Information shown in the basic card.
+BASIC_NOTE = {
+    "converter": L("Картинки — силами Pillow, звук и видео — встроенным FFmpeg (PyAV). Ничего докачивать не нужно; "
+                   "OGG сохраняется с кодеком Opus.",
+                   "Images via Pillow, audio and video via the built-in FFmpeg (PyAV). Nothing to download; "
+                   "OGG is saved with the Opus codec.",
+                   "Imaginile prin Pillow, sunetul și video prin FFmpeg inclus (PyAV). Nu trebuie descărcat nimic; "
+                   "OGG se salvează cu codecul Opus."),
+}
+
 BASIC_TEXT = {
+    "converter": (L("Конвертер", "Converter", "Convertor"),
+                  L("Выделите файлы в Проводнике или на рабочем столе (или скопируйте картинку) и нажмите клавишу.",
+                    "Select files in Explorer or on the desktop (or copy a picture) and press the key.",
+                    "Selectează fișiere în Explorer sau pe desktop (sau copiază o imagine) și apasă tasta.")),
     "timers": (L("Таймеры и будильники голосом", "Voice timers and alarms", "Cronometre și alarme vocale"),
                L("Скажите «Джарвис, поставь таймер на 10 минут», «напомни через 20 минут выключить плиту» или «разбуди в 7:30».",
                  "Say “Jarvis, set a timer for 10 minutes”, “remind me in 20 minutes to call mom” or “wake me up at 7:30”.",
@@ -639,6 +716,17 @@ def how_it_works(plugin: Plugin, settings: dict, language: str) -> tuple[str, st
         return chip, text(body, language)
     if plugin.id == "pc_control":
         return "", text(plugin.description, language)
+    if plugin.id == "converter":
+        chip = "+".join(part.capitalize() for part in str(settings.get("hotkey") or "").split("+"))
+        return chip, text(L("Выделите файлы в Проводнике или на рабочем столе (или скопируйте картинку) и нажмите клавишу — "
+                            "у курсора появится круг. Выберите действие мышью, стрелками или цифрой. Результат ляжет рядом "
+                            "с файлом, исходник не меняется.",
+                            "Select files in Explorer or on the desktop (or copy a picture) and press the key — a circle "
+                            "appears at the cursor. Pick an action with the mouse, arrows or a digit. The result is saved "
+                            "next to the file; the original is untouched.",
+                            "Selectează fișiere în Explorer sau pe desktop (sau copiază o imagine) și apasă tasta — lângă "
+                            "cursor apare un cerc. Alege acțiunea cu mouse-ul, săgețile sau o cifră. Rezultatul apare lângă "
+                            "fișier, originalul rămâne neschimbat."), language)
     keys = [setting for setting in plugin.settings if setting.kind == "hotkey" and settings.get(setting.key)]
     chip = "+".join(part.capitalize() for part in settings[keys[0].key].split("+")) if keys else ""
     return chip, text(plugin.description, language)

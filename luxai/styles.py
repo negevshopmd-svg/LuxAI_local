@@ -845,6 +845,16 @@ QLabel#ExtPreviewButton {
     color: $text;
     font-size: 12px;
 }
+QLabel#ExtGroupLabel {
+    color: $text;
+    font-size: 13px;
+    font-weight: 700;
+    padding-top: 6px;
+}
+QLabel#ExtGridLabel {
+    color: $text;
+    font-size: 13px;
+}
 QLabel#ExtCounter {
     background: $control;
     border: 1px solid $border;

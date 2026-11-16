@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from luxai.extensions_catalog import (
-    BASIC_KEYS, BASIC_LAST, BASIC_TEXT, ENABLED_IF, L, Plugin, how_it_works, sections_for, text, ui, validate_value,
+    BASIC_KEYS, BASIC_LAST, BASIC_NOTE, BASIC_TEXT, ENABLED_IF, L, Plugin, how_it_works, sections_for, text, ui, validate_value,
 )
 from luxai.icons import set_button_icon, set_label_icon
 from luxai.ui_home import ToggleSwitch
@@ -81,6 +81,12 @@ W = {
     "timers_off": L("Включите модуль и сохраните — тогда таймеры заработают.",
                     "Turn the module on and save — then timers work.",
                     "Pornește modulul și salvează — apoi cronometrele funcționează."),
+    "video_card": L("Компонент для видео", "Video component", "Componenta video"),
+    "video_sub": L("FFmpeg: звук, видео, GIF и WebP.", "FFmpeg: audio, video, GIF and WebP.", "FFmpeg: sunet, video, GIF și WebP."),
+    "video_ready": L("Встроен ({version}) — ничего скачивать не нужно.", "Built in ({version}) — nothing to download.",
+                     "Inclus ({version}) — nu trebuie descărcat nimic."),
+    "video_missing": L("Не найден. Запустите Update.bat — он восстановит компонент.", "Not found. Run Update.bat to restore it.",
+                       "Nu a fost găsit. Rulează Update.bat ca să-l restaurezi."),
     "unsaved": L("Есть несохранённые изменения.", "There are unsaved changes.", "Există modificări nesalvate."),
 }
 
@@ -419,7 +425,9 @@ class PluginSettingsView(QWidget):
         for section in sections_for(plugin):
             card = SectionCard(section.id, section.icon, text(section.title, language), text(section.subtitle, language))
             card.reset_requested.connect(self.reset_section)
-            for key in section.keys:
+            if section.groups:
+                self._add_switch_grid(card, section)
+            for key in (() if section.groups else section.keys):
                 if key == "@status":
                     self._add_status_row(card)
                     has_status_row = True
@@ -428,6 +436,8 @@ class PluginSettingsView(QWidget):
                 self._add_setting(card, setting)
             self.cards[section.id] = card
             self.column.addWidget(card)
+            if plugin.id == "converter" and section.id == "sectors":
+                self._build_video_card()
         if plugin.id == "smart_dictation":
             self._build_dictation_check()
         elif plugin.actions and plugin.ready and runtime is not None and not has_status_row:
@@ -466,20 +476,34 @@ class PluginSettingsView(QWidget):
             self.how_chip.hide()
             self.how_text.hide()
             self._build_bot_preview(how_layout)
+        how.setSizePolicy(how.sizePolicy().horizontalPolicy(), how.sizePolicy().Policy.Minimum)
         panel.addWidget(how)
         panel.addSpacing(8)
+        nav_area = QScrollArea()
+        nav_area.setObjectName("ExtScroll")
+        nav_area.setWidgetResizable(True)
+        nav_area.setFrameShape(QFrame.Shape.NoFrame)
+        nav_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        nav_holder = QWidget()
+        nav_holder.setObjectName("ExtContent")
+        nav_layout = QVBoxLayout(nav_holder)
+        nav_layout.setContentsMargins(0, 0, 0, 0)
+        nav_layout.setSpacing(4)
+        nav_area.setWidget(nav_holder)
         self.nav: dict[str, QPushButton] = {}
         for card_id, card in self.cards.items():
             button = QPushButton(card.findChild(QLabel, "ExtTitle").text())
             button.setObjectName("ExtNav")
             button.setCursor(Qt.CursorShape.PointingHandCursor)
-            icon_name = {"basic": "power", "check": "mic", "actions": "play", "active": "hourglass"}.get(card_id) or next(
+            icon_name = {"basic": "power", "check": "mic", "actions": "play", "active": "hourglass",
+                         "video": "download"}.get(card_id) or next(
                 (s.icon for s in sections_for(plugin) if s.id == card_id), "sliders-horizontal")
             set_button_icon(button, icon_name, size=17)
             button.clicked.connect(lambda checked=False, c=card_id: self.scroll_to(c))
-            panel.addWidget(button)
+            nav_layout.addWidget(button)
             self.nav[card_id] = button
-        panel.addStretch()
+        nav_layout.addStretch()
+        panel.addWidget(nav_area, 1)
         self.message = QLabel()
         self.message.setObjectName("ExtRowHint")
         self.message.setWordWrap(True)
@@ -531,6 +555,11 @@ class PluginSettingsView(QWidget):
         separator_layout.setContentsMargins(0, 0, 0, 0)
         separator_layout.addWidget(status)
         card.add_row(separator)
+        if self.plugin.id in BASIC_NOTE:
+            note = QLabel(text(BASIC_NOTE[self.plugin.id], language))
+            note.setObjectName("ExtNote")
+            note.setWordWrap(True)
+            card.add_row(note)
         for key in BASIC_KEYS.get(self.plugin.id, ()):
             setting = next(item for item in self.plugin.settings if item.key == key)
             self._add_setting(card, setting)
@@ -808,6 +837,64 @@ class PluginSettingsView(QWidget):
         if at <= now:
             at += _dt.timedelta(days=1)
         self.message.setText(self.runtime.add_timer("alarm", at=at))
+
+    def _add_switch_grid(self, card, section):
+        """Group titles with a two-column grid of compact switches (Luxify sectors)."""
+        from PySide6.QtWidgets import QGridLayout
+        holder = QWidget()
+        holder.setObjectName("ExtContent")
+        column = QVBoxLayout(holder)
+        column.setContentsMargins(0, 6, 0, 10)
+        column.setSpacing(4)
+        for title, keys in section.groups:
+            heading = QLabel(text(title, self.language))
+            heading.setObjectName("ExtGroupLabel")
+            column.addWidget(heading)
+            grid = QGridLayout()
+            grid.setHorizontalSpacing(28)
+            grid.setVerticalSpacing(2)
+            for index, key in enumerate(keys):
+                setting = next(item for item in self.plugin.settings if item.key == key)
+                cell = QWidget()
+                cell.setObjectName("ExtContent")
+                row = QHBoxLayout(cell)
+                row.setContentsMargins(0, 0, 0, 0)
+                label = QLabel(text(setting.label, self.language))
+                label.setObjectName("ExtGridLabel")
+                switch = ToggleSwitch(False)
+                switch.set_theme(*self.theme_args)
+                switch.toggled.connect(self._refresh)
+                row.addWidget(label, 1)
+                row.addWidget(switch)
+                grid.addWidget(cell, index // 2, index % 2)
+                self.fields[key] = switch
+                self.rows[key] = cell
+            grid.setColumnStretch(0, 1)
+            grid.setColumnStretch(1, 1)
+            column.addLayout(grid)
+            column.addSpacing(6)
+        card.add_row(holder)
+
+    def _build_video_card(self):
+        from luxai.converter import ffmpeg_version
+        language = self.language
+        card = SectionCard("video", "download", w("video_card", language), w("video_sub", language), resettable=False)
+        version = ffmpeg_version()
+        from luxai.ui_extensions import StatusDot
+        holder = QFrame()
+        holder.setObjectName("ExtSettingRow")
+        row = QHBoxLayout(holder)
+        row.setContentsMargins(0, 12, 0, 12)
+        dot = StatusDot()
+        dot.set_color("#32b87a" if version else "#e26675")
+        label = QLabel(w("video_ready", language).format(version=version) if version else w("video_missing", language))
+        label.setObjectName("ExtRowHint")
+        label.setWordWrap(True)
+        row.addWidget(dot)
+        row.addWidget(label, 1)
+        card.add_row(holder)
+        self.cards["video"] = card
+        self.column.addWidget(card)
 
     def _build_actions(self):
         language = self.language

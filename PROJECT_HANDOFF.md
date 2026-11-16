@@ -7,6 +7,10 @@
 > Updated for the **0.3.9.e work**, 2026-10-30. \`Update.bat\` installs the code merged into \`main\`, NOT an open PR.
 > Do NOT include real API keys, private logs, screen captures, model binaries, user audio, or personal paths in Git history.
 
+## 0. Release 0.4.1d — Converter circle
+
+`luxai/converter.py` (no Qt) holds image ops (Pillow) and audio/video ops (PyAV, bundled with faster-whisper: libmp3lame, aac, flac, libopus, libx264; GIF via Pillow). Every op writes a new uniquely named file. `luxai/ui_convert_circle.py` has `RadialMenu`, `RegionSelector` (primary screen) and `CropDialog`. `ExtensionsRuntime.start_convert_circle` reads the Explorer/desktop selection by sending Ctrl+C and restoring the clipboard, or uses a copied image; `run_conversion` works in a thread and reports via `convert_done`. Section `groups` render a two-column switch grid. Tests: `tests/test_converter_041d.py`.
+
 ## 0. Release 0.4.1c — Timers and alarms
 
 `luxai/timers.py` (no Qt) parses RU/RO/EN timer/alarm/cancel/list requests and stores timers in `.luxai_data/timers.json` atomically. `ExtensionsRuntime.handle_timer_request` replies and manages them; `_check_timers` (1 s QTimer) rings due ones via tray, speech, repeating beeps and `RingDialog` (Snooze/Stop). `MainWindow.run_command` calls it after wizard/pending-task handling and only when no saved command matches (`_saved_command_matches`). Tests: `tests/test_timers_041c.py`.

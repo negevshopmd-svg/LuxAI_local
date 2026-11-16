@@ -1,4 +1,10 @@
-LUXAI LOCAL 0.4.1c — ACTUALIZARE 2026-11-16
+LUXAI LOCAL 0.4.1d — ACTUALIZARE 2026-11-16
+
+0.4.1d: Convertor ca în Luxify. Activează-l în Extensii, selectează fișiere în
+Explorer sau pe desktop (sau copiază o imagine) și apasă Ctrl+Alt+X: lângă
+cursor apare un cerc cu acțiuni (format, comprimare, micșorare, rotire,
+decupare, PDF, MP3/M4A/WAV/FLAC/OGG/OPUS, MP4, GIF, fără sunet). Alege cu
+mouse-ul, săgețile sau cifrele. Originalul nu se schimbă.
 
 0.4.1c: Cronometre și alarme. Activează „Таймеры и будильники” în Extensii,
 apoi spune „Jarvis, pune un cronometru de 10 minute”, „trezește-mă la 7:30”,
