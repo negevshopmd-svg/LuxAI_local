@@ -53,6 +53,7 @@ class Setting:
     maximum: int = 0
     suffix: dict | None = None
     max_length: int = 200
+    pattern: str = ""  # optional full-match regex for text values
 
 
 @dataclass(frozen=True)
@@ -361,15 +362,41 @@ PLUGINS: tuple[Plugin, ...] = (
           "Source — the command editor.",
           "Rulează comenzile tale din propriul bot Telegram: dosare și comenzi ca butoane și text. "
           "Sursa — editorul de comenzi."),
-        False,
-        (Setting("bot_name", "text", L("Имя бота", "Bot name", "Numele botului"), "", max_length=64,
-                 hint=L("Токен бота хранится в защищённом хранилище Windows, а не в config.json.",
-                        "The bot token is kept in Windows protected storage, not in config.json.",
-                        "Tokenul botului se păstrează în stocarea protejată Windows, nu în config.json.")),
-         Setting("allowed_users", "text", L("Разрешённые пользователи Telegram", "Allowed Telegram users", "Utilizatori Telegram permiși"), "",
-                 hint=L("ID через запятую. Остальным бот не отвечает.", "IDs, comma separated. The bot ignores everyone else.",
-                        "ID-uri separate prin virgulă. Botul îi ignoră pe ceilalți."), max_length=300),
-         Setting("confirm_sensitive", "bool", L("Подтверждать опасные команды", "Confirm sensitive commands", "Confirmă comenzile sensibile"), True)),
+        True,
+        (Setting("token", "secret", L("Токен бота (BotFather)", "Bot token (BotFather)", "Tokenul botului (BotFather)"), "",
+                 hint=L("Из @BotFather → /newbot. Хранится в защищённом хранилище Windows, не в config.json.",
+                        "From @BotFather → /newbot. Kept in Windows protected storage, not in config.json.",
+                        "De la @BotFather → /newbot. Se păstrează în stocarea protejată Windows, nu în config.json."),
+                 max_length=100),
+         Setting("owner_id", "text", L("Telegram ID владельца", "Owner Telegram ID", "ID Telegram proprietar"), "",
+                 hint=L("Бот выполняет команды только от вас. Не знаете ID — напишите боту /start, он подскажет.",
+                        "The bot runs commands only for you. Don't know your ID — send /start to the bot.",
+                        "Botul rulează comenzi doar pentru tine. Nu știi ID-ul — trimite /start botului."),
+                 max_length=15, pattern=r"\d{3,15}"),
+         Setting("ui_mode", "choice", L("Тип интерфейса бота", "Bot interface", "Interfața botului"), "inline",
+                 hint=L("Кнопки под сообщением бота или клавиатура внизу чата.", "Buttons under the bot message or a keyboard at the bottom.",
+                        "Butoane sub mesajul botului sau tastatură jos în chat."),
+                 options=(("inline", L("Под сообщением", "Under message", "Sub mesaj")),
+                          ("keyboard", L("Клавиатура", "Keyboard", "Tastatură")))),
+         Setting("ignore_unknown", "bool", L("Игнорировать сообщения без команд", "Ignore messages without commands",
+                                             "Ignoră mesajele fără comenzi"), False,
+                 hint=L("Обычные сообщения не считаются командами.", "Ordinary messages are not treated as commands.",
+                        "Mesajele obișnuite nu sunt considerate comenzi.")),
+         Setting("confirm_sensitive", "bool", L("Подтверждать команды «спросить перед запуском»", "Confirm “ask before run” commands",
+                                                "Confirmă comenzile „întreabă înainte”"), True,
+                 hint=L("Кнопки «Выполнить / Отмена» прямо в Telegram.", "“Run / Cancel” buttons right in Telegram.",
+                        "Butoane „Rulează / Anulează” direct în Telegram.")),
+         Setting("notify", "bool", L("Уведомления о выполнении команд", "Command result notifications", "Notificări despre comenzi"), True,
+                 hint=L("Отправлять в Telegram текст об успехе, ошибке или недоступности команды. Независимо от голосовых ответов на ПК.",
+                        "Send success, error or unavailability text to Telegram. Independent of spoken replies on the PC.",
+                        "Trimite în Telegram rezultatul, eroarea sau indisponibilitatea. Independent de răspunsurile vocale pe PC.")),
+         Setting("voice_replies", "bool", L("Голосовые ответы программы", "Spoken replies on the PC", "Răspunsuri vocale pe PC"), True,
+                 hint=L("Озвучивать на компьютере ответы команд, запущенных из Telegram. Глобальный тихий режим имеет приоритет.",
+                        "Speak replies of Telegram-started commands on the PC. Global quiet mode wins.",
+                        "Rostește pe PC răspunsurile comenzilor din Telegram. Modul silențios global are prioritate.")),
+         Setting("autostart", "bool", L("Запускать вместе с программой", "Start with the app", "Pornește odată cu aplicația"), True)),
+        (("check", L("Проверить подключение", "Check connection", "Verifică conexiunea")),
+         ("open", L("Открыть бота", "Open the bot", "Deschide botul"))),
     ),
     Plugin(
         "media_keys", "control", "audio-lines", "#d9480f",
@@ -501,6 +528,20 @@ class Section:
 # "Settings" card. The "basic" (on/off) card and the actions/test card are
 # always added by the page itself.
 SECTIONS = {
+    "pc_control": (
+        Section("connection", "link", L("Подключение", "Connection", "Conexiune"),
+                L("Ваш личный бот в Telegram. Он отвечает только вам.", "Your personal Telegram bot. It answers only you.",
+                  "Botul tău personal din Telegram. Răspunde doar ție."),
+                ("token", "@status", "owner_id")),
+        Section("menu", "layout-grid", L("Меню в Telegram", "Telegram menu", "Meniul în Telegram"),
+                L("Ваши папки команд становятся кнопками.", "Your command folders become buttons.",
+                  "Dosarele tale de comenzi devin butoane."),
+                ("ui_mode", "ignore_unknown", "confirm_sensitive")),
+        Section("replies", "message-square", L("Ответы", "Replies", "Răspunsuri"),
+                L("Что бот пишет и что звучит на компьютере.", "What the bot writes and what plays on the PC.",
+                  "Ce scrie botul și ce se aude pe PC."),
+                ("notify", "voice_replies")),
+    ),
     "smart_dictation": (
         Section("keys", "keyboard", L("Клавиша и режим", "Key and mode", "Tastă și mod"),
                 L("Чем начинать диктовку и как её заканчивать.", "How to start and finish dictation.",
@@ -530,7 +571,15 @@ ENABLED_IF = {
     },
 }
 
+# The on/off card goes last for these plugins (as in Luxify) and can hold
+# extra settings.
+BASIC_LAST = {"pc_control"}
+BASIC_KEYS = {"pc_control": ("autostart",)}
+
 BASIC_TEXT = {
+    "pc_control": (L("Включить PC Control", "Enable PC Control", "Activează PC Control"),
+                   L("Бот принимает команды, пока Jarvis запущен.", "The bot accepts commands while Jarvis runs.",
+                     "Botul primește comenzi cât timp Jarvis rulează.")),
     "smart_dictation": (L("Диктовка в любое поле", "Dictation into any field", "Dictare în orice câmp"),
                         L("Нажмите клавишу, говорите — текст появится там, где стоит курсор.",
                           "Press the key, speak — the text appears where the cursor is.",
@@ -565,6 +614,8 @@ def how_it_works(plugin: Plugin, settings: dict, language: str) -> tuple[str, st
                      f"Press, speak and press again — or stay silent for {seconds} s. The text is inserted at the cursor.",
                      f"Apasă, vorbește și apasă din nou — sau taci {seconds} s. Textul apare unde e cursorul.")
         return chip, text(body, language)
+    if plugin.id == "pc_control":
+        return "", text(plugin.description, language)
     keys = [setting for setting in plugin.settings if setting.kind == "hotkey" and settings.get(setting.key)]
     chip = "+".join(part.capitalize() for part in settings[keys[0].key].split("+")) if keys else ""
     return chip, text(plugin.description, language)
@@ -605,7 +656,7 @@ UI = {
 }
 
 CONNECTIONS = (
-    ("telegram", "send", L("Telegram-бот", "Telegram bot", "Bot Telegram"), ("pc_control",), "bot_name"),
+    ("telegram", "send", L("Telegram-бот", "Telegram bot", "Bot Telegram"), ("pc_control",), "owner_id"),
     ("home_assistant", "house", L("Home Assistant", "Home Assistant", "Home Assistant"), ("smart_home",), "url"),
     ("obs", "radio", L("OBS WebSocket", "OBS WebSocket", "OBS WebSocket"), ("streamer_helper",), "obs_host"),
     ("twitch", "message-square", L("Twitch", "Twitch", "Twitch"), ("streamer_helper",), "twitch_channel"),
@@ -619,8 +670,13 @@ def ui(key: str, language: str, **values) -> str:
 
 # --- state -----------------------------------------------------------------
 
+def stored_settings(plugin: Plugin):
+    """Settings kept in config.json; "secret" ones live in DPAPI storage."""
+    return [setting for setting in plugin.settings if setting.kind != "secret"]
+
+
 def default_settings(plugin: Plugin) -> dict:
-    return {setting.key: copy.deepcopy(setting.default) for setting in plugin.settings}
+    return {setting.key: copy.deepcopy(setting.default) for setting in stored_settings(plugin)}
 
 
 def validate_value(setting: Setting, value):
@@ -645,6 +701,11 @@ def validate_value(setting: Setting, value):
     if kind == "hotkey":
         from luxai.command_triggers import normalize_hotkey
         return normalize_hotkey(value) if value else ""
+    if kind == "secret":
+        value = str(value or "").strip()
+        if len(value) > setting.max_length or any(ord(char) < 33 for char in value):
+            raise ValueError("invalid secret")
+        return value
     if kind in ("text", "multiline", "folder"):
         if not isinstance(value, str):
             raise ValueError("text expected")
@@ -655,6 +716,8 @@ def validate_value(setting: Setting, value):
             raise ValueError("too long")
         if "\x00" in value:
             raise ValueError("invalid character")
+        if setting.pattern and value and not re.fullmatch(setting.pattern, value):
+            raise ValueError({"ru": "неверный формат", "en": "invalid format", "ro": "format invalid"}["ru"])
         return value
     raise ValueError("unknown kind")
 
@@ -669,7 +732,7 @@ def normalize_state(raw) -> dict:
         settings = default_settings(plugin)
         stored = entry.get("settings")
         if isinstance(stored, dict):
-            for setting in plugin.settings:
+            for setting in stored_settings(plugin):
                 if setting.key in stored:
                     try:
                         settings[setting.key] = validate_value(setting, stored[setting.key])

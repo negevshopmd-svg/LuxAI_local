@@ -29,12 +29,14 @@ LEGACY_OPENAI_FILE = LEGACY_SECRET_DIR / "openai_key.dpapi"
 def _validate_secret_provider(provider: str) -> None:
     # Speech credentials share DPAPI storage, but Fish is not a chat/agent
     # provider and must never be offered as an OpenAI-compatible endpoint.
-    if provider != "fish":
+    if provider not in ("fish", "telegram"):
         provider_config(provider)
 
 
 def _environment_variable(provider: str) -> str:
     _validate_secret_provider(provider)
+    if provider == "telegram":
+        return "TELEGRAM_BOT_TOKEN"
     return "FISH_API_KEY" if provider == "fish" else ENV_VARS[provider]
 
 

@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from luxai.extensions_catalog import (
-    BASIC_TEXT, ENABLED_IF, L, Plugin, how_it_works, sections_for, text, ui, validate_value,
+    BASIC_KEYS, BASIC_LAST, BASIC_TEXT, ENABLED_IF, L, Plugin, how_it_works, sections_for, text, ui, validate_value,
 )
 from luxai.icons import set_button_icon, set_label_icon
 from luxai.ui_home import ToggleSwitch
@@ -54,6 +54,19 @@ W = {
     "enabled": L("Включена.", "On.", "Activată."),
     "disabled": L("Выключена.", "Off.", "Dezactivată."),
     "soon": L("В разработке.", "In development.", "În dezvoltare."),
+    "secret_saved": L("•••••••• сохранён — введите новый, чтобы заменить", "•••••••• saved — type a new one to replace",
+                       "•••••••• salvat — scrie unul nou ca să-l înlocuiești"),
+    "secret_empty": L("Вставьте токен", "Paste the token", "Lipește tokenul"),
+    "pc_connected": L("Подключено", "Connected", "Conectat"),
+    "pc_checked": L("Токен рабочий", "Token works", "Tokenul funcționează"),
+    "pc_connecting": L("Подключаюсь…", "Connecting…", "Mă conectez…"),
+    "pc_checking": L("Проверяю…", "Checking…", "Verific…"),
+    "pc_retrying": L("Нет связи, повторяю…", "No connection, retrying…", "Fără conexiune, reîncerc…"),
+    "pc_error": L("Ошибка", "Error", "Eroare"),
+    "pc_stopped": L("Остановлен", "Stopped", "Oprit"),
+    "pc_bot": L("Бот: {name} (@{username})", "Bot: {name} (@{username})", "Bot: {name} (@{username})"),
+    "pc_main_menu": L("Главное меню", "Main menu", "Meniul principal"),
+    "pc_refresh": L("Обновить", "Refresh", "Reîmprospătează"),
     "unsaved": L("Есть несохранённые изменения.", "There are unsaved changes.", "Există modificări nesalvate."),
 }
 
@@ -214,6 +227,39 @@ class HotkeyField(QWidget):
         self.chip.setText("+".join(part.capitalize() for part in self._value.split("+")) if self._value else "—")
 
 
+class SecretField(QWidget):
+    """Password-style field with an eye toggle. Empty = keep the saved secret."""
+    changed = Signal()
+
+    def __init__(self, setting, language, saved: bool, parent=None):
+        super().__init__(parent)
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        self.line = QLineEdit()
+        self.line.setEchoMode(QLineEdit.EchoMode.Password)
+        self.line.setMaxLength(setting.max_length)
+        self.line.setMinimumWidth(280)
+        self.line.textChanged.connect(self.changed.emit)
+        from luxai.icons import icon
+        self.eye = self.line.addAction(icon("eye", color="#94a3b8"), QLineEdit.ActionPosition.TrailingPosition)
+        self.eye.triggered.connect(self._toggle)
+        row.addWidget(self.line)
+        self.set_saved(saved, language)
+
+    def _toggle(self):
+        hidden = self.line.echoMode() == QLineEdit.EchoMode.Password
+        self.line.setEchoMode(QLineEdit.EchoMode.Normal if hidden else QLineEdit.EchoMode.Password)
+
+    def set_saved(self, saved: bool, language: str):
+        self.line.setPlaceholderText(w("secret_saved" if saved else "secret_empty", language))
+
+    def value(self):
+        return self.line.text().strip()
+
+    def set_value(self, value):
+        self.line.setText(str(value or ""))
+
+
 class FolderField(QWidget):
     changed = Signal()
 
@@ -351,19 +397,27 @@ class PluginSettingsView(QWidget):
         self.scroll.verticalScrollBar().valueChanged.connect(self._sync_nav)
         body.addWidget(self.scroll, 1)
 
-        self._build_basic()
+        if plugin.id not in BASIC_LAST:
+            self._build_basic()
+        has_status_row = False
         for section in sections_for(plugin):
             card = SectionCard(section.id, section.icon, text(section.title, language), text(section.subtitle, language))
             card.reset_requested.connect(self.reset_section)
             for key in section.keys:
+                if key == "@status":
+                    self._add_status_row(card)
+                    has_status_row = True
+                    continue
                 setting = next(item for item in plugin.settings if item.key == key)
                 self._add_setting(card, setting)
             self.cards[section.id] = card
             self.column.addWidget(card)
         if plugin.id == "smart_dictation":
             self._build_dictation_check()
-        elif plugin.actions and plugin.ready and runtime is not None:
+        elif plugin.actions and plugin.ready and runtime is not None and not has_status_row:
             self._build_actions()
+        if plugin.id in BASIC_LAST:
+            self._build_basic()
         self.column.addStretch()
 
         # Right panel
@@ -391,6 +445,11 @@ class PluginSettingsView(QWidget):
         self.how_text.setWordWrap(True)
         self.how_text.setObjectName("ExtHowText")
         how_layout.addWidget(self.how_text)
+        if plugin.id == "pc_control":
+            caption.hide()
+            self.how_chip.hide()
+            self.how_text.hide()
+            self._build_bot_preview(how_layout)
         panel.addWidget(how)
         panel.addSpacing(8)
         self.nav: dict[str, QPushButton] = {}
@@ -425,7 +484,7 @@ class PluginSettingsView(QWidget):
                 self._set_value(key, value)
         self.enable_switch.setChecked(self.saved_enabled)
         self._active_nav = ""
-        self._set_active_nav("basic")
+        self._set_active_nav(next(iter(self.cards)))
         self._refresh()
         for widget in self.findChildren(QWidget):
             widget.setProperty("i18n_skip", True)
@@ -456,6 +515,9 @@ class PluginSettingsView(QWidget):
         separator_layout.setContentsMargins(0, 0, 0, 0)
         separator_layout.addWidget(status)
         card.add_row(separator)
+        for key in BASIC_KEYS.get(self.plugin.id, ()):
+            setting = next(item for item in self.plugin.settings if item.key == key)
+            self._add_setting(card, setting)
         if not self.plugin.ready:
             note = QLabel(ui("soon_hint", language))
             note.setObjectName("ExtNote")
@@ -497,6 +559,10 @@ class PluginSettingsView(QWidget):
         elif kind == "hotkey":
             field = HotkeyField(language)
             field.changed.connect(self._refresh)
+        elif kind == "secret":
+            saved = bool(self.runtime is not None and self.runtime.has_secret(self.plugin.id, setting.key))
+            field = SecretField(setting, language, saved)
+            field.changed.connect(self._refresh)
         elif kind == "folder":
             field = FolderField(setting, language)
             field.changed.connect(self._refresh)
@@ -516,6 +582,101 @@ class PluginSettingsView(QWidget):
         card.add_row(row)
         self.fields[setting.key] = field
         self.rows[setting.key] = row
+
+    def _add_status_row(self, card):
+        """Connection state with the plugin's action buttons (PC Control)."""
+        from luxai.ui_extensions import StatusDot
+        holder = QFrame()
+        holder.setObjectName("ExtSettingRow")
+        row = QHBoxLayout(holder)
+        row.setContentsMargins(0, 12, 0, 12)
+        row.setSpacing(10)
+        column = QVBoxLayout()
+        column.setSpacing(2)
+        top = QHBoxLayout()
+        top.setSpacing(7)
+        self.pc_dot = StatusDot()
+        self.pc_label = QLabel()
+        self.pc_label.setObjectName("ExtRowTitle")
+        top.addWidget(self.pc_dot)
+        top.addWidget(self.pc_label, 1)
+        column.addLayout(top)
+        self.pc_detail = QLabel()
+        self.pc_detail.setObjectName("ExtRowHint")
+        self.pc_detail.setWordWrap(True)
+        column.addWidget(self.pc_detail)
+        row.addLayout(column, 1)
+        for action_id, label in self.plugin.actions:
+            button = QPushButton(text(label, self.language))
+            button.setObjectName("ExtConfigure")
+            set_button_icon(button, "refresh-cw" if action_id == "check" else "external-link", size=16)
+            button.setEnabled(self.runtime is not None)
+            button.clicked.connect(lambda checked=False, a=action_id: self._run_action(a))
+            row.addWidget(button)
+        card.add_row(holder)
+        if self.runtime is not None:
+            self.runtime.pc_status_changed.connect(self._show_pc_status)
+            self._show_pc_status(*self.runtime.pc_state)
+        else:
+            self._show_pc_status("stopped", {})
+
+    def _show_pc_status(self, state, details):
+        try:
+            language = self.language
+            colors = {"connected": "#32b87a", "checked": "#32b87a", "error": "#e26675",
+                      "retrying": "#e5a54b", "connecting": "#6f9df5", "checking": "#6f9df5"}
+            self.pc_dot.set_color(colors.get(state, "#7c8696"))
+            self.pc_label.setText(w("pc_" + state, language) if ("pc_" + state) in W else state)
+            if details.get("username"):
+                detail = w("pc_bot", language).format(name=details.get("name", ""), username=details["username"])
+            else:
+                detail = str(details.get("message", ""))
+            self.pc_detail.setText(detail)
+            self.pc_detail.setVisible(bool(detail))
+            self._refresh_bot_preview()
+        except RuntimeError:
+            pass
+
+    def _build_bot_preview(self, layout):
+        head = QHBoxLayout()
+        head.setSpacing(8)
+        avatar = QLabel()
+        avatar.setFixedSize(26, 26)
+        avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        avatar.setStyleSheet("background:#21a366;border-radius:13px;")
+        from luxai.icons import icon
+        avatar.setPixmap(icon("send", color="#ffffff", size=14).pixmap(14, 14))
+        head.addWidget(avatar)
+        self.preview_name = QLabel()
+        self.preview_name.setObjectName("ExtRowTitle")
+        head.addWidget(self.preview_name, 1)
+        layout.addLayout(head)
+        self.preview_menu = QVBoxLayout()
+        self.preview_menu.setSpacing(5)
+        layout.addLayout(self.preview_menu)
+        self._refresh_bot_preview()
+
+    def _refresh_bot_preview(self):
+        if not hasattr(self, "preview_menu"):
+            return
+        name, folders = self.runtime.pc_menu_preview() if self.runtime is not None else ("Jarvis", [])
+        self.preview_name.setText(name)
+        while self.preview_menu.count():
+            item = self.preview_menu.takeAt(0)
+            if item.widget() is not None:
+                item.widget().deleteLater()
+        chips = [("ExtKeyChip", w("pc_main_menu", self.language))]
+        chips += [("ExtPreviewButton", folder) for folder in folders[:6]]
+        chips.append(("ExtPreviewButton", "⟳ " + w("pc_refresh", self.language)))
+        for name_, label_text in chips:
+            label = QLabel(label_text)
+            label.setObjectName(name_)
+            label.setAlignment(Qt.AlignmentFlag.AlignCenter if name_ != "ExtKeyChip" else Qt.AlignmentFlag.AlignLeft)
+            label.setProperty("i18n_skip", True)
+            if name_ == "ExtKeyChip":
+                self.preview_menu.addWidget(label, 0, Qt.AlignmentFlag.AlignLeft)
+            else:
+                self.preview_menu.addWidget(label)
 
     def _build_actions(self):
         language = self.language
@@ -590,7 +751,7 @@ class PluginSettingsView(QWidget):
         field = self.fields[key]
         if isinstance(field, (ToggleSwitch,)):
             return field.isChecked()
-        if isinstance(field, (Segmented, SliderField, HotkeyField, FolderField)):
+        if isinstance(field, (Segmented, SliderField, HotkeyField, FolderField, SecretField)):
             return field.value()
         if isinstance(field, QComboBox):
             return field.currentData()
@@ -607,7 +768,7 @@ class PluginSettingsView(QWidget):
         try:
             if isinstance(field, ToggleSwitch):
                 field.setChecked(bool(value))
-            elif isinstance(field, (Segmented, SliderField, HotkeyField, FolderField)):
+            elif isinstance(field, (Segmented, SliderField, HotkeyField, FolderField, SecretField)):
                 field.set_value(value)
             elif isinstance(field, QComboBox):
                 field.setCurrentIndex(max(0, field.findData(value)))
@@ -622,12 +783,18 @@ class PluginSettingsView(QWidget):
         if setting.kind == "hotkey" and isinstance(field, HotkeyField):
             field.set_value(value)
 
+    def _plain_settings(self):
+        return [setting for setting in self.plugin.settings if setting.kind != "secret"]
+
+    def _secret_settings(self):
+        return [setting for setting in self.plugin.settings if setting.kind == "secret"]
+
     def draft(self) -> dict:
-        return {setting.key: self._raw(setting.key) for setting in self.plugin.settings}
+        return {setting.key: self._raw(setting.key) for setting in self._plain_settings()}
 
     def collect(self) -> dict:
         values, problems = {}, []
-        for setting in self.plugin.settings:
+        for setting in self._plain_settings():
             try:
                 values[setting.key] = validate_value(setting, self._raw(setting.key))
             except ValueError as error:
@@ -642,6 +809,8 @@ class PluginSettingsView(QWidget):
     @property
     def dirty(self) -> bool:
         if self.enable_switch.isChecked() != self.saved_enabled:
+            return True
+        if any(self._raw(setting.key) for setting in self._secret_settings()):
             return True
         return self.draft() != {key: self.saved_settings.get(key) for key in self.draft()}
 
@@ -680,12 +849,13 @@ class PluginSettingsView(QWidget):
         if section is None:
             return
         for key in section.keys:
-            setting = next(item for item in self.plugin.settings if item.key == key)
-            self._set_value(key, setting.default)
+            setting = next((item for item in self.plugin.settings if item.key == key), None)
+            if setting is not None and setting.kind != "secret":
+                self._set_value(key, setting.default)
         self._refresh()
 
     def reset_all(self):
-        for setting in self.plugin.settings:
+        for setting in self._plain_settings():
             self._set_value(setting.key, setting.default)
         self._refresh()
 
@@ -696,6 +866,18 @@ class PluginSettingsView(QWidget):
             self.message.setText(str(error))
             self.message.setStyleSheet("color:#e26675;")
             return False
+        for setting in self._secret_settings():
+            secret = self._raw(setting.key)
+            if not secret:
+                continue
+            try:
+                self.runtime.store_secret(self.plugin.id, setting.key, secret)
+            except Exception as error:
+                self.message.setText(f"{text(setting.label, self.language)}: {error}")
+                self.message.setStyleSheet("color:#e26675;")
+                return False
+            self.fields[setting.key].set_value("")
+            self.fields[setting.key].set_saved(True, self.language)
         self.saved_enabled = self.enable_switch.isChecked() and self.plugin.ready
         self.saved_settings = dict(values)
         self.saved.emit(self.plugin.id, self.saved_enabled, values)
@@ -707,6 +889,9 @@ class PluginSettingsView(QWidget):
             values = self.collect()
         except ValueError as error:
             self.message.setText(str(error))
+            return
+        if (self.plugin.id, action_id) == ("pc_control", "check"):
+            self.runtime.check_pc_connection(self._raw("token"))
             return
         self.runtime.run_action(self.plugin.id, action_id, parent=self.window(), settings=values)
 
@@ -737,6 +922,11 @@ class PluginSettingsView(QWidget):
                 button.style().polish(button)
 
     def detach(self):
+        if self.runtime is not None and hasattr(self, "pc_label"):
+            try:
+                self.runtime.pc_status_changed.disconnect(self._show_pc_status)
+            except (RuntimeError, TypeError):
+                pass
         if self.runtime is not None and getattr(self.runtime, "test_sink", None) == self._test_sink:
             self.runtime.test_sink = None
         if self.runtime is not None and hasattr(self.runtime, "dictation_done") and hasattr(self, "last_label"):

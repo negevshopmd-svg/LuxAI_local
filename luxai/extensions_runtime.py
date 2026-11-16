@@ -482,6 +482,9 @@ class ExtensionsRuntime(QObject):
     notice = Signal(str)
     dictation_result = Signal(str, str, bool)  # text, error, test
     dictation_done = Signal(str)  # last dictated text, for the settings page
+    pc_status_changed = Signal(str, dict)  # state, details (bot name, error)
+    _pc_update = Signal(dict)
+    _pc_status = Signal(str, dict)
 
     def __init__(self, host, parent=None):
         super().__init__(parent)
@@ -520,6 +523,14 @@ class ExtensionsRuntime(QObject):
         self._tap_timer.setInterval(25)
         self._tap_timer.timeout.connect(self._poll_double_tap)
         self.dictation_result.connect(self._on_dictation_result)
+        self._bot = None
+        self._bot_token = ""
+        self._pc_applied_once = False
+        self.pc_state = ("stopped", {})
+        from luxai.telegram_control import MenuState
+        self._menu_state = MenuState()
+        self._pc_update.connect(self._on_pc_update)
+        self._pc_status.connect(self._on_pc_status)
 
     # -- helpers --
     @property
@@ -578,6 +589,7 @@ class ExtensionsRuntime(QObject):
             self._tap_timer.stop()
         if not self.enabled("smart_dictation") and self.dictating:
             self.cancel_dictation()
+        self._apply_pc_control()
         if self.enabled("downloads_cleanup") and self.settings("downloads_cleanup").get("auto"):
             if not self._cleanup_timer.isActive():
                 self._cleanup_timer.start()
@@ -619,6 +631,7 @@ class ExtensionsRuntime(QObject):
             self.errors = dict(self._listener.errors)
 
     def stop(self):
+        self._stop_bot()
         self.cancel_dictation()
         self._tap_timer.stop()
         self._break_timer.stop()
@@ -660,6 +673,8 @@ class ExtensionsRuntime(QObject):
             ("breaks", "test"): lambda: self.remind_break(force=True),
             ("smart_dictation", "test"): lambda: self.start_dictation(test=True),
             ("smart_dictation", "copy_last"): self.copy_last_dictation,
+            ("pc_control", "check"): self.check_pc_connection,
+            ("pc_control", "open"): self.open_bot,
             ("converter", "convert"): lambda: self.convert_dialog(parent),
             ("screenshots", "capture"): lambda: QTimer.singleShot(350, self.take_screenshot),
             ("screenshots", "open_folder"): self.open_screenshots_folder,
@@ -900,6 +915,256 @@ class ExtensionsRuntime(QObject):
             return
         QApplication.clipboard().setText(self.last_dictation)
         self._notify(self._dictation_words("copied"))
+
+    # -- secrets --
+    def has_secret(self, plugin_id: str, key: str) -> bool:
+        if (plugin_id, key) != ("pc_control", "token"):
+            return False
+        try:
+            from luxai.secure_keys import has_api_key
+            return has_api_key("telegram")
+        except Exception:
+            return False
+
+    def store_secret(self, plugin_id: str, key: str, value: str):
+        """Validate and save a secret in DPAPI; raises ValueError on bad input."""
+        if (plugin_id, key) != ("pc_control", "token"):
+            raise ValueError("unknown secret")
+        from luxai.telegram_control import valid_token
+        if not valid_token(value):
+            raise ValueError(_tr3("Неверный формат токена. Скопируйте его из @BotFather целиком.",
+                                  "Invalid token format. Copy the whole token from @BotFather.",
+                                  "Format de token invalid. Copiază tot tokenul de la @BotFather.", self.language))
+        from luxai.secure_keys import store_api_key
+        store_api_key(value, "telegram")
+        self._stop_bot()  # restart with the new token on the next apply
+
+    def _token(self) -> str:
+        try:
+            from luxai.secure_keys import get_api_key
+            return get_api_key("telegram")
+        except Exception:
+            return ""
+
+    # -- PC Control (Telegram) --
+    def _apply_pc_control(self):
+        first = not self._pc_applied_once
+        self._pc_applied_once = True
+        settings = self.settings("pc_control")
+        if not self.enabled("pc_control"):
+            self._stop_bot()
+            self._set_pc_status("stopped", {})
+            return
+        if first and not settings.get("autostart", True):
+            self._set_pc_status("stopped", {"message": _tr3("Не запускается вместе с программой.",
+                                                            "Not started with the app.", "Nu pornește odată cu aplicația.",
+                                                            self.language)})
+            return
+        token = self._token()
+        if not token:
+            self._stop_bot()
+            self._set_pc_status("error", {"message": _tr3("Укажите токен бота.", "Enter the bot token.",
+                                                          "Introdu tokenul botului.", self.language)})
+            return
+        if self._bot is not None and self._bot.running and self._bot_token == token:
+            return
+        self._stop_bot()
+        from luxai.telegram_control import TelegramBot
+        self._bot_token = token
+        self._bot = TelegramBot(token, self._pc_update.emit, self._pc_status.emit)
+        self._set_pc_status("connecting", {})
+        self._bot.start()
+
+    def _stop_bot(self):
+        if self._bot is not None:
+            self._bot.stop()
+            self._bot = None
+            self._bot_token = ""
+
+    def _set_pc_status(self, state, details):
+        self.pc_state = (state, dict(details))
+        self.pc_status_changed.emit(state, dict(details))
+
+    def _on_pc_status(self, state, details):
+        if state == "stopped" and self._bot is not None and self._bot.running:
+            return
+        self._set_pc_status(state, details)
+
+    def check_pc_connection(self, token: str | None = None):
+        """Verify a token (the typed one or the saved one) with getMe."""
+        token = (token or "").strip() or self._token()
+        if not token:
+            self._set_pc_status("error", {"message": _tr3("Укажите токен бота.", "Enter the bot token.",
+                                                          "Introdu tokenul botului.", self.language)})
+            return
+        from luxai.telegram_control import TelegramError, call
+        self._set_pc_status("checking", {})
+
+        def work():
+            try:
+                me = call(token, "getMe") or {}
+                self._pc_status.emit("connected" if self._bot is not None and self._bot.running else "checked",
+                                     {"name": me.get("first_name", ""), "username": me.get("username", "")})
+            except TelegramError as error:
+                self._pc_status.emit("error", {"message": str(error)})
+
+        threading.Thread(target=work, daemon=True, name="JarvisTelegramCheck").start()
+
+    def open_bot(self):
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        username = self.pc_state[1].get("username") or (self._bot.me.get("username") if self._bot else "")
+        if username:
+            QDesktopServices.openUrl(QUrl("https://t.me/" + username))
+        else:
+            self.check_pc_connection()
+
+    def _registry_entries(self):
+        registry = getattr(self.host, "command_registry", None)
+        try:
+            return registry.entries() if registry is not None else []
+        except Exception:
+            return []
+
+    def pc_menu_preview(self):
+        from luxai.telegram_control import command_folders
+        name = self.pc_state[1].get("name") or self.pc_state[1].get("username") or "Jarvis"
+        return name, [folder for folder, _ in command_folders(self._registry_entries(), self.language)]
+
+    def _bot_send(self, method, params):
+        if self._bot is not None:
+            self._bot.send(method, params)
+
+    def _send_menu(self, chat_id, *, edit_message=None, folder=None, text_message=None):
+        from luxai import telegram_control as tg
+        settings = self.settings("pc_control")
+        mode = settings.get("ui_mode", "inline")
+        folders = tg.command_folders(self._registry_entries(), self.language)
+        if folder is None:
+            markup = tg.main_menu(folders, self.language, mode, self._menu_state)
+            body = text_message or tg.t("menu", self.language)
+        else:
+            entries = dict(folders).get(folder, [])
+            markup = tg.folder_menu(folder, entries, self.language, mode, self._menu_state)
+            body = tg.t("folder", self.language, name=folder) + ("" if entries else "\n" + tg.t("empty", self.language))
+        if edit_message and mode == "inline":
+            self._bot_send("editMessageText", {"chat_id": chat_id, "message_id": edit_message, "text": body,
+                                               "reply_markup": markup})
+        else:
+            self._bot_send("sendMessage", {"chat_id": chat_id, "text": body, "reply_markup": markup})
+
+    def _on_pc_update(self, update):
+        """Handle one Telegram update on the GUI thread."""
+        from luxai import telegram_control as tg
+        if not self.enabled("pc_control") or self._bot is None:
+            return
+        settings = self.settings("pc_control")
+        language = self.language
+        message = update.get("message") or {}
+        query = update.get("callback_query") or {}
+        sender = (message.get("from") or query.get("from") or {}).get("id")
+        chat = (message.get("chat") or (query.get("message") or {}).get("chat") or {}).get("id")
+        if sender is None or chat is None:
+            return
+        owner = str(settings.get("owner_id") or "").strip()
+        if query:
+            self._bot_send("answerCallbackQuery", {"callback_query_id": query.get("id")})
+        if not owner:
+            # Setup help only: tell the sender their ID, run nothing.
+            if message:
+                self._bot_send("sendMessage", {"chat_id": chat, "text": tg.t("your_id", language, id=sender)})
+            return
+        if str(sender) != owner:
+            return  # strangers get no answer at all
+        if query:
+            resolved = self._menu_state.resolve(query.get("data"))
+            message_id = (query.get("message") or {}).get("message_id")
+            if resolved is None:
+                self._send_menu(chat)
+                return
+            kind, value = resolved
+            if kind == "f":
+                self._send_menu(chat, edit_message=message_id, folder=value)
+            elif kind in ("m", "r"):
+                self._send_menu(chat, edit_message=message_id)
+            elif kind == "c":
+                self._request_run(chat, value)
+            elif kind == "y":
+                self._run_remote(chat, value, confirmed=True)
+            elif kind == "n":
+                self._bot_send("sendMessage", {"chat_id": chat, "text": tg.t("cancelled", language)})
+            return
+        text_value = str(message.get("text") or "").strip()
+        if not text_value:
+            return
+        lowered = text_value.casefold()
+        if lowered in ("/start", "/menu", "/help") or lowered == tg.t("refresh", language).casefold() \
+                or lowered == tg.t("back", language).casefold():
+            self._send_menu(chat)
+            return
+        folders = tg.command_folders(self._registry_entries(), language)
+        folder_names = {name.casefold(): name for name, _ in folders}
+        if lowered in folder_names:
+            self._send_menu(chat, folder=folder_names[lowered])
+            return
+        entry = next((item for _, items in folders for item in items if item["title"].casefold() == lowered), None)
+        if entry is None:
+            registry = getattr(self.host, "command_registry", None)
+            try:
+                found = registry.match(text_value, source="text") if registry is not None else None
+            except Exception:
+                found = None
+            if found and found.get("enabled", True) and not found.get("agent"):
+                entry = found
+        if entry is None:
+            if not settings.get("ignore_unknown"):
+                self._send_menu(chat, text_message=tg.t("not_found", language))
+            return
+        self._request_run(chat, entry["id"])
+
+    def _find_entry(self, identifier):
+        return next((item for item in self._registry_entries()
+                     if item["id"] == identifier and item.get("enabled", True) and not item.get("agent")), None)
+
+    def _request_run(self, chat, identifier):
+        from luxai import telegram_control as tg
+        entry = self._find_entry(identifier)
+        if entry is None:
+            self._bot_send("sendMessage", {"chat_id": chat, "text": tg.t("gone", self.language)})
+            return
+        if entry.get("ask_before_run") and self.settings("pc_control").get("confirm_sensitive", True):
+            self._bot_send("sendMessage", {"chat_id": chat, "text": tg.t("confirm", self.language, title=entry["title"]),
+                                           "reply_markup": tg.confirm_menu(identifier, self.language, self._menu_state)})
+            return
+        self._run_remote(chat, identifier, confirmed=False)
+
+    def _run_remote(self, chat, identifier, *, confirmed: bool):
+        from luxai import telegram_control as tg
+        entry = self._find_entry(identifier)
+        if entry is None:
+            self._bot_send("sendMessage", {"chat_id": chat, "text": tg.t("gone", self.language)})
+            return
+        settings = self.settings("pc_control")
+        origin = {"telegram_chat": chat, "title": entry["title"],
+                  "speak": bool(settings.get("voice_replies", True)), "confirmed": confirmed}
+        runner = getattr(self.host, "run_command_entry", None)
+        if runner is None:
+            return
+        accepted = runner(entry, origin=origin)
+        if accepted is False:
+            self._bot_send("sendMessage", {"chat_id": chat, "text": tg.t("busy", self.language)})
+        elif settings.get("notify", True):
+            self._bot_send("sendMessage", {"chat_id": chat, "text": tg.t("started", self.language, title=entry["title"])})
+
+    def remote_command_finished(self, origin: dict, result: str, ok: bool):
+        """Called by MainWindow when a Telegram-started command finishes."""
+        from luxai import telegram_control as tg
+        chat = origin.get("telegram_chat")
+        if chat is None or not self.settings("pc_control").get("notify", True):
+            return
+        head = tg.t("done" if ok else "failed", self.language, title=origin.get("title", ""))
+        body = (head + ("\n" + result[:3500] if result else "")).strip()
+        self._bot_send("sendMessage", {"chat_id": chat, "text": body})
 
     # -- breaks --
     def _tick_breaks(self):

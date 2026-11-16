@@ -1,4 +1,10 @@
-LUXAI LOCAL 0.4.1a — ACTUALIZARE 2026-11-16
+LUXAI LOCAL 0.4.1b — ACTUALIZARE 2026-11-16
+
+0.4.1b: PC Control funcționează. Creează un bot în Telegram la @BotFather
+(/newbot), lipește tokenul în Extensii → PC Control, trimite /start botului,
+copiază ID-ul primit în „ID Telegram proprietar”, activează și salvează.
+Botul arată dosarele tale de comenzi ca butoane și răspunde doar ție.
+Dacă același bot e folosit în Luxify, oprește-l acolo sau fă un bot separat.
 
 0.4.1a: setările pluginurilor se deschid în pagina Extensii (nu într-o fereastră
 separată), cu secțiuni, „Cum funcționează”, „Resetează tot” și „Salvează”,

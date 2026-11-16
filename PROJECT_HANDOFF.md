@@ -7,6 +7,10 @@
 > Updated for the **0.3.9.e work**, 2026-10-30. \`Update.bat\` installs the code merged into \`main\`, NOT an open PR.
 > Do NOT include real API keys, private logs, screen captures, model binaries, user audio, or personal paths in Git history.
 
+## 0. Release 0.4.1b — PC Control (Telegram)
+
+`luxai/telegram_control.py` owns Bot API calls (HTTPS to api.telegram.org only, no redirects, token scrubbed from errors), menus with short callback tokens and the polling/sending threads. Token: DPAPI provider "telegram" (`secure_keys`), setting kind "secret" is never stored in config. `ExtensionsRuntime._on_pc_update` enforces owner-only access (no owner → reply with sender ID only; strangers → silence), exposes only enabled non-agent saved commands and confirms `ask_before_run` in Telegram. `MainWindow.run_command_entry(entry, origin=...)` runs remote commands without switching pages; `_finish_command_group` reports results through `remote_command_finished`. Tests: `tests/test_pc_control_041b.py`.
+
 ## 0. Release 0.4.1 — Smart dictation
 
 `luxai/dictation.py` owns recording (`Recorder`), Whisper transcription (reuses `MainWindow.dictation_model()` = the running listener's model, else loads its own once), spoken punctuation, voice-trigger parsing, right-Ctrl double-tap polling (`DoubleTapDetector`, no hooks) and typing (Unicode SendInput + real Enter). `DICTATION_ACTIVE` must stay set from the start of recording until the text is typed: `VoiceWorker`'s capture gate checks it so dictated words never reach command routing. The flow lives in `ExtensionsRuntime` (`start_dictation`/`stop_dictation`/`handle_voice_request`); `MainWindow.handle_voice` calls `handle_voice_request` after wake-word handling. Tests: `tests/test_dictation_041.py`.

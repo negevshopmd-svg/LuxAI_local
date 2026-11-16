@@ -837,6 +837,14 @@ QPlainTextEdit#ExtTestBox {
     border-radius: 10px;
     padding: 6px;
 }
+QLabel#ExtPreviewButton {
+    background: $surface;
+    border: 1px solid $border;
+    border-radius: 7px;
+    padding: 5px 8px;
+    color: $text;
+    font-size: 12px;
+}
 QLabel#ExtCounter {
     background: $control;
     border: 1px solid $border;

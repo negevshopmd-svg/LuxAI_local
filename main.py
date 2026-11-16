@@ -588,25 +588,36 @@ class MainWindow(QMainWindow):
     def run_saved_command(self, entry):
         self.run_command_entry(entry)
 
-    def run_command_entry(self, entry, *, triggered=False):
-        """Manual/global triggers execute the validated entry, independent of voice."""
+    def run_command_entry(self, entry, *, triggered=False, origin=None):
+        """Manual/global triggers execute the validated entry, independent of voice.
+
+        ``origin`` marks a remote start (PC Control / Telegram): the page is
+        not switched, the result is reported back and an "ask before run"
+        confirmation already given in Telegram is honoured.
+        """
         if self._closed or not isinstance(entry, dict) or entry.get("enabled") is False:
-            return
+            return False
         try:
             verified = checked_command(entry, builtin=bool(entry.get("builtin")))
         except (ValueError, TypeError) as exc:
             self.append_message("Jarvis", tr("Недопустимая команда:") + " " + str(exc), "#a5b9dc")
-            return
+            return False
         if len(self._command_queue) >= 8:
             self.mic_status.setText(tr("Очередь заполнена. Подождите завершения команды."))
-            return
-        self.show_page(3)
+            return False
+        if origin is None:
+            self.show_page(3)
         text = (verified.get("phrases") or [verified["title"]])[0]
-        self.append_message("Tu", verified["title"], "#79a6ff")
-        self._command_queue.append({"parts": [text], "saved_entry": verified,
-                                    "triggered_id": verified["id"] if triggered else "",
-                                    "answers": [], "routes": [], "original_text": text})
+        self.append_message("Telegram" if origin else "Tu", verified["title"], "#79a6ff")
+        group = {"parts": [text], "saved_entry": verified,
+                 "triggered_id": verified["id"] if (triggered or origin) else "",
+                 "answers": [], "routes": [], "original_text": text}
+        if origin is not None:
+            group["origin"] = dict(origin)
+            group["remote_confirmed"] = bool(origin.get("confirmed"))
+        self._command_queue.append(group)
         self._dispatch_command()
+        return True
 
     def _setup_command_triggers(self):
         from luxai.command_triggers import CommandTriggerEngine, WindowsHotkeyListener
@@ -2747,7 +2758,11 @@ class MainWindow(QMainWindow):
                             or checked_command(latest, builtin=bool(latest.get("builtin"))) != direct_entry):
                         self._resolved_command(text, tr("Команда изменилась или отключена до запуска."))
                         return
-                self._execute_registered(text, direct_entry)
+                if current.get("remote_confirmed"):
+                    # Already confirmed with buttons in Telegram (PC Control).
+                    self._execute_registered(text, direct_entry, confirmed=True)
+                else:
+                    self._execute_registered(text, direct_entry)
                 return
             attachments = current.pop("attachments", None)
             if attachments is not None:
@@ -3060,8 +3075,8 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self._resolved_command(text, self._error_message(exc))
 
-    def _execute_registered(self, text, saved):
-        if saved.get("ask_before_run") and not self.confirm_action(
+    def _execute_registered(self, text, saved, *, confirmed=False):
+        if saved.get("ask_before_run") and not confirmed and not self.confirm_action(
                 tr("Запустить команду:") + " " + saved["title"], force=True):
             self._resolved_command(text, tr("Команда отменена."))
             return
@@ -4469,10 +4484,16 @@ class MainWindow(QMainWindow):
                                         "ro": "Aștept răspunsul tău." if status == "waiting" else "Finalizarea nu este verificată."}[reply_language(self.cfg)])
             else:
                 self.mic_status.setText("Готово: " + (", ".join(routes) or "локально"))
-            if self.cfg.get("tts_enabled", True):
+            origin = group.get("origin") or {}
+            if self.cfg.get("tts_enabled", True) and origin.get("speak", True):
                 self._queue_speech(result, reply_language(self.cfg, group.get("original_text", "")))
         else:
             self.mic_status.setText("")
+        if group.get("origin") and getattr(self, "extensions_runtime", None) is not None:
+            status = group.get("outcome_status")
+            failed = any(word in result.lower() for word in ("ошибк", "не удалось", "отмен", "error", "failed", "eroare"))
+            self.extensions_runtime.remote_command_finished(
+                group["origin"], result, ok=not failed and status in (None, "completed"))
         QTimer.singleShot(0, self._dispatch_command)
 
     def stop_speaking(self):

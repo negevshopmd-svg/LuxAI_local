@@ -1,3 +1,10 @@
+## 0.4.1b — PC Control via Telegram (2026-11-16)
+
+- **PC Control** now works: your own Telegram bot shows your command folders as buttons (under the message or as a chat keyboard) and runs saved, enabled commands by button or by text phrase.
+- Security: the bot token is stored in Windows DPAPI, never in config.json; only the owner Telegram ID can run anything (before it is set, the bot only replies with the sender's ID); strangers get no answer; messages sent while Jarvis was off are skipped; agent commands are not exposed.
+- "Ask before run" commands are confirmed with Run/Cancel buttons in Telegram; risky (⚠) steps still ask on the PC. Optional result notifications in Telegram and optional spoken replies on the PC. Start-with-app switch, connection check, "Open bot" and a clear message when another program (e.g. Luxify) uses the same bot.
+- Settings follow the Luxify layout: Подключение, Меню в Telegram, Ответы, Основные, with a live bot-menu preview.
+
 ## 0.4.1a — Luxify-style plugin settings (2026-11-16)
 
 - Plugin settings open inside the Extensions page instead of a separate window: «‹ Jarvis | Расширения | Plugin» in the header with a back arrow, section cards with per-section reset, segmented choices, sliders, key chips with «Назначить», and a right panel with «Как это работает», section navigation, «Сбросить всё» and «Сохранить» (enabled only with unsaved changes; leaving asks to save).
