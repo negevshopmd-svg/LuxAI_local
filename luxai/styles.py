@@ -646,6 +646,126 @@ QPushButton#WindowClose:hover {
 QPushButton#WindowControl:focus, QPushButton#WindowClose:focus {
     border: 1px solid $focus;
 }
+QWidget#ExtensionsPage, QWidget#ExtContent, QStackedWidget#ExtStack, QScrollArea#ExtScroll {
+    background: transparent;
+    border: none;
+}
+QPushButton#ExtTab {
+    background: $surface;
+    border: 1px solid $border;
+    border-radius: 11px;
+    padding: 8px 18px;
+    font-weight: 600;
+    text-align: left;
+}
+QPushButton#ExtTab:hover {
+    background: $hover;
+}
+QPushButton#ExtTab[selected="true"] {
+    background: $accent;
+    border-color: $accent;
+    color: white;
+}
+QFrame#ExtCard, QFrame#ExtRow {
+    background: $surface;
+    border: 1px solid $border;
+    border-radius: 15px;
+}
+QFrame#ExtCard:hover, QFrame#ExtRow:hover {
+    border-color: $hover;
+}
+QLabel#ExtTitle {
+    font-size: 16px;
+    font-weight: 700;
+    color: $text;
+}
+QLabel#ExtSection {
+    font-size: 16px;
+    font-weight: 700;
+    color: $text;
+    padding-top: 4px;
+}
+QLabel#ExtDescription {
+    color: $muted;
+    font-size: 13px;
+}
+QLabel#ExtBadge {
+    background: $accent;
+    color: white;
+    border-radius: 6px;
+    padding: 1px 6px;
+    font-size: 11px;
+    font-weight: 700;
+}
+QLabel#ExtStatus {
+    color: $muted;
+    font-size: 12px;
+}
+QLabel#ExtNote {
+    background: $selection;
+    border-left: 3px solid $accent;
+    border-radius: 6px;
+    padding: 8px 10px;
+    color: $text;
+}
+QLabel#ExtError {
+    color: #e26675;
+}
+QPushButton#ExtConfigure {
+    background: $control;
+    border: 1px solid $border;
+    border-radius: 9px;
+    padding: 6px 12px;
+    font-weight: 600;
+}
+QPushButton#ExtConfigure:hover {
+    background: $hover;
+    border-color: $accent;
+}
+QFrame#ExtSide {
+    background: $surface;
+    border: 1px solid $border;
+    border-radius: 15px;
+}
+QLineEdit#ExtSearch {
+    border-radius: 10px;
+    padding: 7px 8px;
+}
+QPushButton#ExtTopic {
+    background: transparent;
+    border: none;
+    border-radius: 9px;
+    padding: 0;
+    text-align: left;
+}
+QPushButton#ExtTopic:hover {
+    background: $hover;
+}
+QPushButton#ExtTopic[active="true"] {
+    background: $selection;
+}
+QPushButton#ExtTopic:disabled {
+    background: transparent;
+}
+QLabel#ExtTopicTitle {
+    color: $navtext;
+    font-size: 13px;
+}
+QLabel#ExtTopicTitle[active="true"] {
+    color: $text;
+    font-weight: 600;
+}
+QLabel#ExtTopicCount {
+    color: $muted;
+    font-size: 12px;
+}
+QLabel#ExtCounter {
+    background: $control;
+    border: 1px solid $border;
+    border-radius: 10px;
+    padding: 9px 10px;
+    color: $text;
+}
 """
     for key, value in p.items():
         css = css.replace("$" + key, value)

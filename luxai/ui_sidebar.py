@@ -97,7 +97,11 @@ class NavigationSidebar(QFrame):
         ("blocks", "Дополнения"),
         ("bot", "Jarvis AI"),
         ("settings", "Настройки"),
+        ("puzzle", "Расширения"),
     ]
+    # Page indices stay stable (tests and MainWindow refer to them); the
+    # Extensions page (index 5) is shown between Addons and Jarvis AI.
+    NAV_ORDER = (0, 1, 2, 5, 3, 4)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -134,8 +138,9 @@ class NavigationSidebar(QFrame):
             button.setCursor(Qt.CursorShape.PointingHandCursor)
             button.setMinimumHeight(45)
             button.clicked.connect(lambda checked=False, i=idx: self.page_selected.emit(i))
-            column.addWidget(button)
             self.nav_buttons.append(button)
+        for idx in self.NAV_ORDER:
+            column.addWidget(self.nav_buttons[idx])
         column.addStretch()
 
         self.collapse = QPushButton("Свернуть")

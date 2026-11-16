@@ -202,6 +202,7 @@ Q,W,E,R,D — от 2 до 24 клавиш|||Q,W,E,R,D — 2 to 24 keys|||Q,W,E,R
 Главная|||Home|||Acasă
 Команды|||Commands|||Comenzi
 Дополнения|||Tools|||Instrumente
+Расширения|||Extensions|||Extensii
 Настройки|||Settings|||Setări
 Свернуть|||Collapse|||Restrânge
 Локальный режим|||Local mode|||Mod local

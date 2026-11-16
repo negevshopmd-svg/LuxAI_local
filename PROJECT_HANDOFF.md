@@ -7,6 +7,10 @@
 > Updated for the **0.3.9.e work**, 2026-10-30. \`Update.bat\` installs the code merged into \`main\`, NOT an open PR.
 > Do NOT include real API keys, private logs, screen captures, model binaries, user audio, or personal paths in Git history.
 
+## 0. Release 0.4.0 — Extensions
+
+The navigation rail has a sixth entry, **Расширения** (`puzzle` icon). Page indices stay stable: stack index 5 is `luxai/ui_extensions.py::ExtensionsPage`; `NavigationSidebar.NAV_ORDER` only changes the visual position (after Addons). `extensions_catalog.py` (no Qt) owns the 22 plugins, 5 topics, settings schemas, validation and `normalize_state`; state lives in `config.json["extensions"]` and must never contain secrets (tokens go to DPAPI `secure_keys` when those runtimes are built). `extensions_runtime.py` runs the *ready* plugins (read_aloud, clipboard_history, quick_inserts, breaks, media_keys, converter, screenshots, downloads_cleanup) with its own `WindowsHotkeyListener`. Plugins with `ready=False` keep a locked switch marked "Скоро"; to ship one, implement it in the runtime, set `ready=True` and add tests. Clipboard history stays in memory; downloads cleanup always previews/confirms and only trashes old installers. Tests: `tests/test_extensions_040.py`.
+
 ## 0. Patch 0.3.9.e
 
 The maintainer corrected `version.txt` from `0.9.3.d` to `0.3.9.d` in main commit `3a8bfaa`; continue with `0.3.9.e`. Fish Audio is an explicitly selected optional TTS provider (`voice_engine: fish`), separate from LLM providers. `fish_tts.py` owns the fixed HTTPS endpoint, strict public voice ID/link parsing, bounded PCM synthesis and WAV wrapping. The linked Russian Jarvis default is `4c3eaacc1a0545cdb0295bfddf3e3785`. Always send the literal `model: s2.1-pro-free` header: the documented omitted/unknown-header fallback is PAID `s2.1-pro`. Do not add paid fallbacks, startup synthesis or automatic cloud voice selection. Read current official API pricing before changing the free model; service terms and limits can change.

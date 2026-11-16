@@ -1,3 +1,11 @@
+## 0.4.0 — Extensions page (2026-11-16)
+
+- Add a new **Extensions** (Расширения) button to the left navigation rail, between Addons and Jarvis AI, with its own page: Plugins / Connections tabs, Tiles / List views, a topics panel with counts, search, an "only enabled" filter and an enabled counter.
+- Catalog 22 plugins in 5 topics (voice and sound, text and clipboard, desktop, PC and home control, files/screen/streams). Every plugin has a settings dialog generated from a validated schema; state is stored under `extensions` in `config.json`, invalid values fall back to defaults and secrets are never stored there.
+- Working plugins: Read aloud (selected text, global key), Clipboard history (search, pin, paste at cursor; skips password/code-like texts, kept in memory only), Quick inserts (snippets with {date}/{time}), Breaks (active-time reminders that respect idle time and fullscreen apps), Media keys, Converter (PNG/JPG/WebP/ICO/PDF copies next to originals), Screenshots (screen or active window to clipboard and file) and Downloads cleanup (preview, confirmation, Recycle Bin only for old installers).
+- The other 14 plugins are shown with their settings and a locked switch marked "Скоро" until their runtime exists; the page never pretends a module works.
+- Plugin shortcuts use a separate RegisterHotKey listener, so they do not interfere with command shortcuts; registration errors are shown on the plugin card.
+
 ## 0.3.9g — Luxify-inspired settings and listening controls (2026-11-04)
 
 - Load the project Fuzzy Bubbles Regular/Bold files from `assets/fonts` locally, replace the Arial selector entry and migrate saved Arial selections. Keep Onest as the Cyrillic fallback.
