@@ -457,6 +457,54 @@ class DictationOverlay(QDialog):
         self.raise_()
 
 
+class RingDialog(QDialog):
+    """Always-on-top alarm window with Snooze and Stop."""
+    snoozed = Signal()
+    stopped = Signal()
+
+    def __init__(self, title: str, body: str, snooze_label: str, stop_label: str):
+        super().__init__(None)
+        self.setObjectName("RingDialog")
+        self.setWindowTitle(title)
+        self.setWindowFlags(Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self.setProperty("i18n_skip", True)
+        self.setStyleSheet("QDialog#RingDialog{border:2px solid #7c3aed;border-radius:16px;}")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 20, 24, 18)
+        layout.setSpacing(10)
+        heading = QLabel(title)
+        heading.setStyleSheet("font-size:22px;font-weight:800;")
+        heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(heading)
+        if body:
+            text_label = QLabel(body)
+            text_label.setWordWrap(True)
+            text_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            text_label.setStyleSheet("font-size:15px;")
+            layout.addWidget(text_label)
+        row = QHBoxLayout()
+        snooze = QPushButton(snooze_label)
+        snooze.setMinimumHeight(40)
+        snooze.clicked.connect(lambda: (self.snoozed.emit(), self.close()))
+        stop = QPushButton(stop_label)
+        stop.setObjectName("Primary")
+        stop.setMinimumHeight(40)
+        stop.setDefault(True)
+        stop.clicked.connect(lambda: (self.stopped.emit(), self.close()))
+        row.addWidget(snooze)
+        row.addWidget(stop)
+        layout.addLayout(row)
+        self.resize(380, 180)
+
+    def show_centered(self):
+        screen = QGuiApplication.primaryScreen().availableGeometry()
+        self.move(screen.center().x() - self.width() // 2, screen.center().y() - self.height() // 2)
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+
 def _beep(frequency: int):
     """Short cue; played before the microphone opens so it is not recorded."""
     if sys.platform != "win32":
@@ -483,6 +531,7 @@ class ExtensionsRuntime(QObject):
     dictation_result = Signal(str, str, bool)  # text, error, test
     dictation_done = Signal(str)  # last dictated text, for the settings page
     pc_status_changed = Signal(str, dict)  # state, details (bot name, error)
+    timers_changed = Signal()
     _pc_update = Signal(dict)
     _pc_status = Signal(str, dict)
 
@@ -530,6 +579,15 @@ class ExtensionsRuntime(QObject):
         from luxai.telegram_control import MenuState
         self._menu_state = MenuState()
         self._pc_update.connect(self._on_pc_update)
+        self._timer_store = None
+        self._timer_tick = QTimer(self)
+        self._timer_tick.setInterval(1000)
+        self._timer_tick.timeout.connect(self._check_timers)
+        self._ringing: list = []  # (timer, dialog)
+        self._ring_until = 0.0
+        self._ring_beeper = QTimer(self)
+        self._ring_beeper.setInterval(1400)
+        self._ring_beeper.timeout.connect(self._ring_beep)
         self._pc_status.connect(self._on_pc_status)
 
     # -- helpers --
@@ -590,6 +648,7 @@ class ExtensionsRuntime(QObject):
         if not self.enabled("smart_dictation") and self.dictating:
             self.cancel_dictation()
         self._apply_pc_control()
+        self._apply_timers()
         if self.enabled("downloads_cleanup") and self.settings("downloads_cleanup").get("auto"):
             if not self._cleanup_timer.isActive():
                 self._cleanup_timer.start()
@@ -631,6 +690,8 @@ class ExtensionsRuntime(QObject):
             self.errors = dict(self._listener.errors)
 
     def stop(self):
+        self._timer_tick.stop()
+        self._ring_beeper.stop()
         self._stop_bot()
         self.cancel_dictation()
         self._tap_timer.stop()
@@ -1165,6 +1226,189 @@ class ExtensionsRuntime(QObject):
         head = tg.t("done" if ok else "failed", self.language, title=origin.get("title", ""))
         body = (head + ("\n" + result[:3500] if result else "")).strip()
         self._bot_send("sendMessage", {"chat_id": chat, "text": body})
+
+    # -- timers and alarms --
+    @property
+    def timer_store(self):
+        if self._timer_store is None:
+            from luxai.command_registry import DATA_DIR
+            from luxai.timers import TimerStore
+            self._timer_store = TimerStore(getattr(self, "timers_path", None) or DATA_DIR / "timers.json")
+        return self._timer_store
+
+    def _apply_timers(self):
+        if self.enabled("timers"):
+            if not self._timer_tick.isActive():
+                self._timer_tick.start()
+                QTimer.singleShot(0, self._check_timers)  # ring alarms missed while closed
+        else:
+            self._timer_tick.stop()
+
+    def _words(self, key, **values):
+        words = {
+            "timer_set": ("Таймер на {d} запущен.", "Timer for {d} started.", "Cronometru de {d} pornit."),
+            "remind_set": ("Напомню через {d}: {label}.", "I'll remind you in {d}: {label}.", "Îți amintesc în {d}: {label}."),
+            "alarm_set": ("Будильник поставлен на {t}{day}.", "Alarm set for {t}{day}.", "Alarmă setată la {t}{day}."),
+            "tomorrow": (" (завтра)", " (tomorrow)", " (mâine)"),
+            "cancel_one": ("Отменил: {what}.", "Cancelled: {what}.", "Anulat: {what}."),
+            "cancel_n": ("Отменено: {n}.", "Cancelled: {n}.", "Anulate: {n}."),
+            "none": ("Нет активных таймеров и будильников.", "No active timers or alarms.", "Nu există cronometre sau alarme active."),
+            "timer_name": ("таймер на {d}", "{d} timer", "cronometru de {d}"),
+            "alarm_name": ("будильник на {t}", "alarm at {t}", "alarmă la {t}"),
+            "left": ("{what}: осталось {left}", "{what}: {left} left", "{what}: au mai rămas {left}"),
+            "ring_timer": ("Время вышло: таймер на {d}.", "Time is up: {d} timer.", "Timpul a expirat: cronometru de {d}."),
+            "ring_remind": ("Напоминание: {label}.", "Reminder: {label}.", "Memento: {label}."),
+            "ring_alarm": ("Будильник: {t}.", "Alarm: {t}.", "Alarmă: {t}."),
+            "title_timer": ("Таймер", "Timer", "Cronometru"),
+            "title_alarm": ("Будильник", "Alarm", "Alarmă"),
+            "snooze": ("Отложить на {n} мин", "Snooze {n} min", "Amână {n} min"),
+            "stop": ("Стоп", "Stop", "Stop"),
+            "too_many": ("Слишком много таймеров (максимум 20).", "Too many timers (20 at most).", "Prea multe cronometre (maximum 20)."),
+            "disabled": ("Таймеры выключены. Включите «Таймеры и будильники» в Расширениях.",
+                         "Timers are off. Turn on “Timers and alarms” in Extensions.",
+                         "Cronometrele sunt oprite. Activează „Cronometre și alarme” în Extensii."),
+        }[key]
+        return _tr3(*words, self.language).format(**values)
+
+    def _describe(self, timer) -> str:
+        from luxai.timers import format_duration
+        if timer.kind == "alarm":
+            return self._words("alarm_name", t=_dt.datetime.fromtimestamp(timer.due).strftime("%H:%M"))
+        name = self._words("timer_name", d=format_duration(timer.duration, self.language))
+        return f"{name} ({timer.label})" if timer.label else name
+
+    def active_timers(self):
+        return list(self.timer_store.items)
+
+    def add_timer(self, kind: str, *, seconds: int = 0, at=None, label: str = "") -> str:
+        """Create a timer/alarm and return the confirmation sentence."""
+        from luxai.timers import format_duration, new_timer
+        now = _dt.datetime.now()
+        if kind == "alarm":
+            due = at.timestamp()
+            timer = new_timer("alarm", due, label)
+        else:
+            due = now.timestamp() + seconds
+            timer = new_timer("timer", due, label, seconds)
+        try:
+            self.timer_store.add(timer)
+        except ValueError:
+            return self._words("too_many")
+        self._apply_timers()
+        self.timers_changed.emit()
+        if kind == "alarm":
+            day = self._words("tomorrow") if at.date() != now.date() else ""
+            return self._words("alarm_set", t=at.strftime("%H:%M"), day=day)
+        if label:
+            return self._words("remind_set", d=format_duration(seconds, self.language), label=label)
+        return self._words("timer_set", d=format_duration(seconds, self.language))
+
+    def cancel_timer(self, identifier: str):
+        if self.timer_store.remove(identifier):
+            self.timers_changed.emit()
+
+    def handle_timer_request(self, text: str) -> str | None:
+        """Reply text when ``text`` is a timer/alarm request, else None."""
+        from luxai.timers import format_countdown, parse_request
+        request = parse_request(text)
+        if request is None:
+            return None
+        if not self.enabled("timers"):
+            return self._words("disabled")
+        if request.kind == "timer":
+            return self.add_timer("timer", seconds=request.seconds, label=request.label)
+        if request.kind == "alarm":
+            return self.add_timer("alarm", at=request.at, label=request.label)
+        items = self.active_timers()
+        if request.kind == "list":
+            if not items:
+                return self._words("none")
+            lines = []
+            for item in items[:8]:
+                if item.kind == "alarm":
+                    lines.append(self._describe(item))
+                else:
+                    lines.append(self._words("left", what=self._describe(item), left=format_countdown(item.remaining())))
+            return "\n".join(lines)
+        kind = request.label if request.label in ("timer", "alarm") else ""
+        targets = [item for item in items if not kind or item.kind == kind]
+        if not targets:
+            return self._words("none")
+        if request.all:
+            for item in targets:
+                self.timer_store.remove(item.id)
+            self.timers_changed.emit()
+            return self._words("cancel_n", n=len(targets))
+        first = targets[0]
+        self.cancel_timer(first.id)
+        return self._words("cancel_one", what=self._describe(first))
+
+    def _check_timers(self):
+        for timer in self.timer_store.due():
+            self.timer_store.remove(timer.id)
+            self.timers_changed.emit()
+            self.ring(timer)
+
+    def _ring_text(self, timer) -> str:
+        from luxai.timers import format_duration
+        if timer.kind == "alarm":
+            return self._words("ring_alarm", t=_dt.datetime.fromtimestamp(timer.due).strftime("%H:%M"))
+        if timer.label:
+            return self._words("ring_remind", label=timer.label)
+        return self._words("ring_timer", d=format_duration(timer.duration, self.language))
+
+    def ring(self, timer):
+        settings = self.settings("timers")
+        message = self._ring_text(timer)
+        cfg = getattr(self.host, "cfg", {}) or {}
+        self._notify(message, speak=bool(settings.get("speak", True)) and cfg.get("tts_enabled", True))
+        dialog = None
+        if settings.get("popup", True):
+            title = self._words("title_alarm" if timer.kind == "alarm" else "title_timer")
+            dialog = RingDialog(title, message, self._words("snooze", n=int(settings.get("snooze", 5))), self._words("stop"))
+            dialog.snoozed.connect(lambda t=timer: self.snooze(t))
+            dialog.stopped.connect(self.stop_ringing)
+            dialog.show_centered()
+        self._ringing.append((timer, dialog))
+        if settings.get("sound", True):
+            self._ring_until = time.monotonic() + int(settings.get("ring_seconds", 60))
+            self._ring_beep()
+            self._ring_beeper.start()
+
+    def _ring_beep(self):
+        if time.monotonic() >= self._ring_until or not self._ringing:
+            self._ring_beeper.stop()
+            return
+        if sys.platform == "win32":
+            def pattern():
+                import winsound
+                for frequency in (988, 1319, 988):
+                    try:
+                        winsound.Beep(frequency, 120)
+                    except RuntimeError:
+                        return
+            threading.Thread(target=pattern, daemon=True).start()
+
+    def stop_ringing(self):
+        self._ring_beeper.stop()
+        for _, dialog in self._ringing:
+            try:
+                if dialog is not None:
+                    dialog.close()
+            except RuntimeError:
+                pass
+        self._ringing = []
+
+    def snooze(self, timer):
+        from luxai.timers import new_timer
+        minutes = int(self.settings("timers").get("snooze", 5))
+        self.stop_ringing()
+        due = _dt.datetime.now().timestamp() + minutes * 60
+        try:
+            self.timer_store.add(new_timer(timer.kind, due, timer.label, timer.duration))
+        except ValueError:
+            return
+        self.timers_changed.emit()
 
     # -- breaks --
     def _tick_breaks(self):

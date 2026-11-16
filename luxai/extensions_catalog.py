@@ -436,8 +436,21 @@ PLUGINS: tuple[Plugin, ...] = (
           "reminders even when the window is minimized.",
           "„Pune un cronometru de 10 minute”, „trezește-mă la 7:30”: mai multe cronometre, memento vocal și "
           "notificare chiar dacă fereastra e minimizată."),
-        False,
-        (Setting("sound", "bool", L("Звуковой сигнал", "Sound signal", "Semnal sonor"), True),
+        True,
+        (Setting("sound", "bool", L("Звуковой сигнал", "Sound signal", "Semnal sonor"), True,
+                 hint=L("Повторяющийся сигнал, пока вы не нажмёте «Стоп» или «Отложить».",
+                        "A repeating signal until you press Stop or Snooze.",
+                        "Un semnal repetat până apeși Stop sau Amână.")),
+         Setting("ring_seconds", "int", L("Звонить не дольше", "Ring for at most", "Sună cel mult"), 60, minimum=10, maximum=300,
+                 suffix=L(" с", " s", " s")),
+         Setting("speak", "bool", L("Сказать вслух", "Say it aloud", "Spune cu voce"), True,
+                 hint=L("«Время вышло: таймер на 10 минут», «Будильник: 07:30». Тихий режим имеет приоритет.",
+                        "“Time is up: 10 minute timer”, “Alarm: 07:30”. Quiet mode wins.",
+                        "„Timpul a expirat: cronometru de 10 minute”, „Alarmă: 07:30”. Modul silențios are prioritate.")),
+         Setting("popup", "bool", L("Окно поверх всех окон", "Window on top of everything", "Fereastră deasupra tuturor"), True,
+                 hint=L("С кнопками «Отложить» и «Стоп». Работает, даже если Jarvis свёрнут.",
+                        "With Snooze and Stop buttons. Works even when Jarvis is minimized.",
+                        "Cu butoanele Amână și Stop. Funcționează chiar dacă Jarvis e minimizat.")),
          Setting("snooze", "int", L("Отложить на", "Snooze for", "Amână cu"), 5, minimum=1, maximum=30, suffix=_MINUTES)),
     ),
     # --- Files, screen and streams ---------------------------------------
@@ -542,6 +555,11 @@ SECTIONS = {
                   "Ce scrie botul și ce se aude pe PC."),
                 ("notify", "voice_replies")),
     ),
+    "timers": (
+        Section("signal", "bell-ring", L("Сигнал", "Signal", "Semnal"),
+                L("Как сообщить, что время вышло.", "How to tell you that time is up.", "Cum îți spun că a expirat timpul."),
+                ("sound", "ring_seconds", "speak", "popup", "snooze")),
+    ),
     "smart_dictation": (
         Section("keys", "keyboard", L("Клавиша и режим", "Key and mode", "Tastă și mod"),
                 L("Чем начинать диктовку и как её заканчивать.", "How to start and finish dictation.",
@@ -564,6 +582,7 @@ SECTIONS = {
 
 # A setting is editable only while another setting has one of these values.
 ENABLED_IF = {
+    "timers": {"ring_seconds": ("sound", (True,))},
     "smart_dictation": {
         "hotkey": ("trigger", ("hotkey",)),
         "silence_pause": ("mode", ("toggle",)),
@@ -577,6 +596,10 @@ BASIC_LAST = {"pc_control"}
 BASIC_KEYS = {"pc_control": ("autostart",)}
 
 BASIC_TEXT = {
+    "timers": (L("Таймеры и будильники голосом", "Voice timers and alarms", "Cronometre și alarme vocale"),
+               L("Скажите «Джарвис, поставь таймер на 10 минут», «напомни через 20 минут выключить плиту» или «разбуди в 7:30».",
+                 "Say “Jarvis, set a timer for 10 minutes”, “remind me in 20 minutes to call mom” or “wake me up at 7:30”.",
+                 "Spune „Jarvis, pune un cronometru de 10 minute”, „amintește-mi în 20 de minute” sau „trezește-mă la 7:30”.")),
     "pc_control": (L("Включить PC Control", "Enable PC Control", "Activează PC Control"),
                    L("Бот принимает команды, пока Jarvis запущен.", "The bot accepts commands while Jarvis runs.",
                      "Botul primește comenzi cât timp Jarvis rulează.")),

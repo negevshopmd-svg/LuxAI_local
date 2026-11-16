@@ -67,6 +67,20 @@ W = {
     "pc_bot": L("Бот: {name} (@{username})", "Bot: {name} (@{username})", "Bot: {name} (@{username})"),
     "pc_main_menu": L("Главное меню", "Main menu", "Meniul principal"),
     "pc_refresh": L("Обновить", "Refresh", "Reîmprospătează"),
+    "active": L("Активные", "Active", "Active"),
+    "active_sub": L("Таймеры и будильники, которые сейчас идут.", "Timers and alarms that are running now.",
+                    "Cronometrele și alarmele care rulează acum."),
+    "no_timers": L("Сейчас ничего не запущено.", "Nothing is running right now.", "Nimic nu rulează acum."),
+    "add_timer": L("Таймер", "Timer", "Cronometru"),
+    "add_timer_hint": L("Запустить на столько минут.", "Start for this many minutes.", "Pornește pentru atâtea minute."),
+    "start": L("Запустить", "Start", "Pornește"),
+    "add_alarm": L("Будильник", "Alarm", "Alarmă"),
+    "add_alarm_hint": L("Ближайшее такое время: сегодня или завтра.", "The next such time: today or tomorrow.",
+                        "Următoarea astfel de oră: azi sau mâine."),
+    "set": L("Поставить", "Set", "Setează"),
+    "timers_off": L("Включите модуль и сохраните — тогда таймеры заработают.",
+                    "Turn the module on and save — then timers work.",
+                    "Pornește modulul și salvează — apoi cronometrele funcționează."),
     "unsaved": L("Есть несохранённые изменения.", "There are unsaved changes.", "Există modificări nesalvate."),
 }
 
@@ -400,6 +414,8 @@ class PluginSettingsView(QWidget):
         if plugin.id not in BASIC_LAST:
             self._build_basic()
         has_status_row = False
+        if plugin.id == "timers":
+            self._build_timers_card()
         for section in sections_for(plugin):
             card = SectionCard(section.id, section.icon, text(section.title, language), text(section.subtitle, language))
             card.reset_requested.connect(self.reset_section)
@@ -457,7 +473,7 @@ class PluginSettingsView(QWidget):
             button = QPushButton(card.findChild(QLabel, "ExtTitle").text())
             button.setObjectName("ExtNav")
             button.setCursor(Qt.CursorShape.PointingHandCursor)
-            icon_name = {"basic": "power", "check": "mic", "actions": "play"}.get(card_id) or next(
+            icon_name = {"basic": "power", "check": "mic", "actions": "play", "active": "hourglass"}.get(card_id) or next(
                 (s.icon for s in sections_for(plugin) if s.id == card_id), "sliders-horizontal")
             set_button_icon(button, icon_name, size=17)
             button.clicked.connect(lambda checked=False, c=card_id: self.scroll_to(c))
@@ -678,10 +694,126 @@ class PluginSettingsView(QWidget):
             else:
                 self.preview_menu.addWidget(label)
 
+    def _build_timers_card(self):
+        from PySide6.QtCore import QTime
+        from PySide6.QtWidgets import QTimeEdit
+        language = self.language
+        card = SectionCard("active", "hourglass", w("active", language), w("active_sub", language), resettable=False)
+        self.timer_rows = QVBoxLayout()
+        self.timer_rows.setContentsMargins(0, 0, 0, 0)
+        self.timer_rows.setSpacing(0)
+        holder = QWidget()
+        holder.setObjectName("ExtContent")
+        holder.setLayout(self.timer_rows)
+        card.add_row(holder)
+        self.timer_minutes = QSpinBox()
+        self.timer_minutes.setRange(1, 1440)
+        self.timer_minutes.setValue(10)
+        self.timer_minutes.setSuffix(text(L(" мин", " min", " min"), language))
+        start = QPushButton(w("start", language))
+        start.setObjectName("ExtConfigure")
+        start.clicked.connect(self._quick_timer)
+        quick = QWidget()
+        quick.setObjectName("ExtContent")
+        quick_row = QHBoxLayout(quick)
+        quick_row.setContentsMargins(0, 0, 0, 0)
+        quick_row.addWidget(self.timer_minutes)
+        quick_row.addWidget(start)
+        self.timer_add_row = _row(w("add_timer", language), w("add_timer_hint", language), quick)
+        card.add_row(self.timer_add_row)
+        self.alarm_time = QTimeEdit(QTime(7, 0))
+        self.alarm_time.setDisplayFormat("HH:mm")
+        set_alarm = QPushButton(w("set", language))
+        set_alarm.setObjectName("ExtConfigure")
+        set_alarm.clicked.connect(self._quick_alarm)
+        alarm = QWidget()
+        alarm.setObjectName("ExtContent")
+        alarm_row = QHBoxLayout(alarm)
+        alarm_row.setContentsMargins(0, 0, 0, 0)
+        alarm_row.addWidget(self.alarm_time)
+        alarm_row.addWidget(set_alarm)
+        self.alarm_add_row = _row(w("add_alarm", language), w("add_alarm_hint", language), alarm)
+        card.add_row(self.alarm_add_row)
+        self.cards["active"] = card
+        self.column.addWidget(card)
+        self._countdowns = []
+        self._countdown_timer = QTimer(self)
+        self._countdown_timer.setInterval(1000)
+        self._countdown_timer.timeout.connect(self._tick_countdowns)
+        self._countdown_timer.start()
+        if self.runtime is not None:
+            self.runtime.timers_changed.connect(self._render_timers)
+        self._render_timers()
+
+    def _render_timers(self):
+        try:
+            rows = self.timer_rows
+        except RuntimeError:
+            return
+        while rows.count():
+            item = rows.takeAt(0)
+            if item.widget() is not None:
+                item.widget().deleteLater()
+        self._countdowns = []
+        timers = self.runtime.active_timers() if self.runtime is not None else []
+        if not timers:
+            empty = QLabel(w("no_timers", self.language))
+            empty.setObjectName("ExtRowHint")
+            empty.setContentsMargins(0, 10, 0, 10)
+            rows.addWidget(empty)
+            return
+        import datetime as _dt
+        for timer in timers:
+            countdown = QLabel()
+            countdown.setObjectName("ExtKeyChip")
+            cancel = QPushButton()
+            cancel.setObjectName("ExtIconButton")
+            cancel.setFixedSize(30, 30)
+            set_button_icon(cancel, "x", size=16, role="muted")
+            cancel.clicked.connect(lambda checked=False, i=timer.id: self.runtime.cancel_timer(i))
+            control = QWidget()
+            control.setObjectName("ExtContent")
+            control_row = QHBoxLayout(control)
+            control_row.setContentsMargins(0, 0, 0, 0)
+            control_row.addWidget(countdown)
+            control_row.addWidget(cancel)
+            hint = "" if timer.kind == "timer" else _dt.datetime.fromtimestamp(timer.due).strftime("%d.%m %H:%M")
+            row = _row(self.runtime._describe(timer), hint, control)
+            rows.addWidget(row)
+            self._countdowns.append((timer, countdown))
+        self._tick_countdowns()
+
+    def _tick_countdowns(self):
+        from luxai.timers import format_countdown
+        try:
+            for timer, label in self._countdowns:
+                label.setText(format_countdown(timer.remaining()))
+        except RuntimeError:
+            pass
+
+    def _quick_timer(self):
+        if self.runtime is None or not self.saved_enabled:
+            self.message.setText(w("timers_off", self.language))
+            return
+        self.message.setText(self.runtime.add_timer("timer", seconds=self.timer_minutes.value() * 60))
+
+    def _quick_alarm(self):
+        import datetime as _dt
+        if self.runtime is None or not self.saved_enabled:
+            self.message.setText(w("timers_off", self.language))
+            return
+        now = _dt.datetime.now()
+        value = self.alarm_time.time()
+        at = now.replace(hour=value.hour(), minute=value.minute(), second=0, microsecond=0)
+        if at <= now:
+            at += _dt.timedelta(days=1)
+        self.message.setText(self.runtime.add_timer("alarm", at=at))
+
     def _build_actions(self):
         language = self.language
         card = SectionCard("actions", "play", w("actions", language), w("actions_sub", language), resettable=False)
         holder = QWidget()
+        holder.setObjectName("ExtContent")
         row = QHBoxLayout(holder)
         row.setContentsMargins(0, 12, 0, 12)
         row.setSpacing(8)
@@ -922,6 +1054,13 @@ class PluginSettingsView(QWidget):
                 button.style().polish(button)
 
     def detach(self):
+        if hasattr(self, "_countdown_timer"):
+            self._countdown_timer.stop()
+            if self.runtime is not None:
+                try:
+                    self.runtime.timers_changed.disconnect(self._render_timers)
+                except (RuntimeError, TypeError):
+                    pass
         if self.runtime is not None and hasattr(self, "pc_label"):
             try:
                 self.runtime.pc_status_changed.disconnect(self._show_pc_status)

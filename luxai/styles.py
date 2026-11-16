@@ -484,7 +484,7 @@ QPushButton#SettingsNav[selected="true"] {
     border-left: 3px solid $accent;
     color: $text;
 }
-QLineEdit, QTextEdit, QComboBox, QSpinBox {
+QLineEdit, QTextEdit, QComboBox, QSpinBox, QTimeEdit {
     background: $field;
     color: $text;
     border: 1px solid $border;
@@ -510,29 +510,29 @@ QComboBox::down-arrow {
     width: 14px;
     height: 14px;
 }
-QSpinBox, QDoubleSpinBox {
+QSpinBox, QDoubleSpinBox, QTimeEdit {
     padding-right: 25px;
 }
-QSpinBox::up-button, QDoubleSpinBox::up-button {
+QSpinBox::up-button, QDoubleSpinBox::up-button, QTimeEdit::up-button {
     subcontrol-origin: border;
     subcontrol-position: top right;
     width: 23px;
     border: none;
     background: transparent;
 }
-QSpinBox::down-button, QDoubleSpinBox::down-button {
+QSpinBox::down-button, QDoubleSpinBox::down-button, QTimeEdit::down-button {
     subcontrol-origin: border;
     subcontrol-position: bottom right;
     width: 23px;
     border: none;
     background: transparent;
 }
-QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow, QTimeEdit::up-arrow {
     image: url("$chevron_up");
     width: 12px;
     height: 12px;
 }
-QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow, QTimeEdit::down-arrow {
     image: url("$chevron_down");
     width: 12px;
     height: 12px;

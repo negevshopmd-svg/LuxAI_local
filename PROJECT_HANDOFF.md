@@ -7,6 +7,10 @@
 > Updated for the **0.3.9.e work**, 2026-10-30. \`Update.bat\` installs the code merged into \`main\`, NOT an open PR.
 > Do NOT include real API keys, private logs, screen captures, model binaries, user audio, or personal paths in Git history.
 
+## 0. Release 0.4.1c — Timers and alarms
+
+`luxai/timers.py` (no Qt) parses RU/RO/EN timer/alarm/cancel/list requests and stores timers in `.luxai_data/timers.json` atomically. `ExtensionsRuntime.handle_timer_request` replies and manages them; `_check_timers` (1 s QTimer) rings due ones via tray, speech, repeating beeps and `RingDialog` (Snooze/Stop). `MainWindow.run_command` calls it after wizard/pending-task handling and only when no saved command matches (`_saved_command_matches`). Tests: `tests/test_timers_041c.py`.
+
 ## 0. Release 0.4.1b — PC Control (Telegram)
 
 `luxai/telegram_control.py` owns Bot API calls (HTTPS to api.telegram.org only, no redirects, token scrubbed from errors), menus with short callback tokens and the polling/sending threads. Token: DPAPI provider "telegram" (`secure_keys`), setting kind "secret" is never stored in config. `ExtensionsRuntime._on_pc_update` enforces owner-only access (no owner → reply with sender ID only; strangers → silence), exposes only enabled non-agent saved commands and confirms `ask_before_run` in Telegram. `MainWindow.run_command_entry(entry, origin=...)` runs remote commands without switching pages; `_finish_command_group` reports results through `remote_command_finished`. Tests: `tests/test_pc_control_041b.py`.

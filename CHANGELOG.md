@@ -1,3 +1,9 @@
+## 0.4.1c — Timers and alarms (2026-11-16)
+
+- **Таймеры и будильники** now work by voice or typed chat in RU/RO/EN: «поставь таймер на 10 минут», «таймер на полтора часа», «напомни через 20 минут выключить плиту», «разбуди в 7:30», «будильник на 7 утра», «сколько осталось», «отмени таймер», «отмени все будильники»; "set a timer for 5 minutes", "wake me up at 6 am"; «pune un cronometru de 10 minute», «trezește-mă la 7:30».
+- Several timers at once, saved in `.luxai_data/timers.json` so alarms survive a restart (missed ones ring on start). When time is up: tray notification, spoken message, repeating sound for a configurable time and an always-on-top window with Snooze / Stop.
+- The settings page has an «Активные» card with live countdowns, cancel buttons and quick "timer for N minutes" / "alarm at HH:MM". A saved command with the same phrase always wins; with the module off Jarvis says how to enable it instead of guessing.
+
 ## 0.4.1b — PC Control via Telegram (2026-11-16)
 
 - **PC Control** now works: your own Telegram bot shows your command folders as buttons (under the message or as a chat keyboard) and runs saved, enabled commands by button or by text phrase.

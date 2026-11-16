@@ -711,6 +711,12 @@ class MainWindow(QMainWindow):
         self.extensions_runtime.apply(state)
         QTimer.singleShot(800, self._refresh_extension_errors)
 
+    def _saved_command_matches(self, text):
+        try:
+            return bool(self.command_registry.match(text, self.cfg.get("wake_prefix", "Jarvis")))
+        except Exception:
+            return False
+
     def dictation_model(self):
         """Reuse the command listener's loaded Whisper model when available."""
         worker = getattr(self, "worker", None)
@@ -2225,6 +2231,16 @@ class MainWindow(QMainWindow):
             })
             self._dispatch_command()
             return
+        # Timers and alarms (extension). Saved commands with the same phrase win.
+        runtime = getattr(self, "extensions_runtime", None)
+        if runtime is not None and not self._saved_command_matches(text):
+            reply = runtime.handle_timer_request(text)
+            if reply:
+                self.append_message("Jarvis", reply, "#a5b9dc")
+                self.mic_status.setText(reply.split("\n")[0])
+                if self.cfg.get("tts_enabled", True):
+                    self._queue_speech(reply, reply_language(self.cfg, text))
+                return
         self.apply_settings()
         # "You missed, try again" is meaningful feedback about the LAST
         # desktop goal, not a new small-talk request. Retry from a NEW image

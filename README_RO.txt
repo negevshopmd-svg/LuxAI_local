@@ -1,4 +1,9 @@
-LUXAI LOCAL 0.4.1b — ACTUALIZARE 2026-11-16
+LUXAI LOCAL 0.4.1c — ACTUALIZARE 2026-11-16
+
+0.4.1c: Cronometre și alarme. Activează „Таймеры и будильники” în Extensii,
+apoi spune „Jarvis, pune un cronometru de 10 minute”, „trezește-mă la 7:30”,
+„cât a mai rămas” sau „anulează cronometrul”. Alarmele rămân și după repornire;
+la final apare o fereastră cu „Amână” și „Stop”, plus sunet și voce.
 
 0.4.1b: PC Control funcționează. Creează un bot în Telegram la @BotFather
 (/newbot), lipește tokenul în Extensii → PC Control, trimite /start botului,
