@@ -453,6 +453,9 @@ class MainWindow(QMainWindow):
         active = self.pages.currentWidget() is home
         if active and home.controls_scroll.widget().isVisible():
             width = home.controls_scroll.widget().width()
+        elif not active:
+            # Nested titles («Расширения | Plugin») need more room than Home.
+            width = max(width, min(760, content.width() - 180))
         self.window_header.set_leading_width(width)
         if active:
             left = max(0, home.hero_space.mapTo(content, QPoint(0, 0)).x())
@@ -675,6 +678,8 @@ class MainWindow(QMainWindow):
             lambda message: self.append_message("Jarvis", message, "#a5b9dc"))
         self.extensions_page = ExtensionsPage(state, self.extensions_runtime)
         self.extensions_page.state_changed.connect(self._save_extensions)
+        self.extensions_page.title_changed.connect(lambda _title: self._update_extensions_header())
+        self.window_header.back_requested.connect(self.extensions_page.go_back)
         self.pages.addWidget(self.extensions_page)
         self.extensions_runtime.apply(state)
         QTimer.singleShot(800, self._refresh_extension_errors)
@@ -700,6 +705,15 @@ class MainWindow(QMainWindow):
         worker = getattr(self, "worker", None)
         listener = getattr(worker, "listener", None) if worker is not None and worker.isRunning() else None
         return getattr(listener, "model", None)
+
+    def _update_extensions_header(self):
+        """«‹ Jarvis | Расширения | Plugin» while a plugin's settings are open."""
+        if not hasattr(self, "extensions_page") or self.pages.currentWidget() is not self.extensions_page:
+            return
+        title = self.extensions_page.current_title()
+        self.header_title.setText("Jarvis   |   " + tr("Расширения") + (f"   |   {title}" if title else ""))
+        if hasattr(self, "window_header") and hasattr(self.window_header, "set_back_visible"):
+            self.window_header.set_back_visible(bool(title))
 
     def save_extensions_meta(self):
         try:
@@ -1017,6 +1031,10 @@ class MainWindow(QMainWindow):
         )
         titles = ["Главная", "Команды", "Дополнения", "Jarvis AI", "Настройки", "Расширения"]
         self.header_title.setText("Jarvis   |   " + tr(titles[index]))
+        if index == 5:
+            self._update_extensions_header()
+        elif hasattr(self.window_header, "set_back_visible"):
+            self.window_header.set_back_visible(False)
         self.sidebar.set_active(index)
         self._update_home_backdrop()
         if hasattr(self, "window_header"):

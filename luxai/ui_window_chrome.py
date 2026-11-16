@@ -1,5 +1,5 @@
 """Integrated window header with native move/resize and accessible controls."""
-from PySide6.QtCore import QEvent, QObject, QPoint, QRect, Qt
+from PySide6.QtCore import Signal, QEvent, QObject, QPoint, QRect, Qt
 from PySide6.QtWidgets import QHBoxLayout, QPushButton, QWidget
 
 from luxai.icons import set_button_icon
@@ -7,6 +7,8 @@ from luxai.ui_i18n import tr
 
 
 class WindowHeader(QWidget):
+    back_requested = Signal()
+
     def __init__(self, owner, title, microphone, parent=None):
         super().__init__(parent)
         self._owner = owner
@@ -24,6 +26,15 @@ class WindowHeader(QWidget):
         leading.setContentsMargins(0, 0, 0, 0)
         leading.setSpacing(12)
         title.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        # Back arrow for nested pages (e.g. one extension's settings).
+        self.back_button = QPushButton()
+        self.back_button.setObjectName("WindowControl")
+        self.back_button.setFixedSize(32, 32)
+        self.back_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        set_button_icon(self.back_button, "chevron-left", size=19)
+        self.back_button.clicked.connect(self._emit_back)
+        self.back_button.hide()
+        leading.addWidget(self.back_button)
         leading.addWidget(title)
         leading.addStretch(1)
         leading.addWidget(microphone)
@@ -57,6 +68,12 @@ class WindowHeader(QWidget):
 
     def set_leading_width(self, width):
         self.leading.setFixedWidth(max(300, int(width)))
+
+    def _emit_back(self, checked=False):
+        self.back_requested.emit()
+
+    def set_back_visible(self, visible):
+        self.back_button.setVisible(bool(visible))
 
     def set_microphone_visible(self, visible):
         """Keep the microphone switch in the header only on Home."""

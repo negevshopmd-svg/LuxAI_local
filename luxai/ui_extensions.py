@@ -194,231 +194,6 @@ class PluginCard(QFrame):
         self.dot.set_color(color)
 
 
-class SettingsDialog(QDialog):
-    """Form generated from a plugin's settings schema."""
-
-    def __init__(self, plugin: Plugin, entry: dict, language: str, runtime=None, parent=None):
-        super().__init__(parent)
-        self.plugin = plugin
-        self.language = language
-        self.runtime = runtime
-        self.result_settings = None
-        page = parent.findChild(ExtensionsPage) if parent is not None else None
-        self.theme_args = page.theme_args if page is not None else None
-        self.setObjectName("ExtSettingsDialog")
-        self.setProperty("i18n_skip", True)
-        self.setWindowTitle(ui("settings_of", language, name=text(plugin.title, language)))
-        self.setMinimumWidth(520)
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(22, 20, 22, 18)
-        outer.setSpacing(12)
-        header = QHBoxLayout()
-        header.setSpacing(14)
-        header.addWidget(PluginIcon(plugin.icon, plugin.color, 48))
-        titles = QVBoxLayout()
-        name = QLabel(text(plugin.title, language))
-        name.setObjectName("ExtTitle")
-        titles.addWidget(name)
-        about = QLabel(text(plugin.description, language))
-        about.setObjectName("ExtDescription")
-        about.setWordWrap(True)
-        titles.addWidget(about)
-        header.addLayout(titles, 1)
-        outer.addLayout(header)
-        if not plugin.ready:
-            note = QLabel(ui("soon_hint", language))
-            note.setObjectName("ExtNote")
-            note.setWordWrap(True)
-            outer.addWidget(note)
-        form = QFormLayout()
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-        form.setHorizontalSpacing(16)
-        form.setVerticalSpacing(10)
-        self.fields = {}
-        values = entry.get("settings", {})
-        for setting in plugin.settings:
-            widget = self._make_field(setting, values.get(setting.key, setting.default))
-            self.fields[setting.key] = widget
-            label = QLabel(text(setting.label, language))
-            label.setWordWrap(True)
-            label.setMinimumWidth(190)
-            if setting.hint:
-                holder = QWidget()
-                column = QVBoxLayout(holder)
-                column.setContentsMargins(0, 0, 0, 0)
-                column.setSpacing(3)
-                column.addWidget(widget)
-                hint = QLabel(text(setting.hint, language))
-                hint.setObjectName("Muted")
-                hint.setWordWrap(True)
-                column.addWidget(hint)
-                form.addRow(label, holder)
-            else:
-                form.addRow(label, widget)
-        if len(plugin.settings) > 6:
-            # Long forms scroll instead of growing past small screens.
-            holder = QWidget()
-            holder.setObjectName("ExtContent")
-            holder.setLayout(form)
-            scroll = QScrollArea()
-            scroll.setObjectName("ExtScroll")
-            scroll.setWidgetResizable(True)
-            scroll.setFrameShape(QFrame.Shape.NoFrame)
-            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-            scroll.setWidget(holder)
-            scroll.setMinimumHeight(360)
-            outer.addWidget(scroll, 1)
-            self.resize(640, 640)
-        else:
-            outer.addLayout(form)
-        if plugin.actions and plugin.ready and runtime is not None:
-            actions = QHBoxLayout()
-            actions.setSpacing(8)
-            for action_id, label in plugin.actions:
-                button = QPushButton(text(label, language))
-                button.clicked.connect(lambda checked=False, a=action_id: self._run_action(a))
-                actions.addWidget(button)
-            actions.addStretch()
-            outer.addLayout(actions)
-        self.error = QLabel()
-        self.error.setObjectName("ExtError")
-        self.error.setWordWrap(True)
-        self.error.hide()
-        outer.addWidget(self.error)
-        buttons = QHBoxLayout()
-        reset = QPushButton(ui("reset", language))
-        reset.clicked.connect(self._reset)
-        buttons.addWidget(reset)
-        buttons.addStretch()
-        cancel = QPushButton(ui("cancel", language))
-        cancel.clicked.connect(self.reject)
-        save = QPushButton(ui("save", language))
-        save.setObjectName("Primary")
-        save.setDefault(True)
-        save.clicked.connect(self._save)
-        buttons.addWidget(cancel)
-        buttons.addWidget(save)
-        outer.addLayout(buttons)
-        for widget in self.findChildren(QWidget):
-            widget.setProperty("i18n_skip", True)
-
-    def _make_field(self, setting, value):
-        language = self.language
-        if setting.kind == "bool":
-            widget = ToggleSwitch(bool(value))
-            theme = self.parent().property("jarvisIconTheme") if self.parent() is not None else None
-            widget.set_theme(*(getattr(self, "theme_args", None) or ("light" if theme == "light" else "dark", "#3978f6", None)))
-        elif setting.kind == "choice":
-            widget = QComboBox()
-            for option, label in setting.options:
-                widget.addItem(text(label, language), option)
-            index = widget.findData(value)
-            widget.setCurrentIndex(max(0, index))
-        elif setting.kind == "int":
-            widget = QSpinBox()
-            widget.setRange(setting.minimum, setting.maximum)
-            widget.setValue(int(value))
-            if setting.suffix:
-                widget.setSuffix(text(setting.suffix, language))
-        elif setting.kind == "multiline":
-            widget = QPlainTextEdit()
-            widget.setPlainText(str(value))
-            widget.setMinimumHeight(110)
-        elif setting.kind == "folder":
-            widget = QWidget()
-            row = QHBoxLayout(widget)
-            row.setContentsMargins(0, 0, 0, 0)
-            line = QLineEdit(str(value))
-            browse = QPushButton(ui("browse", language))
-
-            def choose(line=line):
-                chosen = QFileDialog.getExistingDirectory(self, text(setting.label, language), line.text())
-                if chosen:
-                    line.setText(chosen)
-
-            browse.clicked.connect(choose)
-            row.addWidget(line, 1)
-            row.addWidget(browse)
-            widget.line = line
-        else:  # text, hotkey
-            widget = QLineEdit(str(value))
-            if setting.kind == "hotkey":
-                widget.setPlaceholderText("Ctrl+Alt+…")
-                widget.setText("+".join(part.capitalize() for part in str(value).split("+")) if value else "")
-            widget.setMaxLength(setting.max_length)
-        return widget
-
-    def _raw_value(self, setting):
-        widget = self.fields[setting.key]
-        if setting.kind == "bool":
-            return widget.isChecked()
-        if setting.kind == "choice":
-            return widget.currentData()
-        if setting.kind == "int":
-            return widget.value()
-        if setting.kind == "multiline":
-            return widget.toPlainText()
-        if setting.kind == "folder":
-            return widget.line.text()
-        return widget.text()
-
-    def collect(self) -> dict:
-        values = {}
-        problems = []
-        for setting in self.plugin.settings:
-            try:
-                values[setting.key] = validate_value(setting, self._raw_value(setting))
-            except ValueError as error:
-                problems.append(f"{text(setting.label, self.language)}: {error}")
-        hotkeys = [values[s.key] for s in self.plugin.settings if s.kind == "hotkey" and values.get(s.key)]
-        if len(hotkeys) != len(set(hotkeys)):
-            problems.append(ui("hotkey_error", self.language))
-        if problems:
-            raise ValueError("\n".join(problems))
-        return values
-
-    def _set_value(self, setting, value):
-        widget = self.fields[setting.key]
-        if setting.kind == "bool":
-            widget.setChecked(bool(value))
-        elif setting.kind == "choice":
-            widget.setCurrentIndex(max(0, widget.findData(value)))
-        elif setting.kind == "int":
-            widget.setValue(int(value))
-        elif setting.kind == "multiline":
-            widget.setPlainText(str(value))
-        elif setting.kind == "folder":
-            widget.line.setText(str(value))
-        else:
-            widget.setText(str(value))
-
-    def _reset(self):
-        for setting in self.plugin.settings:
-            self._set_value(setting, setting.default)
-
-    def _show_error(self, message):
-        self.error.setText(message)
-        self.error.setVisible(bool(message))
-
-    def _save(self):
-        try:
-            self.result_settings = self.collect()
-        except ValueError as error:
-            self._show_error(str(error))
-            return
-        self.accept()
-
-    def _run_action(self, action_id):
-        try:
-            values = self.collect()
-        except ValueError as error:
-            self._show_error(str(error))
-            return
-        self._show_error("")
-        self.runtime.run_action(self.plugin.id, action_id, parent=self, settings=values)
-
-
 class ConnectionCard(QFrame):
     configure = Signal(str)
 
@@ -465,6 +240,7 @@ class ConnectionCard(QFrame):
 
 class ExtensionsPage(QWidget):
     state_changed = Signal(dict)
+    title_changed = Signal(str)  # plugin title while its settings are open, else ""
 
     def __init__(self, state=None, runtime=None, parent=None):
         super().__init__(parent)
@@ -478,7 +254,16 @@ class ExtensionsPage(QWidget):
         self.cards: dict[str, PluginCard] = {}
         self.sections: dict[str, tuple[QLabel, QWidget]] = {}
 
-        outer = QVBoxLayout(self)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        self.views = QStackedWidget()
+        self.views.setObjectName("ExtStack")
+        root.addWidget(self.views)
+        self.list_view = QWidget()
+        self.list_view.setObjectName("ExtContent")
+        self.views.addWidget(self.list_view)
+        self.settings_view = None
+        outer = QVBoxLayout(self.list_view)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(12)
 
@@ -611,6 +396,10 @@ class ExtensionsPage(QWidget):
     # -- public API --
     def set_language(self, language: str):
         self.language = language if language in ("ru", "en", "ro") else "ru"
+        if self.settings_view is not None:
+            plugin_id = self.settings_view.plugin.id
+            self.close_settings()
+            self.open_settings(plugin_id)
         self.rebuild()
 
     def set_theme(self, theme, accent="#3978f6", background=None):
@@ -777,15 +566,51 @@ class ExtensionsPage(QWidget):
             QTimer.singleShot(0, self, self.rebuild)
 
     def open_settings(self, plugin_id):
+        """Show the plugin's settings inside the page (no separate window)."""
+        from luxai.ui_extension_settings import PluginSettingsView
+        self.close_settings()
         plugin = PLUGIN_BY_ID[plugin_id]
-        dialog = SettingsDialog(plugin, self.state[plugin_id], self.language, self.runtime, self.window())
-        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result_settings is not None:
-            self.state[plugin_id]["settings"] = dialog.result_settings
-            self._commit()
-        elif self.runtime is not None:
-            # Actions in the dialog may have applied unsaved values; restore.
-            self.runtime.apply(copy.deepcopy(self.state))
-        return dialog
+        view = PluginSettingsView(plugin, self.state[plugin_id], self.language, self.runtime, self.theme_args)
+        view.saved.connect(self._on_settings_saved)
+        self.settings_view = view
+        self.views.addWidget(view)
+        self.views.setCurrentWidget(view)
+        self.title_changed.emit(text(plugin.title, self.language))
+        return view
+
+    def close_settings(self):
+        view = self.settings_view
+        if view is None:
+            return
+        view.detach()
+        self.settings_view = None
+        self.views.setCurrentWidget(self.list_view)
+        self.views.removeWidget(view)
+        view.deleteLater()
+        self.title_changed.emit("")
+
+    def current_title(self) -> str:
+        return text(self.settings_view.plugin.title, self.language) if self.settings_view is not None else ""
+
+    def go_back(self):
+        """Leave settings; unsaved edits are dropped after asking."""
+        view = self.settings_view
+        if view is not None and view.dirty:
+            answer = QMessageBox.question(
+                self, text(view.plugin.title, self.language),
+                {"ru": "Сохранить изменения?", "en": "Save the changes?", "ro": "Salvezi modificările?"}[self.language],
+                QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel)
+            if answer == QMessageBox.StandardButton.Cancel:
+                return False
+            if answer == QMessageBox.StandardButton.Save and not view.save():
+                return False
+        self.close_settings()
+        return True
+
+    def _on_settings_saved(self, plugin_id, enabled, settings):
+        self.state[plugin_id]["enabled"] = bool(enabled) and PLUGIN_BY_ID[plugin_id].ready
+        self.state[plugin_id]["settings"] = settings
+        self._commit()
 
     def _commit(self):
         self.state = normalize_state(self.state)

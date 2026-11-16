@@ -1,4 +1,8 @@
-LUXAI LOCAL 0.4.1 — ACTUALIZARE 2026-11-16
+LUXAI LOCAL 0.4.1a — ACTUALIZARE 2026-11-16
+
+0.4.1a: setările pluginurilor se deschid în pagina Extensii (nu într-o fereastră
+separată), cu secțiuni, „Cum funcționează”, „Resetează tot” și „Salvează”,
+ca în Luxify. Dictarea are și un câmp „Проверка” pentru test.
 
 0.4.1: Dictarea inteligentă funcționează. Apasă de două ori Ctrl din dreapta
 (sau combinația ta), vorbește, și textul se scrie unde e cursorul. Spune

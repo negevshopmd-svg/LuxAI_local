@@ -13,7 +13,8 @@ from PySide6.QtWidgets import QApplication
 
 from luxai import extensions_catalog as catalog
 from luxai import extensions_runtime as runtime
-from luxai.ui_extensions import ExtensionsPage, SettingsDialog
+from luxai.ui_extension_settings import PluginSettingsView
+from luxai.ui_extensions import ExtensionsPage
 from luxai.ui_sidebar import NavigationSidebar
 
 
@@ -204,16 +205,61 @@ class PageAndRuntimeTests(unittest.TestCase):
         page.set_view("list")
         self.assertEqual(page.cards["breaks"].objectName(), "ExtRow")
 
-    def test_settings_dialog_validates_hotkeys(self):
+    def test_settings_view_validates_hotkeys(self):
         plugin = catalog.PLUGIN_BY_ID["media_keys"]
         state = catalog.normalize_state({})
-        dialog = SettingsDialog(plugin, state["media_keys"], "ru")
-        self.addCleanup(lambda: (dialog.deleteLater(), QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)))
-        dialog.fields["next"].setText("Ctrl+Alt+P")  # duplicate of play_pause
+        view = PluginSettingsView(plugin, state["media_keys"], "ru")
+        self.addCleanup(lambda: (view.deleteLater(), QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)))
+        view.fields["next"].set_value("ctrl+alt+p")  # duplicate of play_pause
         with self.assertRaises(ValueError):
-            dialog.collect()
-        dialog.fields["next"].setText("ctrl+shift+n")
-        self.assertEqual(dialog.collect()["next"], "ctrl+shift+n")
+            view.collect()
+        self.assertFalse(view.save())
+        view.fields["next"].set_value("ctrl+shift+n")
+        self.assertEqual(view.collect()["next"], "ctrl+shift+n")
+
+    def test_settings_open_inside_the_page_and_save(self):
+        page, engine, _ = self.make_page()
+        titles, states = [], []
+        page.title_changed.connect(titles.append)
+        page.state_changed.connect(states.append)
+        view = page.open_settings("smart_dictation")
+        self.assertIs(page.views.currentWidget(), view)
+        self.assertEqual(titles[-1], "Умная диктовка")
+        self.assertFalse(view.save_button.isEnabled())
+        self.assertFalse(view.rows["silence_pause"].isEnabled())  # only for press-speak-press
+        self.assertFalse(view.rows["hotkey"].isEnabled())  # right Ctrl x2 by default
+        view.fields["mode"].set_value("toggle")
+        view._refresh()
+        self.assertTrue(view.rows["silence_pause"].isEnabled())
+        view.enable_switch.setChecked(True)
+        self.assertTrue(view.dirty and view.save_button.isEnabled())
+        self.assertTrue(view.save())
+        self.assertTrue(states[-1]["smart_dictation"]["enabled"])
+        self.assertEqual(states[-1]["smart_dictation"]["settings"]["mode"], "toggle")
+        self.assertFalse(view.dirty)
+        view.reset_section("keys")
+        self.assertEqual(view.draft()["mode"], "hold")
+        self.assertTrue(view.dirty)
+        with mock.patch("luxai.ui_extensions.QMessageBox.question",
+                        return_value=__import__("PySide6.QtWidgets", fromlist=["QMessageBox"]).QMessageBox.StandardButton.Discard):
+            self.assertTrue(page.go_back())
+        self.assertIs(page.views.currentWidget(), page.list_view)
+        self.assertEqual(titles[-1], "")
+        self.assertEqual(page.state["smart_dictation"]["settings"]["mode"], "toggle")
+
+    def test_dictation_test_box_receives_text_inside_jarvis(self):
+        page, engine, _ = self.make_page({"smart_dictation": {"enabled": True}})
+        view = page.open_settings("smart_dictation")
+        self.assertTrue(view.test_box.isEnabled())
+        view.test_box.setFocus()
+        self.app.processEvents()
+        with mock.patch.object(view.test_box, "hasFocus", return_value=True):
+            engine.insert_dictation("Привет.", 0)
+        self.assertEqual(view.test_box.toPlainText(), "Привет.")
+        engine.dictation_done.emit("Привет.")
+        self.assertEqual(view.last_label.text(), "Привет.")
+        page.close_settings()
+        self.assertIsNone(engine.test_sink)
 
     def test_runtime_clipboard_history_and_breaks(self):
         state = catalog.normalize_state({"clipboard_history": {"enabled": True, "settings": {"limit": 10}},

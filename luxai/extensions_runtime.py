@@ -481,6 +481,7 @@ class ExtensionsRuntime(QObject):
     hotkey = Signal(str)
     notice = Signal(str)
     dictation_result = Signal(str, str, bool)  # text, error, test
+    dictation_done = Signal(str)  # last dictated text, for the settings page
 
     def __init__(self, host, parent=None):
         super().__init__(parent)
@@ -509,6 +510,7 @@ class ExtensionsRuntime(QObject):
         self._dictation_source = "key"
         self._overlay = None
         self.last_dictation = ""
+        self.test_sink = None  # settings page test box, when focused inside Jarvis
         self._dictation_timer = QTimer(self)
         self._dictation_timer.setInterval(60)
         self._dictation_timer.timeout.connect(self._dictation_tick)
@@ -844,6 +846,7 @@ class ExtensionsRuntime(QObject):
             self._notify(self._dictation_words("nothing"))
             return
         self.last_dictation = text
+        self.dictation_done.emit(text)
         if test:
             QMessageBox.information(None, _tr3("Умная диктовка", "Smart dictation", "Dictare inteligentă", self.language),
                                     self._dictation_words("result") + "\n\n" + text)
@@ -852,6 +855,8 @@ class ExtensionsRuntime(QObject):
 
     def insert_dictation(self, text: str, target: int):
         from luxai.dictation import type_text, wait_for_modifiers_released
+        if not target and self.test_sink is not None and self.test_sink(text):
+            return
         if not target:
             QApplication.clipboard().setText(text)
             self._notify(_tr3("Нет активного поля — текст скопирован в буфер обмена.",
@@ -883,6 +888,7 @@ class ExtensionsRuntime(QObject):
         if request:
             text = self.finish_text(request, settings)
             self.last_dictation = text
+            self.dictation_done.emit(text)
             self.insert_dictation(text, target)
         else:
             self.start_dictation(source="voice", target=target)

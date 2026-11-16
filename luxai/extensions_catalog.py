@@ -486,6 +486,88 @@ PLUGINS: tuple[Plugin, ...] = (
 )
 
 PLUGIN_BY_ID = {plugin.id: plugin for plugin in PLUGINS}
+
+
+@dataclass(frozen=True)
+class Section:
+    id: str
+    icon: str
+    title: dict
+    subtitle: dict
+    keys: tuple
+
+
+# Settings pages are grouped into cards. Plugins not listed get one generic
+# "Settings" card. The "basic" (on/off) card and the actions/test card are
+# always added by the page itself.
+SECTIONS = {
+    "smart_dictation": (
+        Section("keys", "keyboard", L("Клавиша и режим", "Key and mode", "Tastă și mod"),
+                L("Чем начинать диктовку и как её заканчивать.", "How to start and finish dictation.",
+                  "Cum pornești și cum oprești dictarea."),
+                ("trigger", "hotkey", "mode", "silence_pause")),
+        Section("voice", "audio-lines", L("Голосом", "By voice", "Prin voce"),
+                L("Начать диктовку фразой, без клавиши.", "Start dictation with a phrase, no key.",
+                  "Pornește dictarea cu o frază, fără tastă."),
+                ("voice_trigger", "voice_phrases")),
+        Section("text", "type", L("Язык и текст", "Language and text", "Limbă și text"),
+                L("На каком языке говорить и что делать со знаками.", "Which language you speak and what to do with marks.",
+                  "În ce limbă vorbești și ce se face cu semnele."),
+                ("language", "punctuation", "sound")),
+        Section("ai", "sparkles", L("Нейросеть", "AI", "AI"),
+                L("Исправит знаки и ошибки распознавания, не меняя смысл.", "Fixes marks and recognition mistakes without changing meaning.",
+                  "Corectează semnele și greșelile fără să schimbe sensul."),
+                ("ai_cleanup",)),
+    ),
+}
+
+# A setting is editable only while another setting has one of these values.
+ENABLED_IF = {
+    "smart_dictation": {
+        "hotkey": ("trigger", ("hotkey",)),
+        "silence_pause": ("mode", ("toggle",)),
+        "voice_phrases": ("voice_trigger", (True,)),
+    },
+}
+
+BASIC_TEXT = {
+    "smart_dictation": (L("Диктовка в любое поле", "Dictation into any field", "Dictare în orice câmp"),
+                        L("Нажмите клавишу, говорите — текст появится там, где стоит курсор.",
+                          "Press the key, speak — the text appears where the cursor is.",
+                          "Apasă tasta, vorbește — textul apare unde este cursorul.")),
+}
+
+
+def sections_for(plugin: Plugin) -> tuple:
+    if plugin.id in SECTIONS:
+        return SECTIONS[plugin.id]
+    if not plugin.settings:
+        return ()
+    return (Section("settings", "sliders-horizontal", L("Настройки", "Settings", "Setări"),
+                    L("Параметры модуля.", "Module options.", "Opțiunile modulului."),
+                    tuple(setting.key for setting in plugin.settings)),)
+
+
+def how_it_works(plugin: Plugin, settings: dict, language: str) -> tuple[str, str]:
+    """(key chip or "", explanation) for the right-hand "How it works" box."""
+    if plugin.id == "smart_dictation":
+        if settings.get("trigger") == "hotkey":
+            chip = "+".join(part.capitalize() for part in str(settings.get("hotkey") or "").split("+")) or "—"
+        else:
+            chip = text(L("Правый Ctrl ×2", "Right Ctrl ×2", "Ctrl dreapta ×2"), language)
+        if settings.get("mode", "hold") == "hold":
+            body = L("Удерживайте клавишу и говорите — отпустили, и текст вставится там, где стоит курсор.",
+                     "Hold the key and speak — release it and the text is inserted where the cursor is.",
+                     "Ține tasta și vorbește — dai drumul și textul apare unde e cursorul.")
+        else:
+            seconds = settings.get("silence_pause", 2)
+            body = L(f"Нажмите, говорите и нажмите ещё раз — или помолчите {seconds} с. Текст вставится там, где стоит курсор.",
+                     f"Press, speak and press again — or stay silent for {seconds} s. The text is inserted at the cursor.",
+                     f"Apasă, vorbește și apasă din nou — sau taci {seconds} s. Textul apare unde e cursorul.")
+        return chip, text(body, language)
+    keys = [setting for setting in plugin.settings if setting.kind == "hotkey" and settings.get(setting.key)]
+    chip = "+".join(part.capitalize() for part in settings[keys[0].key].split("+")) if keys else ""
+    return chip, text(plugin.description, language)
 assert len(PLUGIN_BY_ID) == len(PLUGINS) == 22
 assert all(plugin.category in CATEGORY_IDS for plugin in PLUGINS)
 

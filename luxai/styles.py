@@ -759,6 +759,84 @@ QLabel#ExtTopicCount {
     color: $muted;
     font-size: 12px;
 }
+QPushButton#Primary:disabled {
+    background: $control;
+    color: $muted;
+    border: 1px solid $border;
+}
+QWidget#ExtSettingsView {
+    background: transparent;
+}
+QLabel#ExtSectionIcon {
+    background: $control;
+    border: 1px solid $border;
+    border-radius: 10px;
+}
+QFrame#ExtSettingRow {
+    background: transparent;
+    border: none;
+    border-top: 1px solid $border;
+}
+QLabel#ExtRowTitle {
+    font-size: 14px;
+    font-weight: 600;
+    color: $text;
+}
+QLabel#ExtRowHint, QLabel#ExtHowText {
+    color: $muted;
+    font-size: 12px;
+}
+QLabel#ExtHowText {
+    color: $text;
+    font-size: 13px;
+}
+QLabel#ExtRowTitle:disabled, QLabel#ExtRowHint:disabled {
+    color: $border;
+}
+QLabel#ExtKeyChip {
+    background: $control;
+    border: 1px solid $border;
+    border-radius: 7px;
+    padding: 4px 9px;
+    font-weight: 700;
+    color: $text;
+}
+QFrame#ExtHowBox {
+    background: $control;
+    border: 1px solid $border;
+    border-radius: 12px;
+}
+QPushButton#ExtNav {
+    background: transparent;
+    border: none;
+    border-radius: 9px;
+    padding: 9px 10px;
+    text-align: left;
+    color: $navtext;
+}
+QPushButton#ExtNav:hover {
+    background: $hover;
+}
+QPushButton#ExtNav[active="true"] {
+    background: $selection;
+    color: $text;
+    font-weight: 600;
+}
+QPushButton#ExtIconButton {
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    padding: 0;
+}
+QPushButton#ExtIconButton:hover {
+    background: $hover;
+}
+QPlainTextEdit#ExtTestBox {
+    background: $control;
+    border: 1px solid $border;
+    border-radius: 10px;
+    padding: 6px;
+}
 QLabel#ExtCounter {
     background: $control;
     border: 1px solid $border;

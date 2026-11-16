@@ -1,3 +1,8 @@
+## 0.4.1a — Luxify-style plugin settings (2026-11-16)
+
+- Plugin settings open inside the Extensions page instead of a separate window: «‹ Jarvis | Расширения | Plugin» in the header with a back arrow, section cards with per-section reset, segmented choices, sliders, key chips with «Назначить», and a right panel with «Как это работает», section navigation, «Сбросить всё» and «Сохранить» (enabled only with unsaved changes; leaving asks to save).
+- Smart dictation settings follow the Luxify layout: Основные, Клавиша и режим, Голосом, Язык и текст, Нейросеть and a live «Проверка» box where dictation lands while Jarvis is focused, plus «Последняя диктовка» with Копировать. Dependent options are greyed out until they apply.
+
 ## 0.4.1 — Smart dictation (2026-11-16)
 
 - **Умная диктовка** now works: double-tap the right Ctrl (or a custom shortcut), speak, and the text is typed where the cursor is. Modes: hold, or press — speak — press with automatic stop after a configurable pause.
