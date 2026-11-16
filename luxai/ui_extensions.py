@@ -203,6 +203,8 @@ class SettingsDialog(QDialog):
         self.language = language
         self.runtime = runtime
         self.result_settings = None
+        page = parent.findChild(ExtensionsPage) if parent is not None else None
+        self.theme_args = page.theme_args if page is not None else None
         self.setObjectName("ExtSettingsDialog")
         self.setProperty("i18n_skip", True)
         self.setWindowTitle(ui("settings_of", language, name=text(plugin.title, language)))
@@ -229,7 +231,8 @@ class SettingsDialog(QDialog):
             note.setWordWrap(True)
             outer.addWidget(note)
         form = QFormLayout()
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         form.setHorizontalSpacing(16)
         form.setVerticalSpacing(10)
         self.fields = {}
@@ -239,6 +242,7 @@ class SettingsDialog(QDialog):
             self.fields[setting.key] = widget
             label = QLabel(text(setting.label, language))
             label.setWordWrap(True)
+            label.setMinimumWidth(190)
             if setting.hint:
                 holder = QWidget()
                 column = QVBoxLayout(holder)
@@ -287,8 +291,9 @@ class SettingsDialog(QDialog):
     def _make_field(self, setting, value):
         language = self.language
         if setting.kind == "bool":
-            widget = QCheckBox()
-            widget.setChecked(bool(value))
+            widget = ToggleSwitch(bool(value))
+            theme = self.parent().property("jarvisIconTheme") if self.parent() is not None else None
+            widget.set_theme(*(getattr(self, "theme_args", None) or ("light" if theme == "light" else "dark", "#3978f6", None)))
         elif setting.kind == "choice":
             widget = QComboBox()
             for option, label in setting.options:
@@ -637,8 +642,9 @@ class ExtensionsPage(QWidget):
         self.topics_label.setText(ui("topics", language))
         self.only_enabled.setText(ui("only_enabled", language))
         self.connections_intro.setText(ui("connections_intro", language))
-        for button in (self.plugins_tab, self.connections_tab):
+        for button, icon_name in ((self.plugins_tab, "layers"), (self.connections_tab, "link")):
             selected = button.isChecked()
+            set_button_icon(button, icon_name, size=18, role="white" if selected else "default")
             button.setProperty("selected", selected)
             button.style().unpolish(button)
             button.style().polish(button)
