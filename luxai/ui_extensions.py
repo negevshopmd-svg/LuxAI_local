@@ -256,7 +256,22 @@ class SettingsDialog(QDialog):
                 form.addRow(label, holder)
             else:
                 form.addRow(label, widget)
-        outer.addLayout(form)
+        if len(plugin.settings) > 6:
+            # Long forms scroll instead of growing past small screens.
+            holder = QWidget()
+            holder.setObjectName("ExtContent")
+            holder.setLayout(form)
+            scroll = QScrollArea()
+            scroll.setObjectName("ExtScroll")
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QFrame.Shape.NoFrame)
+            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            scroll.setWidget(holder)
+            scroll.setMinimumHeight(360)
+            outer.addWidget(scroll, 1)
+            self.resize(640, 640)
+        else:
+            outer.addLayout(form)
         if plugin.actions and plugin.ready and runtime is not None:
             actions = QHBoxLayout()
             actions.setSpacing(8)

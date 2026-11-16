@@ -7,6 +7,10 @@
 > Updated for the **0.3.9.e work**, 2026-10-30. \`Update.bat\` installs the code merged into \`main\`, NOT an open PR.
 > Do NOT include real API keys, private logs, screen captures, model binaries, user audio, or personal paths in Git history.
 
+## 0. Release 0.4.1 — Smart dictation
+
+`luxai/dictation.py` owns recording (`Recorder`), Whisper transcription (reuses `MainWindow.dictation_model()` = the running listener's model, else loads its own once), spoken punctuation, voice-trigger parsing, right-Ctrl double-tap polling (`DoubleTapDetector`, no hooks) and typing (Unicode SendInput + real Enter). `DICTATION_ACTIVE` must stay set from the start of recording until the text is typed: `VoiceWorker`'s capture gate checks it so dictated words never reach command routing. The flow lives in `ExtensionsRuntime` (`start_dictation`/`stop_dictation`/`handle_voice_request`); `MainWindow.handle_voice` calls `handle_voice_request` after wake-word handling. Tests: `tests/test_dictation_041.py`.
+
 ## 0. Release 0.4.0 — Extensions
 
 The navigation rail has a sixth entry, **Расширения** (`puzzle` icon). Page indices stay stable: stack index 5 is `luxai/ui_extensions.py::ExtensionsPage`; `NavigationSidebar.NAV_ORDER` only changes the visual position (after Addons). `extensions_catalog.py` (no Qt) owns the 22 plugins, 5 topics, settings schemas, validation and `normalize_state`; state lives in `config.json["extensions"]` and must never contain secrets (tokens go to DPAPI `secure_keys` when those runtimes are built). `extensions_runtime.py` runs the *ready* plugins (read_aloud, clipboard_history, quick_inserts, breaks, media_keys, converter, screenshots, downloads_cleanup) with its own `WindowsHotkeyListener`. Plugins with `ready=False` keep a locked switch marked "Скоро"; to ship one, implement it in the runtime, set `ready=True` and add tests. Clipboard history stays in memory; downloads cleanup always previews/confirms and only trashes old installers. Tests: `tests/test_extensions_040.py`.

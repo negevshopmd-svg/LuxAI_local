@@ -17,6 +17,7 @@ import os
 import re
 import shutil
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -429,6 +430,44 @@ class PickerPopup(QDialog):
         self.activateWindow()
 
 
+class DictationOverlay(QDialog):
+    """Small always-on-top status pill that never takes keyboard focus."""
+
+    def __init__(self):
+        super().__init__(None)
+        self.setObjectName("DictationOverlay")
+        self.setWindowFlags(Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint
+                            | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.WindowDoesNotAcceptFocus)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        self.setProperty("i18n_skip", True)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(16, 10, 16, 10)
+        self.label = QLabel()
+        self.label.setStyleSheet("font-size:14px;font-weight:600;")
+        layout.addWidget(self.label)
+        self.setStyleSheet("QDialog#DictationOverlay{border:1px solid #7b5cf0;border-radius:14px;}")
+
+    def show_text(self, message: str):
+        self.label.setText(message)
+        self.adjustSize()
+        screen = QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()
+        area = screen.availableGeometry()
+        self.move(area.center().x() - self.width() // 2, area.bottom() - self.height() - 48)
+        self.show()
+        self.raise_()
+
+
+def _beep(frequency: int):
+    """Short cue; played before the microphone opens so it is not recorded."""
+    if sys.platform != "win32":
+        return
+    import winsound
+    try:
+        winsound.Beep(frequency, 60)
+    except RuntimeError:
+        pass
+
+
 def _tr3(ru, en, ro, language):
     return {"ru": ru, "en": en, "ro": ro}.get(language, ru)
 
@@ -441,6 +480,7 @@ class ExtensionsRuntime(QObject):
     """
     hotkey = Signal(str)
     notice = Signal(str)
+    dictation_result = Signal(str, str, bool)  # text, error, test
 
     def __init__(self, host, parent=None):
         super().__init__(parent)
@@ -462,6 +502,22 @@ class ExtensionsRuntime(QObject):
         self._cleanup_timer.setInterval(60 * 60 * 1000)
         self._cleanup_timer.timeout.connect(self._auto_cleanup)
         self._clipboard_connected = False
+        self._recorder = None
+        self._dictation_target = 0
+        self._dictation_test = False
+        self._dictation_busy = False
+        self._dictation_source = "key"
+        self._overlay = None
+        self.last_dictation = ""
+        self._dictation_timer = QTimer(self)
+        self._dictation_timer.setInterval(60)
+        self._dictation_timer.timeout.connect(self._dictation_tick)
+        from luxai.dictation import DoubleTapDetector
+        self._double_tap = DoubleTapDetector()
+        self._tap_timer = QTimer(self)
+        self._tap_timer.setInterval(25)
+        self._tap_timer.timeout.connect(self._poll_double_tap)
+        self.dictation_result.connect(self._on_dictation_result)
 
     # -- helpers --
     @property
@@ -512,6 +568,14 @@ class ExtensionsRuntime(QObject):
                 self._clipboard_connected = False
         if self.enabled("clipboard_history"):
             self._trim_clipboard()
+        if self.enabled("smart_dictation") and self.settings("smart_dictation").get("trigger") == "right_ctrl_double" \
+                and sys.platform == "win32":
+            if not self._tap_timer.isActive():
+                self._tap_timer.start()
+        else:
+            self._tap_timer.stop()
+        if not self.enabled("smart_dictation") and self.dictating:
+            self.cancel_dictation()
         if self.enabled("downloads_cleanup") and self.settings("downloads_cleanup").get("auto"):
             if not self._cleanup_timer.isActive():
                 self._cleanup_timer.start()
@@ -527,6 +591,8 @@ class ExtensionsRuntime(QObject):
             if plugin is None or not plugin.ready or not entry.get("enabled"):
                 continue
             for setting in plugin.settings:
+                if plugin_id == "smart_dictation" and entry["settings"].get("trigger") != "hotkey":
+                    continue
                 if setting.kind == "hotkey" and entry["settings"].get(setting.key):
                     entries.append({"id": f"{plugin_id}.{setting.key}", "enabled": True,
                                     "hotkey": entry["settings"][setting.key]})
@@ -551,6 +617,8 @@ class ExtensionsRuntime(QObject):
             self.errors = dict(self._listener.errors)
 
     def stop(self):
+        self.cancel_dictation()
+        self._tap_timer.stop()
         self._break_timer.stop()
         self._cleanup_timer.stop()
         if self._listener is not None:
@@ -562,7 +630,9 @@ class ExtensionsRuntime(QObject):
         plugin_id, _, key = identifier.partition(".")
         if not self.enabled(plugin_id):
             return
-        if plugin_id == "clipboard_history":
+        if plugin_id == "smart_dictation":
+            self.toggle_dictation()
+        elif plugin_id == "clipboard_history":
             self.open_clipboard_history()
         elif plugin_id == "quick_inserts":
             self.open_snippets()
@@ -586,6 +656,8 @@ class ExtensionsRuntime(QObject):
             ("clipboard_history", "clear"): self.clear_clipboard,
             ("quick_inserts", "open"): lambda: self.open_snippets(paste=False),
             ("breaks", "test"): lambda: self.remind_break(force=True),
+            ("smart_dictation", "test"): lambda: self.start_dictation(test=True),
+            ("smart_dictation", "copy_last"): self.copy_last_dictation,
             ("converter", "convert"): lambda: self.convert_dialog(parent),
             ("screenshots", "capture"): lambda: QTimer.singleShot(350, self.take_screenshot),
             ("screenshots", "open_folder"): self.open_screenshots_folder,
@@ -599,6 +671,229 @@ class ExtensionsRuntime(QObject):
     def _speak(self, message: str):
         if hasattr(self.host, "_queue_speech"):
             self.host._queue_speech(message, self.language)
+
+    # -- smart dictation --
+    def _dictation_words(self, key: str) -> str:
+        words = {
+            "listening": ("● Говорите… ({key} — закончить)", "● Speak… ({key} to finish)", "● Vorbește… ({key} pentru stop)"),
+            "listening_hold": ("● Говорите, пока держите {key}", "● Speak while holding {key}", "● Vorbește cât ții {key}"),
+            "listening_voice": ("● Говорите… (пауза — закончить)", "● Speak… (pause to finish)", "● Vorbește… (pauza oprește)"),
+            "test": ("● Проверка: говорите 5 секунд…", "● Test: speak for 5 seconds…", "● Test: vorbește 5 secunde…"),
+            "working": ("Распознаю…", "Recognizing…", "Recunosc…"),
+            "nothing": ("Речь не распознана.", "No speech recognized.", "Nu s-a recunoscut nimic."),
+            "mic": ("Диктовка: ", "Dictation: ", "Dictare: "),
+            "busy": ("Диктовка ещё распознаётся.", "Dictation is still being recognized.", "Dictarea încă se recunoaște."),
+            "result": ("Распознано:", "Recognized:", "Recunoscut:"),
+            "empty": ("Пока ничего не продиктовано.", "Nothing dictated yet.", "Nimic dictat încă."),
+            "copied": ("Последняя диктовка скопирована.", "The last dictation was copied.", "Ultima dictare a fost copiată."),
+            "rctrl": ("Правый Ctrl", "Right Ctrl", "Ctrl dreapta"),
+        }[key]
+        return _tr3(*words, self.language)
+
+    @property
+    def dictating(self) -> bool:
+        return self._recorder is not None
+
+    def _key_label(self) -> str:
+        settings = self.settings("smart_dictation")
+        if settings.get("trigger") != "hotkey":
+            return self._dictation_words("rctrl") + " ×2"
+        return "+".join(part.capitalize() for part in str(settings.get("hotkey", "")).split("+")) or "…"
+
+    def _poll_double_tap(self):
+        from luxai.dictation import right_ctrl_down
+        event = self._double_tap.update(right_ctrl_down(), time.monotonic())
+        mode = self.settings("smart_dictation").get("mode", "hold")
+        if event == "double":
+            if self.dictating:
+                if mode != "hold":
+                    self.stop_dictation()
+            else:
+                self.start_dictation()
+        elif event == "release" and mode == "hold" and self.dictating and self._dictation_source == "key":
+            self.stop_dictation()
+
+    def toggle_dictation(self):
+        if self.dictating:
+            if self.settings("smart_dictation").get("mode") != "hold":
+                self.stop_dictation()
+            return
+        self.start_dictation()
+
+    def start_dictation(self, test: bool = False, *, source: str = "key", target: int | None = None):
+        from luxai.dictation import DICTATION_ACTIVE, Recorder
+        if self.dictating:
+            return False
+        if self._dictation_busy:
+            self._notify(self._dictation_words("busy"))
+            return False
+        settings = self.settings("smart_dictation")
+        cfg = dict(getattr(self.host, "cfg", {}) or {})
+        DICTATION_ACTIVE.set()  # close the command listener gate first
+        if settings.get("sound", True):
+            _beep(880)
+        try:
+            recorder = Recorder(cfg)
+            recorder.start()
+        except Exception as error:
+            DICTATION_ACTIVE.clear()
+            self._notify(self._dictation_words("mic") + str(error))
+            return False
+        self._recorder = recorder
+        self._dictation_test = test
+        self._dictation_source = source
+        self._dictation_target = 0 if test else (target if target is not None else _foreground_window())
+        self._dictation_started = time.monotonic()
+        if self._overlay is None:
+            self._overlay = DictationOverlay()
+        if test:
+            key = "test"
+        elif source == "voice":
+            key = "listening_voice"
+        else:
+            key = "listening_hold" if settings.get("mode", "hold") == "hold" else "listening"
+        self._overlay.show_text(self._dictation_words(key).format(key=self._key_label()))
+        self._dictation_timer.start()
+        return True
+
+    def _dictation_tick(self):
+        from luxai.dictation import key_held
+        recorder = self._recorder
+        if recorder is None:
+            self._dictation_timer.stop()
+            return
+        settings = self.settings("smart_dictation")
+        elapsed = time.monotonic() - self._dictation_started
+        mode = settings.get("mode", "hold")
+        pause = int(settings.get("silence_pause", 2))
+        if recorder.full or (self._dictation_test and elapsed >= 5):
+            self.stop_dictation()
+        elif self._dictation_test:
+            return
+        elif self._dictation_source == "voice" or mode == "toggle":
+            if recorder.silent_for() >= pause or (not recorder.voiced_once and elapsed >= 8):
+                self.stop_dictation()
+        elif (settings.get("trigger") == "hotkey" and elapsed > 0.25
+                and not key_held(settings.get("hotkey", ""))):
+            self.stop_dictation()
+
+    def cancel_dictation(self):
+        from luxai.dictation import DICTATION_ACTIVE
+        self._dictation_timer.stop()
+        if self._recorder is not None:
+            self._recorder.stop()
+            self._recorder = None
+        if self._overlay is not None:
+            self._overlay.hide()
+        DICTATION_ACTIVE.clear()
+
+    def stop_dictation(self):
+        from luxai import dictation
+        recorder = self._recorder
+        if recorder is None:
+            return
+        self._recorder = None
+        self._dictation_timer.stop()
+        audio = recorder.stop()
+        settings = dict(self.settings("smart_dictation"))
+        if settings.get("sound", True):
+            threading.Thread(target=_beep, args=(660,), daemon=True).start()
+        if self._overlay is not None:
+            self._overlay.show_text(self._dictation_words("working"))
+        cfg = dict(getattr(self.host, "cfg", {}) or {})
+        language = settings.get("language", "auto")
+        if language == "auto":
+            language = cfg.get("language", "auto")
+        language = None if language in ("auto", "", None) else language
+        model_provider = getattr(self.host, "dictation_model", None)
+        planner = getattr(self.host, "online_planner", None)
+        test = self._dictation_test
+        self._dictation_busy = True
+
+        def work():
+            try:
+                model = model_provider() if callable(model_provider) else None
+                if model is None:
+                    model = dictation.load_model(cfg.get("whisper_model_path") or cfg.get("whisper_model") or "small")
+                text = dictation.transcribe(model, audio, language, int(cfg.get("whisper_beam_size", 1) or 1))
+                self.dictation_result.emit(self.finish_text(text, settings, planner), "", test)
+            except Exception as error:
+                self.dictation_result.emit("", f"{type(error).__name__}: {error}", test)
+
+        threading.Thread(target=work, daemon=True, name="JarvisDictation").start()
+
+    @staticmethod
+    def finish_text(text: str, settings: dict, planner=None) -> str:
+        from luxai.dictation import apply_spoken_punctuation
+        if text and settings.get("punctuation", True):
+            text = apply_spoken_punctuation(text)
+        if text and settings.get("ai_cleanup") and planner is not None and hasattr(planner, "polish_dictation"):
+            text = planner.polish_dictation(text) or text
+        return text
+
+    def _on_dictation_result(self, text: str, error: str, test: bool):
+        from luxai.dictation import DICTATION_ACTIVE
+        self._dictation_busy = False
+        if self._overlay is not None:
+            self._overlay.hide()
+        DICTATION_ACTIVE.clear()
+        if error:
+            self._notify(self._dictation_words("mic") + error)
+            return
+        if not text:
+            self._notify(self._dictation_words("nothing"))
+            return
+        self.last_dictation = text
+        if test:
+            QMessageBox.information(None, _tr3("Умная диктовка", "Smart dictation", "Dictare inteligentă", self.language),
+                                    self._dictation_words("result") + "\n\n" + text)
+            return
+        self.insert_dictation(text, self._dictation_target)
+
+    def insert_dictation(self, text: str, target: int):
+        from luxai.dictation import type_text, wait_for_modifiers_released
+        if not target:
+            QApplication.clipboard().setText(text)
+            self._notify(_tr3("Нет активного поля — текст скопирован в буфер обмена.",
+                              "No active field — the text was copied to the clipboard.",
+                              "Niciun câmp activ — textul a fost copiat în clipboard.", self.language))
+            return
+        wait_for_modifiers_released()
+        _set_foreground(target)
+        try:
+            type_text(text)
+        except Exception as error:
+            QApplication.clipboard().setText(text)
+            self._notify(_tr3("Не удалось напечатать, текст в буфере обмена: ",
+                              "Could not type; the text is on the clipboard: ",
+                              "Nu am putut scrie; textul e în clipboard: ", self.language) + str(error))
+
+    def handle_voice_request(self, spoken: str, target: int) -> bool:
+        """«Джарвис, напиши …»: type at once, or record until a pause."""
+        if not self.enabled("smart_dictation"):
+            return False
+        settings = self.settings("smart_dictation")
+        if not settings.get("voice_trigger"):
+            return False
+        from luxai.dictation import voice_dictation_request
+        cfg = getattr(self.host, "cfg", {}) or {}
+        request = voice_dictation_request(spoken, settings.get("voice_phrases", ""), cfg.get("wake_prefix", ""))
+        if request is None:
+            return False
+        if request:
+            text = self.finish_text(request, settings)
+            self.last_dictation = text
+            self.insert_dictation(text, target)
+        else:
+            self.start_dictation(source="voice", target=target)
+        return True
+
+    def copy_last_dictation(self):
+        if not self.last_dictation:
+            self._notify(self._dictation_words("empty"))
+            return
+        QApplication.clipboard().setText(self.last_dictation)
+        self._notify(self._dictation_words("copied"))
 
     # -- breaks --
     def _tick_breaks(self):

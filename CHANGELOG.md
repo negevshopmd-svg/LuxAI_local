@@ -1,3 +1,10 @@
+## 0.4.1 — Smart dictation (2026-11-16)
+
+- **Умная диктовка** now works: double-tap the right Ctrl (or a custom shortcut), speak, and the text is typed where the cursor is. Modes: hold, or press — speak — press with automatic stop after a configurable pause.
+- Optional start by voice: «Джарвис, напиши …» types the rest at once; «Джарвис, напиши» records until a pause. Start phrases are configurable.
+- Local Whisper recognition (reuses the already loaded model), spoken punctuation in RU/RO/EN including new line/paragraph, quotes, brackets and «удали последнее слово»; duplicate marks from Whisper are merged. Optional AI polish sends only the text to the configured cloud provider.
+- The command listener ignores the microphone while dictating, so dictated words are never executed as commands. Start/stop sounds, a non-focus-stealing status pill, a 5-second test and "copy last dictation" (kept in memory only).
+
 ## 0.4.0 — Extensions page (2026-11-16)
 
 - Add a new **Extensions** (Расширения) button to the left navigation rail, between Addons and Jarvis AI, with its own page: Plugins / Connections tabs, Tiles / List views, a topics panel with counts, search, an "only enabled" filter and an enabled counter.

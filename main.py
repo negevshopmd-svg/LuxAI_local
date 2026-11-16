@@ -20,6 +20,7 @@ from luxai.voices import (
 )
 from luxai.voice_rules import is_stop_speech_command, is_hallucinated_outro
 from luxai.listening_controls import capture_allowed, mode_control
+from luxai.dictation import DICTATION_ACTIVE
 from luxai.screen import capture_screen, read_screen_text
 from luxai.settings_panel import SettingsPanel
 from luxai.ui_home import HomePage
@@ -161,7 +162,8 @@ class VoiceWorker(QThread):
                 "speech_pause": self.cfg.get("speech_pause_seconds", 2.3),
                 "status_callback": lambda event, details: self.state.emit(event, details),
                 "level_callback": self.level.emit,
-                "capture_allowed": lambda: capture_allowed(self.cfg),
+                # Smart dictation closes this gate: dictated words are not commands.
+                "capture_allowed": lambda: capture_allowed(self.cfg) and not DICTATION_ACTIVE.is_set(),
                 "preserve_interrupt_text": True,
                 "interrupt_predicate": lambda text: (
                     is_stop_speech_command(text) or mode_control(text, self.cfg) == "stop"
@@ -692,6 +694,12 @@ class MainWindow(QMainWindow):
             return
         self.extensions_runtime.apply(state)
         QTimer.singleShot(800, self._refresh_extension_errors)
+
+    def dictation_model(self):
+        """Reuse the command listener's loaded Whisper model when available."""
+        worker = getattr(self, "worker", None)
+        listener = getattr(worker, "listener", None) if worker is not None and worker.isRunning() else None
+        return getattr(listener, "model", None)
 
     def save_extensions_meta(self):
         try:
@@ -1928,6 +1936,11 @@ class MainWindow(QMainWindow):
         # exact stop phrase ends it; other speech is typed into the other app.
         if self.dictation_active:
             self._type_voice_chunk(spoken)
+            return
+
+        # Smart dictation by voice: «Джарвис, напиши …» (extension setting).
+        runtime = getattr(self, "extensions_runtime", None)
+        if runtime is not None and runtime.handle_voice_request(spoken, getattr(self, "_last_external_hwnd", 0)):
             return
 
         # Wizard replies do not need the wake word: the assistant explicitly

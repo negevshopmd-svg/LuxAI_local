@@ -1,4 +1,9 @@
-LUXAI LOCAL 0.4.0 — ACTUALIZARE 2026-11-16
+LUXAI LOCAL 0.4.1 — ACTUALIZARE 2026-11-16
+
+0.4.1: Dictarea inteligentă funcționează. Apasă de două ori Ctrl din dreapta
+(sau combinația ta), vorbește, și textul se scrie unde e cursorul. Spune
+„virgulă”, „punct”, „rând nou” sau „șterge ultimul cuvânt”. Opțional pornește
+cu vocea: „Jarvis, scrie …”. Activeaz-o în Extensii → Умная диктовка.
 
 0.4.0: buton nou „Расширения / Extensii” în bara din stânga. Pagina are
 22 de pluginuri pe 5 teme, căutare, vizualizare Plăci/Listă și setări pentru
