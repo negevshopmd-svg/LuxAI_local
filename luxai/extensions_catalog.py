@@ -145,13 +145,50 @@ PLUGINS: tuple[Plugin, ...] = (
           "stays silent in games, during calls and in quiet hours.",
           "Citește cu voce notificările Windows noi: cine și ce a trimis. Sare peste coduri și linkuri, "
           "tace în jocuri, în apeluri și în orele de liniște."),
-        False,
-        (Setting("apps", "text", L("Только эти приложения", "Only these apps", "Doar aceste aplicații"), "Telegram, Discord",
-                 hint=L("Через запятую. Пусто — все приложения.", "Comma separated. Empty — all apps.", "Separate prin virgulă. Gol — toate."), max_length=300),
-         Setting("skip_codes", "bool", L("Не читать коды и ссылки", "Skip codes and links", "Nu citi coduri și linkuri"), True),
-         Setting("silent_games", "bool", L("Молчать в играх и на звонках", "Silent in games and calls", "Tăcere în jocuri și apeluri"), True),
-         Setting("quiet_from", "int", L("Тихие часы с", "Quiet hours from", "Ore de liniște de la"), 23, minimum=0, maximum=23, suffix=L(":00", ":00", ":00")),
-         Setting("quiet_to", "int", L("Тихие часы до", "Quiet hours until", "Ore de liniște până la"), 8, minimum=0, maximum=23, suffix=L(":00", ":00", ":00"))),
+        True,
+        (Setting("read_now", "bool", L("Читать новые уведомления сразу", "Read new notifications right away",
+                                       "Citește imediat notificările noi"), True,
+                 hint=L("Выключено — только по просьбе: «что пришло».", "Off — only on request: “what came in”.",
+                        "Oprit — doar la cerere: „ce a venit”.")),
+         Setting("app_rules", "multiline", L("Программы", "Apps", "Aplicații"), "", max_length=4000),
+         Setting("read_mode", "choice", L("Читать", "Read", "Citește"), "text",
+                 hint=L("Отправитель — только кто написал; полностью — все строки уведомления.",
+                        "Sender — only who wrote; full — every line of the notification.",
+                        "Expeditor — doar cine a scris; complet — toate rândurile notificării."),
+                 options=(("sender", L("Отправитель", "Sender", "Expeditor")), ("text", L("С текстом", "With text", "Cu text")),
+                          ("full", L("Полностью", "Full", "Complet")))),
+         Setting("max_length", "int", L("Длина текста", "Text length", "Lungimea textului"), 140, minimum=40, maximum=400,
+                 suffix=L(" зн.", " ch.", " car."),
+                 hint=L("Длиннее — обрезается по слову.", "Longer text is cut at a word.", "Textul mai lung se taie la un cuvânt.")),
+         Setting("say_app", "bool", L("Называть программу", "Say the app name", "Spune numele aplicației"), True,
+                 hint=L("«Telegram: …» в начале фразы.", "“Telegram: …” at the start.", "„Telegram: …” la început.")),
+         Setting("skip_links", "bool", L("Не читать ссылки", "Don't read links", "Nu citi linkurile"), True,
+                 hint=L("Вместо адреса — слово «ссылка».", "The word “link” instead of the address.", "Cuvântul „link” în loc de adresă.")),
+         Setting("skip_codes", "bool", L("Не читать коды", "Don't read codes", "Nu citi codurile"), True,
+                 hint=L("4–8 цифр подряд — «пришёл код», сам код не звучит: это может быть код входа.",
+                        "4–8 digits in a row — “a code arrived”; the code itself is not spoken: it may be a login code.",
+                        "4–8 cifre la rând — „a venit un cod”; codul nu se rostește: poate fi un cod de autentificare.")),
+         Setting("group", "bool", L("Несколько сразу — одной фразой", "Several at once — one sentence", "Mai multe deodată — o frază"), True,
+                 hint=L("«Telegram: 3 новых сообщения — Мама, Папа».", "“Telegram: 3 new messages — Mom, Dad”.",
+                        "„Telegram: 3 mesaje noi — Mama, Tata”.")),
+         Setting("quiet_enabled", "bool", L("Тихие часы", "Quiet hours", "Ore de liniște"), False,
+                 hint=L("В это время не читать. Пропущенное — по «что пришло».", "Don't read during these hours. Missed ones — via “what came in”.",
+                        "Nu citi în aceste ore. Cele ratate — prin „ce a venit”.")),
+         Setting("quiet_from", "int", L("С", "From", "De la"), 23, minimum=0, maximum=23, suffix=L(":00", ":00", ":00")),
+         Setting("quiet_to", "int", L("До", "Until", "Până la"), 8, minimum=0, maximum=23, suffix=L(":00", ":00", ":00")),
+         Setting("silent_fullscreen", "bool", L("Молчать в игре и видео на весь экран", "Silent in fullscreen games and video",
+                                                "Tăcere în jocuri și video pe tot ecranul"), True,
+                 hint=L("И в режиме презентации.", "And in presentation mode.", "Și în modul prezentare.")),
+         Setting("silent_calls", "bool", L("Молчать во время звонка", "Silent during calls", "Tăcere în timpul apelurilor"), True,
+                 hint=L("Когда микрофоном или камерой пользуется другая программа.", "When another app uses the microphone or camera.",
+                        "Când altă aplicație folosește microfonul sau camera.")),
+         Setting("silent_quiet_mode", "bool", L("Молчать в тихом режиме Jarvis", "Silent in Jarvis quiet mode", "Tăcere în modul silențios Jarvis"), True,
+                 hint=L("«Перейди в тихий режим» — уведомления тоже молчат.", "“Switch to quiet mode” — notifications stay silent too.",
+                        "„Treci în modul silențios” — și notificările tac.")),
+         Setting("repeat_hotkey", "hotkey", L("Повторить последнее", "Repeat the last one", "Repetă ultima"), "",
+                 hint=L("По желанию: сочетание, которое повторяет последнее уведомление.", "Optional: a shortcut that repeats the last notification.",
+                        "Opțional: o combinație care repetă ultima notificare."))),
+        (("test", L("Прослушать пример", "Play a sample", "Ascultă un exemplu")),),
     ),
     Plugin(
         "read_aloud", "voice", "book-audio", "#e2457f",
@@ -599,6 +636,18 @@ SECTIONS = {
                   "Ce scrie botul și ce se aude pe PC."),
                 ("notify", "voice_replies")),
     ),
+    "notification_reader": (
+        Section("what", "message-square", L("Что читать", "What to read", "Ce citesc"),
+                L("Сколько говорить и что пропускать.", "How much to say and what to skip.", "Cât spun și ce sar."),
+                ("read_mode", "max_length", "say_app", "skip_links", "skip_codes", "group")),
+        Section("quiet", "moon", L("Когда молчать", "When to stay silent", "Când tac"),
+                L("Тихие часы и случаи, когда читать вслух неуместно.", "Quiet hours and moments when reading aloud is out of place.",
+                  "Ore de liniște și momente când citirea nu e potrivită."),
+                ("quiet_enabled", "quiet_from", "quiet_to", "silent_fullscreen", "silent_calls", "silent_quiet_mode")),
+        Section("voice", "mic", L("Голос и клавиша", "Voice and key", "Voce și tastă"),
+                L("Как спросить и как остановить.", "How to ask and how to stop.", "Cum întrebi și cum oprești."),
+                ("repeat_hotkey",)),
+    ),
     "converter": (
         Section("keys", "keyboard", L("Клавиши", "Keys", "Taste"),
                 L("Круг для выделенных файлов и снимок области экрана.", "The circle for selected files and a screen-area snapshot.",
@@ -644,6 +693,7 @@ SECTIONS = {
 
 # A setting is editable only while another setting has one of these values.
 ENABLED_IF = {
+    "notification_reader": {"quiet_from": ("quiet_enabled", (True,)), "quiet_to": ("quiet_enabled", (True,))},
     "converter": {"folder": ("destination", ("folder",))},
     "timers": {"ring_seconds": ("sound", (True,))},
     "smart_dictation": {
@@ -660,6 +710,12 @@ BASIC_KEYS = {"pc_control": ("autostart",)}
 
 # Information shown in the basic card.
 BASIC_NOTE = {
+    "notification_reader": L("Уведомления — ваша переписка. Jarvis держит в памяти только последние 20, ничего не пишет на диск, "
+                             "не отправляет в нейросеть и не пишет текст в журналы. Пока компьютер заблокирован, ничего не читается.",
+                             "Notifications are your messages. Jarvis keeps only the last 20 in memory, writes nothing to disk, "
+                             "sends nothing to AI and never logs the text. Nothing is read while the PC is locked.",
+                             "Notificările sunt mesajele tale. Jarvis păstrează doar ultimele 20 în memorie, nu scrie nimic pe disc, "
+                             "nu trimite nimic la AI și nu înregistrează textul. Cât PC-ul e blocat, nu se citește nimic."),
     "converter": L("Картинки — силами Pillow, звук и видео — встроенным FFmpeg (PyAV). Ничего докачивать не нужно; "
                    "OGG сохраняется с кодеком Opus.",
                    "Images via Pillow, audio and video via the built-in FFmpeg (PyAV). Nothing to download; "
@@ -668,7 +724,26 @@ BASIC_NOTE = {
                    "OGG se salvează cu codecul Opus."),
 }
 
+BASIC_ACTIONS = {"notification_reader": ("test",)}
+BASIC_KEYS["notification_reader"] = ("read_now",)
+# Settings edited by a custom card instead of a form row.
+HIDDEN_SETTINGS = {"notification_reader": ("app_rules",)}
+VOICE_HELP = {
+    "notification_reader": L("Скажите: «что пришло» — пропущенные уведомления; «прочитай последнее сообщение»; "
+                             "«не читай уведомления» / «читай уведомления»; «не беспокой» — помолчать час. "
+                             "Пока уведомление звучит, его остановит слово «стоп».",
+                             "Say: “what came in” — missed notifications; “read the last message”; "
+                             "“don't read notifications” / “read notifications”; “do not disturb” — silence for an hour. "
+                             "While a notification plays, “stop” ends it.",
+                             "Spune: „ce a venit” — notificările ratate; „citește ultimul mesaj”; "
+                             "„nu citi notificările” / „citește notificările”; „nu deranja” — liniște o oră. "
+                             "Cât timp se citește, „stop” o oprește."),
+}
+
 BASIC_TEXT = {
+    "notification_reader": (L("Плагин", "Plugin", "Plugin"),
+                            L("Новые уведомления Windows читаются вслух.", "New Windows notifications are read aloud.",
+                              "Notificările Windows noi sunt citite cu voce.")),
     "converter": (L("Конвертер", "Converter", "Convertor"),
                   L("Выделите файлы в Проводнике или на рабочем столе (или скопируйте картинку) и нажмите клавишу.",
                     "Select files in Explorer or on the desktop (or copy a picture) and press the key.",
@@ -716,6 +791,13 @@ def how_it_works(plugin: Plugin, settings: dict, language: str) -> tuple[str, st
         return chip, text(body, language)
     if plugin.id == "pc_control":
         return "", text(plugin.description, language)
+    if plugin.id == "notification_reader":
+        return "", text(L("Новые уведомления Windows Jarvis читает вслух. Текст хранится только в памяти и никуда не уходит. "
+                          "Спросите «что пришло» — прочитает пропущенное.",
+                          "Jarvis reads new Windows notifications aloud. The text stays only in memory and goes nowhere. "
+                          "Ask “what came in” to hear missed ones.",
+                          "Jarvis citește cu voce notificările Windows noi. Textul rămâne doar în memorie. "
+                          "Întreabă „ce a venit” ca să auzi ce ai ratat."), language)
     if plugin.id == "converter":
         chip = "+".join(part.capitalize() for part in str(settings.get("hotkey") or "").split("+"))
         return chip, text(L("Выделите файлы в Проводнике или на рабочем столе (или скопируйте картинку) и нажмите клавишу — "

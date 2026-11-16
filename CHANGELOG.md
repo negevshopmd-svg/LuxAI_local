@@ -1,3 +1,10 @@
+## 0.4.1e — Notification reader (2026-11-16)
+
+- **Озвучка уведомлений** now works: new Windows notifications are read aloud ("Telegram: Мама — Купи хлеба"). Jarvis reads the current user's notification database read-only, starts from "now" (old notifications are never read) and keeps only the last 20 texts in memory — nothing is written to disk, logged or sent to AI.
+- Luxify-like settings: read right away or only on request; per-app switches that fill in by themselves (messengers and mail on by default); Sender / With text / Full; text length; app name; links → «ссылка»; codes → «пришёл код»; several from one app as one sentence.
+- Stays silent while the PC is locked, in quiet hours, in fullscreen games/video, during calls (another app uses the mic or camera; always-listening assistants are ignored), in Jarvis quiet mode, and waits while you dictate. Missed ones are kept for «что пришло».
+- Voice: «что пришло», «прочитай последнее сообщение», «не читай уведомления» / «читай уведомления», «не беспокой» (an hour); optional "repeat last" key and a sample button.
+
 ## 0.4.1d — Converter like Luxify (2026-11-16)
 
 - **Конвертер** now works through a circle at the cursor: select files in Explorer or on the desktop (or copy a picture) and press Ctrl+Alt+X; choose with the mouse, arrow keys or digits. Optional "screen area" key: draw a region and get the circle for that snapshot. "Choose files…" works from the settings page too.

@@ -532,6 +532,7 @@ class ExtensionsRuntime(QObject):
     dictation_done = Signal(str)  # last dictated text, for the settings page
     pc_status_changed = Signal(str, dict)  # state, details (bot name, error)
     timers_changed = Signal()
+    notification_apps_changed = Signal()
     convert_progress = Signal(float)
     convert_done = Signal(list, list)  # results, errors
     _pc_update = Signal(dict)
@@ -586,6 +587,16 @@ class ExtensionsRuntime(QObject):
         self._timer_tick.setInterval(1000)
         self._timer_tick.timeout.connect(self._check_timers)
         self._ringing: list = []  # (timer, dialog)
+        from collections import deque
+        self._notif_watcher = None
+        self._notif_timer = QTimer(self)
+        self._notif_timer.setInterval(2000)
+        self._notif_timer.timeout.connect(self._poll_notifications)
+        self.notification_memory = deque(maxlen=20)  # composed texts, memory only
+        self.missed_notifications = deque(maxlen=20)
+        self._notif_pending = []
+        self.dnd_until = 0.0
+        self.seen_notification_apps: set[str] = set()
         self._converting = False
         self._convert_overlay = None
         self.convert_progress.connect(self._on_convert_progress)
@@ -655,6 +666,7 @@ class ExtensionsRuntime(QObject):
             self.cancel_dictation()
         self._apply_pc_control()
         self._apply_timers()
+        self._apply_notifications()
         if self.enabled("downloads_cleanup") and self.settings("downloads_cleanup").get("auto"):
             if not self._cleanup_timer.isActive():
                 self._cleanup_timer.start()
@@ -696,6 +708,7 @@ class ExtensionsRuntime(QObject):
             self.errors = dict(self._listener.errors)
 
     def stop(self):
+        self._notif_timer.stop()
         self._timer_tick.stop()
         self._ring_beeper.stop()
         self._stop_bot()
@@ -724,6 +737,8 @@ class ExtensionsRuntime(QObject):
             press_virtual_key(MEDIA_KEYS[key])
         elif plugin_id == "screenshots":
             self.take_screenshot(window=(key == "window_hotkey"))
+        elif plugin_id == "notification_reader":
+            self.repeat_last_notification()
         elif plugin_id == "converter":
             if key == "region_hotkey":
                 self.start_region_convert()
@@ -748,6 +763,7 @@ class ExtensionsRuntime(QObject):
             ("pc_control", "check"): self.check_pc_connection,
             ("pc_control", "open"): self.open_bot,
             ("converter", "convert"): lambda: self.choose_files_to_convert(parent),
+            ("notification_reader", "test"): lambda: self._speak(self.NOTIFICATION_SAMPLE.get(self.language, self.NOTIFICATION_SAMPLE["ru"])),
             ("screenshots", "capture"): lambda: QTimer.singleShot(350, self.take_screenshot),
             ("screenshots", "open_folder"): self.open_screenshots_folder,
             ("downloads_cleanup", "preview"): lambda: self.cleanup_dialog(parent, execute=False),
@@ -1237,6 +1253,162 @@ class ExtensionsRuntime(QObject):
         head = tg.t("done" if ok else "failed", self.language, title=origin.get("title", ""))
         body = (head + ("\n" + result[:3500] if result else "")).strip()
         self._bot_send("sendMessage", {"chat_id": chat, "text": body})
+
+    # -- notification reader --
+    NOTIFICATION_SAMPLE = {
+        "ru": "Telegram: Мама — Купи хлеба по дороге домой, пожалуйста. И молоко, если будет.",
+        "en": "Telegram: Mom — Please grab some bread on the way home. And milk, if they have it.",
+        "ro": "Telegram: Mama — Te rog, ia pâine în drum spre casă. Și lapte, dacă găsești.",
+    }
+
+    def _apply_notifications(self):
+        from luxai.notifications import NotificationWatcher
+        if not self.enabled("notification_reader"):
+            self._notif_timer.stop()
+            self._notif_watcher = None
+            return
+        if self._notif_watcher is None:
+            self._notif_watcher = NotificationWatcher(getattr(self, "notifications_db", None))
+            self._notif_watcher.prime()  # never read what was already there
+        meta = (getattr(self.host, "cfg", {}) or {}).get("extensions_meta", {})
+        self.seen_notification_apps.update(str(name)[:40] for name in meta.get("notification_apps", [])[:100])
+        if not self._notif_timer.isActive():
+            self._notif_timer.start()
+
+    def _remember_app(self, app):
+        if not app or app in self.seen_notification_apps:
+            return
+        self.seen_notification_apps.add(app)
+        cfg = getattr(self.host, "cfg", None)
+        if isinstance(cfg, dict):
+            meta = cfg.setdefault("extensions_meta", {})
+            meta["notification_apps"] = sorted(self.seen_notification_apps)[:100]
+            if hasattr(self.host, "save_extensions_meta"):
+                self.host.save_extensions_meta()
+        self.notification_apps_changed.emit()
+
+    def _silence_reason(self) -> str:
+        from luxai import notifications as n
+        settings = self.settings("notification_reader")
+        cfg = getattr(self.host, "cfg", {}) or {}
+        if n.computer_locked():
+            return "locked"
+        if time.time() < self.dnd_until:
+            return "dnd"
+        if settings.get("quiet_enabled") and n.in_quiet_hours(_dt.datetime.now().hour, int(settings.get("quiet_from", 23)),
+                                                              int(settings.get("quiet_to", 8))):
+            return "quiet_hours"
+        if settings.get("silent_quiet_mode", True) and not cfg.get("tts_enabled", True):
+            return "quiet_mode"
+        if settings.get("silent_fullscreen", True) and foreground_is_fullscreen():
+            return "fullscreen"
+        if settings.get("silent_calls", True) and n.microphone_in_use_by_other_app():
+            return "call"
+        return ""
+
+    def notification_texts(self, items) -> list[str]:
+        """Compose (and group) a batch of {app, texts} into sentences."""
+        from luxai import notifications as n
+        settings = self.settings("notification_reader")
+        rules = n.parse_rules(settings.get("app_rules", ""))
+        options = dict(say_app=bool(settings.get("say_app", True)), mode=settings.get("read_mode", "text"),
+                       skip_codes=bool(settings.get("skip_codes", True)), skip_links=bool(settings.get("skip_links", True)),
+                       limit=int(settings.get("max_length", 140)), language=self.language)
+        by_app: dict[str, list] = {}
+        for item in items:
+            self._remember_app(item["app"])
+            if not item["texts"] or not n.app_allowed(item["app"], rules):
+                continue
+            by_app.setdefault(item["app"], []).append(item["texts"])
+        result = []
+        for app, entries in by_app.items():
+            if len(entries) > 1 and settings.get("group", True):
+                result.append(n.group_message(app, [texts[0] for texts in entries], len(entries), self.language,
+                                              say_app=options["say_app"]))
+            else:
+                result.extend(filter(None, (n.compose(app, texts, **options) for texts in entries)))
+        return result
+
+    def _poll_notifications(self):
+        from luxai.dictation import DICTATION_ACTIVE
+        if self._notif_watcher is None:
+            return
+        texts = self.notification_texts(self._notif_watcher.poll())
+        for value in texts:
+            self.notification_memory.append(value)
+        self._notif_pending.extend(texts)
+        if not self._notif_pending:
+            return
+        if DICTATION_ACTIVE.is_set() or self.dictating:
+            return  # wait for our turn
+        settings = self.settings("notification_reader")
+        reason = self._silence_reason()
+        if reason or not settings.get("read_now", True):
+            self.missed_notifications.extend(self._notif_pending)
+            self._notif_pending = []
+            return
+        pending, self._notif_pending = self._notif_pending, []
+        for value in pending:
+            self._speak_notification(value)
+
+    def _speak_notification(self, value):
+        if hasattr(self.host, "_queue_speech"):
+            from luxai.response_language import reply_language
+            self.host._queue_speech(value, reply_language(getattr(self.host, "cfg", {}) or {}, value))
+
+    def repeat_last_notification(self):
+        if self.notification_memory:
+            self._speak_notification(self.notification_memory[-1])
+
+    def _nw(self, key, **values):
+        words = {
+            "none": ("Новых уведомлений нет.", "No new notifications.", "Nu sunt notificări noi."),
+            "no_last": ("Уведомлений ещё не было.", "There were no notifications yet.", "Încă nu au fost notificări."),
+            "off": ("Хорошо, уведомления читать не буду. Спросите «что пришло», чтобы узнать пропущенное.",
+                    "OK, I won't read notifications. Ask “what came in” to hear missed ones.",
+                    "Bine, nu mai citesc notificările. Întreabă „ce a venit” ca să auzi ce ai ratat."),
+            "on": ("Хорошо, буду читать новые уведомления.", "OK, I'll read new notifications.", "Bine, voi citi notificările noi."),
+            "dnd": ("Хорошо, час не буду читать уведомления.", "OK, no notifications for an hour.",
+                    "Bine, o oră nu citesc notificările."),
+            "disabled": ("Озвучка уведомлений выключена. Включите её в Расширениях.",
+                         "Notification reader is off. Turn it on in Extensions.",
+                         "Citirea notificărilor e oprită. Pornește-o în Extensii."),
+            "more": ("И ещё {n}.", "And {n} more.", "Și încă {n}."),
+        }[key]
+        return _tr3(*words, self.language).format(**values)
+
+    def handle_notification_request(self, text: str) -> str | None:
+        from luxai.notifications import parse_voice_request
+        request = parse_voice_request(text)
+        if request is None:
+            return None
+        if not self.enabled("notification_reader"):
+            return self._nw("disabled")
+        if request == "missed":
+            items = list(self.missed_notifications) + self._notif_pending
+            self.missed_notifications.clear()
+            self._notif_pending = []
+            if not items:
+                return self._nw("none")
+            shown = items[-5:]
+            extra = len(items) - len(shown)
+            return "\n".join(shown) + (("\n" + self._nw("more", n=extra)) if extra else "")
+        if request == "last":
+            return self.notification_memory[-1] if self.notification_memory else self._nw("no_last")
+        if request == "dnd":
+            self.dnd_until = time.time() + 3600
+            return self._nw("dnd")
+        enable = request == "on"
+        updater = getattr(self.host, "update_extension_setting", None)
+        if callable(updater):
+            updater("notification_reader", "read_now", enable)
+        else:
+            self.state["notification_reader"]["settings"]["read_now"] = enable
+        return self._nw("on" if enable else "off")
+
+    def handle_text_request(self, text: str) -> str | None:
+        """Typed or spoken requests handled by extensions (notifications, timers)."""
+        return self.handle_notification_request(text) or self.handle_timer_request(text)
 
     # -- converter circle --
     def _cw(self, key, **values):

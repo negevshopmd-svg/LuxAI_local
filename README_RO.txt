@@ -1,4 +1,10 @@
-LUXAI LOCAL 0.4.1d — ACTUALIZARE 2026-11-16
+LUXAI LOCAL 0.4.1e — ACTUALIZARE 2026-11-16
+
+0.4.1e: Citirea notificărilor. Activează „Озвучка уведомлений” în Extensii:
+Jarvis citește cu voce notificările noi (implicit mesageriile și e-mailul).
+Tace cât PC-ul e blocat, în orele de liniște, în jocuri pe tot ecranul și
+în apeluri. Spune „ce a venit” pentru cele ratate sau „nu deranja” pentru o oră.
+Textul rămâne doar în memorie, nu se scrie pe disc și nu se trimite nicăieri.
 
 0.4.1d: Convertor ca în Luxify. Activează-l în Extensii, selectează fișiere în
 Explorer sau pe desktop (sau copiază o imagine) și apasă Ctrl+Alt+X: lângă

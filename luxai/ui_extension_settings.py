@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from luxai.extensions_catalog import (
-    BASIC_KEYS, BASIC_LAST, BASIC_NOTE, BASIC_TEXT, ENABLED_IF, L, Plugin, how_it_works, sections_for, text, ui, validate_value,
+    BASIC_ACTIONS, BASIC_KEYS, BASIC_LAST, BASIC_NOTE, BASIC_TEXT, HIDDEN_SETTINGS, VOICE_HELP, ENABLED_IF, L, Plugin, how_it_works, sections_for, text, ui, validate_value,
 )
 from luxai.icons import set_button_icon, set_label_icon
 from luxai.ui_home import ToggleSwitch
@@ -87,6 +87,18 @@ W = {
                      "Inclus ({version}) — nu trebuie descărcat nimic."),
     "video_missing": L("Не найден. Запустите Update.bat — он восстановит компонент.", "Not found. Run Update.bat to restore it.",
                        "Nu a fost găsit. Rulează Update.bat ca să-l restaurezi."),
+    "apps": L("Программы", "Apps", "Aplicații"),
+    "apps_sub": L("Чьи уведомления читать. Список пополняется сам, когда программа присылает уведомление.",
+                  "Whose notifications to read. The list grows by itself when an app sends a notification.",
+                  "Ale cui notificări le citesc. Lista se completează singură când o aplicație trimite o notificare."),
+    "apps_empty": L("Пока ни одна программа не присылала уведомлений. Включите плагин — список пополнится сам. "
+                    "По умолчанию читаются мессенджеры и почта.",
+                    "No app has sent a notification yet. Turn the plugin on — the list fills by itself. "
+                    "Messengers and mail are read by default.",
+                    "Nicio aplicație n-a trimis încă notificări. Pornește pluginul — lista se completează singură. "
+                    "Implicit se citesc mesageriile și e-mailul."),
+    "apps_refresh": L("Обновить список", "Refresh the list", "Reîmprospătează lista"),
+    "example": L("Пример", "Example", "Exemplu"),
     "unsaved": L("Есть несохранённые изменения.", "There are unsaved changes.", "Există modificări nesalvate."),
 }
 
@@ -422,11 +434,23 @@ class PluginSettingsView(QWidget):
         has_status_row = False
         if plugin.id == "timers":
             self._build_timers_card()
+        if plugin.id == "notification_reader":
+            self._build_apps_card()
+        for key in HIDDEN_SETTINGS.get(plugin.id, ()):
+            field = QPlainTextEdit()
+            field.hide()
+            field.textChanged.connect(self._refresh)
+            self.fields[key] = field
         for section in sections_for(plugin):
             card = SectionCard(section.id, section.icon, text(section.title, language), text(section.subtitle, language))
             card.reset_requested.connect(self.reset_section)
             if section.groups:
                 self._add_switch_grid(card, section)
+            if self.plugin.id in VOICE_HELP and section.id == "voice":
+                help_note = QLabel(text(VOICE_HELP[self.plugin.id], language))
+                help_note.setObjectName("ExtNote")
+                help_note.setWordWrap(True)
+                card.add_row(help_note)
             for key in (() if section.groups else section.keys):
                 if key == "@status":
                     self._add_status_row(card)
@@ -440,7 +464,8 @@ class PluginSettingsView(QWidget):
                 self._build_video_card()
         if plugin.id == "smart_dictation":
             self._build_dictation_check()
-        elif plugin.actions and plugin.ready and runtime is not None and not has_status_row:
+        elif (plugin.actions and plugin.ready and runtime is not None and not has_status_row
+              and plugin.id not in BASIC_ACTIONS):
             self._build_actions()
         if plugin.id in BASIC_LAST:
             self._build_basic()
@@ -495,8 +520,8 @@ class PluginSettingsView(QWidget):
             button = QPushButton(card.findChild(QLabel, "ExtTitle").text())
             button.setObjectName("ExtNav")
             button.setCursor(Qt.CursorShape.PointingHandCursor)
-            icon_name = {"basic": "power", "check": "mic", "actions": "play", "active": "hourglass",
-                         "video": "download"}.get(card_id) or next(
+            icon_name = {"basic": "bell" if plugin.id == "notification_reader" else "power", "check": "mic",
+                         "actions": "play", "active": "hourglass", "video": "download", "apps": "list-checks"}.get(card_id) or next(
                 (s.icon for s in sections_for(plugin) if s.id == card_id), "sliders-horizontal")
             set_button_icon(button, icon_name, size=17)
             button.clicked.connect(lambda checked=False, c=card_id: self.scroll_to(c))
@@ -523,6 +548,8 @@ class PluginSettingsView(QWidget):
             if key in self.fields:
                 self._set_value(key, value)
         self.enable_switch.setChecked(self.saved_enabled)
+        if hasattr(self, "apps_holder"):
+            self._render_apps()
         self._active_nav = ""
         self._set_active_nav(next(iter(self.cards)))
         self._refresh()
@@ -532,7 +559,8 @@ class PluginSettingsView(QWidget):
     # -- building --
     def _build_basic(self):
         language = self.language
-        card = SectionCard("basic", "power", w("basic", language), w("basic_sub", language), resettable=False)
+        card = SectionCard("basic", "bell" if self.plugin.id == "notification_reader" else "power",
+                           w("basic", language), w("basic_sub", language), resettable=False)
         title, hint = BASIC_TEXT.get(self.plugin.id, (self.plugin.title, self.plugin.description))
         self.enable_switch = ToggleSwitch(False)
         self.enable_switch.set_theme(*self.theme_args)
@@ -563,6 +591,17 @@ class PluginSettingsView(QWidget):
         for key in BASIC_KEYS.get(self.plugin.id, ()):
             setting = next(item for item in self.plugin.settings if item.key == key)
             self._add_setting(card, setting)
+        for action_id in BASIC_ACTIONS.get(self.plugin.id, ()):
+            label = next(text(item[1], language) for item in self.plugin.actions if item[0] == action_id)
+            button = QPushButton(label)
+            button.setObjectName("Primary")
+            set_button_icon(button, "play", size=16, role="white")
+            button.setEnabled(self.runtime is not None)
+            button.clicked.connect(lambda checked=False, a=action_id: self._run_action(a))
+            sample = ""
+            if self.plugin.id == "notification_reader" and self.runtime is not None:
+                sample = "«" + self.runtime.NOTIFICATION_SAMPLE.get(language, "") + "»"
+            card.add_row(_row(w("example", language), sample, button))
         if not self.plugin.ready:
             note = QLabel(ui("soon_hint", language))
             note.setObjectName("ExtNote")
@@ -896,6 +935,75 @@ class PluginSettingsView(QWidget):
         self.cards["video"] = card
         self.column.addWidget(card)
 
+    def _build_apps_card(self):
+        language = self.language
+        card = SectionCard("apps", "list-checks", w("apps", language), w("apps_sub", language))
+        card.reset_requested.connect(lambda _id: self._set_rules({}))
+        self.apps_holder = QVBoxLayout()
+        self.apps_holder.setContentsMargins(0, 0, 0, 0)
+        self.apps_holder.setSpacing(0)
+        holder = QWidget()
+        holder.setObjectName("ExtContent")
+        holder.setLayout(self.apps_holder)
+        card.add_row(holder)
+        refresh = QPushButton(w("apps_refresh", language))
+        set_button_icon(refresh, "refresh-cw", size=16)
+        refresh.clicked.connect(self._render_apps)
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 10, 0, 10)
+        row.addWidget(refresh)
+        row.addStretch()
+        wrapper = QWidget()
+        wrapper.setObjectName("ExtContent")
+        wrapper.setLayout(row)
+        card.add_row(wrapper)
+        self.cards["apps"] = card
+        self.column.addWidget(card)
+        if self.runtime is not None:
+            self.runtime.notification_apps_changed.connect(self._render_apps)
+
+    def _rules(self):
+        from luxai.notifications import parse_rules
+        return parse_rules(self._raw("app_rules")) if "app_rules" in self.fields else {}
+
+    def _set_rules(self, rules):
+        from luxai.notifications import format_rules
+        self._set_value("app_rules", format_rules(rules))
+        self._render_apps()
+        self._refresh()
+
+    def _render_apps(self):
+        from luxai.notifications import app_allowed
+        try:
+            layout = self.apps_holder
+        except RuntimeError:
+            return
+        while layout.count():
+            item = layout.takeAt(0)
+            if item.widget() is not None:
+                item.widget().deleteLater()
+        rules = self._rules()
+        apps = sorted(set(rules) | set(getattr(self.runtime, "seen_notification_apps", set()) or set()), key=str.casefold)
+        if not apps:
+            note = QLabel(w("apps_empty", self.language))
+            note.setObjectName("ExtNote")
+            note.setWordWrap(True)
+            layout.addWidget(note)
+            return
+        for app in apps:
+            switch = ToggleSwitch(app_allowed(app, rules))
+            switch.set_theme(*self.theme_args)
+
+            def toggled(checked, app=app):
+                current = self._rules()
+                current[app] = bool(checked)
+                from luxai.notifications import format_rules
+                self._set_value("app_rules", format_rules(current))
+                self._refresh()
+
+            switch.toggled.connect(toggled)
+            layout.addWidget(_row(app, "", switch))
+
     def _build_actions(self):
         language = self.language
         card = SectionCard("actions", "play", w("actions", language), w("actions_sub", language), resettable=False)
@@ -1141,6 +1249,11 @@ class PluginSettingsView(QWidget):
                 button.style().polish(button)
 
     def detach(self):
+        if self.runtime is not None and hasattr(self, "apps_holder"):
+            try:
+                self.runtime.notification_apps_changed.disconnect(self._render_apps)
+            except (RuntimeError, TypeError):
+                pass
         if hasattr(self, "_countdown_timer"):
             self._countdown_timer.stop()
             if self.runtime is not None:

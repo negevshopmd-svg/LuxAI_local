@@ -732,6 +732,14 @@ class MainWindow(QMainWindow):
         if hasattr(self, "window_header") and hasattr(self.window_header, "set_back_visible"):
             self.window_header.set_back_visible(bool(title))
 
+    def update_extension_setting(self, plugin_id, key, value):
+        """Change one extension setting (e.g. by voice) through the page, so it is saved."""
+        page = getattr(self, "extensions_page", None)
+        if page is None or plugin_id not in page.state:
+            return
+        page.state[plugin_id]["settings"][key] = value
+        page._commit()
+
     def save_extensions_meta(self):
         try:
             save_config(self.cfg)
@@ -2234,7 +2242,7 @@ class MainWindow(QMainWindow):
         # Timers and alarms (extension). Saved commands with the same phrase win.
         runtime = getattr(self, "extensions_runtime", None)
         if runtime is not None and not self._saved_command_matches(text):
-            reply = runtime.handle_timer_request(text)
+            reply = runtime.handle_text_request(text)
             if reply:
                 self.append_message("Jarvis", reply, "#a5b9dc")
                 self.mic_status.setText(reply.split("\n")[0])

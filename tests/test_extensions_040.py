@@ -46,7 +46,7 @@ class CatalogTests(unittest.TestCase):
     def test_normalize_drops_bad_values_and_locks_unfinished_plugins(self):
         state = catalog.normalize_state({
             "breaks": {"enabled": True, "settings": {"interval": 5, "speak": "yes", "water": False}},
-            "notification_reader": {"enabled": True},
+            "live_captions": {"enabled": True},
             "unknown": {"enabled": True},
             "clipboard_history": "broken",
             "screenshots": {"enabled": True, "settings": {"hotkey": "alt+f4"}},
@@ -55,7 +55,7 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(state["breaks"]["settings"]["interval"], 50)  # below minimum -> default
         self.assertTrue(state["breaks"]["settings"]["speak"] is False)
         self.assertFalse(state["breaks"]["settings"]["water"])
-        self.assertFalse(state["notification_reader"]["enabled"])  # not ready yet
+        self.assertFalse(state["live_captions"]["enabled"])  # not ready yet
         self.assertNotIn("unknown", state)
         self.assertFalse(state["clipboard_history"]["enabled"])
         self.assertEqual(state["screenshots"]["settings"]["hotkey"], "ctrl+alt+s")  # system combo rejected
@@ -184,7 +184,7 @@ class PageAndRuntimeTests(unittest.TestCase):
         self.assertEqual(page.counter.text(), "Включено: 1 из 22")
         self.assertEqual(page.topic_buttons["voice"].count.text(), "5")
         self.assertIn("22", page.plugins_tab.text())
-        self.assertFalse(page.cards["notification_reader"].switch.isEnabled())
+        self.assertFalse(page.cards["live_captions"].switch.isEnabled())
         self.assertTrue(page.cards["breaks"].switch.isChecked())
 
     def test_toggle_search_filter_and_language(self):
