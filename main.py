@@ -348,6 +348,8 @@ class MainWindow(QMainWindow):
         self._quitting = False
         self.tray_icon = None
 
+        from luxai.keys import patch_pyautogui
+        patch_pyautogui()  # Ctrl+C / Ctrl+V / letter keys work with any keyboard layout
         root = QWidget()
         self.setCentralWidget(root)
         outer = QHBoxLayout(root)

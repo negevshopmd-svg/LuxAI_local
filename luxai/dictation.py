@@ -230,9 +230,26 @@ def load_model(model_path: str):
         return _own_model["model"]
 
 
+def voiced_seconds(audio: np.ndarray) -> float:
+    """Seconds of 30 ms frames clearly louder than the recording's own floor."""
+    frame = int(SAMPLE_RATE * 0.03)
+    count = len(audio) // frame
+    if count == 0:
+        return 0.0
+    frames = audio[: count * frame].reshape(count, frame).astype(np.float64)
+    rms = np.sqrt(np.mean(frames * frames, axis=1))
+    floor = float(np.percentile(rms, 10))
+    # Speech is ~0.02–0.2 RMS; capping keeps continuous talk (no pauses) voiced.
+    threshold = max(0.004, min(floor * 3.0, 0.02))
+    return float(np.sum(rms >= threshold)) * 0.03
+
+
 def transcribe(model, audio: np.ndarray, language: str | None, beam_size: int = 1) -> str:
     from luxai.voice_rules import recognition_options, is_hallucinated_outro, is_repetitive_transcript
     if len(audio) < SAMPLE_RATE * 0.4:
+        return ""
+    # Silence makes Whisper invent subtitle credits («С вами был …»).
+    if voiced_seconds(audio) < 0.25:
         return ""
     peak = float(np.max(np.abs(audio)))
     if 0.0 < peak < 0.1:

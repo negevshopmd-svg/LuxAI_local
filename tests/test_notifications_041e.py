@@ -55,8 +55,11 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(n.app_name("TelegramDesktop.TelegramDesktop.Store!App"), "Telegram")
         self.assertEqual(n.app_name("com.squirrel.Discord.Discord"), "Discord")
         self.assertTrue(n.is_ignored_app(r"C:\venv\pythonw.exe"))
+        self.assertEqual(n.app_name("OpenAI.Codex_2p2nqsd0c76g0!App"), "Codex")
+        self.assertEqual(n.app_name("{9909CFDC-8EB7-46A7-2EFA-F726394C2F3B}"), "")
+        self.assertTrue(n.is_ignored_app("Microsoft.ScreenSketch_8wekyb3d8bbwe!App"))
         self.assertTrue(n.app_allowed("Telegram", {}))
-        self.assertFalse(n.app_allowed("Chrome", {}))
+        self.assertTrue(n.app_allowed("Chrome", {}))  # every non-system app is read by default
         rules = n.parse_rules("Chrome=1\nTelegram=0")
         self.assertTrue(n.app_allowed("Chrome", rules))
         self.assertFalse(n.app_allowed("Telegram", rules))
@@ -128,7 +131,7 @@ class RuntimeTests(unittest.TestCase):
             engine._poll_notifications()
 
     def test_reads_new_messengers_and_groups(self):
-        engine, db = self.make()
+        engine, db = self.make(app_rules="Chrome=0")
         db.add(1, "Мама", "Купи хлеба")
         self.poll(engine)
         self.assertEqual(engine.host.spoken, ["Telegram: Мама — Купи хлеба"])
@@ -137,7 +140,7 @@ class RuntimeTests(unittest.TestCase):
         db.add(2, "Chrome", "реклама")
         self.poll(engine)
         self.assertEqual(engine.host.spoken[-1], "Telegram: 2 новых сообщения — Мама, Папа")
-        self.assertEqual(len(engine.host.spoken), 2)  # Chrome is off by default
+        self.assertEqual(len(engine.host.spoken), 2)  # Chrome was switched off
         self.assertEqual(engine.seen_notification_apps, {"Telegram", "Chrome"})
 
     def test_silence_keeps_missed_for_what_came_in(self):
@@ -210,9 +213,9 @@ class PageTests(unittest.TestCase):
         chrome_row = switches.itemAt(0).widget()
         from luxai.ui_home import ToggleSwitch
         chrome = chrome_row.findChild(ToggleSwitch)
-        self.assertFalse(chrome.isChecked())
-        chrome.setChecked(True)
-        self.assertEqual(n.parse_rules(view.collect()["app_rules"]), {"Chrome": True})
+        self.assertTrue(chrome.isChecked())  # read by default
+        chrome.setChecked(False)
+        self.assertEqual(n.parse_rules(view.collect()["app_rules"]), {"Chrome": False})
         self.assertTrue(view.dirty)
 
 

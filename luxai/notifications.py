@@ -25,7 +25,9 @@ KNOWN_APPS = {
     "spotify": "Spotify", "vk": "VK", "instagram": "Instagram", "messenger": "Messenger", "mail": "Почта",
 }
 # Our own tray notices and system noise are never read aloud.
-IGNORED_APP_PARTS = ("python", "jarvis", "luxai", "windows.defender", "securityandmaintenance", "windows.systemtoast")
+IGNORED_APP_PARTS = ("python", "jarvis", "luxai", "windows.defender", "securityandmaintenance", "windows.systemtoast",
+                     "microsoft.explorer.notification", "screensketch", "windows.immersivecontrolpanel",
+                     "windows.securitycenter", "windows.shell", "microsoft.windows.")
 
 
 def app_name(primary_id: str) -> str:
@@ -35,6 +37,12 @@ def app_name(primary_id: str) -> str:
     for key, name in KNOWN_APPS.items():
         if key in lowered:
             return name
+    package, _, entry = raw.partition("!")
+    if entry and (entry.casefold() in ("app", "application", "main") or "." in package):
+        # Store-app ids: «OpenAI.Codex_2p2nqsd0c76g0!App» → «Codex».
+        raw = re.sub(r"_[a-z0-9]{10,16}$", "", package)
+    if re.fullmatch(r"\{[0-9A-Fa-f-]{36}\}", raw.strip()):
+        return ""  # an unnamed GUID cannot be spoken meaningfully
     tail = re.split(r"[\\/!]", raw)[-1] or raw
     tail = re.sub(r"\.exe$", "", tail, flags=re.I)
     parts = [part for part in re.split(r"[._]", tail) if part and not re.fullmatch(r"[0-9a-f]{8,}|\d+|com|org|net|app|desktop", part, re.I)]
@@ -156,10 +164,10 @@ def format_rules(rules: dict[str, bool]) -> str:
 
 
 def app_allowed(app: str, rules: dict[str, bool]) -> bool:
-    """Explicit choice wins; unknown apps: messengers and mail are read."""
+    """Explicit choice wins; otherwise every (non-system) app is read."""
     if app in rules:
         return rules[app]
-    return app in DEFAULT_ON
+    return True
 
 
 def group_message(app: str, senders: list[str], count: int, language: str = "ru", say_app=True) -> str:

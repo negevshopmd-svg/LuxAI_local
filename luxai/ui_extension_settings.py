@@ -92,11 +92,11 @@ W = {
                   "Whose notifications to read. The list grows by itself when an app sends a notification.",
                   "Ale cui notificări le citesc. Lista se completează singură când o aplicație trimite o notificare."),
     "apps_empty": L("Пока ни одна программа не присылала уведомлений. Включите плагин — список пополнится сам. "
-                    "По умолчанию читаются мессенджеры и почта.",
+                    "По умолчанию читаются все программы, кроме системных — лишние можно выключить.",
                     "No app has sent a notification yet. Turn the plugin on — the list fills by itself. "
-                    "Messengers and mail are read by default.",
+                    "Every app except system ones is read by default — switch off what you don't need.",
                     "Nicio aplicație n-a trimis încă notificări. Pornește pluginul — lista se completează singură. "
-                    "Implicit se citesc mesageriile și e-mailul."),
+                    "Implicit se citesc toate aplicațiile, în afară de cele de sistem — oprește ce nu-ți trebuie."),
     "apps_refresh": L("Обновить список", "Refresh the list", "Reîmprospătează lista"),
     "example": L("Пример", "Example", "Exemplu"),
     "unsaved": L("Есть несохранённые изменения.", "There are unsaved changes.", "Există modificări nesalvate."),

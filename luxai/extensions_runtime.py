@@ -306,8 +306,9 @@ def _set_foreground(hwnd: int) -> None:
 
 
 def _send_paste() -> None:
-    import pyautogui
-    pyautogui.hotkey("ctrl", "v", interval=0.05)
+    from luxai.keys import press, release_modifiers
+    release_modifiers()
+    press("ctrl", "v", interval=0.05)
 
 
 def screenshots_folder(configured: str) -> Path:
@@ -1467,8 +1468,9 @@ class ExtensionsRuntime(QObject):
             before = clipboard_sequence()
             wait_for_modifiers_released()
             try:
-                import pyautogui
-                pyautogui.hotkey("ctrl", "c", interval=0.05)
+                from luxai.keys import press, release_modifiers
+                release_modifiers()
+                press("ctrl", "c", interval=0.05)
             except Exception:
                 pass
 
@@ -1997,7 +1999,13 @@ class ExtensionsRuntime(QObject):
             self._notify(str(error))
             return
 
-        def finish():
+        from luxai.selection import clipboard_sequence
+
+        def finish(attempt=0):
+            # Browsers may fill the clipboard a little later: wait up to ~1.2 s.
+            if clipboard_sequence() == before and attempt < 10:
+                QTimer.singleShot(100, lambda: finish(attempt + 1))
+                return
             try:
                 selected = finish_selected_copy(clipboard, hwnd, before, saved)
             except Exception as error:
@@ -2012,7 +2020,7 @@ class ExtensionsRuntime(QObject):
                 self.host._queue_speech(selected, reply_language(cfg, selected))
             QTimer.singleShot(max(4000, len(selected) * 70), lambda: setattr(self, "_reading", False))
 
-        QTimer.singleShot(260, finish)
+        QTimer.singleShot(150, finish)
 
     # -- screenshots --
     def take_screenshot(self, window: bool = False) -> Path | None:

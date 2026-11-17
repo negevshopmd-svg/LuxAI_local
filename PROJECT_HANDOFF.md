@@ -7,6 +7,10 @@
 > Updated for the **0.3.9.e work**, 2026-10-30. \`Update.bat\` installs the code merged into \`main\`, NOT an open PR.
 > Do NOT include real API keys, private logs, screen captures, model binaries, user audio, or personal paths in Git history.
 
+## 0. Release 0.4.1f — Real-PC fixes
+
+Never send letter shortcuts through pyautogui directly: with a Russian layout VkKeyScan("c") is -1 and nothing is sent. Use `luxai/keys.py` (`press`, `release_modifiers`); `MainWindow` calls `keys.patch_pyautogui()` so existing `pyautogui.hotkey/press` callers use virtual keys for letters/digits/F-keys. `dictation.transcribe` rejects audio with < 0.25 s voiced (`voiced_seconds`) before Whisper. Notification reader reads every non-system app by default. Tests: `tests/test_keys_layout_041f.py`.
+
 ## 0. Release 0.4.1e — Notification reader
 
 `luxai/notifications.py` (no Qt) reads the Windows notification database (`wpndatabase.db` under LOCALAPPDATA) read-only (always close connections), primes to the newest row, parses toast XML, cleans text (links/codes), groups, checks quiet hours, lock state and mic/camera use by other apps (registry CapabilityAccessManager; python/LuxAI/Luxify ignored), and parses voice requests. `ExtensionsRuntime` polls every 2 s, keeps at most 20 texts in memory only, holds missed ones for «что пришло», and exposes `handle_text_request` (notifications, then timers) used by `MainWindow.run_command`. Tests: `tests/test_notifications_041e.py`.

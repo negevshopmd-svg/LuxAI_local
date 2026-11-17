@@ -36,6 +36,10 @@ OUTRO_HALLUCINATIONS = frozenset({
     "подписывайтесь на канал", "субтитры сделал", "продолжение следует",
     "thanks for watching", "thank you for watching",
     "mulțumesc pentru vizionare", "multumesc pentru vizionare",
+    # Subtitle credits Whisper invents from silence (seen on a real PC).
+    "с вами был игорь негода", "редактор субтитров а синецкая корректор а егорова",
+    "субтитры создавал dimatorzok", "субтитры подогнал", "корректор а кулакова",
+    "subtitles by the amara org community", "amara org",
 })
 STOP_SPEECH_PHRASES = frozenset({
     "стоп", "замолчи", "замолкни", "хватит", "тихо", "остановись",

@@ -120,8 +120,9 @@ def copy_selected_text(clipboard, hwnd: int, *, keyboard=None,
         )
     before = clipboard_sequence()
     if keyboard is None:
-        import pyautogui
-        keyboard = pyautogui.hotkey
+        # Layout independent: with a Russian layout pyautogui never sends "c".
+        from luxai.keys import press as keyboard, release_modifiers
+        release_modifiers()
     keyboard("ctrl", "c", interval=0.06)
     return "pending", before, preserved
 

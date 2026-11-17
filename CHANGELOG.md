@@ -1,3 +1,10 @@
+## 0.4.1f — Fixes from a real-PC check (2026-11-17)
+
+- Read aloud, clipboard history, quick inserts and the converter failed with a Russian keyboard layout («Не удалось скопировать выделенный текст»): pyautogui maps letters through the current layout, so Ctrl+C / Ctrl+V were never sent. Shortcuts now use layout-independent virtual-key codes everywhere, including saved commands like «нажми Ctrl+S»; held Alt/Shift are released first and slow apps get up to 1.2 s to fill the clipboard.
+- Notification reader: every non-system app is read by default (previously only messengers, so Codex/Claude/PowerShell toasts were silently skipped); Store apps get real names («Codex» instead of «App»); Explorer, Snipping Tool and other system toasts are ignored; apps known only by a GUID are read without a name.
+- Smart dictation: silence no longer reaches Whisper (it invented «С вами был Игорь Негода.» and typed it); subtitle-credit hallucinations are filtered.
+- Checked live on Windows with a Russian layout: read aloud by a real key press, clipboard history paste, quick insert, dictation typing with a new line, screenshots, converter on an Explorer selection, right-Ctrl double tap and real Windows notifications.
+
 ## 0.4.1e — Notification reader (2026-11-16)
 
 - **Озвучка уведомлений** now works: new Windows notifications are read aloud ("Telegram: Мама — Купи хлеба"). Jarvis reads the current user's notification database read-only, starts from "now" (old notifications are never read) and keeps only the last 20 texts in memory — nothing is written to disk, logged or sent to AI.

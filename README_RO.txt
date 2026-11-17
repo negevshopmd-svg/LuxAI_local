@@ -1,4 +1,11 @@
-LUXAI LOCAL 0.4.1e — ACTUALIZARE 2026-11-16
+LUXAI LOCAL 0.4.1f — ACTUALIZARE 2026-11-17
+
+0.4.1f: reparații după o verificare reală. Citirea textului selectat, istoricul
+clipboard-ului, inserțiile rapide și convertorul merg acum și cu tastatura în
+rusă. Notificările se citesc implicit din toate aplicațiile (nu doar mesagerii).
+Dictarea nu mai scrie fraze inventate când nu vorbești.
+Telegram Desktop: activează în Setări → Notificări „Folosește notificările Windows”,
+altfel Telegram nu trimite notificări pe care Jarvis să le poată citi.
 
 0.4.1e: Citirea notificărilor. Activează „Озвучка уведомлений” în Extensii:
 Jarvis citește cu voce notificările noi (implicit mesageriile și e-mailul).

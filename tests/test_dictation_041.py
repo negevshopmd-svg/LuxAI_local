@@ -59,6 +59,14 @@ class PunctuationTests(unittest.TestCase):
         self.assertEqual(typed, ["Строка один", "два"])
         self.assertEqual(keys, ["enter"])
 
+    def test_silence_never_reaches_whisper(self):
+        model = mock.Mock()
+        silence = np.random.default_rng(1).normal(0, 0.0005, 32000).astype(np.float32)
+        self.assertEqual(dictation.transcribe(model, silence, "ru"), "")
+        model.transcribe.assert_not_called()
+        from luxai.voice_rules import is_hallucinated_outro
+        self.assertTrue(is_hallucinated_outro("С вами был Игорь Негода."))
+
     def test_resample(self):
         audio = np.ones(48000, dtype=np.float32)
         self.assertEqual(len(dictation.resample(audio, 48000)), 16000)
@@ -77,7 +85,9 @@ class _Recorder:
         return 0.0
 
     def stop(self):
-        return np.zeros(16000, dtype=np.float32)
+        # A spoken-like tone: silence alone is rejected before Whisper.
+        tone = 0.2 * np.sin(np.linspace(0, 2 * np.pi * 220, 16000)).astype(np.float32)
+        return np.concatenate([np.zeros(4000, dtype=np.float32), tone])
 
 
 class _Model:
