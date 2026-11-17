@@ -103,7 +103,8 @@ def _http_error_code(status: int) -> str:
     return "response"
 
 
-def _read_pcm(response, deadline: float, is_cancelled: Callable[[], bool] | None) -> bytes:
+def _read_pcm(response, deadline: float, is_cancelled: Callable[[], bool] | None,
+              on_chunk: Callable[[bytes], None] | None = None) -> bytes:
     if response.status != 200:
         raise FishTTSError(_http_error_code(response.status))
     content_type = str(response.headers.get("Content-Type", "")).split(";", 1)[0].strip().lower()
@@ -132,9 +133,15 @@ def _read_pcm(response, deadline: float, is_cancelled: Callable[[], bool] | None
             raise FishTTSError("timeout")
         if not chunk:
             break
+        start = len(audio) - len(audio) % 2
         audio.extend(chunk)
         if len(audio) > MAX_AUDIO_BYTES:
             raise FishTTSError("response")
+        if on_chunk is not None:
+            # Hand over whole 16-bit samples as soon as they arrive (streaming).
+            end = len(audio) - len(audio) % 2
+            if end > start:
+                on_chunk(bytes(audio[start:end]))
     _check_cancelled(is_cancelled)
     if (not audio or len(audio) % 2
             or (advertised is not None and len(audio) != advertised)):
@@ -144,7 +151,8 @@ def _read_pcm(response, deadline: float, is_cancelled: Callable[[], bool] | None
 
 def synthesize(text: str, key: str, voice_id: str = DEFAULT_FISH_VOICE, *,
                speed: float = 1.0, language: str | None = None,
-               is_cancelled: Callable[[], bool] | None = None) -> bytes:
+               is_cancelled: Callable[[], bool] | None = None,
+               on_chunk: Callable[[bytes], None] | None = None) -> bytes:
     """Generate bounded WAV audio with the free model, without retries.
 
     ``is_cancelled`` is checked before networking and between response reads.
@@ -197,7 +205,7 @@ def synthesize(text: str, key: str, voice_id: str = DEFAULT_FISH_VOICE, *,
         _check_cancelled(is_cancelled)
         opener = urllib.request.build_opener(_NoRedirect())
         with opener.open(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
-            audio = _read_pcm(response, deadline, is_cancelled)
+            audio = _read_pcm(response, deadline, is_cancelled, on_chunk)
     except FishTTSError:
         raise
     except urllib.error.HTTPError as error:
@@ -221,3 +229,23 @@ def synthesize(text: str, key: str, voice_id: str = DEFAULT_FISH_VOICE, *,
             wav_file.setframerate(SAMPLE_RATE)
             wav_file.writeframes(audio)
         return output.getvalue()
+
+
+def warm_up_connection(timeout: float = 5.0) -> bool:
+    """Resolve DNS and complete one TLS handshake with the Fish host.
+
+    No HTTP request, no key and no text are sent, so no quota is used; the
+    OS DNS cache, Python's ssl module and certificate store are ready for the
+    first real reply.
+    """
+    import socket
+    import ssl
+    from urllib.parse import urlsplit
+    host = urlsplit(TTS_ENDPOINT).hostname
+    try:
+        context = ssl.create_default_context()
+        with socket.create_connection((host, 443), timeout=timeout) as raw:
+            with context.wrap_socket(raw, server_hostname=host):
+                return True
+    except (OSError, ssl.SSLError):
+        return False

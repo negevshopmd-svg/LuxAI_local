@@ -1,3 +1,9 @@
+## 0.4.1g — Instant checks and instant Fish voice (2026-11-17)
+
+- On start Jarvis checks cloud AI and sends one tiny request to the selected local GGUF model in the background, so «Дополнения» shows both as working (green) without waiting for the first question. Nothing is loaded when local AI is off, has no model or was already confirmed.
+- Fish Audio replies start playing while the audio is still downloading (first sound ≈1 s instead of waiting for the whole reply; measured 4.1 s → 1.0 s for one sentence). Stop still interrupts immediately.
+- Startup warms Fish without sending text or using provider quota: audio modules, the output device at 24 kHz and one TLS handshake with api.fish.audio.
+
 ## 0.4.1f — Fixes from a real-PC check (2026-11-17)
 
 - Read aloud, clipboard history, quick inserts and the converter failed with a Russian keyboard layout («Не удалось скопировать выделенный текст»): pyautogui maps letters through the current layout, so Ctrl+C / Ctrl+V were never sent. Shortcuts now use layout-independent virtual-key codes everywhere, including saved commands like «нажми Ctrl+S»; held Alt/Shift are released first and slow apps get up to 1.2 s to fill the clipboard.

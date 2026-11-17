@@ -45,13 +45,19 @@ def _was_cancelled(token: int) -> bool:
         return token != _cancel_generation
 
 
+_active_stream = None  # streaming Fish playback, aborted by stop_speaking
+
+
 def stop_speaking() -> None:
     """Stop audio and invalidate pending synthesis before it can start playback."""
     global _cancel_generation
     with _cancel_lock:
         _cancel_generation += 1
         process = _sapi_process
+        stream = _active_stream
         barge_in_ready.clear()
+    if stream is not None:
+        stream.abort()
     if process is not None and process.poll() is None:
         try:
             process.terminate()
@@ -257,9 +263,12 @@ class VoiceManager:
         snapshot = dict(settings)
         if not snapshot.get("tts_enabled", True):
             return False
-        if str(snapshot.get("voice_engine", "piper") or "piper").lower() in ("windows", "fish"):
-            # Fish is requested only for actual speech/explicit preview. Startup
-            # must not send text or consume even free provider capacity.
+        engine = str(snapshot.get("voice_engine", "piper") or "piper").lower()
+        if engine == "fish":
+            # Startup never sends text or uses provider capacity; it only
+            # warms the audio device, modules and the TLS connection.
+            return self._prepare_fish()
+        if engine == "windows":
             return False
         from luxai.response_language import reply_language
         language = reply_language(snapshot)
@@ -352,6 +361,25 @@ class VoiceManager:
                 barge_in_ready.clear()
         return False
 
+    def _prepare_fish(self) -> bool:
+        """Warm everything the first Fish reply needs, without sending text.
+
+        Imports the decoder/audio modules, opens and closes the output device
+        at Fish's sample rate and performs one TLS handshake. No request,
+        key or text leaves the computer, so no provider quota is used.
+        """
+        from luxai import fish_tts
+        try:
+            import soundfile  # noqa: F401
+            import sounddevice as sd
+            stream_class = getattr(sd, "RawOutputStream", None)
+            if stream_class is not None:
+                with stream_class(samplerate=fish_tts.SAMPLE_RATE, channels=1, dtype="int16"):
+                    pass
+        except Exception as exc:
+            self._log(f"Fish audio warm-up skipped ({type(exc).__name__}).")
+        return fish_tts.warm_up_connection()
+
     def _fish_speak(self, text: str, language: str, cancel_token: int) -> bool:
         """Use the explicitly selected free cloud voice, preserving stop behavior."""
         from luxai import fish_tts
@@ -366,14 +394,24 @@ class VoiceManager:
                 return False
             speed = max(0.7, min(1.4, float(self.config.get("voice_speed", 1.0))))
             volume = max(0.0, min(1.0, float(self.config.get("voice_volume", 80)) / 100))
-            wav_data = fish_tts.synthesize(
-                text, key,
-                voice_id=self.config.get("fish_voice_id") or fish_tts.DEFAULT_FISH_VOICE,
-                speed=speed, language=language,
-                is_cancelled=lambda: _was_cancelled(cancel_token),
-            )
+            player = _PCMStreamPlayer(fish_tts.SAMPLE_RATE, volume, cancel_token, self._log)
+            try:
+                wav_data = fish_tts.synthesize(
+                    text, key,
+                    voice_id=self.config.get("fish_voice_id") or fish_tts.DEFAULT_FISH_VOICE,
+                    speed=speed, language=language,
+                    is_cancelled=lambda: _was_cancelled(cancel_token),
+                    on_chunk=player.feed,
+                )
+            except BaseException:
+                player.abort()
+                raise
             if _was_cancelled(cancel_token):
+                player.abort()
                 return False
+            if player.received:
+                # Audio has been playing while it downloaded; let it finish.
+                return player.finish()
             # The adapter validates mono PCM16 WAV metadata and bounds the
             # response before decoding, so a network reply cannot request an
             # unbounded sample allocation. No speech audio is persisted.
@@ -469,6 +507,127 @@ class VoiceManager:
             "the matching .onnx.json, sound output and voice_error.log."
         )
         return False
+
+
+class _PCMStreamPlayer:
+    """Play 16-bit mono PCM while it is still downloading.
+
+    Network reads only enqueue chunks; a separate thread writes them to the
+    audio device after a short pre-buffer, so slow playback never stalls the
+    download and the first words sound as soon as they arrive.
+    """
+    PREBUFFER_SECONDS = 0.25
+
+    def __init__(self, sample_rate, volume, cancel_token, log):
+        import queue as _queue
+        self.sample_rate = int(sample_rate)
+        self.volume = float(volume)
+        self.cancel_token = cancel_token
+        self.log = log
+        self.received = 0
+        self._queue = _queue.Queue()
+        self._pending = bytearray()
+        self._thread = None
+        self._stream = None
+        self._aborted = threading.Event()
+        self._error = None
+
+    def feed(self, chunk: bytes):
+        if self._aborted.is_set() or _was_cancelled(self.cancel_token):
+            return
+        self.received += len(chunk)
+        if self._thread is None:
+            self._pending.extend(chunk)
+            if len(self._pending) >= int(self.sample_rate * 2 * self.PREBUFFER_SECONDS):
+                self._start()
+        else:
+            self._queue.put(chunk)
+
+    def _start(self):
+        global _active_stream
+        import sounddevice as sd
+        self._stream = sd.RawOutputStream(samplerate=self.sample_rate, channels=1, dtype="int16")
+        with _cancel_lock:
+            if self.cancel_token != _cancel_generation:
+                self._stream.close()
+                self._stream = None
+                self._aborted.set()
+                return
+            _active_stream = self
+            self._stream.start()
+            barge_in_ready.set()
+        self._queue.put(bytes(self._pending))
+        self._pending = bytearray()
+        self._thread = threading.Thread(target=self._play, daemon=True, name="JarvisFishStream")
+        self._thread.start()
+
+    def _scaled(self, chunk: bytes) -> bytes:
+        if self.volume >= 0.999:
+            return chunk
+        import numpy as _np
+        samples = _np.frombuffer(chunk, dtype=_np.int16).astype(_np.float32) * self.volume
+        return samples.astype(_np.int16).tobytes()
+
+    def _play(self):
+        try:
+            while not self._aborted.is_set():
+                chunk = self._queue.get()
+                if chunk is None:
+                    break
+                if chunk:
+                    self._stream.write(self._scaled(chunk))
+        except Exception as exc:
+            if not self._aborted.is_set():
+                self._error = exc
+
+    def finish(self) -> bool:
+        """Play what is left, wait for the device to drain, then close."""
+        global _active_stream
+        try:
+            if self._aborted.is_set() or _was_cancelled(self.cancel_token):
+                return False
+            if self._thread is None and self._pending:
+                self._start()
+                if self._thread is None:
+                    return False
+            self._queue.put(None)
+            self._thread.join()
+            if self._error is not None:
+                self.log(f"Fish Audio playback failed ({type(self._error).__name__}).")
+                return False
+            return not self._aborted.is_set() and not _was_cancelled(self.cancel_token)
+        finally:
+            self._close()
+
+    def abort(self):
+        """Stop at once (Stop word / cancelled reply) and release the device."""
+        self._aborted.set()
+        self._queue.put(None)
+        stream = self._stream
+        if stream is not None:
+            try:
+                stream.abort()
+            except Exception:
+                pass
+        thread = self._thread
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(1.0)
+        self._close()
+
+    def _close(self):
+        global _active_stream
+        with _cancel_lock:
+            if _active_stream is self:
+                _active_stream = None
+        barge_in_ready.clear()
+        stream, self._stream = self._stream, None
+        if stream is not None:
+            try:
+                if not self._aborted.is_set():
+                    stream.stop()
+                stream.close()
+            except Exception:
+                pass
 
 
 _manager = VoiceManager()

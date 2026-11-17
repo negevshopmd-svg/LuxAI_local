@@ -1,4 +1,9 @@
-LUXAI LOCAL 0.4.1f — ACTUALIZARE 2026-11-17
+LUXAI LOCAL 0.4.1g — ACTUALIZARE 2026-11-17
+
+0.4.1g: la pornire Jarvis verifică singur AI-ul din cloud și pe cel local;
+în „Дополнения” ambele apar cu verde când funcționează. Vocea Fish Audio
+începe să vorbească imediat (în flux), fără să aștepte tot răspunsul, și este
+pregătită de la pornire fără să trimită text.
 
 0.4.1f: reparații după o verificare reală. Citirea textului selectat, istoricul
 clipboard-ului, inserțiile rapide și convertorul merg acum și cu tastatura în

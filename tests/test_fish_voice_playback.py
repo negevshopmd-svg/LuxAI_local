@@ -64,11 +64,72 @@ class FishVoicePlaybackTests(unittest.TestCase):
         self.windows.assert_not_called()
 
     def test_startup_does_not_request_cloud_speech_or_prepare_a_local_voice(self):
-        self.assertFalse(self.manager.prepare(self.settings))
+        # Startup only warms the device and the TLS connection: no text, no key.
+        warm = self.patch(mock.patch.object(fish_tts, "warm_up_connection", return_value=True))
+        self.assertTrue(self.manager.prepare(self.settings))
+        warm.assert_called_once_with()
         self.synthesize.assert_not_called()
         self.key.assert_not_called()
         self.audio.play.assert_not_called()
         self.assert_no_fallback()
+
+    def test_streaming_playback_starts_before_download_finishes(self):
+        written, events = [], []
+
+        class Stream:
+            def __init__(self, **kwargs):
+                events.append(("open", kwargs["samplerate"], kwargs["dtype"]))
+            def start(self): events.append("start")
+            def write(self, data): written.append(data)
+            def stop(self): events.append("stop")
+            def close(self): events.append("close")
+            def abort(self): events.append("abort")
+
+        self.audio.RawOutputStream = Stream
+        pcm = (np.full(24000, 1000, dtype=np.int16)).tobytes()  # 1 s of audio
+
+        def synthesize(*_args, **kwargs):
+            for start in range(0, len(pcm), 4800):
+                kwargs["on_chunk"](pcm[start:start + 4800])
+                if start == 19200:  # after the 0.25 s pre-buffer, playback already started
+                    self.assertIn("start", events)
+                    self.assertTrue(voices.barge_in_ready.is_set())
+            return self.wav
+
+        self.synthesize.side_effect = synthesize
+        self.assertTrue(self.speak())
+        self.assertEqual(events[0], ("open", 24000, "int16"))
+        self.assertEqual(sum(len(chunk) for chunk in written), len(pcm))
+        self.assertEqual(np.frombuffer(written[0], dtype=np.int16)[0], 400)  # volume 40 %
+        self.assertEqual(events[-2:], ["stop", "close"])
+        self.audio.play.assert_not_called()  # the old whole-file path was not needed
+        self.assertFalse(voices.barge_in_ready.is_set())
+
+    def test_stop_aborts_streaming_playback(self):
+        events = []
+
+        class Stream:
+            def __init__(self, **kwargs): pass
+            def start(self): events.append("start")
+            def write(self, data): pass
+            def stop(self): events.append("stop")
+            def close(self): events.append("close")
+            def abort(self): events.append("abort")
+
+        self.audio.RawOutputStream = Stream
+        chunk = np.zeros(24000, dtype=np.int16).tobytes()
+
+        def synthesize(*_args, **kwargs):
+            kwargs["on_chunk"](chunk)
+            voices.stop_speaking()
+            if kwargs["is_cancelled"]():
+                raise fish_tts.FishTTSError("cancelled")
+            return self.wav
+
+        self.synthesize.side_effect = synthesize
+        self.assertFalse(self.speak())
+        self.assertIn("abort", events)
+        self.assertIsNone(voices._active_stream)
 
     def test_configured_voice_speed_language_volume_and_playback_flags(self):
         def synthesize(*_args, **kwargs):

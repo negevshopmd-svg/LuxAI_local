@@ -227,6 +227,7 @@ class AudioDiagnosticsWorker(QThread):
 
 class MainWindow(QMainWindow):
     command_hotkey = Signal(str)
+    local_ai_checked = Signal()
     command_editor_plan_ready = Signal(object, object, str)
     attachment_reply_ready = Signal(int, object, str)
     online_plan_ready = Signal(str, object, int)
@@ -418,6 +419,10 @@ class MainWindow(QMainWindow):
         self.apply_appearance()
         self.apply_ui_language()
         self.show_page(0)
+        self.local_ai_checked.connect(self._refresh_local_ai_status)
+        # Check cloud and local AI right after start, so «Дополнения» is green
+        # without waiting for the first question.
+        QTimer.singleShot(3000, self._startup_ai_checks)
         self.mic_status.setText(self._provider_status_text())
         self._on_audio_state("stopped", {})
         # Remember the last other foreground window while Jarvis is out of
@@ -794,6 +799,41 @@ class MainWindow(QMainWindow):
         self._render_local_ai_status()
         layout.addStretch()
         self.pages.addWidget(page)
+
+    def _startup_ai_checks(self):
+        if self._closed:
+            return
+        if not self._cloud_first_check_done:
+            self._cloud_first_check_done = True
+            self._start_cloud_check()
+        config = dict(self.cfg)
+
+        def local_check():
+            """One tiny real reply from the selected GGUF model (isolated process)."""
+            try:
+                from luxai.local_ai_status import inspect_local_ai
+                from luxai.local_models import resolve_model_path
+                if inspect_local_ai(config).state != "available":
+                    return  # disabled, missing, already confirmed or busy
+                model = resolve_model_path(config.get("llm_model_path", ""))
+                if model is None:
+                    return
+                from luxai.gguf_backend import IsolatedGGUF
+                worker = IsolatedGGUF(str(model))
+                self.local_ai_checked.emit()  # show «working» while it loads
+                worker.create_chat_completion(
+                    messages=[{"role": "user", "content": "Ответь одним словом: да"}],
+                    max_tokens=4, temperature=0.0)
+            except Exception:
+                pass  # the status shows the failure; Jarvis keeps running
+            finally:
+                if not self._closed:
+                    try:
+                        self.local_ai_checked.emit()
+                    except RuntimeError:
+                        pass
+
+        threading.Thread(target=local_check, daemon=True, name="JarvisLocalAIStartupCheck").start()
 
     def _refresh_local_ai_status(self):
         monitor = getattr(self, "_local_ai_monitor", None)
