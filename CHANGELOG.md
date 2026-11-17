@@ -1,3 +1,8 @@
+## 0.4.1j — Command editor inside the window (2026-11-17)
+
+- «Новая команда» and «Изменить команду» open inside the Commands page instead of a separate window, like in Luxify: the window header shows «‹ Jarvis | Команды | Новая команда», its back arrow cancels, Save returns to the list and the navigation rail stays visible.
+- Recording actions still minimizes Jarvis while you work and now restores a maximized window as maximized.
+
 ## 0.4.1i — Folders in AI chat, PDF fix, all tests green (2026-11-17)
 
 - **Folders can be attached to the AI chat**: «+» → «Папку…», drag & drop or paste a folder. Jarvis sends its structure plus the text of its text/code files (same 24 000-character budget); `.git`, `node_modules`, virtual environments and links/junctions are skipped, secret-looking files (`.env`, `.pem`, `.key`, `id_rsa`…) are listed but never read, and PDF/DOCX/images inside are listed by name. A folder snapshot is read-only.

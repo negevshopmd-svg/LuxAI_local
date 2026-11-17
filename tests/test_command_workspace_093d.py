@@ -136,9 +136,9 @@ class CommandWorkspace093dTests(unittest.TestCase):
         self.select_group('Agent folder')
         data = {'title': 'Reviewed AI steps', 'action': 'time', 'phrases': ['reviewed agent command']}
         with mock.patch('luxai.ui_commands.CommandEditor') as editor:
-            editor.return_value.exec.return_value = QDialog.DialogCode.Accepted
             editor.return_value.get_data.return_value = data
             self.page.create_button.click()
+            editor.return_value.finished.connect.call_args.args[0](QDialog.DialogCode.Accepted)
         fresh = CommandRegistry(self.registry.path)
         saved = next(item for item in fresh.custom if item['title'] == data['title'])
         self.assertTrue(saved['agent'])

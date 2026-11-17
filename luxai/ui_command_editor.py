@@ -200,6 +200,8 @@ class CommandEditor(QDialog):
         close.clicked.connect(self.reject)
         header.addWidget(close)
         root.addLayout(header)
+        self._header_widgets = (back, breadcrumb, close)
+        self._embedded = False
         # The breadcrumb already displays the editor title; keep form near top.
 
         body = QHBoxLayout()
@@ -793,6 +795,8 @@ QLabel#ActionNumber {{ color: {p['muted']}; font-size: 12px; }}
         parent = self.parentWidget()
         top = parent.window() if parent is not None else None
         self._record_restore_parent = top if top is not self and top is not None and top.isVisible() else None
+        self._record_restore_maximized = bool(self._record_restore_parent is not None
+                                              and self._record_restore_parent.isMaximized())
         if self._record_restore_parent is not None:
             self._record_restore_parent.showMinimized()
         self.showMinimized()
@@ -816,7 +820,10 @@ QLabel#ActionNumber {{ color: {p['muted']}; font-size: 12px; }}
             overlay.deleteLater()
         parent, self._record_restore_parent = self._record_restore_parent, None
         if parent is not None:
-            parent.showNormal()
+            if getattr(self, "_record_restore_maximized", False):
+                parent.showMaximized()
+            else:
+                parent.showNormal()
         if self._record_was_visible:
             self.showNormal()
             self.raise_()
@@ -973,8 +980,23 @@ QLabel#ActionNumber {{ color: {p['muted']}; font-size: 12px; }}
         self._finish_recording(append=False)
         super().done(result)
 
+    def set_embedded(self, embedded: bool = True):
+        """Show inside the Commands page instead of a separate window.
+
+        The main window header then shows «‹ Jarvis | Команды | …» and its
+        back arrow; Save/Cancel keep using accept()/reject() and finished().
+        """
+        self._embedded = bool(embedded)
+        if self._embedded:
+            self.setWindowFlags(Qt.WindowType.Widget)
+            self.setMinimumSize(0, 0)
+            for widget in self._header_widgets:
+                widget.hide()
+            self.layout().setContentsMargins(0, 0, 0, 0)
+
     def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton and event.position().y() < 100:
+        if (not getattr(self, "_embedded", False) and event.button() == Qt.MouseButton.LeftButton
+                and event.position().y() < 100):
             handle = self.windowHandle()
             if handle is None or not handle.startSystemMove():
                 self._drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()

@@ -7,6 +7,10 @@
 > Updated for the **0.3.9.e work**, 2026-10-30. \`Update.bat\` installs the code merged into \`main\`, NOT an open PR.
 > Do NOT include real API keys, private logs, screen captures, model binaries, user audio, or personal paths in Git history.
 
+## 0. Release 0.4.1j — Embedded command editor
+
+`CommandsPage` holds a `views` stack (library / editor). `_open_editor` embeds the existing `CommandEditor` (`set_embedded`: Qt.Widget flags, own header hidden, no window dragging) and saves on `finished(Accepted)`; `editor_title_changed` drives `MainWindow._update_commands_header`, and the header back arrow (`_header_back`) calls `editor_back()` (reject). Tests: `tests/test_embedded_editor_041j.py`.
+
 ## 0. Release 0.4.1i — Folder attachments and pypdf 7
 
 `chat_attachments.load_folder` builds a read-only "folder" attachment (tree + text files, shared budget, depth ≤ 6, ≤ 400 entries, ≤ 8 MiB read; skips links/junctions, heavy tool folders and secret-looking names). `load_attachment(s)` route directories there. The PDF worker uses `pypdf.overwrite_configuration` when available (pypdf ≥ 7 raises DeprecationError for the old filter constants). Tests: `tests/test_folder_attachments_041i.py`.

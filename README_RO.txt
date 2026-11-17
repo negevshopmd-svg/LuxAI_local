@@ -1,4 +1,7 @@
-LUXAI LOCAL 0.4.1i — ACTUALIZARE 2026-11-17
+LUXAI LOCAL 0.4.1j — ACTUALIZARE 2026-11-17
+
+0.4.1j: editorul de comenzi („Новая команда”) se deschide în fereastra Jarvis,
+nu separat; săgeata din antet te duce înapoi la listă.
 
 0.4.1i: În chatul cu AI poți atașa și dosare („+” → „Папку…”, trage-l sau
 lipește-l): Jarvis trimite structura și textul fișierelor text/cod, fără

@@ -66,6 +66,7 @@ class CommandsPage(QWidget):
     voice_create_requested = Signal()
     changed = Signal()
     chat_requested = Signal()
+    editor_title_changed = Signal(str)  # «Новая команда» / «Изменить команду» while editing, else ""
 
     def __init__(self, registry: CommandRegistry, parent=None):
         super().__init__(parent)
@@ -107,7 +108,17 @@ class CommandsPage(QWidget):
         """)
         self._library_base_style = self.styleSheet()
 
-        root = QHBoxLayout(self)
+        page_layout = QVBoxLayout(self)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        from PySide6.QtWidgets import QStackedWidget
+        self.views = QStackedWidget()
+        self.views.setObjectName("CommandsViews")
+        page_layout.addWidget(self.views)
+        self.library_view = QWidget()
+        self.library_view.setObjectName("CommandsLibraryView")
+        self.views.addWidget(self.library_view)
+        self.editor = None
+        root = QHBoxLayout(self.library_view)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(16)
 
@@ -959,35 +970,79 @@ class CommandsPage(QWidget):
         dialog.ai_requested.connect(self.ai_requested.emit)
         return dialog
 
-    def new_command(self):
-        dialog = self._configure_editor(CommandEditor(parent=self))
-        if dialog.exec() == QDialog.DialogCode.Accepted:
+    def _open_editor(self, editor, on_accept):
+        """Show the editor inside this page (no separate window)."""
+        self.close_editor()
+        self.editor = editor
+        editor.finished.connect(lambda result, e=editor: self._editor_finished(e, result, on_accept))
+        if isinstance(editor, QWidget):
+            if hasattr(editor, "set_embedded"):
+                editor.set_embedded(True)
+            self.views.addWidget(editor)
+            self.views.setCurrentWidget(editor)
+            editor.show()
+            if hasattr(editor, "title_field"):
+                editor.title_field.setFocus()
+        title = editor.windowTitle() if isinstance(editor, QWidget) else tr("Новая команда")
+        self.editor_title_changed.emit(tr(title, self.interface_language))
+        return editor
+
+    def _editor_finished(self, editor, result, on_accept):
+        if editor is not self.editor:
+            return
+        if result == QDialog.DialogCode.Accepted:
             try:
-                data = dialog.get_data()
-                data["agent"] = self._agent_mode
-                data["learned"] = False
-                selected = self.tree.currentItem()
-                group = selected.data(0, GROUP_ROLE) if selected is not None else None
-                data["category"] = (group["name"] if group and group.get("kind")
-                                    else "Команды агента" if self._agent_mode else "Мои команды")
-                self.registry.save_custom(data)
-                self.refresh()
-                self.changed.emit()
+                on_accept(editor)
             except (OSError, ValueError) as exc:
                 self._show_error(exc)
+        self.close_editor()
+
+    def close_editor(self):
+        editor, self.editor = self.editor, None
+        if editor is None:
+            return
+        self.views.setCurrentWidget(self.library_view)
+        if isinstance(editor, QWidget):
+            self.views.removeWidget(editor)
+            editor.deleteLater()
+        self.editor_title_changed.emit("")
+
+    def editor_back(self):
+        """Header back arrow: same as the editor's Cancel."""
+        if self.editor is not None:
+            self.editor.reject()
+
+    def editor_title(self) -> str:
+        if self.editor is None:
+            return ""
+        return tr(self.editor.windowTitle(), self.interface_language) if isinstance(self.editor, QWidget) else ""
+
+    def new_command(self):
+        def save(dialog):
+            data = dialog.get_data()
+            data["agent"] = self._agent_mode
+            data["learned"] = False
+            selected = self.tree.currentItem()
+            group = selected.data(0, GROUP_ROLE) if selected is not None else None
+            data["category"] = (group["name"] if group and group.get("kind")
+                                else "Команды агента" if self._agent_mode else "Мои команды")
+            self.registry.save_custom(data)
+            self.refresh()
+            self.changed.emit()
+
+        return self._open_editor(self._configure_editor(CommandEditor(parent=self)), save)
 
     def edit_selected(self):
         entry = self._selected()
         if not entry:
-            return
-        dialog = self._configure_editor(CommandEditor(entry, parent=self))
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            try:
-                self.registry.save_command(dialog.get_data())
-                self.refresh()
-                self.changed.emit()
-            except (OSError, ValueError) as exc:
-                self._show_error(exc)
+            return None
+
+        def save(dialog):
+            self.registry.save_command(dialog.get_data())
+            self.refresh()
+            self.changed.emit()
+
+        return self._open_editor(self._configure_editor(CommandEditor(entry, parent=self)), save)
 
     def toggle_selected(self):
         entry = self._selected()

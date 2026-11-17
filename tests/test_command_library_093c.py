@@ -58,9 +58,10 @@ class CommandLibrary093cTests(unittest.TestCase):
         self.select(original["id"])
         edited = dict(original, title="My default", phrases=["my exact phrase"])
         with mock.patch("luxai.ui_commands.CommandEditor") as editor:
-            editor.return_value.exec.return_value = QDialog.DialogCode.Accepted
             editor.return_value.get_data.return_value = edited
             self.page.open_selected()
+            # The editor is shown inside the page; Save emits finished(Accepted).
+            editor.return_value.finished.connect.call_args.args[0](QDialog.DialogCode.Accepted)
         self.assertEqual(editor.call_args.args[0]["id"], original["id"])
         fresh = CommandRegistry(self.registry.path)
         saved = next(record for record in fresh.entries() if record["id"] == original["id"])

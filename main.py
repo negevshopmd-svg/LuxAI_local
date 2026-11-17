@@ -697,7 +697,8 @@ class MainWindow(QMainWindow):
         self.extensions_page = ExtensionsPage(state, self.extensions_runtime)
         self.extensions_page.state_changed.connect(self._save_extensions)
         self.extensions_page.title_changed.connect(lambda _title: self._update_extensions_header())
-        self.window_header.back_requested.connect(self.extensions_page.go_back)
+        self.window_header.back_requested.connect(self._header_back)
+        self.commands_page.editor_title_changed.connect(lambda _title: self._update_commands_header())
         self.pages.addWidget(self.extensions_page)
         self.extensions_runtime.apply(state)
         QTimer.singleShot(800, self._refresh_extension_errors)
@@ -729,6 +730,22 @@ class MainWindow(QMainWindow):
         worker = getattr(self, "worker", None)
         listener = getattr(worker, "listener", None) if worker is not None and worker.isRunning() else None
         return getattr(listener, "model", None)
+
+    def _header_back(self):
+        current = self.pages.currentWidget()
+        if current is self.commands_page:
+            self.commands_page.editor_back()
+        elif current is getattr(self, "extensions_page", None):
+            self.extensions_page.go_back()
+
+    def _update_commands_header(self):
+        """«‹ Jarvis | Команды | Новая команда» while a command is being edited."""
+        if not hasattr(self, "commands_page") or self.pages.currentWidget() is not self.commands_page:
+            return
+        title = self.commands_page.editor_title()
+        self.header_title.setText("Jarvis   |   " + tr("Команды") + (f"   |   {title}" if title else ""))
+        if hasattr(self.window_header, "set_back_visible"):
+            self.window_header.set_back_visible(bool(title))
 
     def _update_extensions_header(self):
         """«‹ Jarvis | Расширения | Plugin» while a plugin's settings are open."""
@@ -1114,6 +1131,8 @@ class MainWindow(QMainWindow):
         self.header_title.setText("Jarvis   |   " + tr(titles[index]))
         if index == 5:
             self._update_extensions_header()
+        elif index == 1 and hasattr(self, "_update_commands_header"):
+            self._update_commands_header()
         elif hasattr(self.window_header, "set_back_visible"):
             self.window_header.set_back_visible(False)
         self.sidebar.set_active(index)
