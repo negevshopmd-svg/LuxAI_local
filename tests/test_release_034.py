@@ -151,7 +151,7 @@ class NativeInputPlannerTests(unittest.TestCase):
 
 
 class MicrophonePrecisionTests(unittest.TestCase):
-    def test_final_click_uses_fresh_zoom_below_glyph(self):
+    def test_known_state_uses_discord_shortcut_without_zoom(self):
         capture = image_capture()
         with (
             mock.patch("luxai.discord_screen_review._ensure_discord_visible", return_value=45),
@@ -162,15 +162,16 @@ class MicrophonePrecisionTests(unittest.TestCase):
                        return_value=capture) as zoom,
             mock.patch("luxai.discord_mic_visual.inspect_discord_microphone",
                        side_effect=[("unmuted", (1215, 633)),
-                                    ("unmuted", (1215, 640)),
-                                    ("muted", (1215, 640))]) as inspect,
+                                    ("muted", (1215, 633))]) as inspect,
+            mock.patch("luxai.discord_shortcuts.press_in_discord") as press,
             mock.patch("luxai.visual_click.click_visual_target") as click,
             mock.patch("luxai.discord_mic_visual.time.sleep"),
         ):
             answer = click_discord_microphone_by_screenshot(mock.Mock(), mode="mute")
-        zoom.assert_called_once_with(capture, (1215, 633), width=280, height=150)
-        self.assertTrue(inspect.call_args_list[1].kwargs["closeup"])
-        click.assert_called_once_with(capture, (1215, 645), 1)
+        zoom.assert_not_called()
+        self.assertEqual(inspect.call_count, 2)
+        press.assert_called_once_with(45, "ctrl", "shift", "m")
+        click.assert_not_called()
         self.assertIn("микрофон выключен", answer)
 
     def test_bad_closeup_never_clicks_anything(self):
@@ -183,13 +184,15 @@ class MicrophonePrecisionTests(unittest.TestCase):
             mock.patch("luxai.visual_click.capture_window_region",
                        return_value=capture),
             mock.patch("luxai.discord_mic_visual.inspect_discord_microphone",
-                       side_effect=[("unmuted", (1215, 633)),
+                       side_effect=[("unknown", (1215, 633)),
                                     ("unmuted", (1215, 581))]),
+            mock.patch("luxai.discord_shortcuts.press_in_discord") as press,
             mock.patch("luxai.visual_click.click_visual_target") as click,
         ):
             with self.assertRaisesRegex(ValueError, "differs"):
-                click_discord_microphone_by_screenshot(mock.Mock(), mode="mute")
+                click_discord_microphone_by_screenshot(mock.Mock(), mode="toggle")
         click.assert_not_called()
+        press.assert_not_called()
 
     def test_unknown_overview_state_uses_closeup_to_toggle_once(self):
         capture = image_capture()
@@ -203,7 +206,8 @@ class MicrophonePrecisionTests(unittest.TestCase):
                        side_effect=[("unknown", (1215, 633)),
                                     ("muted", (1215, 640)),
                                     ("unmuted", (1215, 640))]),
-            mock.patch("luxai.visual_click.click_visual_target") as click,
+            mock.patch("luxai.discord_shortcuts.press_in_discord") as click,
+            mock.patch("luxai.discord_mic_visual.time.sleep"),
         ):
             outcome = click_discord_microphone_by_screenshot(mock.Mock(), mode="toggle")
         # This is a real toggle request: one click is permitted if the state

@@ -7,6 +7,10 @@
 > Updated for the **0.3.9.e work**, 2026-10-30. \`Update.bat\` installs the code merged into \`main\`, NOT an open PR.
 > Do NOT include real API keys, private logs, screen captures, model binaries, user audio, or personal paths in Git history.
 
+## 0. Release 0.4.1n — Fast Discord control
+
+`luxai/discord_shortcuts.py`: `SHORTCUTS` (official Discord keys, RU/RO/EN patterns, `navigation` = usable by the visual AI), `detect_discord_shortcut` (needs "Discord" or Discord in the foreground for `FOREGROUND_ONLY_OK`; skips audio, messages, questions, negation, compound/click requests), `press_in_discord` (verified focus + VK keys), `detect_discord_status_request` / `discord_quick_status` (one capture, one vision call), `DISCORD_LAYOUT` (user's ClearVision map, added to mic/headphones/visual-reasoner prompts). `main._dispatch_command` routes them right after `protected_workflow` (manual saved commands still win). Mic/headphones press Ctrl+Shift+M/D after reading the state (click is the fallback). Visual reasoner action `discord_key`. Tests: `tests/test_discord_fast_041n.py`.
+
 ## 0. Release 0.4.1m — Breaks like Luxify
 
 `ExtensionsRuntime._tick_breaks` (5 s) keeps `break_active` per kind (eyes/stretch/water) for real activity only (idle < 60 s); idle ≥ 5 min, a locked PC or a > 2 min tick gap resets. Due kinds queue in `_break_due`; `_break_silence` (quiet hours, quiet mode, full screen, calls, `notifications.windows_do_not_disturb`) delays them and one card shows 30 s after silence ends. `BreakCard` (no focus) answers done/later/skip; `break_stats` lives in `extensions_meta.breaks_today`. Settings view: `ROW_GROUPS`, `SECTION_NOTES`, `BASIC_ACTION_ROWS`. Tests: `tests/test_breaks_041m.py`.

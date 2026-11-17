@@ -1,4 +1,9 @@
-LUXAI LOCAL 0.4.1m — ACTUALIZARE 2026-11-17
+LUXAI LOCAL 0.4.1n — ACTUALIZARE 2026-11-17
+
+0.4.1n: Discord rapid: scurtăturile Discord prin voce (apel, servere, canale,
+necitite, mesaje directe, Ctrl+K, fixate, membri...), „verifică Discord” arată
+microfonul, căștile, apelul și chatul deschis; microfonul/căștile se comută cu
+Ctrl+Shift+M / Ctrl+Shift+D cu verificare pe ecran.
 
 0.4.1m: Pauzele sunt ca în Luxify: ochi (20-20-20), întinderi și apă, fiecare cu
 intervalul ei; un card în colț cu „Gata / Mai târziu / Sar”; statistica zilei;

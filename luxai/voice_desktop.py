@@ -262,8 +262,9 @@ def toggle_discord_microphone(confirm=None) -> str:
     if confirm is None or not confirm("⚠ " + note):
         return "Переключение микрофона Discord отменено."
     try:
-        import pyautogui
-        pyautogui.hotkey("ctrl", "shift", "m", interval=0.1)
+        from luxai.discord_shortcuts import press_in_discord
+        from luxai.discord_window_state import find_discord_window
+        press_in_discord(find_discord_window(), "ctrl", "shift", "m")
     except Exception as exc:
         return f"Не удалось отправить сочетание Discord: {exc}"
     return (

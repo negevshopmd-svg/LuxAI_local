@@ -72,6 +72,7 @@ class DiscordMicIntentTests(unittest.TestCase):
             mock.patch("luxai.discord_mic_visual.inspect_discord_microphone",
                        return_value=("muted", (420, 650))) as inspect,
             mock.patch("luxai.visual_click.click_visual_target") as click,
+            mock.patch("luxai.discord_shortcuts.press_in_discord") as press,
         ):
             result = click_discord_microphone_by_screenshot(
                 mock.Mock(), mode="mute"
@@ -79,6 +80,7 @@ class DiscordMicIntentTests(unittest.TestCase):
         shot.assert_called_once_with(45)
         inspect.assert_called_once_with(mock.ANY, captured)
         click.assert_not_called()
+        press.assert_not_called()
         self.assertIn("уже выключен", result)
 
     def test_running_mic_is_clicked_once_and_final_state_verified(self):
@@ -96,7 +98,7 @@ class DiscordMicIntentTests(unittest.TestCase):
                            ("unmuted", (420, 650)),
                            ("muted", (420, 650)),
                        ]) as inspect,
-            mock.patch("luxai.visual_click.click_visual_target") as click,
+            mock.patch("luxai.discord_shortcuts.press_in_discord") as click,
             mock.patch("luxai.discord_mic_visual.time.sleep"),
         ):
             result = click_discord_microphone_by_screenshot(
@@ -108,7 +110,7 @@ class DiscordMicIntentTests(unittest.TestCase):
         self.assertEqual(save.call_args_list[0].args, (capture_before, "microphone_before"))
         self.assertEqual(save.call_args_list[1].args, (capture_after, "microphone_after"))
         self.assertEqual(inspect.call_count, 2)
-        click.assert_called_once_with(capture_before, (420, 650), 1)
+        click.assert_called_once_with(45, "ctrl", "shift", "m")
         self.assertIn("микрофон выключен", result)
 
     def test_unknown_state_does_not_toggle_when_user_asked_mute(self):
@@ -121,11 +123,13 @@ class DiscordMicIntentTests(unittest.TestCase):
             mock.patch("luxai.discord_mic_visual.inspect_discord_microphone",
                        return_value=("unknown", (420, 650))),
             mock.patch("luxai.visual_click.click_visual_target") as click,
+            mock.patch("luxai.discord_shortcuts.press_in_discord") as press,
         ):
             answer = click_discord_microphone_by_screenshot(
                 mock.Mock(), mode="mute"
             )
         click.assert_not_called()
+        press.assert_not_called()
         self.assertIn("Не нажимал кнопку", answer)
 
     def test_unmute_already_enabled_does_not_click(self):
@@ -138,11 +142,13 @@ class DiscordMicIntentTests(unittest.TestCase):
             mock.patch("luxai.discord_mic_visual.inspect_discord_microphone",
                        return_value=("unmuted", (420, 650))),
             mock.patch("luxai.visual_click.click_visual_target") as click,
+            mock.patch("luxai.discord_shortcuts.press_in_discord") as press,
         ):
             answer = click_discord_microphone_by_screenshot(
                 mock.Mock(), mode="unmute"
             )
         click.assert_not_called()
+        press.assert_not_called()
         self.assertIn("уже включён", answer)
 
     def test_ambiguous_button_never_clicks(self):
@@ -155,10 +161,12 @@ class DiscordMicIntentTests(unittest.TestCase):
             mock.patch("luxai.discord_mic_visual.inspect_discord_microphone",
                        side_effect=ValueError("Control not found unambiguously")),
             mock.patch("luxai.visual_click.click_visual_target") as click,
+            mock.patch("luxai.discord_shortcuts.press_in_discord") as press,
         ):
             with self.assertRaisesRegex(ValueError, "unambiguously"):
                 click_discord_microphone_by_screenshot(mock.Mock(), mode="mute")
         click.assert_not_called()
+        press.assert_not_called()
 
     def test_after_click_uncertain_does_not_claim_muted(self):
         with (
@@ -190,6 +198,7 @@ class DiscordMicIntentTests(unittest.TestCase):
             mock.patch("luxai.visual_click.capture_window") as shot,
             mock.patch("luxai.discord_mic_visual.inspect_discord_microphone") as locate,
             mock.patch("luxai.visual_click.click_visual_target") as click,
+            mock.patch("luxai.discord_shortcuts.press_in_discord") as press,
         ):
             with self.assertRaisesRegex(RuntimeError, "отменена"):
                 click_discord_microphone_by_screenshot(
@@ -198,6 +207,7 @@ class DiscordMicIntentTests(unittest.TestCase):
         shot.assert_not_called()
         locate.assert_not_called()
         click.assert_not_called()
+        press.assert_not_called()
 
 
 class DiscordMicPriorityUITests(unittest.TestCase):

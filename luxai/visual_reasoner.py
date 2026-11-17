@@ -134,6 +134,15 @@ def _choose(planner, goal: str, current, *, previous=None,
         "Use double-quoted keys and strings; use one action ID from the list above. "
         "No code, no invented actions and no hidden side effects."
     )
+    if re.search(r"(?:дискорд|discord)", goal, re.I):
+        from luxai.discord_shortcuts import DISCORD_LAYOUT, shortcuts_for_ai
+        system += (
+            " " + DISCORD_LAYOUT + " Extra action discord_key: press one of Discord's own "
+            "shortcuts in the Discord window; target = exactly one id from: " + shortcuts_for_ai() +
+            ". Prefer discord_key over clicking when it reaches the goal faster (servers, channels, "
+            "unread, inbox, pins, members, Ctrl+K quick switcher, current call). Look at the map "
+            "areas above first instead of scanning the whole window."
+        )
     notes = "; ".join(str(x)[:190] for x in history[-5:]) or "no previous action"
     question = (
         f"USER GOAL: {goal}\n"
@@ -159,7 +168,7 @@ def _choose(planner, goal: str, current, *, previous=None,
             ]
     supported = {
         "click", "scroll", "open_discord", "search_discord",
-        "observe", "done", "stop",
+        "observe", "done", "stop", "discord_key",
     }
     for attempt in range(2):
         result = planner._request(
@@ -517,6 +526,21 @@ def _run_visual_reasoner(planner, goal: str, *, feedback, preferred_hwnd,
             hwnd = _select_window(goal, cancelled=cancelled)
             history.append("Discord was activated; open window does not prove goal.")
             record_action("Discord was activated; this alone does not prove the goal.")
+            continue
+        if action == "discord_key":
+            if not re.search(r"(?:дискорд|discord)", goal, re.I):
+                raise PermissionError("AI cannot press Discord shortcuts without a Discord request")
+            from luxai.discord_shortcuts import BY_ID, press_in_discord, shortcut_label
+            from luxai.discord_window_state import find_discord_window
+            item = BY_ID.get(str(decision.get("target") or "").strip())
+            if item is None or not item.navigation:
+                raise PermissionError("AI chose an unknown Discord shortcut")
+            check()
+            hwnd = find_discord_window()
+            press_in_discord(hwnd, *item.keys)
+            record_action(f"Pressed Discord shortcut {item.id} ({shortcut_label(item)}); verify the result on screen.")
+            history.append(f"Pressed Discord {shortcut_label(item)} ({item.id}); result not yet verified.")
+            time.sleep(0.45)
             continue
         if action == "search_discord":
             if not re.search(r"(?:дискорд|discord)", goal, re.I):

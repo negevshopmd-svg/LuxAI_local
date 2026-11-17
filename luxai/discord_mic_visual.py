@@ -70,7 +70,9 @@ def inspect_discord_microphone(planner, capture, *, closeup=False) -> tuple[str,
         raise RuntimeError("Нет API-ключа для анализа кнопки микрофона")
     model = model_for(provider, planner.config.get("online_model") or None)
     panel = capture if closeup else microphone_panel_capture(capture)
+    from luxai.discord_shortcuts import DISCORD_LAYOUT
     prompt = (
+        DISCORD_LAYOUT + " "
         "This is a MAGNIFIED BOTTOM STRIP of the ACTUAL Discord window, "
         "not the entire desktop. Locate the unique MIC button in the "
         "signed-in USER ACCOUNT CONTROL BAR, beside the user's display name "
@@ -160,7 +162,10 @@ def click_discord_microphone_by_screenshot(planner, *, mode="toggle", cancelled=
         )
     check_cancel()
     from luxai.visual_click import VisualCapture
-    if isinstance(before, VisualCapture):
+    # Discord's own Ctrl+Shift+M flips the mic exactly like the button, with
+    # no risk of missing a tiny icon, so the fine zoom is only needed when the
+    # first look could not read the state.
+    if isinstance(before, VisualCapture) and initial_state == "unknown":
         # The first screenshot finds the correct toolbar; the second captures
         # the unscaled pixels around that icon. This matters for small mic
         # buttons on custom themes and high-DPI Discord windows.
@@ -190,7 +195,11 @@ def click_discord_microphone_by_screenshot(planner, *, mode="toggle", cancelled=
             raise ValueError("Adjusted mic target is outside Discord window")
         point = adjusted
     check_cancel()
-    click_visual_target(before, point, 1)
+    from luxai.discord_shortcuts import press_in_discord
+    try:
+        press_in_discord(hwnd, "ctrl", "shift", "m")
+    except (OSError, ValueError, RuntimeError):
+        click_visual_target(before, point, 1)
     check_cancel()
     time.sleep(0.4)
     check_cancel()

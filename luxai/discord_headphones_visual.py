@@ -1,7 +1,9 @@
 """Screenshot-grounded Discord headphones/deafen control.
 
-Only the signed-in user's bottom account bar is a valid target. No global
-keyboard toggle, blind retry or success assertion from the click alone.
+Only the signed-in user's bottom account bar is a valid target. The state is
+read first; only then Discord's own Ctrl+Shift+D is pressed inside the verified
+Discord window (a click is the fallback), and a fresh screenshot confirms it.
+No blind retry or success assertion from the key press alone.
 """
 from __future__ import annotations
 
@@ -80,7 +82,8 @@ def inspect_discord_headphones(planner, capture, *, closeup=False):
             "headphones button. Re-read the slash and state from THIS image, "
             "not from the command or previous screenshot."
         )
-    messages = multimodal_messages(instruction, image, provider)
+    from luxai.discord_shortcuts import DISCORD_LAYOUT
+    messages = multimodal_messages(DISCORD_LAYOUT + " " + instruction, image, provider)
     messages[0]["content"] = (
         'Return ONLY JSON {"found":true,"x":number,"y":number,'
         '"state":"off|on|unknown"} or {"found":false}. '
@@ -120,7 +123,7 @@ def set_discord_headphones(planner, *, mode="off", cancelled=None):
     if mode != "toggle" and current == mode:
         return "Наушники Discord уже " + ("выключены." if mode == "off" else "включены.")
 
-    if isinstance(before, VisualCapture):
+    if isinstance(before, VisualCapture) and current == "unknown":
         if point[1] < before.top + before.height * 0.70:
             raise ValueError("Значок наушников найден вне нижней панели Discord.")
         zoom = capture_window_region(before, point, width=280, height=150)
@@ -138,7 +141,12 @@ def set_discord_headphones(planner, *, mode="off", cancelled=None):
         return "Не удалось определить состояние наушников. Не нажимал."
 
     check()
-    click_visual_target(before, point, 1)
+    # Discord's own Ctrl+Shift+D = the headphones button, theme independent.
+    from luxai.discord_shortcuts import press_in_discord
+    try:
+        press_in_discord(hwnd, "ctrl", "shift", "d")
+    except (OSError, ValueError, RuntimeError):
+        click_visual_target(before, point, 1)
     time.sleep(0.35)
     check()
     focus_discord(hwnd)

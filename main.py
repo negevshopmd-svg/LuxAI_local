@@ -247,6 +247,7 @@ class MainWindow(QMainWindow):
     discord_mic_visual_ready = Signal(str, str)
     discord_headphones_ready = Signal(str, str)
     discord_call_ready = Signal(str, str)
+    discord_quick_ready = Signal(str, str, str)
     steam_profile_ready = Signal(str, str)
     visual_reasoner_ready = Signal(str, str)
     adaptive_task_ready = Signal(str, str, object)
@@ -289,6 +290,7 @@ class MainWindow(QMainWindow):
         self.discord_mic_visual_ready.connect(self._on_discord_mic_visual_ready)
         self.discord_headphones_ready.connect(self._on_discord_headphones_ready)
         self.discord_call_ready.connect(self._on_discord_call_ready)
+        self.discord_quick_ready.connect(self._on_discord_quick_ready)
         self.steam_profile_ready.connect(self._on_steam_profile_ready)
         self.visual_reasoner_ready.connect(self._on_visual_reasoner_ready)
         self.adaptive_task_ready.connect(self._on_adaptive_task_ready)
@@ -2920,6 +2922,17 @@ class MainWindow(QMainWindow):
                 return
             protected_workflow = bool(is_discord_message_request(text) or detect_research_dm_request(text)
                                       or detect_discord_screen_review(text) or looks_like_discord_screen_review(text))
+            # Fast Discord: one-look status check and Discord's own shortcuts.
+            # A user's own saved command with the same words still wins.
+            if not protected_workflow and (saved is None or saved.get("builtin", False) or saved.get("learned", False)):
+                from luxai.discord_shortcuts import detect_discord_shortcut, detect_discord_status_request
+                if detect_discord_status_request(text):
+                    self._start_discord_quick(text, "status")
+                    return
+                shortcut = detect_discord_shortcut(text)
+                if shortcut is not None:
+                    self._start_discord_quick(text, shortcut)
+                    return
             # The current account-bar audio state and the own Steam
             # nickname have dedicated observe/verify tools. Keep the ENTIRE
             # compound request before cloud and saved short-action routing.
@@ -4154,6 +4167,47 @@ class MainWindow(QMainWindow):
         if self._closed or not self._processing or self._active_text != text:
             return
         self._current_route = "Discord: проверка голосового вызова"
+        self._resolved_command(text, answer)
+
+    def _start_discord_quick(self, text, action):
+        """Discord shortcut (instant) or one-screenshot status check."""
+        language = reply_language(self.cfg, text)
+        if action == "status":
+            if not self.online_planner.enabled():
+                self._resolved_command(text, "Для проверки Discord нужен AI с изображениями.")
+                return
+            if not self._allow_cloud_screenshots():
+                self._resolved_command(text, "Анализ окна Discord отменён.")
+                return
+            self._current_route = "Discord: быстрая проверка"
+            self.mic_status.setText("Смотрю на Discord…")
+        else:
+            self._current_route = "Discord: горячая клавиша " + action
+        threading.Thread(target=self._discord_quick_worker, args=(text, action, language),
+                         daemon=True, name="JarvisDiscordQuick").start()
+
+    def _discord_quick_worker(self, text, action, language):
+        from luxai import discord_shortcuts
+        try:
+            if action == "status":
+                answer = discord_shortcuts.discord_quick_status(
+                    self.online_planner, language,
+                    cancelled=lambda: self._closed or not self._processing or self._active_text != text)
+            else:
+                answer = discord_shortcuts.run_discord_shortcut(action, language)
+        except (OSError, RuntimeError, ValueError, PermissionError) as exc:
+            answer = "Discord: " + str(exc)[:180]
+        except Exception:
+            answer = "Не удалось выполнить действие в Discord."
+        if not self._closed:
+            try:
+                self.discord_quick_ready.emit(text, action, answer)
+            except RuntimeError:
+                pass
+
+    def _on_discord_quick_ready(self, text, action, answer):
+        if self._closed or not self._processing or self._active_text != text:
+            return
         self._resolved_command(text, answer)
 
     def _start_discord_headphones_visual(self, text):

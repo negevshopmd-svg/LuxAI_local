@@ -81,7 +81,7 @@ class HeadphonesScreenshotTests(unittest.TestCase):
         self.assertIn("уже выключены", result)
         click.assert_not_called()
 
-    def test_click_once_and_confirm_fresh_slash(self):
+    def test_press_discord_shortcut_once_and_confirm_fresh_slash(self):
         from luxai.visual_click import VisualCapture
         shot = VisualCapture(90, 15, "Discord", 0, 0, 1592, 922,
                              1592, 922, b"fake")
@@ -93,17 +93,19 @@ class HeadphonesScreenshotTests(unittest.TestCase):
             mock.patch("luxai.visual_click.capture_window_region",
                        return_value=shot) as crop,
             mock.patch("luxai.discord_headphones_visual.inspect_discord_headphones",
-                       side_effect=[("on", (1507, 885)), ("on", (1508, 885)),
-                                    ("off", (1508, 885))]) as inspect,
+                       side_effect=[("on", (1507, 885)), ("off", (1508, 885))]) as inspect,
+            mock.patch("luxai.discord_shortcuts.press_in_discord") as press,
             mock.patch("luxai.visual_click.click_visual_target") as click,
             mock.patch("luxai.discord_headphones_visual.time.sleep"),
         ):
             output = set_discord_headphones(mock.Mock(), mode="off")
         self.assertEqual(output, "Наушники Discord выключены.")
-        click.assert_called_once_with(shot, (1508, 885), 1)
+        # The known state needs no zoom: Discord's own Ctrl+Shift+D is pressed once.
+        press.assert_called_once_with(90, "ctrl", "shift", "d")
+        click.assert_not_called()
         self.assertEqual(shots.call_count, 2)
-        crop.assert_called_once()
-        self.assertEqual(inspect.call_count, 3)
+        crop.assert_not_called()
+        self.assertEqual(inspect.call_count, 2)
 
     def test_if_broad_screenshot_does_not_see_slash_zoom_rechecks_after_click(self):
         from luxai.visual_click import VisualCapture
@@ -115,15 +117,15 @@ class HeadphonesScreenshotTests(unittest.TestCase):
             mock.patch("luxai.visual_click.capture_window", side_effect=[shot, shot]),
             mock.patch("luxai.visual_click.capture_window_region", return_value=shot) as crop,
             mock.patch("luxai.discord_headphones_visual.inspect_discord_headphones",
-                       side_effect=[("on", (1507, 885)), ("on", (1507, 885)),
+                       side_effect=[("on", (1507, 885)),
                                     ("unknown", (1507, 885)), ("off", (1507, 885))]),
-            mock.patch("luxai.visual_click.click_visual_target") as click,
+            mock.patch("luxai.discord_shortcuts.press_in_discord") as press,
             mock.patch("luxai.discord_headphones_visual.time.sleep"),
         ):
             answer = set_discord_headphones(mock.Mock(), mode="off")
         self.assertEqual(answer, "Наушники Discord выключены.")
-        self.assertEqual(crop.call_count, 2)
-        click.assert_called_once()
+        self.assertEqual(crop.call_count, 1)
+        press.assert_called_once()
 
     def test_no_false_success_if_state_is_still_on(self):
         with (
@@ -134,7 +136,7 @@ class HeadphonesScreenshotTests(unittest.TestCase):
             mock.patch("luxai.discord_headphones_visual.inspect_discord_headphones",
                        side_effect=[("on", (1507, 885)), ("on", (1507, 885)),
                                     ("on", (1507, 885))]),
-            mock.patch("luxai.visual_click.click_visual_target") as click,
+            mock.patch("luxai.discord_shortcuts.press_in_discord") as click,
             mock.patch("luxai.discord_headphones_visual.time.sleep"),
         ):
             answer = set_discord_headphones(mock.Mock(), mode="off")

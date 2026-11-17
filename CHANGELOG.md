@@ -1,3 +1,10 @@
+## 0.4.1n — Fast Discord control (2026-11-17)
+
+- Discord's own keyboard shortcuts by voice/text (RU/RO/EN): answer/decline a call, back to the current call, next/previous server, channel and unread channel, direct messages ↔ last server, Ctrl+K quick switcher, search, pinned, inbox, members, emoji/GIF/stickers, upload, soundboard, copy channel link, create group, shortcut list, settings, scroll the chat. With the word "Discord" — or without it while Discord is the active window (Discord-only commands). Keys are layout independent.
+- «Проверь Discord» / «с кем я в звонке»: one screenshot and one AI look report the mic, headphones, call, incoming call, the open chat and the profile on the right.
+- Mic and headphones: the state is still read before and confirmed after, but the switch now uses Discord's Ctrl+Shift+M / Ctrl+Shift+D instead of clicking a tiny icon, and the extra zoom is only taken when the state is unclear — faster and never misses.
+- The AI knows the user's Discord layout (account bar bottom-left: mic, headphones, settings; DMs above; call buttons top-right; profile panel on the right) and may use Discord shortcuts while reaching a visual goal.
+
 ## 0.4.1m — Breaks like Luxify (2026-11-17)
 
 - **Перерывы** rebuilt after Luxify: three separate reminders with their own interval — eyes 20-20-20 (every 20 min), stretch (55), water (90) — counting only real activity. Being away 5+ minutes, locking or sleeping the PC counts as a break and restarts counting.
