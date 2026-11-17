@@ -1,3 +1,10 @@
+## 0.4.1k — Scrolling without a mouse wheel (2026-11-17)
+
+- Scroll bars are wider (14 px) and clearly visible, and turn the accent colour on hover/drag; the old 9 px dark handle was nearly invisible and hard to grab.
+- Middle-click autoscroll everywhere, like in browsers: press the wheel button, move the mouse up or down (faster further away); any click or Esc stops it.
+- Drag-to-scroll: press the left button on an empty background and drag, like on a phone (buttons, fields, lists and sliders behave as before).
+- PageUp / PageDown / Home / End scroll the page under the cursor when you are not typing in a field.
+
 ## 0.4.1j — Command editor inside the window (2026-11-17)
 
 - «Новая команда» and «Изменить команду» open inside the Commands page instead of a separate window, like in Luxify: the window header shows «‹ Jarvis | Команды | Новая команда», its back arrow cancels, Save returns to the list and the navigation rail stays visible.

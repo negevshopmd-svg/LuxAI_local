@@ -607,16 +607,41 @@ QProgressBar::chunk {
     border-radius: 3px;
 }
 QScrollBar:vertical {
-    background: $bg;
-    width: 9px;
+    background: transparent;
+    width: 14px;
+    margin: 2px 1px;
 }
 QScrollBar::handle:vertical {
-    background: $scroll;
-    border-radius: 4px;
-    min-height: 22px;
+    background: $barhandle;
+    border-radius: 5px;
+    min-height: 40px;
+    margin: 0 2px;
+}
+QScrollBar::handle:vertical:hover, QScrollBar::handle:vertical:pressed {
+    background: $accent;
 }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
     height: 0;
+}
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+    background: transparent;
+}
+QScrollBar:horizontal {
+    background: transparent;
+    height: 14px;
+    margin: 1px 2px;
+}
+QScrollBar::handle:horizontal {
+    background: $barhandle;
+    border-radius: 5px;
+    min-width: 40px;
+    margin: 2px 0;
+}
+QScrollBar::handle:horizontal:hover, QScrollBar::handle:horizontal:pressed {
+    background: $accent;
+}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    width: 0;
 }
 QPushButton#HeaderMic {
     border: 1px solid $border;
@@ -863,6 +888,8 @@ QLabel#ExtCounter {
     color: $text;
 }
 """
+    # A clearly visible scroll handle (the old one was nearly invisible).
+    css = css.replace("$barhandle", mix_colors(p["control"], p["muted"], 0.45))
     for key, value in p.items():
         css = css.replace("$" + key, value)
     css = css.replace("$font_family", font_stack(font_family))

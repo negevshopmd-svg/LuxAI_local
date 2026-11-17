@@ -1,4 +1,8 @@
-LUXAI LOCAL 0.4.1j — ACTUALIZARE 2026-11-17
+LUXAI LOCAL 0.4.1k — ACTUALIZARE 2026-11-17
+
+0.4.1k: derulare fără rotiță: bare de derulare late și vizibile; clic pe rotiță
+și miști mouse-ul (ca în browser); tragi fundalul paginii cu butonul stâng;
+PageUp / PageDown / Home / End.
 
 0.4.1j: editorul de comenzi („Новая команда”) se deschide în fereastra Jarvis,
 nu separat; săgeata din antet te duce înapoi la listă.

@@ -7,6 +7,10 @@
 > Updated for the **0.3.9.e work**, 2026-10-30. \`Update.bat\` installs the code merged into \`main\`, NOT an open PR.
 > Do NOT include real API keys, private logs, screen captures, model binaries, user audio, or personal paths in Git history.
 
+## 0. Release 0.4.1k — Scroll assist
+
+`luxai/scroll_assist.py` (`ScrollAssist.install()` in MainWindow) is an application event filter: middle-click autoscroll with an anchor marker, left-drag on empty backgrounds (never on buttons/fields/lists/sliders or the window header), and PageUp/PageDown/Home/End when not typing. Scroll handles use `$barhandle` (computed in `build_styles`). Tests: `tests/test_scroll_assist_041k.py`.
+
 ## 0. Release 0.4.1j — Embedded command editor
 
 `CommandsPage` holds a `views` stack (library / editor). `_open_editor` embeds the existing `CommandEditor` (`set_embedded`: Qt.Widget flags, own header hidden, no window dragging) and saves on `finished(Accepted)`; `editor_title_changed` drives `MainWindow._update_commands_header`, and the header back arrow (`_header_back`) calls `editor_back()` (reject). Tests: `tests/test_embedded_editor_041j.py`.

@@ -351,6 +351,8 @@ class MainWindow(QMainWindow):
 
         from luxai.keys import patch_pyautogui
         patch_pyautogui()  # Ctrl+C / Ctrl+V / letter keys work with any keyboard layout
+        from luxai.scroll_assist import ScrollAssist
+        ScrollAssist.install()  # middle-click autoscroll, drag-to-scroll, PageUp/PageDown
         root = QWidget()
         self.setCentralWidget(root)
         outer = QHBoxLayout(root)
