@@ -1,3 +1,11 @@
+## 0.4.1p — Clipboard history like Luxify (2026-11-17)
+
+- **История буфера обмена** rebuilt after Luxify: Основное, Клавиша (Alt+Win+V by default), «Что и как долго помнить» (25–500 items, keep for 1/7/30 days or without limit, remember after restart, pictures), «Не запоминать» (program chips: KeePass, KeePassXC, Bitwarden, 1Password… plus your own), «Нейросеть».
+- Remembers text with its formatting and pictures (screenshots, copied images) with thumbnails. Pinned items never age and are never pushed out.
+- Window at the cursor: search, Enter pastes, Shift+Enter pastes without formatting, Ctrl+P pins, Del deletes; right click or the sparkle button — «Перевести», «Исправить ошибки», «Кратко» (cloud AI; the result goes to the clipboard and to the top of the history).
+- Privacy: copies marked "not for history" by programs (password managers) and copies from listed programs are never stored, nor are Jarvis's own temporary pastes. On disk the history is encrypted with Windows DPAPI for your account.
+- Voice: «вставь предыдущее» / «paste the previous one» / «lipește precedentul».
+
 ## 0.4.1o — Faster Discord calls (2026-11-17)
 
 - «Позвони Hanzo в Discord»: after the chat with the person is opened and its header verified, Jarvis looks once at the call state and presses Discord's own "start call" shortcut (Ctrl+'), then one more look confirms the call is ringing. Before, it needed about eight AI looks (header twice, call state twice, finding the phone icon twice) — about 15 seconds. The phone-icon click stays only as a fallback when the shortcut does nothing; never a second call.

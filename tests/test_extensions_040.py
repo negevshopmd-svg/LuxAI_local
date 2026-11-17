@@ -262,18 +262,24 @@ class PageAndRuntimeTests(unittest.TestCase):
         self.assertIsNone(engine.test_sink)
 
     def test_runtime_clipboard_history_and_breaks(self):
-        state = catalog.normalize_state({"clipboard_history": {"enabled": True, "settings": {"limit": 10}},
+        state = catalog.normalize_state({"clipboard_history": {"enabled": True, "settings": {"keep": "25", "persist": False}},
                                          "breaks": {"enabled": True, "settings": {"voice": True}}})
         _, engine, host = self.make_page(state)
+        import tempfile
+        from pathlib import Path
+        folder = tempfile.mkdtemp()
+        patcher = mock.patch("luxai.clipboard_store.history_file", return_value=Path(folder) / "clip.bin")
+        patcher.start()
+        self.addCleanup(patcher.stop)
         engine.apply(state)
-        for index in range(15):
+        for index in range(30):
             engine.remember_clipboard(f"text {index}")
         engine.remember_clipboard("123456")  # one-time code is ignored
-        self.assertEqual(len(engine.clipboard_items), 10)
-        self.assertEqual(engine.clipboard_items[0]["text"], "text 14")
-        engine._toggle_pin("text 5")
+        self.assertEqual(len(engine.clipboard_items), 25)
+        self.assertEqual(engine.clipboard_items[0]["text"], "text 29")
+        engine._toggle_pin("text 10")
         engine.clear_clipboard()
-        self.assertEqual([item["text"] for item in engine.clipboard_items], ["text 5"])
+        self.assertEqual([item["text"] for item in engine.clipboard_items], ["text 10"])
         popup = engine.open_clipboard_history()
         self.assertEqual(popup.list.count(), 1)
         message = engine.remind_break(force=True)

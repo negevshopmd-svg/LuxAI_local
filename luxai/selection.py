@@ -88,7 +88,9 @@ def capture_clipboard(clipboard) -> dict[str, bytes] | None:
 def restore_clipboard(clipboard, saved: dict[str, bytes]) -> None:
     """Restore text, HTML and other clipboard formats, not only plain text."""
     from PySide6.QtCore import QMimeData
+    from luxai.clipboard_store import suppress
 
+    suppress(1.5)
     if not saved:
         clipboard.clear()
         return
@@ -119,6 +121,8 @@ def copy_selected_text(clipboard, hwnd: int, *, keyboard=None,
             "Не хочу потерять их при копировании. Скопируйте выделение вручную."
         )
     before = clipboard_sequence()
+    from luxai.clipboard_store import suppress
+    suppress(3.0)
     if keyboard is None:
         # Layout independent: with a Russian layout pyautogui never sends "c".
         from luxai.keys import press as keyboard, release_modifiers

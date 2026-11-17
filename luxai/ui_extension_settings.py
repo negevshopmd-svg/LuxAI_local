@@ -7,15 +7,15 @@ draft until Save; the page emits ``saved`` with (enabled, settings).
 """
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import QPoint, QRect, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
     QButtonGroup, QComboBox, QDialog, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
-    QPlainTextEdit, QPushButton, QScrollArea, QSlider, QSpinBox, QVBoxLayout, QWidget,
+    QLayout, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSlider, QSpinBox, QToolButton, QVBoxLayout, QWidget,
 )
 
 from luxai.extensions_catalog import (
-    BASIC_ACTION_ROWS, BASIC_ACTIONS, BASIC_KEYS, ROW_GROUPS, SECTION_NOTES, BASIC_LAST, BASIC_NOTE, BASIC_TEXT, HIDDEN_SETTINGS, VOICE_HELP, ENABLED_IF, L, Plugin, how_it_works, sections_for, text, ui, validate_value,
+    BASIC_ACTION_ROWS, BASIC_ACTIONS, BASIC_KEYS, NAV_TITLES, ROW_GROUPS, SECTION_NOTES, BASIC_LAST, BASIC_NOTE, BASIC_TEXT, HIDDEN_SETTINGS, VOICE_HELP, ENABLED_IF, L, Plugin, how_it_works, sections_for, text, ui, validate_value,
 )
 from luxai.icons import set_button_icon, set_label_icon
 from luxai.ui_home import ToggleSwitch
@@ -100,6 +100,23 @@ W = {
     "apps_refresh": L("Обновить список", "Refresh the list", "Reîmprospătează lista"),
     "example": L("Пример", "Example", "Exemplu"),
     "today": L("Сегодня", "Today", "Azi"),
+    "tags_placeholder": L("Программа, например KeePassXC", "Program, e.g. KeePassXC", "Program, de ex. KeePassXC"),
+    "tags_add": L("Добавить", "Add", "Adaugă"),
+    "clip_now": L("Сейчас в истории", "In the history now", "Acum în istoric"),
+    "clip_empty": L("История пуста.", "The history is empty.", "Istoricul e gol."),
+    "clip_count": L("Записей: {total}, закреплено: {pinned}.", "Items: {total}, pinned: {pinned}.",
+                    "Elemente: {total}, fixate: {pinned}."),
+    "clip_clear": L("Очистить историю", "Clear history", "Golește istoricul"),
+    "clip_wipe": L("Удалить всё", "Delete all", "Șterge tot"),
+    "clip_wipe_ask": L("Удалить всю историю, вместе с закреплёнными записями? Это нельзя отменить.",
+                       "Delete the whole history, pinned items included? This cannot be undone.",
+                       "Ștergi tot istoricul, inclusiv elementele fixate? Nu se poate anula."),
+    "ai_ready": L("Работает через облачный ИИ Jarvis ({provider}). Текст уходит в нейросеть только когда вы выбрали действие.",
+                  "Works through Jarvis's cloud AI ({provider}). Text goes to the AI only when you pick an action.",
+                  "Funcționează prin AI-ul cloud al lui Jarvis ({provider}). Textul ajunge la AI doar când alegi o acțiune."),
+    "ai_missing": L("Нужен облачный ИИ: добавьте API-ключ в настройках Jarvis — тогда появятся «Перевести», «Исправить ошибки» и «Кратко».",
+                    "Needs the cloud AI: add an API key in Jarvis settings to get “Translate”, “Fix mistakes” and “Shorten”.",
+                    "E nevoie de AI cloud: adaugă o cheie API în setările Jarvis pentru „Tradu”, „Corectează” și „Pe scurt”."),
     "today_sub": L("Только за сегодня — истории на месяцы нет.", "Today only — no history kept for months.",
                    "Doar pentru azi — nu se păstrează istoric pe luni."),
     "today_stats": L("Перерывов сделано: {done} · пропущено: {skipped}", "Breaks done: {done} · skipped: {skipped}",
@@ -299,6 +316,133 @@ class SecretField(QWidget):
         self.line.setText(str(value or ""))
 
 
+class FlowLayout(QLayout):
+    """Wraps its items onto new lines like words in a paragraph."""
+
+    def __init__(self, parent=None, spacing=8):
+        super().__init__(parent)
+        self._items = []
+        self._spacing = spacing
+        self.setContentsMargins(0, 0, 0, 0)
+
+    def addItem(self, item):
+        self._items.append(item)
+
+    def count(self):
+        return len(self._items)
+
+    def itemAt(self, index):
+        return self._items[index] if 0 <= index < len(self._items) else None
+
+    def takeAt(self, index):
+        return self._items.pop(index) if 0 <= index < len(self._items) else None
+
+    def expandingDirections(self):
+        return Qt.Orientation(0)
+
+    def hasHeightForWidth(self):
+        return True
+
+    def heightForWidth(self, width):
+        return self._place(QRect(0, 0, width, 0), apply=False)
+
+    def setGeometry(self, rect):
+        super().setGeometry(rect)
+        self._place(rect, apply=True)
+
+    def sizeHint(self):
+        return self.minimumSize()
+
+    def minimumSize(self):
+        size = QSize()
+        for item in self._items:
+            size = size.expandedTo(item.minimumSize())
+        return size
+
+    def _place(self, rect, apply):
+        x, y, line = rect.x(), rect.y(), 0
+        for item in self._items:
+            hint = item.sizeHint()
+            if x + hint.width() > rect.right() + 1 and line:
+                x, y, line = rect.x(), y + line + self._spacing, 0
+            if apply:
+                item.setGeometry(QRect(QPoint(x, y), hint))
+            x += hint.width() + self._spacing
+            line = max(line, hint.height())
+        return y + line - rect.y()
+
+
+class TagsField(QWidget):
+    """Removable name chips plus an input with an «Добавить» button."""
+    changed = Signal()
+
+    def __init__(self, setting, language, parent=None):
+        super().__init__(parent)
+        self.language = language
+        self.names: list[str] = []
+        column = QVBoxLayout(self)
+        column.setContentsMargins(0, 8, 0, 8)
+        column.setSpacing(12)
+        self.chips = QWidget()
+        self.chips.setObjectName("ExtContent")
+        self.flow = FlowLayout(self.chips)
+        column.addWidget(self.chips)
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        self.input = QLineEdit()
+        self.input.setPlaceholderText(w("tags_placeholder", language))
+        self.input.setMaxLength(60)
+        self.input.returnPressed.connect(self._add)
+        row.addWidget(self.input, 1)
+        add = QPushButton(w("tags_add", language))
+        set_button_icon(add, "plus", size=15)
+        add.clicked.connect(self._add)
+        row.addWidget(add)
+        column.addLayout(row)
+
+    def _add(self):
+        name = " ".join(self.input.text().split())
+        if name and name.casefold() not in {item.casefold() for item in self.names}:
+            self.names.append(name)
+            self._render()
+            self.changed.emit()
+        self.input.clear()
+
+    def _remove(self, name):
+        self.names = [item for item in self.names if item != name]
+        self._render()
+        self.changed.emit()
+
+    def _render(self):
+        while self.flow.count():
+            item = self.flow.takeAt(0)
+            if item.widget() is not None:
+                item.widget().deleteLater()
+        for name in self.names:
+            chip = QFrame()
+            chip.setObjectName("ExtTag")
+            line = QHBoxLayout(chip)
+            line.setContentsMargins(10, 4, 4, 4)
+            line.setSpacing(4)
+            label = QLabel(name)
+            line.addWidget(label)
+            close = QToolButton()
+            close.setText("×")
+            close.setAutoRaise(True)
+            close.setCursor(Qt.CursorShape.PointingHandCursor)
+            close.clicked.connect(lambda checked=False, n=name: self._remove(n))
+            line.addWidget(close)
+            self.flow.addWidget(chip)
+        self.chips.updateGeometry()
+
+    def value(self):
+        return "\n".join(self.names)
+
+    def set_value(self, value):
+        self.names = [line.strip() for line in str(value or "").splitlines() if line.strip()]
+        self._render()
+
+
 class FolderField(QWidget):
     changed = Signal()
 
@@ -462,6 +606,7 @@ class PluginSettingsView(QWidget):
                 card.add_row(help_note)
             groups = ROW_GROUPS.get(plugin.id, {})
             grouped = {other for others in groups.values() for other in others}
+            noted = False
             for key in (() if section.groups else section.keys):
                 if key in grouped:
                     continue  # drawn in the row of its lead setting
@@ -474,9 +619,29 @@ class PluginSettingsView(QWidget):
                     self._add_status_row(card)
                     has_status_row = True
                     continue
+                if key == "@note":
+                    note = QLabel(text(SECTION_NOTES[(plugin.id, section.id)], language))
+                    note.setObjectName("ExtNote")
+                    note.setWordWrap(True)
+                    card.add_row(note)
+                    noted = True
+                    continue
+                if key == "@clip_now":
+                    self._add_clip_now_row(card)
+                    continue
+                if key == "@ai_status":
+                    self._add_ai_status_row(card)
+                    continue
+                setting = next(item for item in plugin.settings if item.key == key)
+                if setting.kind == "tags":
+                    field, _ = self._build_field(setting)
+                    card.add_row(field)
+                    self.fields[setting.key] = field
+                    self.rows[setting.key] = field
+                    continue
                 setting = next(item for item in plugin.settings if item.key == key)
                 self._add_setting(card, setting)
-            if (plugin.id, section.id) in SECTION_NOTES:
+            if (plugin.id, section.id) in SECTION_NOTES and not noted:
                 note = QLabel(text(SECTION_NOTES[(plugin.id, section.id)], language))
                 note.setObjectName("ExtNote")
                 note.setWordWrap(True)
@@ -488,7 +653,8 @@ class PluginSettingsView(QWidget):
         if plugin.id == "smart_dictation":
             self._build_dictation_check()
         elif (plugin.actions and plugin.ready and runtime is not None and not has_status_row
-              and plugin.id not in BASIC_ACTIONS and plugin.id not in BASIC_ACTION_ROWS):
+              and plugin.id not in BASIC_ACTIONS and plugin.id not in BASIC_ACTION_ROWS
+              and plugin.id != "clipboard_history"):
             self._build_actions()
         if plugin.id in BASIC_LAST:
             self._build_basic()
@@ -540,7 +706,8 @@ class PluginSettingsView(QWidget):
         nav_area.setWidget(nav_holder)
         self.nav: dict[str, QPushButton] = {}
         for card_id, card in self.cards.items():
-            button = QPushButton(card.findChild(QLabel, "ExtTitle").text())
+            short = NAV_TITLES.get((plugin.id, card_id))
+            button = QPushButton(text(short, language) if short else card.findChild(QLabel, "ExtTitle").text())
             button.setObjectName("ExtNav")
             button.setCursor(Qt.CursorShape.PointingHandCursor)
             icon_name = {"basic": "bell" if plugin.id == "notification_reader" else "power", "check": "mic", "today": "clock",
@@ -720,6 +887,10 @@ class PluginSettingsView(QWidget):
             field.changed.connect(self._refresh)
         elif kind == "folder":
             field = FolderField(setting, language)
+            field.changed.connect(self._refresh)
+            wide = True
+        elif kind == "tags":
+            field = TagsField(setting, language)
             field.changed.connect(self._refresh)
             wide = True
         elif kind == "multiline":
@@ -1071,6 +1242,71 @@ class PluginSettingsView(QWidget):
             switch.toggled.connect(toggled)
             layout.addWidget(_row(app, "", switch))
 
+    # -- clipboard history rows --
+    def _add_clip_now_row(self, card):
+        language = self.language
+        buttons = QWidget()
+        buttons.setObjectName("ExtContent")
+        line = QHBoxLayout(buttons)
+        line.setContentsMargins(0, 0, 0, 0)
+        line.setSpacing(8)
+        clear = QPushButton(w("clip_clear", language))
+        clear.setObjectName("ExtConfigure")
+        set_button_icon(clear, "trash", size=15)
+        clear.clicked.connect(lambda: self.runtime.clear_clipboard())
+        wipe = QPushButton(w("clip_wipe", language))
+        wipe.setObjectName("ExtConfigure")
+        wipe.clicked.connect(self._wipe_clipboard)
+        for button in (clear, wipe):
+            button.setEnabled(self.runtime is not None)
+            line.addWidget(button)
+        self.clip_row = _row(w("clip_now", language), " ", buttons)
+        card.add_row(self.clip_row)
+        if self.runtime is not None:
+            self.runtime.clipboard_changed.connect(self._render_clip_now)
+        self._render_clip_now()
+
+    def _render_clip_now(self):
+        try:
+            total, pinned = self.runtime.clipboard_counts() if self.runtime is not None else (0, 0)
+            hint = w("clip_empty", self.language) if not total else \
+                w("clip_count", self.language).format(total=total, pinned=pinned)
+            self.clip_row.hint_label.setText(hint)
+        except RuntimeError:
+            pass
+
+    def _wipe_clipboard(self):
+        answer = QMessageBox.question(self, w("clip_wipe", self.language), w("clip_wipe_ask", self.language))
+        if answer == QMessageBox.StandardButton.Yes and self.runtime is not None:
+            self.runtime.clear_clipboard_all()
+
+    def _add_ai_status_row(self, card):
+        from luxai.ui_extensions import StatusDot
+        holder = QWidget()
+        holder.setObjectName("ExtContent")
+        line = QHBoxLayout(holder)
+        line.setContentsMargins(0, 12, 0, 12)
+        dot = StatusDot()
+        label = QLabel()
+        label.setObjectName("ExtStatus")
+        label.setWordWrap(True)
+        planner = getattr(getattr(self.runtime, "host", None), "online_planner", None)
+        ready = bool(planner is not None and planner.enabled())
+        if ready:
+            provider = ""
+            try:
+                provider = str(planner._provider() or "").capitalize()
+            except Exception:
+                pass
+            label.setText(w("ai_ready", self.language).format(provider=provider or "AI"))
+            dot.set_color("#32b87a")
+        else:
+            label.setText(w("ai_missing", self.language))
+            dot.set_color("#7c8696")
+        line.addWidget(dot)
+        line.addWidget(label, 1)
+        card.add_row(holder)
+
     def _build_today_card(self):
         language = self.language
         card = SectionCard("today", "clock", w("today", language), w("today_sub", language), resettable=False)
@@ -1169,7 +1405,7 @@ class PluginSettingsView(QWidget):
         field = self.fields[key]
         if isinstance(field, (ToggleSwitch,)):
             return field.isChecked()
-        if isinstance(field, (Segmented, SliderField, HotkeyField, FolderField, SecretField)):
+        if isinstance(field, (Segmented, SliderField, HotkeyField, FolderField, SecretField, TagsField)):
             return field.value()
         if isinstance(field, QComboBox):
             return field.currentData()
@@ -1186,7 +1422,7 @@ class PluginSettingsView(QWidget):
         try:
             if isinstance(field, ToggleSwitch):
                 field.setChecked(bool(value))
-            elif isinstance(field, (Segmented, SliderField, HotkeyField, FolderField, SecretField)):
+            elif isinstance(field, (Segmented, SliderField, HotkeyField, FolderField, SecretField, TagsField)):
                 field.set_value(value)
             elif isinstance(field, QComboBox):
                 field.setCurrentIndex(max(0, field.findData(value)))
@@ -1340,6 +1576,11 @@ class PluginSettingsView(QWidget):
                 button.style().polish(button)
 
     def detach(self):
+        if self.runtime is not None and hasattr(self, "clip_row"):
+            try:
+                self.runtime.clipboard_changed.disconnect(self._render_clip_now)
+            except (RuntimeError, TypeError):
+                pass
         if self.runtime is not None and hasattr(self, "today_label"):
             try:
                 self.runtime.breaks_changed.disconnect(self._render_today)

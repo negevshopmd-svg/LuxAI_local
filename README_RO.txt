@@ -1,4 +1,9 @@
-LUXAI LOCAL 0.4.1o — ACTUALIZARE 2026-11-17
+LUXAI LOCAL 0.4.1p — ACTUALIZARE 2026-11-17
+
+0.4.1p: Istoricul clipboard-ului e ca în Luxify: text cu formatare și imagini,
+Alt+Win+V deschide lista lângă cursor (Enter lipește, Shift+Enter fără formatare),
+fixare, excepții pentru managerele de parole, AI (traducere, corectare, pe scurt),
+salvat criptat pe acest PC. Cu vocea: „lipește precedentul”.
 
 0.4.1o: Apelul în Discord pornește mult mai repede: după ce se deschide chatul,
 Jarvis apasă scurtătura Discord Ctrl+' și verifică o singură dată că sună.

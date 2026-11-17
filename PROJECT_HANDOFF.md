@@ -7,6 +7,10 @@
 > Updated for the **0.3.9.e work**, 2026-10-30. \`Update.bat\` installs the code merged into \`main\`, NOT an open PR.
 > Do NOT include real API keys, private logs, screen captures, model binaries, user audio, or personal paths in Git history.
 
+## 0. Release 0.4.1p — Clipboard history like Luxify
+
+`luxai/clipboard_store.py`: `ClipboardHistory` (text+html / png+thumb items, dedupe by content, pins, `trim`, `prune`, DPAPI file `.luxai_data/clipboard_history.bin` with `LUXCLIP1` magic), `marked_private` (Exclude…/CanIncludeInClipboardHistory=0/Clipboard Viewer Ignore), `excluded_app`, `suppress()` (Jarvis's own temporary clipboard use; called in `selection.copy_selected_text`/`restore_clipboard` and quick-insert pastes). Runtime: `_on_clipboard`, `_remember_image`, `_paste_clip` (Shift+Enter = text only), `_clip_ai` → `OnlineAgent.transform_text` / `translate_text`, `handle_clipboard_request` («вставь предыдущее»), signal `clipboard_changed`. UI: `luxai/ui_clipboard.py` (`ClipboardPopup`), settings kind `tags` (`TagsField`, `FlowLayout`), keys `@note`, `@clip_now`, `@ai_status`, `NAV_TITLES`. Tests: `tests/test_clipboard_history_041p.py`.
+
 ## 0. Release 0.4.1o — Faster Discord calls
 
 `call_discord_user`: verified `open_discord_contact` → one `_observe_call_state` → `press_in_discord(hwnd, "ctrl", "oem_quote")` → `_call_state_after` (one look). Only if still idle: locate the phone once and click once. Tests: `tests/test_036_discord_call.py`.

@@ -604,13 +604,22 @@ class ExtensionsRuntime(QObject):
     _pc_status = Signal(str, dict)
 
     breaks_changed = Signal()
+    clipboard_changed = Signal()
+    _clip_ai_ready = Signal(str, str)  # mode, result ("" = failed)
 
     def __init__(self, host, parent=None):
         super().__init__(parent)
         self.host = host
         self.state: dict = {}
         self.errors: dict[str, str] = {}
-        self.clipboard_items: list[dict] = []  # {"text": str, "pinned": bool}
+        from luxai.clipboard_store import ClipboardHistory
+        self.clip_history = ClipboardHistory()
+        self._clip_loaded = False
+        self._clip_save_timer = QTimer(self)
+        self._clip_save_timer.setSingleShot(True)
+        self._clip_save_timer.setInterval(1500)
+        self._clip_save_timer.timeout.connect(self._save_clip_history)
+        self._clip_ai_ready.connect(self._on_clip_ai_ready)
         self._ignore_clipboard_text = None
         self._listener = None
         self._reading = False
@@ -733,6 +742,14 @@ class ExtensionsRuntime(QObject):
                     pass
                 self._clipboard_connected = False
         if self.enabled("clipboard_history"):
+            if not self._clip_loaded:
+                self._clip_loaded = True
+                if self.settings("clipboard_history").get("persist", True):
+                    from luxai.clipboard_store import history_file
+                    try:
+                        self.clip_history.load(history_file())
+                    except OSError:
+                        pass
             self._trim_clipboard()
         if self.enabled("smart_dictation") and self.settings("smart_dictation").get("trigger") == "right_ctrl_double" \
                 and sys.platform == "win32":
@@ -834,6 +851,7 @@ class ExtensionsRuntime(QObject):
                 "Așa sună citirea cu voce. Selectează text și apasă combinația.", self.language)),
             ("clipboard_history", "open"): self.open_clipboard_history,
             ("clipboard_history", "clear"): self.clear_clipboard,
+            ("clipboard_history", "clear_all"): self.clear_clipboard_all,
             ("quick_inserts", "open"): lambda: self.open_snippets(paste=False),
             ("breaks", "test"): lambda: self.remind_break(force=True),
             ("breaks", "try_eyes"): lambda: self.show_break_card("eyes", test=True),
@@ -1544,7 +1562,8 @@ class ExtensionsRuntime(QObject):
 
     def handle_text_request(self, text: str) -> str | None:
         """Typed or spoken requests handled by extensions (notifications, timers)."""
-        return self.handle_notification_request(text) or self.handle_timer_request(text)
+        return (self.handle_notification_request(text) or self.handle_timer_request(text)
+                or self.handle_clipboard_request(text))
 
     # -- converter circle --
     def _cw(self, key, **values):
@@ -2119,36 +2138,101 @@ class ExtensionsRuntime(QObject):
         return break_message(kind, self.language)
 
     # -- clipboard history --
+    @property
+    def clipboard_items(self) -> list[dict]:
+        """Text items, newest first (older callers and tests)."""
+        return [item for item in self.clip_history.items if item["kind"] == "text"]
+
     def _on_clipboard(self):
+        from luxai import clipboard_store as store
+        if store.suppressed():
+            return
         clipboard = QApplication.clipboard()
-        value = clipboard.text()
+        data = clipboard.mimeData()
+        if data is None:
+            return
+        settings = self.settings("clipboard_history")
+        formats = {}
+        for name in data.formats():
+            if any(marker in name.casefold() for marker in ("exclude", "canincludeinclipboardhistory", "viewer ignore")):
+                formats[name] = bytes(data.data(name))
+        if store.marked_private(formats):
+            return
+        app = store.clipboard_owner_app()
+        if store.excluded_app(app, store.parse_names(settings.get("exclude_apps", ""))):
+            return
+        if data.hasImage() and not data.hasText():
+            if settings.get("images", True):
+                self._remember_image(clipboard.image(), app)
+            return
+        value = data.text() if data.hasText() else ""
         if not value or not value.strip():
             return
         if value == self._ignore_clipboard_text:
             self._ignore_clipboard_text = None
             return
-        self.remember_clipboard(value)
+        html = data.html() if data.hasHtml() else ""
+        self.remember_clipboard(value, html=html, app=app)
 
-    def remember_clipboard(self, value: str):
-        if len(value) > 20000:
-            value = value[:20000]
+    def remember_clipboard(self, value: str, *, html: str = "", app: str = ""):
         if self.settings("clipboard_history").get("ignore_secrets", True) and looks_secret(value):
             return
-        existing = next((item for item in self.clipboard_items if item["text"] == value), None)
-        pinned = bool(existing and existing["pinned"])
-        if existing:
-            self.clipboard_items.remove(existing)
-        self.clipboard_items.insert(0, {"text": value, "pinned": pinned})
+        self.clip_history.add_text(value, html=html, app=app)
+        self._clip_changed()
+
+    def _remember_image(self, image, app: str = ""):
+        from PySide6.QtCore import QBuffer, QByteArray, QIODevice
+        if image is None or image.isNull():
+            return
+
+        def png(picture) -> bytes:
+            array = QByteArray()
+            buffer = QBuffer(array)
+            buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+            picture.save(buffer, "PNG")
+            return bytes(array)
+
+        thumb = image.scaled(96, 64, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        self.clip_history.add_image(png(image), thumb=png(thumb), size=(image.width(), image.height()), app=app)
+        self._clip_changed()
+
+    def _clip_changed(self):
         self._trim_clipboard()
+        self._clip_save_timer.start()
+        self.clipboard_changed.emit()
 
     def _trim_clipboard(self):
-        limit = int(self.settings("clipboard_history").get("limit", 50))
-        unpinned = [item for item in self.clipboard_items if not item["pinned"]]
-        for item in unpinned[limit:]:
-            self.clipboard_items.remove(item)
+        settings = self.settings("clipboard_history")
+        try:
+            keep = int(settings.get("keep", "100"))
+            age = int(settings.get("max_age", "0"))
+        except (TypeError, ValueError):
+            keep, age = 100, 0
+        self.clip_history.trim(keep)
+        self.clip_history.prune(age)
+
+    def _save_clip_history(self):
+        from luxai.clipboard_store import history_file
+        path = history_file()
+        try:
+            if self.settings("clipboard_history").get("persist", True) and self.enabled("clipboard_history"):
+                self.clip_history.save(path)
+            elif path.exists():
+                path.unlink()
+        except OSError:
+            pass
 
     def clear_clipboard(self):
-        self.clipboard_items = [item for item in self.clipboard_items if item["pinned"]]
+        self.clip_history.clear()
+        self._clip_changed()
+
+    def clear_clipboard_all(self):
+        self.clip_history.clear_all()
+        self._clip_changed()
+
+    def clipboard_counts(self) -> tuple[int, int]:
+        items = self.clip_history.items
+        return len(items), sum(1 for item in items if item.get("pinned"))
 
     def _popup_texts(self):
         return {
@@ -2164,24 +2248,147 @@ class ExtensionsRuntime(QObject):
         }
 
     def open_clipboard_history(self):
-        words = self._popup_texts()
+        from luxai.ui_clipboard import ClipboardPopup
+        self._trim_clipboard()
         target = _foreground_window()
-        ordered = [item for item in self.clipboard_items if item["pinned"]] + \
-                  [item for item in self.clipboard_items if not item["pinned"]]
-        items = [(" ".join(item["text"].split())[:120], item["text"], item["pinned"]) for item in ordered]
-        popup = PickerPopup(words["clip"], items, placeholder=words["search"], empty=words["empty_clip"], pin_label=words["pin"])
-        paste = bool(self.settings("clipboard_history").get("paste_on_pick", True))
-        popup.picked.connect(lambda value: self._insert_text(value, target, paste=paste, restore=False))
+        popup = ClipboardPopup(self.clip_history.ordered(), self.language)
+        popup.picked.connect(lambda item_id, plain: self._paste_clip(item_id, plain, target))
         popup.pin_toggled.connect(self._toggle_pin)
+        popup.removed.connect(self._remove_clip)
+        popup.ai_requested.connect(self._clip_ai)
+        self.clipboard_changed.connect(popup.refresh_from_runtime)
+        popup.runtime_items = lambda: self.clip_history.ordered()
         popup.show_at_cursor()
         self._popup = popup
         return popup
 
     def _toggle_pin(self, value):
-        for item in self.clipboard_items:
-            if item["text"] == value:
-                item["pinned"] = not item["pinned"]
-                break
+        """``value`` is an item id (popup) or a text (older callers)."""
+        if isinstance(value, str):
+            item = next((entry for entry in self.clip_history.items if entry.get("text") == value), None)
+            if item is None:
+                return
+            value = item["id"]
+        self.clip_history.toggle_pin(value)
+        self._clip_changed()
+
+    def _remove_clip(self, item_id: int):
+        self.clip_history.remove(item_id)
+        self._clip_changed()
+
+    def _clip_mime(self, item: dict, plain: bool):
+        from PySide6.QtCore import QMimeData
+        data = QMimeData()
+        if item["kind"] == "image":
+            data.setImageData(QImage.fromData(item["png"]))
+        else:
+            data.setText(item["text"])
+            if not plain and item.get("html"):
+                data.setHtml(item["html"])
+        return data
+
+    def _paste_clip(self, item_id: int, plain: bool, target_hwnd: int):
+        from luxai import clipboard_store as store
+        item = self.clip_history.find(item_id)
+        if item is None:
+            return
+        # The chosen item becomes the newest one; our own clipboard write is muted.
+        self.clip_history.items.remove(item)
+        self.clip_history.items.insert(0, item)
+        self._clip_changed()
+        store.suppress(1.5)
+        if item["kind"] == "text":
+            self._ignore_clipboard_text = item["text"]
+        QApplication.clipboard().setMimeData(self._clip_mime(item, plain))
+        if not target_hwnd:
+            return
+
+        def do_paste():
+            _set_foreground(target_hwnd)
+            QTimer.singleShot(120, finish)
+
+        def finish():
+            try:
+                _send_paste()
+            except Exception as error:
+                self.notice.emit(str(error))
+
+        QTimer.singleShot(80, do_paste)
+
+    def paste_previous(self) -> str:
+        """«Вставь предыдущее» — the text copied before the current one."""
+        value = self.clip_history.previous_text()
+        if value is None:
+            return _tr3("В истории нет предыдущей записи.", "There is no previous item in the history.",
+                        "Nu există un element anterior în istoric.", self.language)
+        item = next(entry for entry in self.clip_history.items if entry["kind"] == "text" and entry["text"] == value)
+        target = _foreground_window()
+        from luxai.screen_interact import _window_pid
+        own = bool(target) and _window_pid(target) == os.getpid()
+        self._paste_clip(item["id"], False, 0 if own else target)
+        if own:
+            return _tr3("Скопировал предыдущее в буфер обмена — Ctrl+V вставит его.",
+                        "Copied the previous item to the clipboard — Ctrl+V pastes it.",
+                        "Am copiat elementul anterior în clipboard — Ctrl+V îl lipește.", self.language)
+        return _tr3("Вставил предыдущее.", "Pasted the previous item.", "Am lipit elementul anterior.", self.language)
+
+    def handle_clipboard_request(self, text: str) -> str | None:
+        if not self.enabled("clipboard_history"):
+            return None
+        phrase = " ".join(str(text or "").casefold().replace("ё", "е").split()).strip(" .!?")
+        phrase = re.sub(r"^(?:джарвис|жарвис|jarvis)[,\s]+", "", phrase)
+        if re.fullmatch(r"(?:вставь|вставить|вставка)\s+(?:предыдущ\w*|прошл\w*|предпоследн\w*)(?:\s+(?:скопированн\w*|текст|запис\w*))?"
+                        r"|paste\s+(?:the\s+)?previous(?:\s+(?:one|item|copy))?"
+                        r"|lipe[șs]te\s+(?:precedentul|anteriorul|ce\s+am\s+copiat\s+[îi]nainte)", phrase):
+            return self.paste_previous()
+        return None
+
+    def _clip_ai(self, item_id: int, mode: str):
+        item = self.clip_history.find(item_id)
+        planner = getattr(self.host, "online_planner", None)
+        if item is None or item["kind"] != "text":
+            return
+        if planner is None or not planner.enabled():
+            self.notice.emit(_tr3("Для этого нужен облачный ИИ — подключите ключ в настройках Jarvis.",
+                                  "This needs the cloud AI — add a key in Jarvis settings.",
+                                  "E nevoie de AI în cloud — adaugă o cheie în setările Jarvis.", self.language))
+            return
+        value = item["text"]
+        self.notice.emit(_tr3("Нейросеть работает…", "AI is working…", "AI lucrează…", self.language))
+
+        def work():
+            result = None
+            try:
+                if mode == "translate":
+                    from luxai.translation import text_language
+                    from luxai.response_language import reply_language
+                    target = reply_language(getattr(self.host, "cfg", {}) or {})
+                    if text_language(value) == target:
+                        target = "en" if target != "en" else "ru"
+                    result = planner.translate_text(value, target)
+                else:
+                    result = planner.transform_text(value, mode)
+            except Exception:
+                result = None
+            self._clip_ai_ready.emit(mode, result or "")
+
+        threading.Thread(target=work, daemon=True, name="JarvisClipboardAI").start()
+
+    def _on_clip_ai_ready(self, mode: str, result: str):
+        from luxai import clipboard_store as store
+        if not result:
+            self.notice.emit(_tr3("Нейросеть не ответила. Попробуйте ещё раз.", "The AI did not answer. Try again.",
+                                  "AI nu a răspuns. Încearcă din nou.", self.language))
+            return
+        self.clip_history.add_text(result, app="Jarvis AI")
+        self._clip_changed()
+        store.suppress(1.5)
+        self._ignore_clipboard_text = result
+        _mute_clipboard_history()
+        QApplication.clipboard().setText(result)
+        self.notice.emit(_tr3("Готово — результат в буфере обмена и первым в истории. Ctrl+V вставит его.",
+                              "Done — the result is on the clipboard and first in the history. Ctrl+V pastes it.",
+                              "Gata — rezultatul e în clipboard și primul în istoric. Ctrl+V îl lipește.", self.language))
 
     def open_snippets(self, paste: bool = True):
         words = self._popup_texts()
@@ -2198,6 +2405,7 @@ class ExtensionsRuntime(QObject):
         clipboard = QApplication.clipboard()
         previous = clipboard.text() if restore else None
         self._ignore_clipboard_text = value
+        _mute_clipboard_history()
         clipboard.setText(value)
         if not paste or not target_hwnd:
             return
@@ -2214,6 +2422,7 @@ class ExtensionsRuntime(QObject):
             if restore and previous is not None:
                 def put_back():
                     self._ignore_clipboard_text = previous
+                    _mute_clipboard_history()
                     QApplication.clipboard().setText(previous)
                 QTimer.singleShot(700, put_back)
 
@@ -2430,6 +2639,12 @@ class ExtensionsRuntime(QObject):
             moved, trashed, errors = run_cleanup(steps)
             if moved or trashed:
                 self._report_cleanup((moved, trashed, errors))
+
+
+def _mute_clipboard_history() -> None:
+    """Jarvis's own temporary clipboard writes never enter the history."""
+    from luxai.clipboard_store import suppress
+    suppress(1.5)
 
 
 def _foreground_window() -> int:

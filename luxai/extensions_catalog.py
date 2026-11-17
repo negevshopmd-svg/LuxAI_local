@@ -44,7 +44,7 @@ CATEGORY_IDS = tuple(identifier for identifier, _ in CATEGORIES)
 @dataclass(frozen=True)
 class Setting:
     key: str
-    kind: str  # bool | choice | int | hotkey | text | multiline | folder
+    kind: str  # bool | choice | int | hotkey | text | multiline | folder | secret | tags
     label: dict
     default: object
     hint: dict | None = None
@@ -87,6 +87,10 @@ _MINUTES = L(" мин", " min", " min")
 _ITEMS = L(" шт.", " items", " elem.")
 _DAYS = L(" дн.", " days", " zile")
 _MB = L(" МБ", " MB", " MB")
+
+# Password managers: copies from these programs never enter the history.
+CLIPBOARD_EXCLUDE_DEFAULT = ("KeePass", "KeePassXC", "KeeWeb", "1Password", "Bitwarden", "LastPass", "Dashlane", "Enpass",
+                             "RoboForm", "Keeper", "NordPass", "Proton Pass", "pwsafe", "Buttercup", "Passwarden")
 
 PLUGINS: tuple[Plugin, ...] = (
     # --- Voice and sound -------------------------------------------------
@@ -283,19 +287,41 @@ PLUGINS: tuple[Plugin, ...] = (
     Plugin(
         "clipboard_history", "text", "clipboard-paste", "#c47a2c",
         L("История буфера обмена", "Clipboard history", "Istoric clipboard"),
-        L("Помнит последние скопированные тексты. По клавише открывается список у курсора: поиск, "
-          "закрепление и вставка в одно нажатие.",
-          "Remembers recently copied texts. A key opens the list at the cursor: search, "
-          "pinning and one-click paste.",
-          "Ține minte textele copiate recent. O tastă deschide lista lângă cursor: căutare, "
-          "fixare și lipire dintr-un clic."),
+        L("Запоминает, что вы копируете — текст и картинки, — и открывает историю у курсора по клавише.",
+          "Remembers what you copy — text and pictures — and opens the history at the cursor with a key.",
+          "Ține minte ce copiezi — text și imagini — și deschide istoricul lângă cursor cu o tastă."),
         True,
-        (_hotkey("ctrl+alt+v"),
-         Setting("limit", "int", L("Хранить записей", "Items to keep", "Elemente păstrate"), 50, minimum=10, maximum=300, suffix=_ITEMS),
-         Setting("paste_on_pick", "bool", L("Сразу вставлять выбранное", "Paste the chosen item immediately", "Lipește imediat elementul ales"), True),
-         Setting("ignore_secrets", "bool", L("Не запоминать похожее на пароли и коды", "Skip things that look like passwords or codes", "Nu reține ce seamănă cu parole sau coduri"), True)),
+        (Setting("hotkey", "hotkey", L("Открыть историю", "Open history", "Deschide istoricul"), "alt+win+v",
+                 hint=L("Клавиша заработает, когда плагин включён.", "The key works while the plugin is on.",
+                        "Tasta funcționează cât pluginul e pornit.")),
+         Setting("keep", "choice", L("Сколько помнить", "How many to keep", "Câte păstrez"), "100",
+                 hint=L("Обычных записей; старые уходят, когда приходят новые.",
+                        "Ordinary items; old ones go when new ones arrive.",
+                        "Elemente obișnuite; cele vechi pleacă când vin altele noi."),
+                 options=tuple((n, L(f"{n} записей", f"{n} items", f"{n} elemente")) for n in ("25", "50", "100", "200", "500"))),
+         Setting("max_age", "choice", L("Хранить не дольше", "Keep no longer than", "Păstrez cel mult"), "0",
+                 hint=L("Старше — удаляется само.", "Older items are deleted by themselves.", "Cele mai vechi se șterg singure."),
+                 options=(("0", L("Без ограничения", "No limit", "Fără limită")),
+                          ("1", L("1 день", "1 day", "1 zi")), ("7", L("7 дней", "7 days", "7 zile")),
+                          ("30", L("30 дней", "30 days", "30 de zile")))),
+         Setting("persist", "bool", L("Помнить после перезапуска", "Remember after restart", "Păstrez după repornire"), True,
+                 hint=L("На диске — только в зашифрованном виде. Выключено — история живёт, пока работает программа.",
+                        "On disk only encrypted. Off — the history lives while the program runs.",
+                        "Pe disc doar criptat. Oprit — istoricul trăiește cât rulează programul.")),
+         Setting("images", "bool", L("Запоминать картинки", "Remember pictures", "Rețin imaginile"), True,
+                 hint=L("Скриншоты и скопированные изображения — с миниатюрой в списке.",
+                        "Screenshots and copied images — with a thumbnail in the list.",
+                        "Capturi și imagini copiate — cu miniatură în listă.")),
+         Setting("exclude_apps", "tags", L("Программы", "Programs", "Programe"), "\n".join(CLIPBOARD_EXCLUDE_DEFAULT),
+                 max_length=3000),
+         Setting("ignore_secrets", "bool", L("Не запоминать похожее на пароли и коды", "Skip things that look like passwords or codes",
+                                             "Nu reține ce seamănă cu parole sau coduri"), True,
+                 hint=L("Одно «слово» с буквами, цифрами и знаками, коды из SMS, ключи API.",
+                        "A single “word” of letters, digits and symbols, SMS codes, API keys.",
+                        "Un singur „cuvânt” cu litere, cifre și simboluri, coduri SMS, chei API."))),
         (("open", L("Открыть историю", "Open history", "Deschide istoricul")),
-         ("clear", L("Очистить незакреплённые", "Clear unpinned", "Șterge cele nefixate"))),
+         ("clear", L("Очистить историю", "Clear history", "Golește istoricul")),
+         ("clear_all", L("Удалить всё", "Delete all", "Șterge tot"))),
     ),
     Plugin(
         "quick_inserts", "text", "zap", "#9b3fb5",
@@ -667,6 +693,25 @@ CONVERTER_VIDEO_SECTORS = ("s_mp4", "s_vcompress", "s_gif", "s_tomp3", "s_mute")
 # "Settings" card. The "basic" (on/off) card and the actions/test card are
 # always added by the page itself.
 SECTIONS = {
+    "clipboard_history": (
+        Section("key", "keyboard", L("Клавиша", "Key", "Tastă"),
+                L("По ней у курсора открывается окно истории.", "It opens the history window at the cursor.",
+                  "Deschide fereastra istoricului lângă cursor."),
+                ("hotkey",)),
+        Section("storage", "history", L("Что и как долго помнить", "What and how long to remember", "Ce și cât timp rețin"),
+                L("Закреплённые записи не стареют и не вытесняются новыми.", "Pinned items never age and are never pushed out.",
+                  "Elementele fixate nu îmbătrânesc și nu sunt înlocuite."),
+                ("keep", "max_age", "persist", "images", "@clip_now")),
+        Section("exclude", "shield-check", L("Не запоминать", "Do not remember", "Nu reține"),
+                L("Программы, копирования из которых не попадают в историю.", "Programs whose copies never enter the history.",
+                  "Programe ale căror copieri nu intră în istoric."),
+                ("@note", "exclude_apps", "ignore_secrets")),
+        Section("ai", "sparkles", L("Нейросеть", "AI", "AI"),
+                L("«Перевести», «Исправить ошибки» и «Кратко» у текстовой записи — правой кнопкой или кнопкой со звёздочкой.",
+                  "“Translate”, “Fix mistakes” and “Shorten” for a text item — right click or the sparkle button.",
+                  "„Tradu”, „Corectează” și „Pe scurt” pentru un text — clic dreapta sau butonul cu steluță."),
+                ("@ai_status",)),
+    ),
     "pc_control": (
         Section("connection", "link", L("Подключение", "Connection", "Conexiune"),
                 L("Ваш личный бот в Telegram. Он отвечает только вам.", "Your personal Telegram bot. It answers only you.",
@@ -771,6 +816,15 @@ BASIC_KEYS = {"pc_control": ("autostart",)}
 
 # Information shown in the basic card.
 BASIC_NOTE = {
+    "clipboard_history": L("Пароли из менеджеров паролей (KeePass, Bitwarden, 1Password и другие) и всё, что программы помечают "
+                           "«не для истории», не запоминается. Временные вставки самого Jarvis — тоже. История хранится только "
+                           "на этом компьютере, зашифрованной.",
+                           "Passwords from password managers (KeePass, Bitwarden, 1Password and others) and anything programs "
+                           "mark “not for history” are never remembered. Jarvis's own temporary pastes neither. The history "
+                           "stays only on this PC, encrypted.",
+                           "Parolele din managerele de parole (KeePass, Bitwarden, 1Password și altele) și tot ce programele "
+                           "marchează „nu pentru istoric” nu se rețin. Nici lipirile temporare ale lui Jarvis. Istoricul rămâne "
+                           "doar pe acest PC, criptat."),
     "notification_reader": L("Уведомления — ваша переписка. Jarvis держит в памяти только последние 20, ничего не пишет на диск "
                              "и в журналы. В нейросеть уходит только текст уведомления на другом языке — для перевода, и только "
                              "если перевод включён. Пока компьютер заблокирован, ничего не читается.",
@@ -789,6 +843,11 @@ BASIC_NOTE = {
 }
 
 BASIC_ACTIONS = {"notification_reader": ("test",)}
+# Short names in the right-hand navigation (the card keeps its full title).
+NAV_TITLES = {
+    ("clipboard_history", "storage"): L("Хранение", "Storage", "Stocare"),
+    ("clipboard_history", "exclude"): L("Исключения", "Exclusions", "Excepții"),
+}
 # Several actions in ONE basic-card row: plugin -> (title, hint, action ids).
 BASIC_ACTION_ROWS = {
     "breaks": (L("Попробовать сейчас", "Try it now", "Încearcă acum"),
@@ -804,6 +863,12 @@ ROW_GROUPS = {
 }
 # Info boxes at the end of a section card.
 SECTION_NOTES = {
+    ("clipboard_history", "exclude"): L("Менеджеры паролей обычно сами помечают пароль «не для истории» — такие копирования не "
+                                        "запоминаются ни из какой программы. Список ниже — на всякий случай.",
+                                        "Password managers usually mark a password “not for history” themselves — such copies are "
+                                        "never remembered from any program. The list below is just in case.",
+                                        "Managerele de parole marchează de obicei parola „nu pentru istoric” — asemenea copieri nu "
+                                        "se rețin din niciun program. Lista de mai jos e pentru siguranță."),
     ("breaks", "reminders"): L("Отошли дольше чем на 5 минут, заблокировали или усыпили компьютер — это тоже перерыв: счёт начнётся заново.",
                                "Away for more than 5 minutes, locked or put the PC to sleep — that is a break too: counting starts over.",
                                "Ai lipsit peste 5 minute, ai blocat sau ai adormit PC-ul — e tot o pauză: numărătoarea începe din nou."),
@@ -830,6 +895,10 @@ VOICE_HELP = {
 }
 
 BASIC_TEXT = {
+    "clipboard_history": (L("История буфера обмена", "Clipboard history", "Istoric clipboard"),
+                          L("Запоминает, что вы копируете, и открывает историю у курсора по клавише.",
+                            "Remembers what you copy and opens the history at the cursor with a key.",
+                            "Ține minte ce copiezi și deschide istoricul lângă cursor cu o tastă.")),
     "breaks": (L("Перерывы", "Breaks", "Pauze"),
                L("Напоминает дать глазам отдых, размяться и выпить воды.", "Reminds you to rest your eyes, stretch and drink water.",
                  "Îți amintește să-ți odihnești ochii, să te întinzi și să bei apă.")),
@@ -883,6 +952,15 @@ def how_it_works(plugin: Plugin, settings: dict, language: str) -> tuple[str, st
         return chip, text(body, language)
     if plugin.id == "pc_control":
         return "", text(plugin.description, language)
+    if plugin.id == "clipboard_history":
+        chip = "+".join(part.capitalize() for part in str(settings.get("hotkey") or "").split("+") if part)
+        key = chip or text(L("клавиша", "the key", "tasta"), language)
+        return chip, text(L(f"Копируйте как обычно. {key} — у курсора история: Enter вставит выбранное, Shift+Enter — "
+                            "без форматирования. Голосом: «вставь предыдущее».",
+                            f"Copy as usual. {key} — the history at the cursor: Enter pastes the chosen item, Shift+Enter — "
+                            "without formatting. By voice: “paste the previous one”.",
+                            f"Copiază ca de obicei. {key} — istoricul lângă cursor: Enter lipește elementul ales, "
+                            "Shift+Enter — fără formatare. Cu vocea: „lipește precedentul”."), language)
     if plugin.id == "breaks":
         return "", text(L("Считается только настоящая работа: пока вы что-то нажимаете и двигаете мышью. Пора — в углу экрана "
                           "появится плашка: «Сделал», «Отложить» или «Пропустить». В играх и звонках напоминания ждут.",
@@ -997,6 +1075,18 @@ def validate_value(setting: Setting, value):
         value = str(value or "").strip()
         if len(value) > setting.max_length or any(ord(char) < 33 for char in value):
             raise ValueError("invalid secret")
+        return value
+    if kind == "tags":
+        if not isinstance(value, str):
+            raise ValueError("text expected")
+        names = []
+        for name in value.replace(",", "\n").splitlines():
+            name = " ".join(name.split())[:60]
+            if name and "\x00" not in name and name.casefold() not in {item.casefold() for item in names}:
+                names.append(name)
+        value = "\n".join(names)
+        if len(value) > setting.max_length:
+            raise ValueError("too long")
         return value
     if kind in ("text", "multiline", "folder"):
         if not isinstance(value, str):

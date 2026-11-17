@@ -733,6 +733,29 @@ QLabel#ExtNote {
     padding: 8px 10px;
     color: $text;
 }
+QFrame#ExtTag {
+    background: $control;
+    border: 1px solid $border;
+    border-radius: 8px;
+}
+QFrame#ExtTag QToolButton {
+    color: $muted;
+    background: transparent;
+    border: none;
+    padding: 0 4px;
+}
+QFrame#ExtTag QToolButton:hover {
+    color: $text;
+}
+QWidget#ClipRow QToolButton#ClipAI {
+    background: transparent;
+    border: none;
+    border-radius: 7px;
+    padding: 4px;
+}
+QWidget#ClipRow QToolButton#ClipAI:hover {
+    background: $hover;
+}
 QLabel#ExtError {
     color: #e26675;
 }
