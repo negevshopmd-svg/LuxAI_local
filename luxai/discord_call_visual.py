@@ -152,7 +152,7 @@ def _locate_voice_call_button(planner, capture):
 
 def call_discord_user(planner, username: str, *, cancelled=None) -> str:
     """Open verified DM, place at most ONE voice call, observe result."""
-    from luxai.discord_navigation import open_discord_contact, _chat_header_ok
+    from luxai.discord_navigation import open_discord_contact
     from luxai.discord_screen_review import _ensure_discord_visible
     from luxai.discord_research import focus_discord
     from luxai.visual_click import capture_window, click_visual_target
@@ -182,39 +182,48 @@ def call_discord_user(planner, username: str, *, cancelled=None) -> str:
     hwnd = _ensure_discord_visible(cancelled=cancelled)
     focus_discord(hwnd)
     check()
-    shot = _chat_header_ok(planner, hwnd, displayed)
-    before = _observe_call_state(planner, shot, displayed)
+    # The open chat header was just verified by open_discord_contact, so one
+    # fresh look at the call state is enough before calling.
+    before = _observe_call_state(planner, capture_window(hwnd), displayed)
     check()
     if before in ("ringing", "active"):
         return f"Discord: звонок с «{displayed}» уже идёт."
     if before != "idle":
         return "Discord: состояние звонка неясно. Не стал нажимать телефон."
 
-    point = _locate_voice_call_button(planner, shot)
-    check()
-    # Re-observe after potentially slow cloud detection: it is unsafe to
-    # click a stale header when the window or call state has changed.
-    focus_discord(hwnd)
-    recent = _chat_header_ok(planner, hwnd, displayed)
-    if _observe_call_state(planner, recent, displayed) != "idle":
-        return "Discord: состояние окна изменилось. Не стал начинать новый звонок."
-    refreshed_point = _locate_voice_call_button(planner, recent)
-    if abs(point[0] - refreshed_point[0]) > 32 or abs(point[1] - refreshed_point[1]) > 24:
-        raise ValueError("Discord call button moved; no click attempted")
-    check()
-    click_visual_target(recent, refreshed_point, 1)
-    time.sleep(0.85)
-    check()
-    focus_discord(hwnd)
-    after = capture_window(hwnd)
+    # Discord's own "start call in this DM" shortcut (Ctrl+') — instant and
+    # theme independent, no need to find the tiny phone icon.
+    from luxai.discord_shortcuts import press_in_discord
     try:
-        state = _observe_call_state(planner, after, displayed)
-    except (ValueError, RuntimeError):
-        state = "unknown"
-    check()
+        press_in_discord(hwnd, "ctrl", "oem_quote")
+    except (OSError, ValueError, RuntimeError):
+        pass
+    state = _call_state_after(planner, hwnd, displayed, check)
+    if state == "idle":
+        # The shortcut did nothing (no call started), so the phone button is
+        # clicked once as the fallback.
+        check()
+        focus_discord(hwnd)
+        recent = capture_window(hwnd)
+        point = _locate_voice_call_button(planner, recent)
+        check()
+        click_visual_target(recent, point, 1)
+        state = _call_state_after(planner, hwnd, displayed, check)
     if state == "ringing":
         return f"Discord: вызов «{displayed}» начат, ожидаю ответа."
     if state == "active":
         return f"Discord: звонок с «{displayed}» активен."
-    return ("Discord: нажал на кнопку звонка, но начало вызова "
-            "не подтверждено. Повторно не нажимал.")
+    return ("Discord: начал звонок, но начало вызова "
+            "не подтверждено. Повторно не звонил.")
+
+
+def _call_state_after(planner, hwnd, displayed, check) -> str:
+    from luxai.discord_research import focus_discord
+    from luxai.visual_click import capture_window
+    time.sleep(0.8)
+    check()
+    focus_discord(hwnd)
+    try:
+        return _observe_call_state(planner, capture_window(hwnd), displayed)
+    except (ValueError, RuntimeError):
+        return "unknown"

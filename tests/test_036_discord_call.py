@@ -82,113 +82,69 @@ class DiscordCallVisualTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, "top header"):
                         _locate_voice_call_button(mock.Mock(), shot())
 
-    def test_one_command_opens_verified_dm_and_calls_once_then_checks_ringing(self):
+    def _patches(self, states, *, press_error=None):
         capture = shot()
-        with (
+        return [
             mock.patch("luxai.discord_navigation.open_discord_contact",
-                       return_value="Discord: открыт чат Hanzo") as opened,
-            mock.patch("luxai.discord_screen_review._ensure_discord_visible",
-                       return_value=33),
-            mock.patch("luxai.discord_research.focus_discord") as focus,
-            mock.patch("luxai.discord_navigation._chat_header_ok",
-                       return_value=capture) as header,
-            mock.patch("luxai.discord_call_visual._observe_call_state",
-                       side_effect=["idle", "idle", "ringing"]) as state,
-            mock.patch("luxai.discord_call_visual._locate_voice_call_button",
-                       side_effect=[(1134, 56), (1135, 56)]) as phone,
-            mock.patch("luxai.visual_click.click_visual_target") as click,
-            mock.patch("luxai.visual_click.capture_window",
-                       return_value=capture) as after,
+                       return_value="Discord: открыт чат Hanzo"),
+            mock.patch("luxai.discord_screen_review._ensure_discord_visible", return_value=33),
+            mock.patch("luxai.discord_research.focus_discord"),
+            mock.patch("luxai.discord_call_visual._observe_call_state", side_effect=states),
+            mock.patch("luxai.discord_call_visual._locate_voice_call_button", return_value=(1135, 56)),
+            mock.patch("luxai.visual_click.click_visual_target"),
+            mock.patch("luxai.visual_click.capture_window", return_value=capture),
+            mock.patch("luxai.discord_shortcuts.press_in_discord", side_effect=press_error),
             mock.patch("luxai.discord_call_visual.time.sleep"),
-        ):
+        ]
+
+    def _run(self, states, *, press_error=None):
+        import contextlib
+        with contextlib.ExitStack() as stack:
+            mocks = [stack.enter_context(item) for item in self._patches(states, press_error=press_error)]
             result = call_discord_user(mock.Mock(), "Hanzo")
+        opened, _, _, state, phone, click, _, press, _ = mocks
+        return result, opened, state, phone, click, press
+
+    def test_verified_dm_then_discord_call_shortcut_and_one_check(self):
+        result, opened, state, phone, click, press = self._run(["idle", "ringing"])
         self.assertIn("ожидаю ответа", result)
         opened.assert_called_once()
         self.assertEqual(opened.call_args.args[1], "Hanzo")
-        self.assertEqual(header.call_count, 2)
-        self.assertEqual(state.call_count, 3)
-        self.assertEqual(phone.call_count, 2)
-        click.assert_called_once_with(capture, (1135, 56), 1)
-        after.assert_called_once_with(33)
-        self.assertGreaterEqual(focus.call_count, 2)
+        press.assert_called_once_with(33, "ctrl", "oem_quote")
+        self.assertEqual(state.call_count, 2)  # before + after, nothing else
+        phone.assert_not_called()
+        click.assert_not_called()
 
     def test_already_ringing_never_places_second_call(self):
-        with (
-            mock.patch("luxai.discord_navigation.open_discord_contact"),
-            mock.patch("luxai.discord_screen_review._ensure_discord_visible", return_value=33),
-            mock.patch("luxai.discord_research.focus_discord"),
-            mock.patch("luxai.discord_navigation._chat_header_ok", return_value=shot()),
-            mock.patch("luxai.discord_call_visual._observe_call_state", return_value="ringing"),
-            mock.patch("luxai.discord_call_visual._locate_voice_call_button") as phone,
-            mock.patch("luxai.visual_click.click_visual_target") as click,
-        ):
-            result = call_discord_user(mock.Mock(), "Hanzo")
+        result, _, _, phone, click, press = self._run(["ringing"])
         self.assertIn("уже идёт", result)
+        press.assert_not_called()
         click.assert_not_called()
         phone.assert_not_called()
 
-    def test_unknown_pre_click_state_does_not_place_call(self):
-        with (
-            mock.patch("luxai.discord_navigation.open_discord_contact"),
-            mock.patch("luxai.discord_screen_review._ensure_discord_visible", return_value=33),
-            mock.patch("luxai.discord_research.focus_discord"),
-            mock.patch("luxai.discord_navigation._chat_header_ok", return_value=shot()),
-            mock.patch("luxai.discord_call_visual._observe_call_state", return_value="unknown"),
-            mock.patch("luxai.visual_click.click_visual_target") as click,
-        ):
-            result = call_discord_user(mock.Mock(), "Hanzo")
+    def test_unknown_pre_call_state_does_not_place_call(self):
+        result, _, _, _, click, press = self._run(["unknown"])
         self.assertIn("неясно", result)
+        press.assert_not_called()
         click.assert_not_called()
 
-    def test_relocation_of_phone_button_cancels_before_click(self):
-        with (
-            mock.patch("luxai.discord_navigation.open_discord_contact"),
-            mock.patch("luxai.discord_screen_review._ensure_discord_visible", return_value=33),
-            mock.patch("luxai.discord_research.focus_discord"),
-            mock.patch("luxai.discord_navigation._chat_header_ok", return_value=shot()),
-            mock.patch("luxai.discord_call_visual._observe_call_state",
-                       side_effect=["idle", "idle"]),
-            mock.patch("luxai.discord_call_visual._locate_voice_call_button",
-                       side_effect=[(1134, 56), (1190, 56)]),
-            mock.patch("luxai.visual_click.click_visual_target") as click,
-        ):
-            with self.assertRaisesRegex(ValueError, "moved"):
-                call_discord_user(mock.Mock(), "Hanzo")
-        click.assert_not_called()
+    def test_shortcut_without_effect_falls_back_to_one_click(self):
+        result, _, state, phone, click, press = self._run(["idle", "idle", "ringing"])
+        self.assertIn("ожидаю ответа", result)
+        press.assert_called_once()
+        phone.assert_called_once()
+        click.assert_called_once()
+        self.assertEqual(state.call_count, 3)
 
-    def test_fresh_state_changed_pre_click_aborts_without_click(self):
-        with (
-            mock.patch("luxai.discord_navigation.open_discord_contact"),
-            mock.patch("luxai.discord_screen_review._ensure_discord_visible", return_value=33),
-            mock.patch("luxai.discord_research.focus_discord"),
-            mock.patch("luxai.discord_navigation._chat_header_ok", return_value=shot()),
-            mock.patch("luxai.discord_call_visual._observe_call_state",
-                       side_effect=["idle", "ringing"]),
-            mock.patch("luxai.discord_call_visual._locate_voice_call_button",
-                       return_value=(1134, 56)),
-            mock.patch("luxai.visual_click.click_visual_target") as click,
-        ):
-            result = call_discord_user(mock.Mock(), "Hanzo")
-        self.assertIn("изменилось", result)
-        click.assert_not_called()
-
-    def test_after_click_idle_not_reported_as_success_and_never_redials(self):
-        with (
-            mock.patch("luxai.discord_navigation.open_discord_contact"),
-            mock.patch("luxai.discord_screen_review._ensure_discord_visible", return_value=33),
-            mock.patch("luxai.discord_research.focus_discord"),
-            mock.patch("luxai.discord_navigation._chat_header_ok", return_value=shot()),
-            mock.patch("luxai.discord_call_visual._observe_call_state",
-                       side_effect=["idle", "idle", "idle"]),
-            mock.patch("luxai.discord_call_visual._locate_voice_call_button",
-                       return_value=(1134, 56)),
-            mock.patch("luxai.visual_click.click_visual_target") as click,
-            mock.patch("luxai.visual_click.capture_window", return_value=shot()),
-            mock.patch("luxai.discord_call_visual.time.sleep"),
-        ):
-            result = call_discord_user(mock.Mock(), "Hanzo")
+    def test_after_fallback_idle_not_reported_as_success_and_never_redials(self):
+        result, _, _, _, click, _ = self._run(["idle", "idle", "idle"])
         self.assertIn("не подтверждено", result)
         click.assert_called_once()
+
+    def test_unclear_after_shortcut_never_clicks(self):
+        result, _, _, _, click, _ = self._run(["idle", "unknown"])
+        self.assertIn("не подтверждено", result)
+        click.assert_not_called()
 
     def test_contact_header_must_verify_before_phone_is_ever_clicked(self):
         with (

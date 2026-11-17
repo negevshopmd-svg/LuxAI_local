@@ -7,6 +7,10 @@
 > Updated for the **0.3.9.e work**, 2026-10-30. \`Update.bat\` installs the code merged into \`main\`, NOT an open PR.
 > Do NOT include real API keys, private logs, screen captures, model binaries, user audio, or personal paths in Git history.
 
+## 0. Release 0.4.1o — Faster Discord calls
+
+`call_discord_user`: verified `open_discord_contact` → one `_observe_call_state` → `press_in_discord(hwnd, "ctrl", "oem_quote")` → `_call_state_after` (one look). Only if still idle: locate the phone once and click once. Tests: `tests/test_036_discord_call.py`.
+
 ## 0. Release 0.4.1n — Fast Discord control
 
 `luxai/discord_shortcuts.py`: `SHORTCUTS` (official Discord keys, RU/RO/EN patterns, `navigation` = usable by the visual AI), `detect_discord_shortcut` (needs "Discord" or Discord in the foreground for `FOREGROUND_ONLY_OK`; skips audio, messages, questions, negation, compound/click requests), `press_in_discord` (verified focus + VK keys), `detect_discord_status_request` / `discord_quick_status` (one capture, one vision call), `DISCORD_LAYOUT` (user's ClearVision map, added to mic/headphones/visual-reasoner prompts). `main._dispatch_command` routes them right after `protected_workflow` (manual saved commands still win). Mic/headphones press Ctrl+Shift+M/D after reading the state (click is the fallback). Visual reasoner action `discord_key`. Tests: `tests/test_discord_fast_041n.py`.

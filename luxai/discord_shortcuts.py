@@ -177,7 +177,7 @@ FOREGROUND_ONLY_OK = frozenset({
 
 
 def shortcut_label(item: Shortcut) -> str:
-    names = {"ctrl": "Ctrl", "alt": "Alt", "shift": "Shift", "esc": "Esc", "enter": "Enter", "oem_comma": ",",
+    names = {"ctrl": "Ctrl", "alt": "Alt", "shift": "Shift", "esc": "Esc", "enter": "Enter", "oem_comma": ",", "oem_quote": "'",
              "up": "↑", "down": "↓", "left": "←", "right": "→", "pageup": "PageUp", "pagedown": "PageDown"}
     return "+".join(names.get(key, key.upper()) for key in item.keys)
 

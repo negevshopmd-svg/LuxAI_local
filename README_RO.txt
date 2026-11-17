@@ -1,4 +1,7 @@
-LUXAI LOCAL 0.4.1n — ACTUALIZARE 2026-11-17
+LUXAI LOCAL 0.4.1o — ACTUALIZARE 2026-11-17
+
+0.4.1o: Apelul în Discord pornește mult mai repede: după ce se deschide chatul,
+Jarvis apasă scurtătura Discord Ctrl+' și verifică o singură dată că sună.
 
 0.4.1n: Discord rapid: scurtăturile Discord prin voce (apel, servere, canale,
 necitite, mesaje directe, Ctrl+K, fixate, membri...), „verifică Discord” arată

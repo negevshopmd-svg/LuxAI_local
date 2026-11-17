@@ -1,3 +1,7 @@
+## 0.4.1o — Faster Discord calls (2026-11-17)
+
+- «Позвони Hanzo в Discord»: after the chat with the person is opened and its header verified, Jarvis looks once at the call state and presses Discord's own "start call" shortcut (Ctrl+'), then one more look confirms the call is ringing. Before, it needed about eight AI looks (header twice, call state twice, finding the phone icon twice) — about 15 seconds. The phone-icon click stays only as a fallback when the shortcut does nothing; never a second call.
+
 ## 0.4.1n — Fast Discord control (2026-11-17)
 
 - Discord's own keyboard shortcuts by voice/text (RU/RO/EN): answer/decline a call, back to the current call, next/previous server, channel and unread channel, direct messages ↔ last server, Ctrl+K quick switcher, search, pinned, inbox, members, emoji/GIF/stickers, upload, soundboard, copy channel link, create group, shortcut list, settings, scroll the chat. With the word "Discord" — or without it while Discord is the active window (Discord-only commands). Keys are layout independent.

@@ -126,25 +126,22 @@ class DiscordNavigationAliasTests(unittest.TestCase):
             mock.patch("luxai.discord_screen_review._ensure_discord_visible",
                        return_value=22),
             mock.patch("luxai.discord_research.focus_discord"),
-            mock.patch("luxai.discord_navigation._chat_header_ok",
-                       return_value=captured) as header,
             mock.patch("luxai.discord_call_visual._observe_call_state",
-                       side_effect=["idle", "idle", "ringing"]) as state,
+                       side_effect=["idle", "ringing"]) as state,
             mock.patch("luxai.discord_call_visual._locate_voice_call_button",
                        return_value=(1100, 50)),
             mock.patch("luxai.visual_click.click_visual_target") as click,
+            mock.patch("luxai.discord_shortcuts.press_in_discord") as press,
             mock.patch("luxai.visual_click.capture_window", return_value=captured),
             mock.patch("luxai.discord_call_visual.time.sleep"),
         ):
             result = call_discord_user(mock.Mock(), "Ханзо")
         self.assertIn("«Hanzo»", result)
-        self.assertEqual(header.call_count, 2)
-        self.assertEqual([c.args[2] for c in header.call_args_list],
-                         ["Hanzo", "Hanzo"])
         self.assertEqual([c.args[2] for c in state.call_args_list],
-                         ["Hanzo", "Hanzo", "Hanzo"])
+                         ["Hanzo", "Hanzo"])
         self.assertEqual(open_dm.call_count, 1)
-        click.assert_called_once()
+        press.assert_called_once_with(22, "ctrl", "oem_quote")
+        click.assert_not_called()
 
     def test_call_stops_on_unverified_name_and_never_reaches_phone(self):
         with (
