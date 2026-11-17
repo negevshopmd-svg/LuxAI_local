@@ -212,6 +212,19 @@ def expand_snippet(body: str, now: _dt.datetime | None = None) -> str:
     return body
 
 
+BREAK_KINDS = ("eyes", "stretch", "water")
+BREAK_IDLE_RESET = 5 * 60   # away this long = a break, counting starts over
+BREAK_ACTIVE_IDLE = 60      # no input for a minute: time stops counting
+BREAK_SNOOZE = 10 * 60
+BREAK_RESUME_DELAY = 30     # a delayed reminder comes 30 s after a game/call ends
+
+
+def break_title(kind: str, language: str) -> str:
+    titles = {"eyes": ("Глаза — правило 20-20-20", "Eyes — the 20-20-20 rule", "Ochi — regula 20-20-20"),
+              "stretch": ("Разминка", "Stretch", "Întinderi"), "water": ("Вода", "Water", "Apă")}[kind]
+    return dict(zip(("ru", "en", "ro"), titles)).get(language, titles[0])
+
+
 def break_message(kind: str, language: str) -> str:
     messages = {
         "eyes": {"ru": "Пора дать глазам отдых: 20 секунд смотрите на что-нибудь вдали.",
@@ -458,6 +471,54 @@ class DictationOverlay(QDialog):
         self.raise_()
 
 
+class BreakCard(QDialog):
+    """Reminder card in the bottom-right corner: Done / Later / Skip.
+
+    It never takes the keyboard focus, so typing and games are not
+    interrupted; an unanswered card counts as skipped after 3 minutes.
+    """
+    answered = Signal(str)  # done | later | skip
+
+    def __init__(self, title: str, body: str, labels):
+        super().__init__(None)
+        self.setObjectName("BreakCard")
+        self.setWindowFlags(Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint
+                            | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.WindowDoesNotAcceptFocus)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        self.setProperty("i18n_skip", True)
+        self.setStyleSheet("QDialog#BreakCard{border:1px solid #3aa05a;border-radius:14px;}")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 14, 18, 14)
+        layout.setSpacing(8)
+        heading = QLabel(title)
+        heading.setStyleSheet("font-size:15px;font-weight:700;")
+        layout.addWidget(heading)
+        text_label = QLabel(body)
+        text_label.setWordWrap(True)
+        layout.addWidget(text_label)
+        row = QHBoxLayout()
+        for answer, label in zip(("done", "later", "skip"), labels):
+            button = QPushButton(label)
+            if answer == "done":
+                button.setObjectName("Primary")
+            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            button.clicked.connect(lambda checked=False, a=answer: self.answered.emit(a))
+            row.addWidget(button)
+        layout.addLayout(row)
+        self.setFixedWidth(340)
+        self._expire = QTimer(self)
+        self._expire.setSingleShot(True)
+        self._expire.timeout.connect(lambda: self.answered.emit("skip"))
+        self._expire.start(3 * 60 * 1000)
+
+    def show_in_corner(self):
+        self.adjustSize()
+        area = QGuiApplication.primaryScreen().availableGeometry()
+        self.move(area.right() - self.width() - 18, area.bottom() - self.height() - 18)
+        self.show()
+        self.raise_()
+
+
 class RingDialog(QDialog):
     """Always-on-top alarm window with Snooze and Stop."""
     snoozed = Signal()
@@ -542,6 +603,8 @@ class ExtensionsRuntime(QObject):
     _pc_update = Signal(dict)
     _pc_status = Signal(str, dict)
 
+    breaks_changed = Signal()
+
     def __init__(self, host, parent=None):
         super().__init__(parent)
         self.host = host
@@ -556,8 +619,14 @@ class ExtensionsRuntime(QObject):
         self._last_tick = time.monotonic()
         self.hotkey.connect(self._on_hotkey)
         self._break_timer = QTimer(self)
-        self._break_timer.setInterval(30_000)
+        self._break_timer.setInterval(5_000)
         self._break_timer.timeout.connect(self._tick_breaks)
+        self.break_active = {kind: 0.0 for kind in BREAK_KINDS}
+        self._break_due: list[str] = []
+        self._break_card = None
+        self._break_card_kind = ""
+        self._break_silenced = False
+        self._break_resume_at = 0.0
         self._cleanup_timer = QTimer(self)
         self._cleanup_timer.setInterval(60 * 60 * 1000)
         self._cleanup_timer.timeout.connect(self._auto_cleanup)
@@ -646,11 +715,12 @@ class ExtensionsRuntime(QObject):
         self.state = state
         if self.enabled("breaks"):
             if not self._break_timer.isActive():
-                self._active_seconds = 0.0
+                self.break_active = {kind: 0.0 for kind in BREAK_KINDS}
                 self._last_tick = time.monotonic()
                 self._break_timer.start()
         else:
             self._break_timer.stop()
+            self._close_break_card()
         clipboard = QApplication.clipboard() if QApplication.instance() else None
         if clipboard is not None:
             if self.enabled("clipboard_history") and not self._clipboard_connected:
@@ -766,6 +836,9 @@ class ExtensionsRuntime(QObject):
             ("clipboard_history", "clear"): self.clear_clipboard,
             ("quick_inserts", "open"): lambda: self.open_snippets(paste=False),
             ("breaks", "test"): lambda: self.remind_break(force=True),
+            ("breaks", "try_eyes"): lambda: self.show_break_card("eyes", test=True),
+            ("breaks", "try_stretch"): lambda: self.show_break_card("stretch", test=True),
+            ("breaks", "try_water"): lambda: self.show_break_card("water", test=True),
             ("smart_dictation", "test"): lambda: self.start_dictation(test=True),
             ("smart_dictation", "copy_last"): self.copy_last_dictation,
             ("pc_control", "check"): self.check_pc_connection,
@@ -1918,29 +1991,132 @@ class ExtensionsRuntime(QObject):
         self.timers_changed.emit()
 
     # -- breaks --
-    def _tick_breaks(self):
-        now = time.monotonic()
-        elapsed = min(120.0, now - self._last_tick)
-        self._last_tick = now
+    def _break_interval(self, kind: str) -> int:
+        try:
+            return int(self.settings("breaks").get(f"{kind}_every", {"eyes": 20, "stretch": 55, "water": 90}[kind])) * 60
+        except (TypeError, ValueError):
+            return {"eyes": 20, "stretch": 55, "water": 90}[kind] * 60
+
+    def _break_kinds(self):
         settings = self.settings("breaks")
-        if idle_seconds() >= int(settings.get("idle_reset", 5)) * 60:
-            self._active_seconds = 0.0
+        return [kind for kind in BREAK_KINDS if settings.get(f"{kind}_on", True)]
+
+    def break_stats(self):
+        cfg = getattr(self.host, "cfg", None)
+        meta = cfg.get("extensions_meta", {}) if isinstance(cfg, dict) else {}
+        stats = meta.get("breaks_today", {})
+        if stats.get("date") != _dt.date.today().isoformat():
+            return 0, 0
+        return int(stats.get("done", 0)), int(stats.get("skipped", 0))
+
+    def _count_break(self, field: str):
+        cfg = getattr(self.host, "cfg", None)
+        if not isinstance(cfg, dict):
             return
-        self._active_seconds += elapsed
-        if self._active_seconds >= int(settings.get("interval", 50)) * 60:
-            self.remind_break()
+        meta = cfg.setdefault("extensions_meta", {})
+        today = _dt.date.today().isoformat()
+        stats = meta.get("breaks_today", {})
+        if stats.get("date") != today:
+            stats = {"date": today, "done": 0, "skipped": 0}
+        stats[field] = int(stats.get(field, 0)) + 1
+        meta["breaks_today"] = stats
+        if hasattr(self.host, "save_extensions_meta"):
+            self.host.save_extensions_meta()
+        self.breaks_changed.emit()
+
+    def _break_silence(self) -> str:
+        from luxai import notifications as n
+        settings = self.settings("breaks")
+        cfg = getattr(self.host, "cfg", {}) or {}
+        try:
+            start, end = int(settings.get("quiet_from", 22)), int(settings.get("quiet_to", 8))
+        except (TypeError, ValueError):
+            start, end = 22, 8
+        if settings.get("quiet_enabled") and n.in_quiet_hours(_dt.datetime.now().hour, start, end):
+            return "quiet_hours"
+        if settings.get("silent_quiet_mode", True) and not cfg.get("tts_enabled", True):
+            return "quiet_mode"
+        if settings.get("silent_fullscreen", True) and foreground_is_fullscreen():
+            return "fullscreen"
+        if settings.get("silent_calls", True) and n.microphone_in_use_by_other_app():
+            return "call"
+        if settings.get("silent_windows_dnd", True) and n.windows_do_not_disturb():
+            return "windows_dnd"
+        return ""
+
+    def _tick_breaks(self):
+        from luxai import notifications as n
+        now = time.monotonic()
+        elapsed = now - self._last_tick
+        self._last_tick = now
+        # Sleep/hibernate (a long gap), a locked PC or 5 minutes away = a break.
+        if elapsed > 120 or n.computer_locked() or idle_seconds() >= BREAK_IDLE_RESET:
+            self.break_active = {kind: 0.0 for kind in BREAK_KINDS}
+            self._break_due = []
+            return
+        if idle_seconds() < BREAK_ACTIVE_IDLE:  # only real work counts
+            for kind in self._break_kinds():
+                self.break_active[kind] += elapsed
+                if self.break_active[kind] >= self._break_interval(kind) and kind not in self._break_due \
+                        and kind != self._break_card_kind:
+                    self._break_due.append(kind)
+        if not self._break_due or self._break_card is not None:
+            return
+        if self._break_silence():
+            self._break_silenced = True
+            return
+        if self._break_silenced:  # wait half a minute after the game/call ended
+            self._break_silenced = False
+            self._break_resume_at = now + BREAK_RESUME_DELAY
+        if now < self._break_resume_at:
+            return
+        kind = self._break_due.pop(0)
+        self._break_due = [k for k in self._break_due if k != kind]
+        self.show_break_card(kind)
+
+    def show_break_card(self, kind: str, *, test: bool = False):
+        settings = self.settings("breaks")
+        self._close_break_card()
+        card = BreakCard(break_title(kind, self.language), break_message(kind, self.language),
+                         [_tr3("Сделал", "Done", "Gata", self.language), _tr3("Отложить", "Later", "Mai târziu", self.language),
+                          _tr3("Пропустить", "Skip", "Sar", self.language)])
+        card.answered.connect(lambda answer, k=kind, t=test: self._break_answer(k, answer, t))
+        self._break_card = card
+        self._break_card_kind = kind
+        card.show_in_corner()
+        if settings.get("voice") and hasattr(self.host, "_queue_speech"):
+            self.host._queue_speech(break_message(kind, self.language), self.language)
+        return card
+
+    def _break_answer(self, kind: str, answer: str, test: bool):
+        self._close_break_card()
+        if test:
+            return  # «Попробовать сейчас» never touches counters or statistics
+        if answer == "later":
+            self.break_active[kind] = max(0.0, self._break_interval(kind) - BREAK_SNOOZE)
+            return
+        self.break_active[kind] = 0.0
+        self._count_break("done" if answer == "done" else "skipped")
+
+    def _close_break_card(self):
+        card, self._break_card = self._break_card, None
+        self._break_card_kind = ""
+        if card is not None:
+            try:
+                card.close()
+                card.deleteLater()
+            except RuntimeError:
+                pass
 
     def remind_break(self, force: bool = False) -> str:
-        settings = self.settings("breaks")
-        if not force and settings.get("skip_fullscreen", True) and foreground_is_fullscreen():
-            return ""  # try again on the next tick, without resetting
-        kinds = [kind for kind in ("eyes", "water", "stretch") if settings.get(kind, True)] or ["eyes"]
+        """Show the next enabled reminder now (used by older callers)."""
+        kinds = self._break_kinds() or ["eyes"]
         kind = kinds[self._break_index % len(kinds)]
         self._break_index += 1
-        self._active_seconds = 0.0
-        message = break_message(kind, self.language)
-        self._notify(message, speak=bool(settings.get("speak")))
-        return message
+        if not force and self._break_silence():
+            return ""
+        self.show_break_card(kind, test=force)
+        return break_message(kind, self.language)
 
     # -- clipboard history --
     def _on_clipboard(self):

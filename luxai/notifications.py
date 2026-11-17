@@ -314,3 +314,19 @@ class NotificationWatcher:
                 continue
             result.append({"app": app_name(primary), "texts": toast_texts(payload), "source": str(primary or "")})
         return result
+
+
+def windows_do_not_disturb() -> bool:
+    """True when Windows says notifications should wait (presentation,
+    full-screen D3D app, quiet time / focus). Uses SHQueryUserNotificationState."""
+    if sys.platform != "win32":
+        return False
+    import ctypes
+    state = ctypes.c_int(0)
+    try:
+        if ctypes.windll.shell32.SHQueryUserNotificationState(ctypes.byref(state)) != 0:
+            return False
+    except (OSError, AttributeError):
+        return False
+    # 2 busy, 3 D3D full screen, 4 presentation, 6 quiet time; 5 = accepts notifications.
+    return state.value in (2, 3, 4, 6)

@@ -1,4 +1,8 @@
-LUXAI LOCAL 0.4.1l — ACTUALIZARE 2026-11-17
+LUXAI LOCAL 0.4.1m — ACTUALIZARE 2026-11-17
+
+0.4.1m: Pauzele sunt ca în Luxify: ochi (20-20-20), întinderi și apă, fiecare cu
+intervalul ei; un card în colț cu „Gata / Mai târziu / Sar”; statistica zilei;
+nu deranjează în jocuri, apeluri, ore de liniște și „Nu deranja” din Windows.
 
 0.4.1l: la derularea cu clic pe rotiță, cursorul arată direcția (▲ sau ▼),
 ca în Windows; nu mai rămâne niciun cerc fix pe ecran.

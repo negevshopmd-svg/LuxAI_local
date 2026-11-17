@@ -388,14 +388,41 @@ PLUGINS: tuple[Plugin, ...] = (
           "Îți amintește să-ți odihnești ochii, să te întinzi și să bei apă — numără doar timpul real la "
           "calculator și nu deranjează jocurile sau apelurile."),
         True,
-        (Setting("interval", "int", L("Напоминать каждые", "Remind every", "Amintește la fiecare"), 50, minimum=10, maximum=240, suffix=_MINUTES),
-         Setting("idle_reset", "int", L("Считать перерывом простой от", "Idle time that counts as a break", "Inactivitate considerată pauză"), 5, minimum=1, maximum=60, suffix=_MINUTES),
-         Setting("eyes", "bool", L("Глаза: правило 20-20-20", "Eyes: 20-20-20 rule", "Ochi: regula 20-20-20"), True),
-         Setting("water", "bool", L("Вода", "Water", "Apă"), True),
-         Setting("stretch", "bool", L("Разминка", "Stretching", "Întinderi"), True),
-         Setting("speak", "bool", L("Говорить напоминание вслух", "Speak the reminder", "Rostește mementoul"), False),
-         Setting("skip_fullscreen", "bool", L("Не мешать в играх и полноэкранных окнах", "Do not disturb in games and fullscreen", "Nu deranja în jocuri și ecran complet"), True)),
-        (("test", L("Показать напоминание сейчас", "Show a reminder now", "Arată un memento acum")),),
+        (Setting("eyes_on", "bool", L("Глаза — правило 20-20-20", "Eyes — the 20-20-20 rule", "Ochi — regula 20-20-20"), True,
+                 hint=L("Посмотреть вдаль 20 секунд.", "Look into the distance for 20 seconds.", "Privește în depărtare 20 de secunde.")),
+         Setting("eyes_every", "choice", L("Глаза", "Eyes", "Ochi"), "20", options=(("10", L("каждые 10 мин", "every 10 min", "la fiecare 10 min")), ("15", L("каждые 15 мин", "every 15 min", "la fiecare 15 min")), ("20", L("каждые 20 мин", "every 20 min", "la fiecare 20 min")), ("25", L("каждые 25 мин", "every 25 min", "la fiecare 25 min")), ("30", L("каждые 30 мин", "every 30 min", "la fiecare 30 min")), ("40", L("каждые 40 мин", "every 40 min", "la fiecare 40 min")), ("45", L("каждые 45 мин", "every 45 min", "la fiecare 45 min")), ("60", L("каждые 60 мин", "every 60 min", "la fiecare 60 min")),)),
+         Setting("stretch_on", "bool", L("Разминка", "Stretch", "Întinderi"), True,
+                 hint=L("Встать, потянуться, пройтись пару минут.", "Stand up, stretch, walk for a couple of minutes.",
+                        "Ridică-te, întinde-te, plimbă-te câteva minute.")),
+         Setting("stretch_every", "choice", L("Разминка", "Stretch", "Întinderi"), "55", options=(("30", L("каждые 30 мин", "every 30 min", "la fiecare 30 min")), ("40", L("каждые 40 мин", "every 40 min", "la fiecare 40 min")), ("45", L("каждые 45 мин", "every 45 min", "la fiecare 45 min")), ("50", L("каждые 50 мин", "every 50 min", "la fiecare 50 min")), ("55", L("каждые 55 мин", "every 55 min", "la fiecare 55 min")), ("60", L("каждые 60 мин", "every 60 min", "la fiecare 60 min")), ("75", L("каждые 75 мин", "every 75 min", "la fiecare 75 min")), ("90", L("каждые 90 мин", "every 90 min", "la fiecare 90 min")), ("120", L("каждые 120 мин", "every 120 min", "la fiecare 120 min")),)),
+         Setting("water_on", "bool", L("Вода", "Water", "Apă"), True,
+                 hint=L("Стакан воды.", "A glass of water.", "Un pahar cu apă.")),
+         Setting("water_every", "choice", L("Вода", "Water", "Apă"), "90", options=(("45", L("каждые 45 мин", "every 45 min", "la fiecare 45 min")), ("60", L("каждые 60 мин", "every 60 min", "la fiecare 60 min")), ("75", L("каждые 75 мин", "every 75 min", "la fiecare 75 min")), ("90", L("каждые 90 мин", "every 90 min", "la fiecare 90 min")), ("120", L("каждые 120 мин", "every 120 min", "la fiecare 120 min")), ("150", L("каждые 150 мин", "every 150 min", "la fiecare 150 min")), ("180", L("каждые 180 мин", "every 180 min", "la fiecare 180 min")),)),
+         Setting("voice", "bool", L("Голосом", "By voice", "Prin voce"), False,
+                 hint=L("Ассистент скажет напоминание вслух текущим голосом.", "The assistant says the reminder aloud in its current voice.",
+                        "Asistentul rostește mementoul cu vocea curentă.")),
+         Setting("pet", "bool", L("С питомцем", "With the pet", "Cu animăluțul"), True,
+                 hint=L("Сработает, когда включён плагин «Питомец».", "Works when the “Desktop pet” plugin is on.",
+                        "Funcționează când pluginul „Animăluț” e pornit.")),
+         Setting("quiet_enabled", "bool", L("Тихие часы", "Quiet hours", "Ore de liniște"), False,
+                 hint=L("В это время напоминаний нет.", "No reminders during these hours.", "Fără mementouri în aceste ore.")),
+         Setting("quiet_from", "choice", L("С", "From", "De la"), "22", options=(("0", L("00:00", "00:00", "00:00")), ("1", L("01:00", "01:00", "01:00")), ("2", L("02:00", "02:00", "02:00")), ("3", L("03:00", "03:00", "03:00")), ("4", L("04:00", "04:00", "04:00")), ("5", L("05:00", "05:00", "05:00")), ("6", L("06:00", "06:00", "06:00")), ("7", L("07:00", "07:00", "07:00")), ("8", L("08:00", "08:00", "08:00")), ("9", L("09:00", "09:00", "09:00")), ("10", L("10:00", "10:00", "10:00")), ("11", L("11:00", "11:00", "11:00")), ("12", L("12:00", "12:00", "12:00")), ("13", L("13:00", "13:00", "13:00")), ("14", L("14:00", "14:00", "14:00")), ("15", L("15:00", "15:00", "15:00")), ("16", L("16:00", "16:00", "16:00")), ("17", L("17:00", "17:00", "17:00")), ("18", L("18:00", "18:00", "18:00")), ("19", L("19:00", "19:00", "19:00")), ("20", L("20:00", "20:00", "20:00")), ("21", L("21:00", "21:00", "21:00")), ("22", L("22:00", "22:00", "22:00")), ("23", L("23:00", "23:00", "23:00")),)),
+         Setting("quiet_to", "choice", L("До", "Until", "Până la"), "8", options=(("0", L("00:00", "00:00", "00:00")), ("1", L("01:00", "01:00", "01:00")), ("2", L("02:00", "02:00", "02:00")), ("3", L("03:00", "03:00", "03:00")), ("4", L("04:00", "04:00", "04:00")), ("5", L("05:00", "05:00", "05:00")), ("6", L("06:00", "06:00", "06:00")), ("7", L("07:00", "07:00", "07:00")), ("8", L("08:00", "08:00", "08:00")), ("9", L("09:00", "09:00", "09:00")), ("10", L("10:00", "10:00", "10:00")), ("11", L("11:00", "11:00", "11:00")), ("12", L("12:00", "12:00", "12:00")), ("13", L("13:00", "13:00", "13:00")), ("14", L("14:00", "14:00", "14:00")), ("15", L("15:00", "15:00", "15:00")), ("16", L("16:00", "16:00", "16:00")), ("17", L("17:00", "17:00", "17:00")), ("18", L("18:00", "18:00", "18:00")), ("19", L("19:00", "19:00", "19:00")), ("20", L("20:00", "20:00", "20:00")), ("21", L("21:00", "21:00", "21:00")), ("22", L("22:00", "22:00", "22:00")), ("23", L("23:00", "23:00", "23:00")),)),
+         Setting("silent_fullscreen", "bool", L("Игры и окна во весь экран", "Games and full-screen windows", "Jocuri și ferestre pe tot ecranul"), True,
+                 hint=L("И презентации: напоминание подождёт, пока они не закончатся.",
+                        "And presentations: the reminder waits until they end.", "Și prezentări: mementoul așteaptă să se termine.")),
+         Setting("silent_calls", "bool", L("Звонки", "Calls", "Apeluri"), True,
+                 hint=L("Пока микрофоном или камерой пользуется другая программа.", "While another app uses the microphone or camera.",
+                        "Cât timp altă aplicație folosește microfonul sau camera.")),
+         Setting("silent_quiet_mode", "bool", L("Тихий режим Jarvis", "Jarvis quiet mode", "Modul silențios Jarvis"), True,
+                 hint=L("Пока включён тихий режим, напоминаний нет.", "No reminders while quiet mode is on.",
+                        "Fără mementouri cât modul silențios e pornit.")),
+         Setting("silent_windows_dnd", "bool", L("«Не беспокоить» Windows", "Windows “Do not disturb”", "„Nu deranja” din Windows"), True,
+                 hint=L("Если Windows сообщает, что «Не беспокоить» включено, напоминание ждёт.",
+                        "If Windows reports “Do not disturb”, the reminder waits.",
+                        "Dacă Windows raportează „Nu deranja”, mementoul așteaptă."))),
+        (("try_eyes", L("Глаза", "Eyes", "Ochi")), ("try_stretch", L("Разминка", "Stretch", "Întinderi")),
+         ("try_water", L("Вода", "Water", "Apă"))),
     ),
     # --- PC and home control ---------------------------------------------
     Plugin(
@@ -684,6 +711,21 @@ SECTIONS = {
         Section("appearance", "palette", L("Оформление", "Appearance", "Aspect"),
                 L("Как выглядит круг.", "How the circle looks.", "Cum arată cercul."), ("circle_theme",)),
     ),
+    "breaks": (
+        Section("reminders", "bell", L("Напоминания", "Reminders", "Mementouri"),
+                L("Включите нужные и выберите, как часто.", "Turn on the ones you need and choose how often.",
+                  "Pornește-le pe cele de care ai nevoie și alege cât de des."),
+                ("eyes_on", "eyes_every", "stretch_on", "stretch_every", "water_on", "water_every")),
+        Section("how", "volume-2", L("Как напоминать", "How to remind", "Cum amintesc"),
+                L("Плашка в углу экрана — всегда; голос и питомец — по желанию.",
+                  "A card in the screen corner — always; voice and pet — optional.",
+                  "Un card în colțul ecranului — mereu; vocea și animăluțul — opțional."),
+                ("voice", "pet")),
+        Section("quiet", "moon", L("Не мешать", "Do not disturb", "Nu deranja"),
+                L("Когда напоминание подождёт.", "When a reminder waits.", "Când mementoul așteaptă."),
+                ("quiet_enabled", "quiet_from", "quiet_to", "silent_fullscreen", "silent_calls", "silent_quiet_mode",
+                 "silent_windows_dnd")),
+    ),
     "timers": (
         Section("signal", "bell-ring", L("Сигнал", "Signal", "Semnal"),
                 L("Как сообщить, что время вышло.", "How to tell you that time is up.", "Cum îți spun că a expirat timpul."),
@@ -747,6 +789,31 @@ BASIC_NOTE = {
 }
 
 BASIC_ACTIONS = {"notification_reader": ("test",)}
+# Several actions in ONE basic-card row: plugin -> (title, hint, action ids).
+BASIC_ACTION_ROWS = {
+    "breaks": (L("Попробовать сейчас", "Try it now", "Încearcă acum"),
+               L("Покажу напоминание — на счёт и статистику это не влияет.",
+                 "Shows a reminder — it does not affect the count or the statistics.",
+                 "Arăt un memento — nu afectează numărătoarea sau statistica."),
+               ("try_eyes", "try_stretch", "try_water")),
+}
+# Several settings in ONE row: lead key -> other keys shown before its control.
+ROW_GROUPS = {
+    "breaks": {"eyes_on": ("eyes_every",), "stretch_on": ("stretch_every",), "water_on": ("water_every",),
+               "quiet_enabled": ("quiet_from", "quiet_to")},
+}
+# Info boxes at the end of a section card.
+SECTION_NOTES = {
+    ("breaks", "reminders"): L("Отошли дольше чем на 5 минут, заблокировали или усыпили компьютер — это тоже перерыв: счёт начнётся заново.",
+                               "Away for more than 5 minutes, locked or put the PC to sleep — that is a break too: counting starts over.",
+                               "Ai lipsit peste 5 minute, ai blocat sau ai adormit PC-ul — e tot o pauză: numărătoarea începe din nou."),
+    ("breaks", "how"): L("Если включён «Островок», напоминание появится и на нём. Щелчок по строке на островке — «Сделал».",
+                         "If “Status island” is on, the reminder also appears there. Clicking its line means “Done”.",
+                         "Dacă „Insula de stare” e pornită, mementoul apare și acolo. Un clic pe rând înseamnă „Gata”."),
+    ("breaks", "quiet"): L("Отложенное напоминание придёт одно — через полминуты после того, как закончится игра, звонок или презентация.",
+                           "A delayed reminder comes once — half a minute after the game, call or presentation ends.",
+                           "Mementoul amânat vine o singură dată — la jumătate de minut după ce se termină jocul, apelul sau prezentarea."),
+}
 BASIC_KEYS["notification_reader"] = ("read_now",)
 # Settings edited by a custom card instead of a form row.
 HIDDEN_SETTINGS = {"notification_reader": ("app_rules",)}
@@ -763,6 +830,9 @@ VOICE_HELP = {
 }
 
 BASIC_TEXT = {
+    "breaks": (L("Перерывы", "Breaks", "Pauze"),
+               L("Напоминает дать глазам отдых, размяться и выпить воды.", "Reminds you to rest your eyes, stretch and drink water.",
+                 "Îți amintește să-ți odihnești ochii, să te întinzi și să bei apă.")),
     "notification_reader": (L("Плагин", "Plugin", "Plugin"),
                             L("Новые уведомления Windows читаются вслух.", "New Windows notifications are read aloud.",
                               "Notificările Windows noi sunt citite cu voce.")),
@@ -813,6 +883,13 @@ def how_it_works(plugin: Plugin, settings: dict, language: str) -> tuple[str, st
         return chip, text(body, language)
     if plugin.id == "pc_control":
         return "", text(plugin.description, language)
+    if plugin.id == "breaks":
+        return "", text(L("Считается только настоящая работа: пока вы что-то нажимаете и двигаете мышью. Пора — в углу экрана "
+                          "появится плашка: «Сделал», «Отложить» или «Пропустить». В играх и звонках напоминания ждут.",
+                          "Only real work counts: while you type and move the mouse. When it is time, a card appears in the "
+                          "screen corner: “Done”, “Later” or “Skip”. During games and calls reminders wait.",
+                          "Se numără doar lucrul real: cât apeși taste și miști mouse-ul. Când e timpul, apare un card în colț: "
+                          "„Gata”, „Mai târziu” sau „Sar”. În jocuri și apeluri mementourile așteaptă."), language)
     if plugin.id == "notification_reader":
         return "", text(L("Новые уведомления Windows Jarvis читает вслух. Текст хранится только в памяти и никуда не уходит. "
                           "Спросите «что пришло» — прочитает пропущенное.",

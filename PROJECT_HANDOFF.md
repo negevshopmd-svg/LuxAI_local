@@ -7,6 +7,10 @@
 > Updated for the **0.3.9.e work**, 2026-10-30. \`Update.bat\` installs the code merged into \`main\`, NOT an open PR.
 > Do NOT include real API keys, private logs, screen captures, model binaries, user audio, or personal paths in Git history.
 
+## 0. Release 0.4.1m — Breaks like Luxify
+
+`ExtensionsRuntime._tick_breaks` (5 s) keeps `break_active` per kind (eyes/stretch/water) for real activity only (idle < 60 s); idle ≥ 5 min, a locked PC or a > 2 min tick gap resets. Due kinds queue in `_break_due`; `_break_silence` (quiet hours, quiet mode, full screen, calls, `notifications.windows_do_not_disturb`) delays them and one card shows 30 s after silence ends. `BreakCard` (no focus) answers done/later/skip; `break_stats` lives in `extensions_meta.breaks_today`. Settings view: `ROW_GROUPS`, `SECTION_NOTES`, `BASIC_ACTION_ROWS`. Tests: `tests/test_breaks_041m.py`.
+
 ## 0. Release 0.4.1k — Scroll assist
 
 `luxai/scroll_assist.py` (`ScrollAssist.install()` in MainWindow) is an application event filter: middle-click autoscroll with an anchor marker, left-drag on empty backgrounds (never on buttons/fields/lists/sliders or the window header), and PageUp/PageDown/Home/End when not typing. Scroll handles use `$barhandle` (computed in `build_styles`). Tests: `tests/test_scroll_assist_041k.py`.

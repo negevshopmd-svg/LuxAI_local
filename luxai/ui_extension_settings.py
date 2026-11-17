@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from luxai.extensions_catalog import (
-    BASIC_ACTIONS, BASIC_KEYS, BASIC_LAST, BASIC_NOTE, BASIC_TEXT, HIDDEN_SETTINGS, VOICE_HELP, ENABLED_IF, L, Plugin, how_it_works, sections_for, text, ui, validate_value,
+    BASIC_ACTION_ROWS, BASIC_ACTIONS, BASIC_KEYS, ROW_GROUPS, SECTION_NOTES, BASIC_LAST, BASIC_NOTE, BASIC_TEXT, HIDDEN_SETTINGS, VOICE_HELP, ENABLED_IF, L, Plugin, how_it_works, sections_for, text, ui, validate_value,
 )
 from luxai.icons import set_button_icon, set_label_icon
 from luxai.ui_home import ToggleSwitch
@@ -99,6 +99,13 @@ W = {
                     "Implicit se citesc toate aplicațiile, în afară de cele de sistem — oprește ce nu-ți trebuie."),
     "apps_refresh": L("Обновить список", "Refresh the list", "Reîmprospătează lista"),
     "example": L("Пример", "Example", "Exemplu"),
+    "today": L("Сегодня", "Today", "Azi"),
+    "today_sub": L("Только за сегодня — истории на месяцы нет.", "Today only — no history kept for months.",
+                   "Doar pentru azi — nu se păstrează istoric pe luni."),
+    "today_stats": L("Перерывов сделано: {done} · пропущено: {skipped}", "Breaks done: {done} · skipped: {skipped}",
+                     "Pauze făcute: {done} · sărite: {skipped}"),
+    "today_hint": L("Время считается, пока плагин включён.", "Time is counted while the plugin is on.",
+                    "Timpul se numără cât timp pluginul e pornit."),
     "unsaved": L("Есть несохранённые изменения.", "There are unsaved changes.", "Există modificări nesalvate."),
 }
 
@@ -434,6 +441,8 @@ class PluginSettingsView(QWidget):
         has_status_row = False
         if plugin.id == "timers":
             self._build_timers_card()
+        if plugin.id == "breaks":
+            self._build_today_card()
         if plugin.id == "notification_reader":
             self._build_apps_card()
         for key in HIDDEN_SETTINGS.get(plugin.id, ()):
@@ -451,13 +460,27 @@ class PluginSettingsView(QWidget):
                 help_note.setObjectName("ExtNote")
                 help_note.setWordWrap(True)
                 card.add_row(help_note)
+            groups = ROW_GROUPS.get(plugin.id, {})
+            grouped = {other for others in groups.values() for other in others}
             for key in (() if section.groups else section.keys):
+                if key in grouped:
+                    continue  # drawn in the row of its lead setting
+                if key in groups:
+                    setting = next(item for item in plugin.settings if item.key == key)
+                    extra = [next(item for item in plugin.settings if item.key == other) for other in groups[key]]
+                    self._add_setting(card, setting, extra)
+                    continue
                 if key == "@status":
                     self._add_status_row(card)
                     has_status_row = True
                     continue
                 setting = next(item for item in plugin.settings if item.key == key)
                 self._add_setting(card, setting)
+            if (plugin.id, section.id) in SECTION_NOTES:
+                note = QLabel(text(SECTION_NOTES[(plugin.id, section.id)], language))
+                note.setObjectName("ExtNote")
+                note.setWordWrap(True)
+                card.add_row(note)
             self.cards[section.id] = card
             self.column.addWidget(card)
             if plugin.id == "converter" and section.id == "sectors":
@@ -465,7 +488,7 @@ class PluginSettingsView(QWidget):
         if plugin.id == "smart_dictation":
             self._build_dictation_check()
         elif (plugin.actions and plugin.ready and runtime is not None and not has_status_row
-              and plugin.id not in BASIC_ACTIONS):
+              and plugin.id not in BASIC_ACTIONS and plugin.id not in BASIC_ACTION_ROWS):
             self._build_actions()
         if plugin.id in BASIC_LAST:
             self._build_basic()
@@ -520,7 +543,7 @@ class PluginSettingsView(QWidget):
             button = QPushButton(card.findChild(QLabel, "ExtTitle").text())
             button.setObjectName("ExtNav")
             button.setCursor(Qt.CursorShape.PointingHandCursor)
-            icon_name = {"basic": "bell" if plugin.id == "notification_reader" else "power", "check": "mic",
+            icon_name = {"basic": "bell" if plugin.id == "notification_reader" else "power", "check": "mic", "today": "clock",
                          "actions": "play", "active": "hourglass", "video": "download", "apps": "list-checks"}.get(card_id) or next(
                 (s.icon for s in sections_for(plugin) if s.id == card_id), "sliders-horizontal")
             set_button_icon(button, icon_name, size=17)
@@ -591,6 +614,23 @@ class PluginSettingsView(QWidget):
         for key in BASIC_KEYS.get(self.plugin.id, ()):
             setting = next(item for item in self.plugin.settings if item.key == key)
             self._add_setting(card, setting)
+        if self.plugin.id in BASIC_ACTION_ROWS:
+            row_title, row_hint, action_ids = BASIC_ACTION_ROWS[self.plugin.id]
+            buttons = QWidget()
+            buttons.setObjectName("ExtContent")
+            line = QHBoxLayout(buttons)
+            line.setContentsMargins(0, 0, 0, 0)
+            line.setSpacing(8)
+            icons = {"try_eyes": "monitor", "try_stretch": "user-round", "try_water": "droplet"}
+            for action_id in action_ids:
+                label = next(text(item[1], language) for item in self.plugin.actions if item[0] == action_id)
+                button = QPushButton(label)
+                button.setObjectName("ExtConfigure")
+                set_button_icon(button, icons.get(action_id, "play"), size=16)
+                button.setEnabled(self.runtime is not None and self.plugin.ready)
+                button.clicked.connect(lambda checked=False, a=action_id: self._run_action(a))
+                line.addWidget(button)
+            card.add_row(_row(text(row_title, language), text(row_hint, language), buttons))
         for action_id in BASIC_ACTIONS.get(self.plugin.id, ()):
             label = next(text(item[1], language) for item in self.plugin.actions if item[0] == action_id)
             button = QPushButton(label)
@@ -610,7 +650,38 @@ class PluginSettingsView(QWidget):
         self.cards["basic"] = card
         self.column.addWidget(card)
 
-    def _add_setting(self, card, setting):
+    def _add_setting(self, card, setting, extra=()):
+        """One row; ``extra`` settings are shown before this one's control."""
+        field, wide = self._build_field(setting)
+        language = self.language
+        control = field
+        if extra:
+            control = QWidget()
+            control.setObjectName("ExtContent")
+            line = QHBoxLayout(control)
+            line.setContentsMargins(0, 0, 0, 0)
+            line.setSpacing(8)
+            for index, other in enumerate(extra):
+                other_field, _ = self._build_field(other)
+                if isinstance(other_field, QComboBox):
+                    other_field.setFixedWidth(120 if len(extra) > 1 else 170)  # aligned across rows
+                if index:
+                    dash = QLabel("–")
+                    dash.setObjectName("ExtRowHint")
+                    line.addWidget(dash)
+                line.addWidget(other_field)
+                self.fields[other.key] = other_field
+            line.addSpacing(10)
+            line.addWidget(field)
+        hint = text(setting.hint, language) if setting.hint else ""
+        row = _row(text(setting.label, language), hint, control, wide=wide)
+        card.add_row(row)
+        self.fields[setting.key] = field
+        self.rows[setting.key] = row
+        for other in extra:
+            self.rows[other.key] = row
+
+    def _build_field(self, setting):
         language = self.language
         kind = setting.kind
         wide = False
@@ -661,11 +732,7 @@ class PluginSettingsView(QWidget):
             field.setMaxLength(setting.max_length)
             field.setMinimumWidth(260)
             field.textChanged.connect(self._refresh)
-        hint = text(setting.hint, language) if setting.hint else ""
-        row = _row(text(setting.label, language), hint, field, wide=wide)
-        card.add_row(row)
-        self.fields[setting.key] = field
-        self.rows[setting.key] = row
+        return field, wide
 
     def _add_status_row(self, card):
         """Connection state with the plugin's action buttons (PC Control)."""
@@ -1004,6 +1071,30 @@ class PluginSettingsView(QWidget):
             switch.toggled.connect(toggled)
             layout.addWidget(_row(app, "", switch))
 
+    def _build_today_card(self):
+        language = self.language
+        card = SectionCard("today", "clock", w("today", language), w("today_sub", language), resettable=False)
+        self.today_label = QLabel()
+        self.today_label.setObjectName("ExtRowTitle")
+        self.today_label.setContentsMargins(0, 10, 0, 0)
+        card.add_row(self.today_label)
+        hint = QLabel(w("today_hint", language))
+        hint.setObjectName("ExtRowHint")
+        hint.setContentsMargins(0, 2, 0, 10)
+        card.add_row(hint)
+        self.cards["today"] = card
+        self.column.addWidget(card)
+        if self.runtime is not None:
+            self.runtime.breaks_changed.connect(self._render_today)
+        self._render_today()
+
+    def _render_today(self):
+        try:
+            done, skipped = self.runtime.break_stats() if self.runtime is not None else (0, 0)
+            self.today_label.setText(w("today_stats", self.language).format(done=done, skipped=skipped))
+        except RuntimeError:
+            pass
+
     def _build_actions(self):
         language = self.language
         card = SectionCard("actions", "play", w("actions", language), w("actions_sub", language), resettable=False)
@@ -1249,6 +1340,11 @@ class PluginSettingsView(QWidget):
                 button.style().polish(button)
 
     def detach(self):
+        if self.runtime is not None and hasattr(self, "today_label"):
+            try:
+                self.runtime.breaks_changed.disconnect(self._render_today)
+            except (RuntimeError, TypeError):
+                pass
         if self.runtime is not None and hasattr(self, "apps_holder"):
             try:
                 self.runtime.notification_apps_changed.disconnect(self._render_apps)

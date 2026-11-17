@@ -1,3 +1,10 @@
+## 0.4.1m — Breaks like Luxify (2026-11-17)
+
+- **Перерывы** rebuilt after Luxify: three separate reminders with their own interval — eyes 20-20-20 (every 20 min), stretch (55), water (90) — counting only real activity. Being away 5+ minutes, locking or sleeping the PC counts as a break and restarts counting.
+- A card appears in the screen corner without taking the focus: «Сделал», «Отложить» (10 min) or «Пропустить»; optional voice. «Сегодня» shows breaks done/skipped for today only; «Попробовать сейчас» shows a sample without touching the counters.
+- «Не мешать»: quiet hours, games/full-screen windows and presentations, calls (another app uses the mic/camera), Jarvis quiet mode and Windows "Do not disturb". A delayed reminder comes once, half a minute after the game/call ends.
+- Settings pages support rows that combine a choice and a switch, and info notes inside a section.
+
 ## 0.4.1l — Autoscroll pointer like in Windows apps (2026-11-17)
 
 - Middle-click autoscroll no longer leaves a fixed ↕ circle on the screen. The mouse pointer itself shows the state, as in browsers and the Claude app: a light ▲•▼ disc at rest, a small ring with ▼ below while scrolling down and ▲ above while scrolling up.

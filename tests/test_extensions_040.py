@@ -45,16 +45,16 @@ class CatalogTests(unittest.TestCase):
 
     def test_normalize_drops_bad_values_and_locks_unfinished_plugins(self):
         state = catalog.normalize_state({
-            "breaks": {"enabled": True, "settings": {"interval": 5, "speak": "yes", "water": False}},
+            "breaks": {"enabled": True, "settings": {"eyes_every": "7", "voice": "yes", "water_on": False}},
             "live_captions": {"enabled": True},
             "unknown": {"enabled": True},
             "clipboard_history": "broken",
             "screenshots": {"enabled": True, "settings": {"hotkey": "alt+f4"}},
         })
         self.assertTrue(state["breaks"]["enabled"])
-        self.assertEqual(state["breaks"]["settings"]["interval"], 50)  # below minimum -> default
-        self.assertTrue(state["breaks"]["settings"]["speak"] is False)
-        self.assertFalse(state["breaks"]["settings"]["water"])
+        self.assertEqual(state["breaks"]["settings"]["eyes_every"], "20")  # unknown option -> default
+        self.assertTrue(state["breaks"]["settings"]["voice"] is False)
+        self.assertFalse(state["breaks"]["settings"]["water_on"])
         self.assertFalse(state["live_captions"]["enabled"])  # not ready yet
         self.assertNotIn("unknown", state)
         self.assertFalse(state["clipboard_history"]["enabled"])
@@ -263,7 +263,7 @@ class PageAndRuntimeTests(unittest.TestCase):
 
     def test_runtime_clipboard_history_and_breaks(self):
         state = catalog.normalize_state({"clipboard_history": {"enabled": True, "settings": {"limit": 10}},
-                                         "breaks": {"enabled": True, "settings": {"speak": True}}})
+                                         "breaks": {"enabled": True, "settings": {"voice": True}}})
         _, engine, host = self.make_page(state)
         engine.apply(state)
         for index in range(15):
@@ -279,6 +279,7 @@ class PageAndRuntimeTests(unittest.TestCase):
         message = engine.remind_break(force=True)
         self.assertTrue(message)
         self.assertEqual(host.spoken[-1][0], message)
+        engine._close_break_card()
         self.assertTrue(engine._break_timer.isActive())
         self.assertEqual({entry["id"] for entry in engine.hotkey_entries()}, {"clipboard_history.hotkey"})
 
@@ -317,7 +318,7 @@ class MainWindowIntegrationTests(unittest.TestCase):
         cls.config.write_text(json.dumps({
             "microphone_enabled": False, "tts_enabled": False, "online_agent_enabled": False,
             "ui_animations": False, "minimize_to_tray": False, "ui_language": "ru",
-            "extensions": {"breaks": {"enabled": True, "settings": {"interval": 30}}},
+            "extensions": {"breaks": {"enabled": True, "settings": {"eyes_every": "30"}}},
         }), encoding="utf-8")
         cls.patches = [mock.patch.object(main, "CONFIG", cls.config),
                        mock.patch.object(command_registry, "REGISTRY_FILE", cls.base / "commands.json")]
@@ -350,7 +351,7 @@ class MainWindowIntegrationTests(unittest.TestCase):
         window.extensions_page.cards["converter"].switch.click()
         saved = json.loads(self.config.read_text(encoding="utf-8"))
         self.assertTrue(saved["extensions"]["converter"]["enabled"])
-        self.assertEqual(saved["extensions"]["breaks"]["settings"]["interval"], 30)
+        self.assertEqual(saved["extensions"]["breaks"]["settings"]["eyes_every"], "30")
         window.show_page(0)
 
 
