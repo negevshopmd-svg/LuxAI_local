@@ -1,4 +1,9 @@
-LUXAI LOCAL 0.4.1h — ACTUALIZARE 2026-11-17
+LUXAI LOCAL 0.4.1i — ACTUALIZARE 2026-11-17
+
+0.4.1i: În chatul cu AI poți atașa și dosare („+” → „Папку…”, trage-l sau
+lipește-l): Jarvis trimite structura și textul fișierelor text/cod, fără
+fișiere secrete (.env, chei) și fără .git/node_modules. Atașamentele PDF
+merg din nou.
 
 0.4.1h: Citirea cu voce și citirea notificărilor traduc textul în altă limbă
 în limba lui Jarvis și citesc imediat traducerea (pe bucăți, fără să aștepte

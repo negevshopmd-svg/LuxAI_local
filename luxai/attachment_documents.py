@@ -57,14 +57,27 @@ def extract():
         from pypdf import filters
     except ImportError:
         raise ValueError("PDF extraction requires pypdf>=6.10; repair the LuxAI installation.")
-    required = ("ZLIB_MAX_OUTPUT_LENGTH", "LZW_MAX_OUTPUT_LENGTH",
-                "RUN_LENGTH_MAX_OUTPUT_LENGTH", "MAX_ARRAY_BASED_STREAM_OUTPUT_LENGTH",
-                "MAX_DECLARED_STREAM_LENGTH", "ZLIB_MAX_RECOVERY_INPUT_LENGTH")
-    if not all(hasattr(filters, name) for name in required):
-        raise ValueError("Safe PDF extraction requires pypdf>=6.10; repair the LuxAI installation.")
-    for name in required:
-        setattr(filters, name, 8 * 1024 * 1024)
-    filters.ZLIB_MAX_RECOVERY_INPUT_LENGTH = 1024 * 1024
+    limit_bytes = 8 * 1024 * 1024
+    if hasattr(pypdf, "overwrite_configuration"):
+        # pypdf >= 7: module-level limits were replaced by a Configuration
+        # object; touching the old constants raises DeprecationError.
+        pypdf.overwrite_configuration(
+            maximum_declared_stream_length=limit_bytes,
+            array_based_stream_maximum_output_length=limit_bytes,
+            lzw_maximum_output_length=limit_bytes,
+            run_length_maximum_output_length=limit_bytes,
+            zlib_maximum_output_length=limit_bytes,
+            zlib_maximum_recovery_input_length=1024 * 1024,
+        )
+    else:
+        required = ("ZLIB_MAX_OUTPUT_LENGTH", "LZW_MAX_OUTPUT_LENGTH",
+                    "RUN_LENGTH_MAX_OUTPUT_LENGTH", "MAX_ARRAY_BASED_STREAM_OUTPUT_LENGTH",
+                    "MAX_DECLARED_STREAM_LENGTH", "ZLIB_MAX_RECOVERY_INPUT_LENGTH")
+        if not all(hasattr(filters, name) for name in required):
+            raise ValueError("Safe PDF extraction requires pypdf>=6.10; repair the LuxAI installation.")
+        for name in required:
+            setattr(filters, name, limit_bytes)
+        filters.ZLIB_MAX_RECOVERY_INPUT_LENGTH = 1024 * 1024
     original_decode = filters.decode_stream_data
     decoded_bytes = 0
     def bounded_decode(stream, *args, **kwargs):

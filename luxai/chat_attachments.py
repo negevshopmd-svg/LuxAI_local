@@ -196,8 +196,124 @@ def _image_content(data: bytes) -> str:
         raise AttachmentError(f"Cannot decode this image safely: {type(exc).__name__}.") from exc
 
 
+FOLDER_SKIP_DIRS = frozenset({
+    ".git", ".hg", ".svn", "node_modules", "__pycache__", ".venv", "venv", "env", ".idea", ".vscode",
+    ".mypy_cache", ".pytest_cache", ".tox", "dist", "build", ".next", ".luxai_data", ".luxai_secrets",
+})
+FOLDER_SECRET_NAMES = frozenset({".env", ".env.local", ".npmrc", ".pypirc", "id_rsa", "id_ed25519", "credentials"})
+FOLDER_SECRET_SUFFIXES = frozenset({".pem", ".key", ".pfx", ".p12", ".kdbx", ".dpapi"})
+FOLDER_MAX_ENTRIES = 400
+FOLDER_MAX_DEPTH = 6
+FOLDER_MAX_FILE_BYTES = 512 * 1024
+FOLDER_MAX_READ_BYTES = 8 * 1024 * 1024
+
+
+def _is_text_name(name: str) -> bool:
+    lowered = name.casefold()
+    return Path(lowered).suffix in TEXT_SUFFIXES or lowered in {"license", "notice", "dockerfile", "makefile", "readme"}
+
+
+def _is_secret_name(name: str) -> bool:
+    lowered = name.casefold()
+    return (lowered in FOLDER_SECRET_NAMES or lowered.startswith(".env.") or lowered.startswith("id_rsa")
+            or Path(lowered).suffix in FOLDER_SECRET_SUFFIXES)
+
+
+def load_folder(path: str | Path, max_chars: int = MAX_EXTRACTED_CHARS) -> Attachment:
+    """Snapshot a folder: its tree plus the text of its text/code files.
+
+    Links/reparse points, heavy tool folders and secret-looking files are
+    never read. PDF/DOCX/images inside are listed by name only. Nothing is
+    executed or modified; the snapshot is read-only (never editable).
+    """
+    folder = Path(path).expanduser().absolute()
+    _check_path(folder, file_required=False)
+    if not folder.is_dir():
+        raise AttachmentError("The selected folder no longer exists.")
+    tree, texts, notes = [], [], []
+    listed = read_bytes = 0
+    remaining = max(0, int(max_chars))
+    truncated = False
+    digest = hashlib.sha256()
+
+    def walk(directory: Path, depth: int):
+        nonlocal listed, read_bytes, remaining, truncated
+        try:
+            entries = sorted(os.scandir(directory), key=lambda item: (not item.is_dir(follow_symlinks=False), item.name.casefold()))
+        except OSError:
+            tree.append("  " * depth + "[unreadable]")
+            return
+        for entry in entries:
+            if listed >= FOLDER_MAX_ENTRIES:
+                truncated = True
+                return
+            try:
+                info = entry.stat(follow_symlinks=False)
+            except OSError:
+                continue
+            if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
+                continue  # never follow links or junctions out of the folder
+            indent = "  " * depth
+            listed += 1
+            if stat.S_ISDIR(info.st_mode):
+                if entry.name in FOLDER_SKIP_DIRS or (entry.name.startswith(".") and entry.name not in {".github"}):
+                    tree.append(f"{indent}{entry.name}/ (skipped)")
+                    continue
+                tree.append(f"{indent}{entry.name}/")
+                if depth + 1 < FOLDER_MAX_DEPTH:
+                    walk(Path(entry.path), depth + 1)
+                else:
+                    tree.append(f"{indent}  …")
+                continue
+            if not stat.S_ISREG(info.st_mode):
+                continue
+            relative = Path(entry.path).relative_to(folder).as_posix()
+            if _is_secret_name(entry.name):
+                tree.append(f"{indent}{entry.name} (not read: may contain secrets)")
+                continue
+            if not _is_text_name(entry.name):
+                tree.append(f"{indent}{entry.name} ({info.st_size} bytes, not read)")
+                continue
+            tree.append(f"{indent}{entry.name} ({info.st_size} bytes)")
+            if (remaining <= 0 or info.st_size > FOLDER_MAX_FILE_BYTES
+                    or read_bytes + info.st_size > FOLDER_MAX_READ_BYTES):
+                truncated = True
+                continue
+            try:
+                with open(entry.path, "rb") as handle:
+                    data = handle.read(FOLDER_MAX_FILE_BYTES + 1)
+            except OSError:
+                continue
+            if b"\0" in data[:4096]:
+                continue  # binary content with a text-like name
+            read_bytes += len(data)
+            digest.update(relative.encode("utf-8") + b"\0" + data)
+            text = _text_content(data)[0]
+            block = f"\n--- {relative} ---\n{text}\n"
+            if len(block) > remaining:
+                block = block[:remaining]
+                truncated = True
+            remaining -= len(block)
+            texts.append(block)
+
+    walk(folder, 0)
+    header = f"Folder {folder.name}/\nStructure:\n" + "\n".join(tree or ["(empty)"]) + "\n"
+    body = header + "".join(texts)
+    if len(body) > max_chars:  # the tree and the texts share one chat budget
+        body = body[:max_chars].rsplit("\n", 1)[0] + "\n…"
+        truncated = True
+    if truncated:
+        notes.append("The folder is larger than the chat limit; only part of it is included.")
+    notes.append("PDF, DOCX and images inside a folder are listed by name; attach them separately to read them.")
+    return Attachment(id=uuid.uuid4().hex, path=folder, name=folder.name + "/", kind="folder",
+                      size=read_bytes, sha256=digest.hexdigest(), text=body, content=b"",
+                      warnings=tuple(notes), editable=False, truncated=truncated)
+
+
 def load_attachment(path: str | Path) -> Attachment:
-    """Snapshot one selected file locally; image loading never runs OCR."""
+    """Snapshot one selected file (or folder) locally; image loading never runs OCR."""
+    if Path(path).expanduser().is_dir():
+        return load_folder(path)
     selected = Path(path).expanduser().absolute()
     data, signature = _read_file(selected)
     suffix = selected.suffix.casefold()
@@ -244,6 +360,11 @@ def load_attachments(paths) -> tuple[Attachment, ...]:
         if key in seen:
             continue
         candidate = Path(path).expanduser().absolute()
+        if candidate.is_dir():
+            _check_path(candidate, file_required=False)  # its files are bounded by load_folder
+            unique.append(path)
+            seen.add(key)
+            continue
         _check_path(candidate)
         try:
             total += candidate.stat().st_size

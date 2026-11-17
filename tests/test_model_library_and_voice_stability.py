@@ -37,7 +37,8 @@ class PortableModelTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             base = Path(root)
             copied = gguf(base / "Qwen3-8B-Q4_K_M.gguf")
-            old = r"C:\Users\vlad\Desktop\LuxAI_Local\models\Qwen3-8B-Q4_K_M.gguf"
+            # A path from ANOTHER PC: it must not exist on the machine running the test.
+            old = r"C:\Users\former-owner\OldPC\LuxAI_Local\models\Qwen3-8B-Q4_K_M.gguf"
             self.assertEqual(resolve_model_path(old, directory=base), copied.resolve())
 
     def test_ambiguous_model_name_does_not_select_random_file(self):

@@ -956,6 +956,20 @@ class MainWindow(QMainWindow):
             self.command.release_pasted_files(paths)
 
     def _pick_chat_attachments(self):
+        """«+» offers files or a whole folder."""
+        from PySide6.QtGui import QCursor
+        menu = QMenu(self)
+        files_action = menu.addAction(icon("file-text"), tr("Файлы…"))
+        folder_action = menu.addAction(icon("folder"), tr("Папку…"))
+        chosen_action = menu.exec(QCursor.pos())
+        if chosen_action is folder_action:
+            folder = QFileDialog.getExistingDirectory(self, tr("Добавить папку"), "")
+            if folder:
+                self.attachment_tray.add_paths([folder])
+        elif chosen_action is files_action:
+            self._pick_chat_files()
+
+    def _pick_chat_files(self):
         chosen, _ = QFileDialog.getOpenFileNames(
             self, tr("Добавить фотографии и файлы"), "",
             tr("Фотографии и документы") + " (*.png *.jpg *.jpeg *.webp *.txt *.md *.csv *.json *.py *.js *.html *.css *.xml *.yaml *.yml *.log *.pdf *.docx);;"

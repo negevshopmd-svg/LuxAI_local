@@ -1,3 +1,9 @@
+## 0.4.1i — Folders in AI chat, PDF fix, all tests green (2026-11-17)
+
+- **Folders can be attached to the AI chat**: «+» → «Папку…», drag & drop or paste a folder. Jarvis sends its structure plus the text of its text/code files (same 24 000-character budget); `.git`, `node_modules`, virtual environments and links/junctions are skipped, secret-looking files (`.env`, `.pem`, `.key`, `id_rsa`…) are listed but never read, and PDF/DOCX/images inside are listed by name. A folder snapshot is read-only.
+- **PDF attachments work again with pypdf 7**: the safety limits are now set through `pypdf.overwrite_configuration`; setting the removed module constants raised «The PDF could not be read safely (DeprecationError)».
+- A model-path test used this PC's real model path as a "path from another PC"; it now uses a path that cannot exist. The whole suite passes with no failures.
+
 ## 0.4.1h — Read foreign text in Jarvis' language (2026-11-17)
 
 - **Чтение вслух**: selected text in another language (English, Romanian, Russian, German, French…) is translated into Jarvis' language first and read right away, piece by piece — the first piece starts after about a second while the rest is still translating. A "Reading language" option (Same as Jarvis / RU / RO / EN) and a switch are in the settings. Long selections are now read completely (previously speech stopped after 700 characters).

@@ -107,7 +107,7 @@ class AttachmentChip(QFrame):
         pixmap = _image(attachment)
         if pixmap.isNull():
             picture.setProperty("jarvisIconBoxSize", 62)
-            set_label_icon(picture, "file-text", size=34, role="muted")
+            set_label_icon(picture, "folder" if attachment.kind == "folder" else "file-text", size=34, role="muted")
         else:
             picture.setPixmap(pixmap.scaled(picture.size(), Qt.AspectRatioMode.KeepAspectRatio,
                                            Qt.TransformationMode.SmoothTransformation))

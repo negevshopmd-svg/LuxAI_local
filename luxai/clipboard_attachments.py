@@ -88,7 +88,7 @@ def pasted_file_paths(source):
             continue
         path = Path(candidate)
         try:
-            if not path.is_absolute() or not path.is_file():
+            if not path.is_absolute() or not (path.is_file() or path.is_dir()):
                 return ()
         except (OSError, ValueError):
             return ()

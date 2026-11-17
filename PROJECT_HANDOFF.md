@@ -7,6 +7,10 @@
 > Updated for the **0.3.9.e work**, 2026-10-30. \`Update.bat\` installs the code merged into \`main\`, NOT an open PR.
 > Do NOT include real API keys, private logs, screen captures, model binaries, user audio, or personal paths in Git history.
 
+## 0. Release 0.4.1i — Folder attachments and pypdf 7
+
+`chat_attachments.load_folder` builds a read-only "folder" attachment (tree + text files, shared budget, depth ≤ 6, ≤ 400 entries, ≤ 8 MiB read; skips links/junctions, heavy tool folders and secret-looking names). `load_attachment(s)` route directories there. The PDF worker uses `pypdf.overwrite_configuration` when available (pypdf ≥ 7 raises DeprecationError for the old filter constants). Tests: `tests/test_folder_attachments_041i.py`.
+
 ## 0. Release 0.4.1h — Translate before reading
 
 `luxai/translation.py` (no Qt): `text_language` for paragraphs (ru/en/ro/other), `split_chunks` (≤600 chars, sentence aligned — speech reads ≤700 per call), `translate_locally` (GGUF fallback, strips <think>). `OnlinePlanner.translate_text` uses the configured provider (JSON reply). `ExtensionsRuntime.read_text` translates and queues piece by piece in a worker (generation counter cancels on a second press; waits when the speech queue is ≥5). Notifications: foreign bodies are translated in a thread and arrive via `_notif_ready`; the app prefix is kept. Tests: `tests/test_translation_041h.py`.
