@@ -171,6 +171,13 @@ PLUGINS: tuple[Plugin, ...] = (
          Setting("group", "bool", L("Несколько сразу — одной фразой", "Several at once — one sentence", "Mai multe deodată — o frază"), True,
                  hint=L("«Telegram: 3 новых сообщения — Мама, Папа».", "“Telegram: 3 new messages — Mom, Dad”.",
                         "„Telegram: 3 mesaje noi — Mama, Tata”.")),
+         Setting("translate", "bool", L("Переводить на язык Jarvis", "Translate into Jarvis' language", "Tradu în limba lui Jarvis"), True,
+                 hint=L("Уведомление на другом языке сначала переводится, название программы остаётся как есть. "
+                        "Переводит облачный AI из настроек Jarvis (только текст уведомления), без него — локальная модель.",
+                        "A notification in another language is translated first; the app name stays as is. "
+                        "The cloud AI from Jarvis settings translates (only the notification text); without it, the local model.",
+                        "O notificare în altă limbă e tradusă întâi; numele aplicației rămâne. "
+                        "Traduce AI-ul cloud din setările Jarvis (doar textul notificării); fără el, modelul local.")),
          Setting("quiet_enabled", "bool", L("Тихие часы", "Quiet hours", "Ore de liniște"), False,
                  hint=L("В это время не читать. Пропущенное — по «что пришло».", "Don't read during these hours. Missed ones — via “what came in”.",
                         "Nu citi în aceste ore. Cele ratate — prin „ce a venit”.")),
@@ -200,7 +207,18 @@ PLUGINS: tuple[Plugin, ...] = (
         (_hotkey("ctrl+alt+r"),
          Setting("max_chars", "int", L("Максимум символов", "Maximum characters", "Caractere maxime"), 4000,
                  minimum=200, maximum=6500, suffix=L(" симв.", " chars", " car.")),
-         Setting("second_press_stops", "bool", L("Повторное нажатие останавливает чтение", "Second press stops reading", "A doua apăsare oprește citirea"), True)),
+         Setting("second_press_stops", "bool", L("Повторное нажатие останавливает чтение", "Second press stops reading", "A doua apăsare oprește citirea"), True),
+         Setting("translate", "bool", L("Переводить на язык Jarvis", "Translate into Jarvis' language", "Tradu în limba lui Jarvis"), True,
+                 hint=L("Текст на другом языке сначала переводится, и Jarvis сразу читает перевод — по частям, без ожидания всего текста. "
+                        "Переводит облачный AI из настроек Jarvis, без него — локальная модель (медленнее).",
+                        "Text in another language is translated first and Jarvis reads the translation right away — piece by piece. "
+                        "The cloud AI from Jarvis settings translates; without it the local model does (slower).",
+                        "Textul în altă limbă e tradus întâi și Jarvis citește imediat traducerea — pe bucăți. "
+                        "Traduce AI-ul cloud din setările Jarvis; fără el, modelul local (mai lent).")),
+         Setting("translate_to", "choice", L("Язык чтения", "Reading language", "Limba citirii"), "auto",
+                 options=(("auto", L("Как у Jarvis", "Same as Jarvis", "Ca la Jarvis")),
+                          ("ru", L("Русский", "Russian", "Rusă")), ("ro", L("Румынский", "Romanian", "Română")),
+                          ("en", L("Английский", "English", "Engleză"))))),
         (("test", L("Прочитать пример", "Read a sample", "Citește un exemplu")),),
     ),
     Plugin(
@@ -639,7 +657,7 @@ SECTIONS = {
     "notification_reader": (
         Section("what", "message-square", L("Что читать", "What to read", "Ce citesc"),
                 L("Сколько говорить и что пропускать.", "How much to say and what to skip.", "Cât spun și ce sar."),
-                ("read_mode", "max_length", "say_app", "skip_links", "skip_codes", "group")),
+                ("read_mode", "max_length", "say_app", "skip_links", "skip_codes", "group", "translate")),
         Section("quiet", "moon", L("Когда молчать", "When to stay silent", "Când tac"),
                 L("Тихие часы и случаи, когда читать вслух неуместно.", "Quiet hours and moments when reading aloud is out of place.",
                   "Ore de liniște și momente când citirea nu e potrivită."),
@@ -693,6 +711,7 @@ SECTIONS = {
 
 # A setting is editable only while another setting has one of these values.
 ENABLED_IF = {
+    "read_aloud": {"translate_to": ("translate", (True,))},
     "notification_reader": {"quiet_from": ("quiet_enabled", (True,)), "quiet_to": ("quiet_enabled", (True,))},
     "converter": {"folder": ("destination", ("folder",))},
     "timers": {"ring_seconds": ("sound", (True,))},
@@ -710,12 +729,15 @@ BASIC_KEYS = {"pc_control": ("autostart",)}
 
 # Information shown in the basic card.
 BASIC_NOTE = {
-    "notification_reader": L("Уведомления — ваша переписка. Jarvis держит в памяти только последние 20, ничего не пишет на диск, "
-                             "не отправляет в нейросеть и не пишет текст в журналы. Пока компьютер заблокирован, ничего не читается.",
-                             "Notifications are your messages. Jarvis keeps only the last 20 in memory, writes nothing to disk, "
-                             "sends nothing to AI and never logs the text. Nothing is read while the PC is locked.",
-                             "Notificările sunt mesajele tale. Jarvis păstrează doar ultimele 20 în memorie, nu scrie nimic pe disc, "
-                             "nu trimite nimic la AI și nu înregistrează textul. Cât PC-ul e blocat, nu se citește nimic."),
+    "notification_reader": L("Уведомления — ваша переписка. Jarvis держит в памяти только последние 20, ничего не пишет на диск "
+                             "и в журналы. В нейросеть уходит только текст уведомления на другом языке — для перевода, и только "
+                             "если перевод включён. Пока компьютер заблокирован, ничего не читается.",
+                             "Notifications are your messages. Jarvis keeps only the last 20 in memory and writes nothing to disk "
+                             "or logs. Only the text of a notification in another language goes to AI — for translation, and only "
+                             "when translation is on. Nothing is read while the PC is locked.",
+                             "Notificările sunt mesajele tale. Jarvis păstrează doar ultimele 20 în memorie și nu scrie nimic pe "
+                             "disc sau în jurnale. La AI ajunge doar textul unei notificări în altă limbă — pentru traducere, și "
+                             "doar dacă traducerea e pornită. Cât PC-ul e blocat, nu se citește nimic."),
     "converter": L("Картинки — силами Pillow, звук и видео — встроенным FFmpeg (PyAV). Ничего докачивать не нужно; "
                    "OGG сохраняется с кодеком Opus.",
                    "Images via Pillow, audio and video via the built-in FFmpeg (PyAV). Nothing to download; "

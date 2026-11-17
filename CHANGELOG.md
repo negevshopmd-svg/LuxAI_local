@@ -1,3 +1,9 @@
+## 0.4.1h — Read foreign text in Jarvis' language (2026-11-17)
+
+- **Чтение вслух**: selected text in another language (English, Romanian, Russian, German, French…) is translated into Jarvis' language first and read right away, piece by piece — the first piece starts after about a second while the rest is still translating. A "Reading language" option (Same as Jarvis / RU / RO / EN) and a switch are in the settings. Long selections are now read completely (previously speech stopped after 700 characters).
+- **Озвучка уведомлений**: a notification in another language is translated into the language chosen in Jarvis before it is read; the app name stays as is. Translated text is also what «что пришло» reads.
+- The cloud AI from Jarvis settings translates (only the selected/notification text); without it the local model is used; if both fail, the original is read with a short notice. The privacy note was updated accordingly.
+
 ## 0.4.1g — Instant checks and instant Fish voice (2026-11-17)
 
 - On start Jarvis checks cloud AI and sends one tiny request to the selected local GGUF model in the background, so «Дополнения» shows both as working (green) without waiting for the first question. Nothing is loaded when local AI is off, has no model or was already confirmed.

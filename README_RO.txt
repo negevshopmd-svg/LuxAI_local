@@ -1,4 +1,9 @@
-LUXAI LOCAL 0.4.1g — ACTUALIZARE 2026-11-17
+LUXAI LOCAL 0.4.1h — ACTUALIZARE 2026-11-17
+
+0.4.1h: Citirea cu voce și citirea notificărilor traduc textul în altă limbă
+în limba lui Jarvis și citesc imediat traducerea (pe bucăți, fără să aștepte
+tot textul). Numele aplicației din notificare rămâne neschimbat. Traduce
+AI-ul cloud din setări; fără el, modelul local.
 
 0.4.1g: la pornire Jarvis verifică singur AI-ul din cloud și pe cel local;
 în „Дополнения” ambele apar cu verde când funcționează. Vocea Fish Audio

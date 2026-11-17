@@ -531,6 +531,9 @@ class ExtensionsRuntime(QObject):
     notice = Signal(str)
     dictation_result = Signal(str, str, bool)  # text, error, test
     dictation_done = Signal(str)  # last dictated text, for the settings page
+    _read_chunk = Signal(str, str, int)  # text, language, reading generation
+    _read_notice = Signal(str)
+    _notif_ready = Signal(str)  # a (translated) notification sentence
     pc_status_changed = Signal(str, dict)  # state, details (bot name, error)
     timers_changed = Signal()
     notification_apps_changed = Signal()
@@ -567,6 +570,10 @@ class ExtensionsRuntime(QObject):
         self._overlay = None
         self.last_dictation = ""
         self.test_sink = None  # settings page test box, when focused inside Jarvis
+        self._reading_generation = 0
+        self._read_chunk.connect(self._on_read_chunk)
+        self._read_notice.connect(self._notify)
+        self._notif_ready.connect(self._accept_notification)
         self._dictation_timer = QTimer(self)
         self._dictation_timer.setInterval(60)
         self._dictation_timer.timeout.connect(self._dictation_tick)
@@ -1331,13 +1338,64 @@ class ExtensionsRuntime(QObject):
         return result
 
     def _poll_notifications(self):
-        from luxai.dictation import DICTATION_ACTIVE
         if self._notif_watcher is None:
             return
-        texts = self.notification_texts(self._notif_watcher.poll())
-        for value in texts:
-            self.notification_memory.append(value)
-        self._notif_pending.extend(texts)
+        for value in self.notification_texts(self._notif_watcher.poll()):
+            if self.settings("notification_reader").get("translate", True) and self._notification_foreign(value):
+                self._translate_notification(value)  # arrives later through _notif_ready
+            else:
+                self._accept_notification(value, flush=False)
+        self._flush_notifications()
+
+    def _split_app(self, value: str):
+        for app in sorted(self.seen_notification_apps, key=len, reverse=True):
+            if app and value.startswith(app + ": "):
+                return app + ": ", value[len(app) + 2:]
+        return "", value
+
+    def _notification_foreign(self, value: str) -> bool:
+        from luxai.translation import needs_translation
+        _, body = self._split_app(value)
+        return needs_translation(body, self.reading_target())
+
+    def reading_target(self) -> str:
+        from luxai.response_language import reply_language
+        return reply_language(getattr(self.host, "cfg", {}) or {})
+
+    def _translate_notification(self, value: str, *, wait: bool = False):
+        prefix, body = self._split_app(value)
+        target = self.reading_target()
+        cfg = dict(getattr(self.host, "cfg", {}) or {})
+        planner = getattr(self.host, "online_planner", None)
+
+        def work():
+            translated = None
+            try:
+                if planner is not None and hasattr(planner, "translate_text"):
+                    translated = planner.translate_text(body, target)
+                if translated is None and cfg.get("local_llm_fallback_enabled", True):
+                    from luxai.local_models import resolve_model_path
+                    from luxai.translation import translate_locally
+                    model = resolve_model_path(cfg.get("llm_model_path", ""))
+                    if model is not None:
+                        translated = translate_locally(body, target, str(model))
+            except Exception:
+                translated = None
+            self._notif_ready.emit(prefix + translated if translated else value)
+
+        if wait:
+            work()
+        else:
+            threading.Thread(target=work, daemon=True, name="JarvisNotificationTranslate").start()
+
+    def _accept_notification(self, value: str, flush: bool = True):
+        self.notification_memory.append(value)
+        self._notif_pending.append(value)
+        if flush:
+            self._flush_notifications()
+
+    def _flush_notifications(self):
+        from luxai.dictation import DICTATION_ACTIVE
         if not self._notif_pending:
             return
         if DICTATION_ACTIVE.is_set() or self.dictating:
@@ -1354,8 +1412,12 @@ class ExtensionsRuntime(QObject):
 
     def _speak_notification(self, value):
         if hasattr(self.host, "_queue_speech"):
-            from luxai.response_language import reply_language
-            self.host._queue_speech(value, reply_language(getattr(self.host, "cfg", {}) or {}, value))
+            from luxai.translation import text_language
+            _, body = self._split_app(value)
+            language = text_language(body)
+            if language not in ("ru", "ro", "en"):
+                language = self.reading_target()
+            self.host._queue_speech(value, language)
 
     def repeat_last_notification(self):
         if self.notification_memory:
@@ -1982,10 +2044,85 @@ class ExtensionsRuntime(QObject):
         QTimer.singleShot(80, do_paste)
 
     # -- read aloud --
+    def reading_language(self) -> str:
+        from luxai.response_language import reply_language
+        choice = self.settings("read_aloud").get("translate_to", "auto")
+        if choice in ("ru", "ro", "en"):
+            return choice
+        return reply_language(getattr(self.host, "cfg", {}) or {})
+
+    def read_text(self, text: str, *, wait: bool = False):
+        """Read ``text`` aloud in pieces, translating each piece first when needed."""
+        from luxai import translation
+        settings = self.settings("read_aloud")
+        target = self.reading_language()
+        chunks = translation.split_chunks(text)
+        if not chunks:
+            return
+        translate = bool(settings.get("translate", True)) and translation.needs_translation(text, target)
+        self._reading_generation += 1
+        generation = self._reading_generation
+        self._reading = True
+        cfg = dict(getattr(self.host, "cfg", {}) or {})
+        planner = getattr(self.host, "online_planner", None)
+
+        def translate_piece(piece):
+            result = None
+            if planner is not None and hasattr(planner, "translate_text"):
+                result = planner.translate_text(piece, target)
+            if result is None:
+                from luxai.local_models import resolve_model_path
+                model = resolve_model_path(cfg.get("llm_model_path", "")) if cfg.get("local_llm_fallback_enabled", True) else None
+                if model is not None:
+                    try:
+                        result = translation.translate_locally(piece, target, str(model))
+                    except Exception:
+                        result = None
+            return result
+
+        def work():
+            failed = False
+            for piece in chunks:
+                if generation != self._reading_generation:
+                    return  # stopped by a second press or a new reading
+                language = target
+                if translate:
+                    translated = translate_piece(piece)
+                    if translated:
+                        piece = translated
+                    else:
+                        failed = True
+                        from luxai.response_language import detect_language
+                        language = translation.text_language(piece) if translation.text_language(piece) in ("ru", "ro", "en") \
+                            else detect_language(piece, target)
+                # Do not overrun the speech queue (8 items) with a long text.
+                queue = getattr(self.host, "_speech_queue", None)
+                while queue is not None and queue.qsize() >= 5 and generation == self._reading_generation:
+                    time.sleep(0.2)
+                if generation != self._reading_generation:
+                    return
+                self._read_chunk.emit(piece, language, generation)
+            if failed:
+                self._read_notice.emit(_tr3("Перевод недоступен — читаю оригинал.",
+                                            "Translation unavailable — reading the original.",
+                                            "Traducerea nu e disponibilă — citesc originalul.", self.language))
+
+        if wait:
+            work()
+        else:
+            threading.Thread(target=work, daemon=True, name="JarvisReadAloud").start()
+        QTimer.singleShot(max(4000, len(text) * 70), lambda g=generation: g == self._reading_generation
+                          and setattr(self, "_reading", False))
+
+    def _on_read_chunk(self, text, language, generation):
+        if generation == self._reading_generation and hasattr(self.host, "_queue_speech"):
+            self.host._queue_speech(text, language)
+
     def read_selection(self):
         settings = self.settings("read_aloud")
         if self._reading and settings.get("second_press_stops", True):
             self._reading = False
+            self._reading_generation += 1  # stop translating/queueing the rest
             if hasattr(self.host, "stop_speaking"):
                 self.host.stop_speaking()
             return
@@ -2013,12 +2150,7 @@ class ExtensionsRuntime(QObject):
                 return
             limit = int(settings.get("max_chars", 4000))
             selected = selected.split("\n[Выделение сокращено", 1)[0][:limit]
-            self._reading = True
-            if hasattr(self.host, "_queue_speech"):
-                from luxai.response_language import reply_language
-                cfg = getattr(self.host, "cfg", {}) or {}
-                self.host._queue_speech(selected, reply_language(cfg, selected))
-            QTimer.singleShot(max(4000, len(selected) * 70), lambda: setattr(self, "_reading", False))
+            self.read_text(selected)
 
         QTimer.singleShot(150, finish)
 

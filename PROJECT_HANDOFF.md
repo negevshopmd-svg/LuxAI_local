@@ -7,6 +7,10 @@
 > Updated for the **0.3.9.e work**, 2026-10-30. \`Update.bat\` installs the code merged into \`main\`, NOT an open PR.
 > Do NOT include real API keys, private logs, screen captures, model binaries, user audio, or personal paths in Git history.
 
+## 0. Release 0.4.1h — Translate before reading
+
+`luxai/translation.py` (no Qt): `text_language` for paragraphs (ru/en/ro/other), `split_chunks` (≤600 chars, sentence aligned — speech reads ≤700 per call), `translate_locally` (GGUF fallback, strips <think>). `OnlinePlanner.translate_text` uses the configured provider (JSON reply). `ExtensionsRuntime.read_text` translates and queues piece by piece in a worker (generation counter cancels on a second press; waits when the speech queue is ≥5). Notifications: foreign bodies are translated in a thread and arrive via `_notif_ready`; the app prefix is kept. Tests: `tests/test_translation_041h.py`.
+
 ## 0. Release 0.4.1g — Startup checks and streaming Fish
 
 By the user's explicit request, `MainWindow._startup_ai_checks` (3 s after start) runs the cloud check and ONE tiny isolated GGUF reply when `inspect_local_ai` says "available", so the local status turns "success". Fish: `fish_tts.synthesize(on_chunk=...)` hands over PCM while downloading; `voices._PCMStreamPlayer` plays it on its own thread after a 0.25 s pre-buffer and is aborted by `stop_speaking`; the old whole-file path remains when no chunks arrive. `VoiceManager.prepare` for Fish warms modules, the 24 kHz output device and a TLS handshake (`warm_up_connection`) — still no text, key or request at startup. Tests: `tests/test_startup_checks_041g.py`, `tests/test_fish_voice_playback.py`.
