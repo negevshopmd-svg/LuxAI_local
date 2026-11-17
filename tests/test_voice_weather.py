@@ -136,9 +136,9 @@ class VoiceToolsTests(unittest.TestCase):
         self.assertFalse(wants_discord_mic_mute("Открой Discord"))
         with mock.patch("sys.platform", "win32"), mock.patch(
             "luxai.windows_control.running_pids", return_value={42}
-        ), mock.patch.dict("sys.modules", {
-            "pyautogui": types.SimpleNamespace(hotkey=mock.Mock())
-        }):
+        ), mock.patch("luxai.discord_window_state.find_discord_window", return_value=7), mock.patch(
+            "luxai.discord_shortcuts.press_in_discord"
+        ) as press:
             prompts = []
             refusal = toggle_discord_microphone(lambda p: prompts.append(p) or False)
             self.assertIn("отменено", refusal)
@@ -146,6 +146,8 @@ class VoiceToolsTests(unittest.TestCase):
             response = toggle_discord_microphone(lambda _: True)
             self.assertIn("переключатель", response)
             self.assertNotIn("микрофон выключен", response)
+            # Only the approved toggle reaches the real Discord window.
+            press.assert_called_once_with(7, "ctrl", "shift", "m")
 
 
 if __name__ == "__main__":

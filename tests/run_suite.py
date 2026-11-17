@@ -62,7 +62,23 @@ def child():
     # All test assertions and unittest cleanup have already finished here.
     sys.stdout.flush()
     sys.stderr.flush()
-    os._exit(0 if result.wasSuccessful() else 1)
+    hard_exit(0 if result.wasSuccessful() else 1)
+
+
+def hard_exit(code: int) -> None:
+    """End the child without DLL/Qt teardown, which can fault at random.
+
+    os._exit still runs ExitProcess, so DLL detach code of Qt and of native
+    helpers (keyboard hooks, COM, ctypes callbacks) executes and sometimes
+    crashes after every test already passed. TerminateProcess skips that.
+    """
+    if sys.platform == "win32":
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+        kernel32.TerminateProcess.argtypes = (ctypes.c_void_p, ctypes.c_uint)
+        kernel32.TerminateProcess(kernel32.GetCurrentProcess(), code)
+    os._exit(code)
 
 
 def run_module(item, directory, timeout):
@@ -82,6 +98,9 @@ def run_module(item, directory, timeout):
         metrics = json.loads(reports[-1]) if reports else None
         if metrics is None or metrics["discovered"] != len(tests):
             raise ValueError(f"Missing or incomplete results; process exit {completed.returncode}")
+        if completed.returncode and not (metrics["failures"] or metrics["errors"]):
+            output += (f"\nERROR: {module} passed its tests but the process ended "
+                       f"with exit code {completed.returncode & 0xFFFFFFFF:#x}.\n")
         return module, metrics, completed.returncode, output
     except subprocess.TimeoutExpired as error:
         output = (error.stdout or b"").decode("utf-8", errors="replace")

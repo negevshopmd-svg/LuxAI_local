@@ -6,7 +6,10 @@ from types import MethodType, SimpleNamespace
 import unittest
 from unittest import mock
 
-from test_games_multilingual import LAUNCH_VARIANTS, CLOSE_VARIANTS
+try:  # works both from the suite runner and as tests.test_release_038_integration
+    from test_games_multilingual import LAUNCH_VARIANTS, CLOSE_VARIANTS
+except ModuleNotFoundError:
+    from tests.test_games_multilingual import LAUNCH_VARIANTS, CLOSE_VARIANTS
 
 
 class Release038PresentationTests(unittest.TestCase):
