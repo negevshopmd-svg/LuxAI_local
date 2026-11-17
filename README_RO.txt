@@ -1,4 +1,7 @@
-LUXAI LOCAL 0.4.1k — ACTUALIZARE 2026-11-17
+LUXAI LOCAL 0.4.1l — ACTUALIZARE 2026-11-17
+
+0.4.1l: la derularea cu clic pe rotiță, cursorul arată direcția (▲ sau ▼),
+ca în Windows; nu mai rămâne niciun cerc fix pe ecran.
 
 0.4.1k: derulare fără rotiță: bare de derulare late și vizibile; clic pe rotiță
 și miști mouse-ul (ca în browser); tragi fundalul paginii cu butonul stâng;

@@ -67,6 +67,22 @@ class ScrollAssistTests(unittest.TestCase):
         QApplication.sendEvent(self.label, click)
         self.assertFalse(self.assist.autoscrolling)
 
+    def test_pointer_shows_direction_and_no_marker_stays_on_screen(self):
+        from luxai.scroll_assist import direction_of
+        self.assertEqual([direction_of(o) for o in (-80, 0, 5, 80)], [-1, 0, 0, 1])
+        press = mouse(QEvent.Type.MouseButtonPress, self.label, QPoint(10, 10), Qt.MouseButton.MiddleButton,
+                      Qt.MouseButton.MiddleButton)
+        QApplication.sendEvent(self.label, press)
+        self.assertFalse(hasattr(self.assist, "_mark"))  # nothing fixed is drawn at the start point
+        with unittest.mock.patch("luxai.scroll_assist.QGuiApplication.changeOverrideCursor") as change:
+            self.assist.anchor = QPoint(self.assist.anchor.x(), self.assist.anchor.y() - 200)
+            self.assist._tick()  # pointer far below the start: ▼
+            self.assertEqual(self.assist.direction, 1)
+            self.assist.anchor = QPoint(self.assist.anchor.x(), self.assist.anchor.y() + 400)
+            self.assist._tick()  # pointer far above: ▲
+            self.assertEqual(self.assist.direction, -1)
+            self.assertEqual(change.call_count, 2)
+
     def test_drag_on_empty_background_scrolls_but_not_on_controls(self):
         start = QPoint(20, 10)
         QApplication.sendEvent(self.label, mouse(QEvent.Type.MouseButtonPress, self.label, start,

@@ -44,29 +44,58 @@ def autoscroll_step(offset: int) -> int:
     return min(step, 120) * (1 if offset > 0 else -1)
 
 
-class _AnchorMark(QWidget):
-    """Small round ↕ marker where autoscroll started."""
+def direction_of(offset: int) -> int:
+    """-1 up, 0 resting (inside the dead zone), 1 down."""
+    return 0 if abs(offset) <= DEAD_ZONE else (1 if offset > 0 else -1)
 
-    def __init__(self):
-        super().__init__(None)
-        self.setWindowFlags(Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint
-                            | Qt.WindowType.WindowDoesNotAcceptFocus | Qt.WindowType.WindowTransparentForInput)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
-        self.resize(30, 30)
 
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setPen(QPen(QColor("#ffffff"), 1.5))
-        painter.setBrush(QColor(30, 34, 42, 220))
-        painter.drawEllipse(self.rect().adjusted(1, 1, -1, -1))
-        painter.setBrush(QColor("#ffffff"))
+_CURSORS = {}
+
+
+def _draw_cursor(direction: int):
+    """Windows-style autoscroll pointer (as in browsers and the Claude app):
+    at rest a light disc with ▲ • ▼; while scrolling a small ring with one
+    arrow pointing where the page moves."""
+    from PySide6.QtGui import QPixmap, QPolygonF
+    from PySide6.QtCore import QPointF
+    pixmap = QPixmap(32, 32)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    light, dark = QColor("#f4f1e4"), QColor("#202020")
+    outline = QPen(dark, 1.2)
+    if direction == 0:
+        painter.setPen(outline)
+        painter.setBrush(light)
+        painter.drawEllipse(QPointF(16, 16), 11, 11)
         painter.setPen(Qt.PenStyle.NoPen)
-        center = self.rect().center()
-        painter.drawPolygon([QPoint(center.x(), 6), QPoint(center.x() - 5, 12), QPoint(center.x() + 5, 12)])
-        painter.drawPolygon([QPoint(center.x(), 24), QPoint(center.x() - 5, 18), QPoint(center.x() + 5, 18)])
-        painter.drawEllipse(center, 2, 2)
+        painter.setBrush(dark)
+        painter.drawPolygon(QPolygonF([QPointF(16, 7), QPointF(12.5, 11.5), QPointF(19.5, 11.5)]))
+        painter.drawPolygon(QPolygonF([QPointF(16, 25), QPointF(12.5, 20.5), QPointF(19.5, 20.5)]))
+        painter.drawEllipse(QPointF(16, 16), 2, 2)
+    else:
+        sign = 1 if direction > 0 else -1
+        # ring at the hotspot
+        painter.setPen(outline)
+        painter.setBrush(light)
+        painter.drawEllipse(QPointF(16, 16), 4.5, 4.5)
+        painter.setBrush(dark)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawEllipse(QPointF(16, 16), 1.5, 1.5)
+        # one arrow on the scrolling side
+        tip, base = 16 + sign * 14, 16 + sign * 6.5
+        painter.setPen(outline)
+        painter.setBrush(light)
+        painter.drawPolygon(QPolygonF([QPointF(16, tip), QPointF(10, base), QPointF(22, base)]))
+    painter.end()
+    return pixmap
+
+
+def direction_cursor(direction: int) -> QCursor:
+    """The mouse pointer itself shows the scroll direction (hotspot = centre)."""
+    if direction not in _CURSORS:
+        _CURSORS[direction] = QCursor(_draw_cursor(direction), 16, 16)
+    return _CURSORS[direction]
 
 
 class ScrollAssist(QObject):
@@ -76,7 +105,7 @@ class ScrollAssist(QObject):
         self.anchor = QPoint()
         self.autoscrolling = False
         self._moved_while_held = False
-        self._mark = None
+        self.direction = 0
         self._timer = QTimer(self)
         self._timer.setInterval(16)
         self._timer.timeout.connect(self._tick)
@@ -104,11 +133,8 @@ class ScrollAssist(QObject):
         self.anchor = QPoint(global_pos)
         self.autoscrolling = True
         self._moved_while_held = False
-        if self._mark is None:
-            self._mark = _AnchorMark()
-        self._mark.move(self.anchor - QPoint(15, 15))
-        self._mark.show()
-        QGuiApplication.setOverrideCursor(Qt.CursorShape.SizeVerCursor)
+        self.direction = 0
+        QGuiApplication.setOverrideCursor(direction_cursor(0))
         self._timer.start()
 
     def stop(self):
@@ -117,8 +143,7 @@ class ScrollAssist(QObject):
         self.autoscrolling = False
         self._timer.stop()
         self.area = None
-        if self._mark is not None:
-            self._mark.hide()
+        self.direction = 0
 
     def _tick(self):
         area = self.area
@@ -126,7 +151,12 @@ class ScrollAssist(QObject):
             if area is None or not area.isVisible():
                 self.stop()
                 return
-            step = autoscroll_step(QCursor.pos().y() - self.anchor.y())
+            offset = QCursor.pos().y() - self.anchor.y()
+            direction = direction_of(offset)
+            if direction != self.direction:
+                self.direction = direction
+                QGuiApplication.changeOverrideCursor(direction_cursor(direction))
+            step = autoscroll_step(offset)
             if step:
                 bar = area.verticalScrollBar()
                 bar.setValue(bar.value() + step)

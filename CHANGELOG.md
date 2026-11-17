@@ -1,3 +1,7 @@
+## 0.4.1l — Autoscroll pointer like in Windows apps (2026-11-17)
+
+- Middle-click autoscroll no longer leaves a fixed ↕ circle on the screen. The mouse pointer itself shows the state, as in browsers and the Claude app: a light ▲•▼ disc at rest, a small ring with ▼ below while scrolling down and ▲ above while scrolling up.
+
 ## 0.4.1k — Scrolling without a mouse wheel (2026-11-17)
 
 - Scroll bars are wider (14 px) and clearly visible, and turn the accent colour on hover/drag; the old 9 px dark handle was nearly invisible and hard to grab.
