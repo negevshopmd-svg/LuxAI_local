@@ -1,4 +1,7 @@
-LUXAI LOCAL 0.4.1u — ACTUALIZARE 2026-11-18
+LUXAI LOCAL 0.4.1v — ACTUALIZARE 2026-11-18
+
+0.4.1v: Setările pluginurilor se salvează singure după fiecare schimbare — nu mai
+trebuie apăsat „Salvează”. Cheile și tokenurile se salvează când termini de scris.
 
 0.4.1u: Avatarul intră acum în colțul ecranului și se lipește de ambele margini;
 în modul mini se ascunde pe jumătate la margine și pe trei sferturi în colț, ca în Luxify.

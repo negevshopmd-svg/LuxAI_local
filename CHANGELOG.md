@@ -1,3 +1,10 @@
+## 0.4.1v — Plugin settings save themselves (2026-11-18)
+
+- No more «Сохранить» in plugin settings: every change (switch, slider, list, colour, key, program chips, reset) is saved by itself half a second later and applied at once. The side panel shows «Сохраняю…» → «✓ Сохраняется автоматически».
+- Keys and tokens (e.g. the Telegram bot token) are saved when you finish typing them (Enter or clicking elsewhere), never half-typed.
+- Leaving the page saves a change made just now, without asking; only an invalid value asks whether to leave without it.
+- A value changed outside the page (the avatar dragged to a new place) is kept and not overwritten by the open page.
+
 ## 0.4.1u — Avatar goes into the corner (2026-11-18)
 
 - The avatar now really reaches the screen edges and corners: snapping is measured from the visible orb, not from its window with the glow margin (which kept it ~40 px away), and it sticks to both edges at once in a corner.

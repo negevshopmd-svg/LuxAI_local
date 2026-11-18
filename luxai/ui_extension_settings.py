@@ -159,6 +159,10 @@ W = {
                      "Pauze făcute: {done} · sărite: {skipped}"),
     "today_hint": L("Время считается, пока плагин включён.", "Time is counted while the plugin is on.",
                     "Timpul se numără cât timp pluginul e pornit."),
+    "saving": L("Сохраняю…", "Saving…", "Salvez…"),
+    "saved_auto": L("✓ Сохраняется автоматически", "✓ Saved automatically", "✓ Se salvează automat"),
+    "not_saved": L("Не сохранено — исправьте значение выше.", "Not saved — fix the value above.",
+                   "Nesalvat — corectează valoarea de mai sus."),
     "unsaved": L("Есть несохранённые изменения.", "There are unsaved changes.", "Există modificări nesalvate."),
 }
 
@@ -864,7 +868,24 @@ class PluginSettingsView(QWidget):
         self.save_button.setObjectName("Primary")
         self.save_button.setMinimumHeight(40)
         self.save_button.clicked.connect(self.save)
+        self.save_button.hide()
         panel.addWidget(self.save_button)
+        self.save_state = QLabel()
+        self.save_state.setObjectName("ExtRowHint")
+        self.save_state.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.save_state.setMinimumHeight(28)
+        panel.addWidget(self.save_state)
+        # Every change is saved by itself half a second later (no «Сохранить»).
+        self._loading = True
+        self._autosave_timer = QTimer(self)
+        self._autosave_timer.setSingleShot(True)
+        self._autosave_timer.setInterval(500)
+        self._autosave_timer.timeout.connect(self._autosave)
+        for setting in self._secret_settings():
+            field = self.fields.get(setting.key)
+            if field is not None and hasattr(field, "line"):
+                # A key/token is saved when you finish typing it, never half-typed.
+                field.line.editingFinished.connect(self._save_secrets_now)
         body.addWidget(side)
 
         for key, value in self.saved_settings.items():
@@ -876,6 +897,7 @@ class PluginSettingsView(QWidget):
         self._active_nav = ""
         self._set_active_nav(next(iter(self.cards)))
         self._refresh()
+        self._loading = False
         for widget in self.findChildren(QWidget):
             widget.setProperty("i18n_skip", True)
 
@@ -1797,6 +1819,29 @@ class PluginSettingsView(QWidget):
         return values
 
     @property
+    def plain_dirty(self) -> bool:
+        """Changed switches/values (secrets are saved separately)."""
+        if self.enable_switch.isChecked() != self.saved_enabled:
+            return True
+        return self.draft() != {key: self.saved_settings.get(key) for key in self.draft()}
+
+    def _autosave(self):
+        if self.plain_dirty:
+            self.save(include_secrets=False, quiet=True)
+
+    def _save_secrets_now(self):
+        if any(self._raw(setting.key) for setting in self._secret_settings()):
+            self._autosave_timer.stop()
+            self.save(quiet=True)
+
+    def flush(self) -> bool:
+        """Save a pending change now (leaving the page). False = a value is invalid."""
+        self._autosave_timer.stop()
+        if not self.dirty:
+            return True
+        return self.save(quiet=True)
+
+    @property
     def dirty(self) -> bool:
         if self.enable_switch.isChecked() != self.saved_enabled:
             return True
@@ -1840,8 +1885,14 @@ class PluginSettingsView(QWidget):
             self.test_box.setEnabled(live)
         dirty = self.dirty
         self.save_button.setEnabled(dirty)
-        self.message.setText(w("unsaved", self.language) if dirty else "")
+        self.message.setText("")
         self.message.setStyleSheet("")
+        if hasattr(self, "save_state"):
+            if self.plain_dirty and not getattr(self, "_loading", True):
+                self.save_state.setText(w("saving", self.language))
+                self._autosave_timer.start()
+            elif not dirty:
+                self.save_state.setText(w("saved_auto", self.language))
 
     # -- actions --
     def reset_section(self, section_id):
@@ -1859,14 +1910,16 @@ class PluginSettingsView(QWidget):
             self._set_value(setting.key, setting.default)
         self._refresh()
 
-    def save(self):
+    def save(self, include_secrets: bool = True, quiet: bool = False):
         try:
             values = self.collect()
         except ValueError as error:
             self.message.setText(str(error))
             self.message.setStyleSheet("color:#e26675;")
+            if hasattr(self, "save_state"):
+                self.save_state.setText(w("not_saved", self.language))
             return False
-        for setting in self._secret_settings():
+        for setting in (self._secret_settings() if include_secrets else ()):
             secret = self._raw(setting.key)
             if not secret:
                 continue
@@ -1882,7 +1935,16 @@ class PluginSettingsView(QWidget):
         self.saved_settings = dict(values)
         self.saved.emit(self.plugin.id, self.saved_enabled, values)
         self._refresh()
+        if hasattr(self, "save_state"):
+            self.save_state.setText(w("saved_auto", self.language))
         return True
+
+    def external_update(self, key, value):
+        """A value changed outside the page (e.g. the avatar was dragged): keep it, do not overwrite it."""
+        if key in self.fields:
+            self.saved_settings[key] = value
+            self._set_value(key, value)
+            self._refresh()
 
     def _run_action(self, action_id):
         try:

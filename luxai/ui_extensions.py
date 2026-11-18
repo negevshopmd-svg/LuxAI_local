@@ -582,6 +582,10 @@ class ExtensionsPage(QWidget):
         view = self.settings_view
         if view is None:
             return
+        try:
+            view.flush()  # a change made just now is not lost
+        except RuntimeError:
+            pass
         view.detach()
         self.settings_view = None
         self.views.setCurrentWidget(self.list_view)
@@ -593,17 +597,23 @@ class ExtensionsPage(QWidget):
         return text(self.settings_view.plugin.title, self.language) if self.settings_view is not None else ""
 
     def go_back(self):
-        """Leave settings; unsaved edits are dropped after asking."""
+        """Leave settings. Changes are already saved; only an invalid value asks."""
         view = self.settings_view
-        if view is not None and view.dirty:
+        if view is not None and not view.flush():
             answer = QMessageBox.question(
                 self, text(view.plugin.title, self.language),
-                {"ru": "Сохранить изменения?", "en": "Save the changes?", "ro": "Salvezi modificările?"}[self.language],
-                QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel)
-            if answer == QMessageBox.StandardButton.Cancel:
+                {"ru": "Одно значение неверно и не сохранено. Выйти без него?",
+                 "en": "One value is invalid and was not saved. Leave without it?",
+                 "ro": "O valoare e greșită și nu s-a salvat. Ieși fără ea?"}[self.language],
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            if answer != QMessageBox.StandardButton.Yes:
                 return False
-            if answer == QMessageBox.StandardButton.Save and not view.save():
-                return False
+            view._autosave_timer.stop()
+            view.saved_settings = dict(view.saved_settings)
+            view.enable_switch.setChecked(view.saved_enabled)
+            for key, value in view.saved_settings.items():
+                if key in view.fields:
+                    view._set_value(key, value)
         self.close_settings()
         return True
 

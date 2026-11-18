@@ -774,6 +774,9 @@ class MainWindow(QMainWindow):
         if page is None or plugin_id not in page.state:
             return
         page.state[plugin_id]["settings"][key] = value
+        view = getattr(page, "settings_view", None)
+        if view is not None and view.plugin.id == plugin_id:
+            view.external_update(key, value)
         page._commit()
 
     def save_extensions_meta(self):

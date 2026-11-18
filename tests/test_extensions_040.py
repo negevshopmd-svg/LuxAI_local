@@ -240,12 +240,35 @@ class PageAndRuntimeTests(unittest.TestCase):
         view.reset_section("keys")
         self.assertEqual(view.draft()["mode"], "hold")
         self.assertTrue(view.dirty)
-        with mock.patch("luxai.ui_extensions.QMessageBox.question",
-                        return_value=__import__("PySide6.QtWidgets", fromlist=["QMessageBox"]).QMessageBox.StandardButton.Discard):
-            self.assertTrue(page.go_back())
+        self.assertTrue(view._autosave_timer.isActive())  # saves by itself, no button
+        with mock.patch("luxai.ui_extensions.QMessageBox.question") as asked:
+            self.assertTrue(page.go_back())  # leaving saves the pending change at once
+        asked.assert_not_called()
         self.assertIs(page.views.currentWidget(), page.list_view)
         self.assertEqual(titles[-1], "")
-        self.assertEqual(page.state["smart_dictation"]["settings"]["mode"], "toggle")
+        self.assertEqual(page.state["smart_dictation"]["settings"]["mode"], "hold")
+
+    def test_changes_save_automatically(self):
+        page, _engine, _ = self.make_page({})
+        states = []
+        page.state_changed.connect(states.append)
+        view = page.open_settings("breaks")
+        self.assertFalse(view.save_button.isVisible())
+        self.assertIn("автоматически", view.save_state.text())
+        view.fields["water_on"].setChecked(False)
+        self.assertEqual(view.save_state.text(), "Сохраняю…")
+        self.assertEqual(states, [])
+        view._autosave_timer.timeout.emit()  # half a second later
+        self.assertFalse(states[-1]["breaks"]["settings"]["water_on"])
+        self.assertFalse(view.dirty)
+        self.assertIn("автоматически", view.save_state.text())
+        view.enable_switch.setChecked(True)
+        view._autosave_timer.timeout.emit()
+        self.assertTrue(states[-1]["breaks"]["enabled"])
+        # A value changed outside the page (avatar dragged) is not overwritten later.
+        view.external_update("eyes_every", "30")
+        self.assertFalse(view.dirty)
+        self.assertEqual(view.draft()["eyes_every"], "30")
 
     def test_dictation_test_box_receives_text_inside_jarvis(self):
         page, engine, _ = self.make_page({"smart_dictation": {"enabled": True}})
