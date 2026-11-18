@@ -4626,6 +4626,12 @@ class MainWindow(QMainWindow):
             return
         group = self._command_queue[0]
         group["answers"].append(str(answer or ""))
+        try:
+            from luxai.avatar import looks_failed
+            if looks_failed(answer) and hasattr(self, "extensions_runtime"):
+                self.extensions_runtime.avatar_event("error")
+        except Exception:
+            pass
         group["routes"].append(self._current_route or "локально")
         self._current_route = ""
         self._processing = False

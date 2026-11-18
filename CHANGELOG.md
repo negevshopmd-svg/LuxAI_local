@@ -1,3 +1,12 @@
+## 0.4.1t — Visual avatar like Luxify (2026-11-18)
+
+- **Визуальный аватар** works: a living orb above all windows. It "breathes" by itself and reacts to sound — Jarvis's own voice (only this program's sound), all PC sound, the microphone, chosen programs or everything at once. Loudness only; nothing is recorded or sent.
+- Colour by state: running a command (green), answering by voice (yellow), error (red, 2.5 s), microphone off / quiet mode / prefix mode (permanent). Every state has its own colour and switch; the base colour is your own or the Jarvis theme colour.
+- Look and motion: size, opacity, glow, speed, intensity, amplitude, smoothness; reaction on/off, sensitivity and strength.
+- Behaviour: 3×3 position picker or your own place (drag it — remembered), monitor, lock (clicks pass through), drag, stick to edges, mini mode at the edge (half hidden), above windows, hide in full-screen apps. «Основные»: on/off, start with the program, 30/60 fps.
+- The settings page has a live preview cycling Ждёт → Слушает → Говорит → Выполняет команду. Voice: «покажи аватар» / «скрой аватар».
+- Settings pages got colour swatches and percent sliders.
+
 ## 0.4.1s — One font everywhere (2026-11-18)
 
 - With the «Fuzzy Bubbles» font, Russian text («Главная», «История команд»…) used to switch to Onest: Fuzzy Bubbles has no Cyrillic letters at all. Pangolin, a similar hand-written font with Cyrillic and Romanian letters (SIL OFL, bundled, no download at runtime), now fills in exactly the letters Fuzzy Bubbles lacks, so the whole interface keeps one look.

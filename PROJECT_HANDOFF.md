@@ -7,6 +7,10 @@
 > Updated for the **0.3.9.e work**, 2026-10-30. \`Update.bat\` installs the code merged into \`main\`, NOT an open PR.
 > Do NOT include real API keys, private logs, screen captures, model binaries, user audio, or personal paths in Git history.
 
+## 0. Release 0.4.1t — Visual avatar
+
+`luxai/avatar.py`: `resolve_state` (priority error > exec > speak > mic_off > quiet > prefix), `loudness`, `preset_point`, `snap_to_edges`, `LevelMeter` (voice = process loopback of Jarvis's own pid, system, mic via sounddevice, apps, all), `AvatarView` (painted wobbling rings + glow), `AvatarWindow` (frameless, lock = WindowTransparentForInput), `looks_failed`. Runtime: `_apply_avatar`, `_tick_avatar` (100 ms; flags from host `_processing`, `voices.barge_in_ready`, cfg mic/tts/prefix, home avatar `_listening`; full-screen check each second), `avatar_event("error")` called from `main._resolved_command`, `show/hide_avatar`, position saved via `update_extension_setting`. Settings: kind `color` (`ColorField`), `PositionGrid`, `@monitor`, side preview. Tests: `tests/test_visual_avatar_041t.py`.
+
 ## 0. Release 0.4.1q — Live captions
 
 `luxai/loopback_audio.py`: `LoopbackCapture` (16 kHz mono PCM via AUTOCONVERTPCM; app = process loopback INCLUDE_TREE through `ActivateAudioInterfaceAsync`, all = default-speaker loopback; EXCLUDE_TREE of Jarvis is NOT used because it also drops programs Jarvis launched), `audio_apps()`, `app_pid()`. `luxai/live_captions.py`: `PhraseSegmenter` (energy, 0.7 s pause / 12 s max), `CaptionEngine` (partial ≈1 s, final via `dictation.transcribe`), `CaptionBar`. Runtime: `show/hide/toggle_captions`, `_start_caption_audio` (mutes while `voices.barge_in_ready`), translation via `translate_text`, position in `extensions_meta.captions_position`, voice `handle_captions_request`; host `set_extension_enabled`. Page rows `@source`, `@tr_status`, `@position`. Tests: `tests/test_live_captions_041q.py`.

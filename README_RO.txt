@@ -1,4 +1,8 @@
-LUXAI LOCAL 0.4.1s — ACTUALIZARE 2026-11-18
+LUXAI LOCAL 0.4.1t — ACTUALIZARE 2026-11-18
+
+0.4.1t: Avatarul vizual e ca în Luxify: o sferă vie deasupra ferestrelor, care
+„respiră”, reacționează la vocea lui Jarvis / sunetul PC-ului / microfon și își
+schimbă culoarea după stare (execută, vorbește, eroare, microfon oprit...).
 
 0.4.1s: Fontul Fuzzy Bubbles nu are litere rusești, de aceea textul rusesc apărea
 cu alt font. Acum literele lipsă vin din Pangolin (același stil, scris de mână),

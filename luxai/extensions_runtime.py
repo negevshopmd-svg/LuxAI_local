@@ -631,6 +631,16 @@ class ExtensionsRuntime(QObject):
         self._captions_engine = None
         self._captions_config = None
         self._captions_autostart_done = False
+        self._avatar_window = None
+        self._avatar_meter = None
+        self._avatar_audio_key = None
+        self._avatar_first_apply = True
+        self._avatar_session_hidden = False
+        self._avatar_error_until = 0.0
+        self._avatar_ticks = 0
+        self._avatar_timer = QTimer(self)
+        self._avatar_timer.setInterval(100)
+        self._avatar_timer.timeout.connect(self._tick_avatar)
         self._cap_partial.connect(self._on_cap_partial)
         self._cap_final.connect(self._on_cap_final)
         self._cap_translated.connect(self._on_cap_translated)
@@ -776,6 +786,7 @@ class ExtensionsRuntime(QObject):
             self.cancel_dictation()
         self._apply_pc_control()
         self._apply_captions()
+        self._apply_avatar()
         self._apply_timers()
         self._apply_notifications()
         if self.enabled("downloads_cleanup") and self.settings("downloads_cleanup").get("auto"):
@@ -1035,7 +1046,142 @@ class ExtensionsRuntime(QObject):
             return self.hide_captions()
         return None
 
+    # -- visual avatar --
+    def _avatar_base_color(self) -> str:
+        settings = self.settings("visual_avatar")
+        if settings.get("color_mode") == "theme":
+            return (getattr(self.host, "cfg", {}) or {}).get("ui_accent", "#3978f6")
+        return settings.get("color") or "#1f8fe0"
+
+    def _avatar_screen(self) -> int:
+        try:
+            return int(self.settings("visual_avatar").get("monitor", "0") or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    def _apply_avatar(self):
+        if not self.enabled("visual_avatar"):
+            self._avatar_first_apply = False
+            self._close_avatar()
+            return
+        settings = self.settings("visual_avatar")
+        if self._avatar_first_apply:
+            self._avatar_first_apply = False
+            # «Запускать вместе с программой» off: it waits for «покажи аватар».
+            self._avatar_session_hidden = not settings.get("autostart", True)
+        if self._avatar_session_hidden:
+            self._close_avatar()
+            return
+        from luxai.avatar import AvatarWindow, LevelMeter
+        if self._avatar_window is None:
+            self._avatar_meter = LevelMeter()
+            self._avatar_window = AvatarWindow(self._avatar_meter)
+            self._avatar_window.moved.connect(self._avatar_moved)
+        self._avatar_window.apply(settings, self._avatar_base_color(), self._avatar_screen())
+        key = (settings.get("source"), settings.get("apps"), bool(settings.get("react", True)))
+        if key != self._avatar_audio_key:
+            self._avatar_audio_key = key
+            from luxai.clipboard_store import parse_names
+            if settings.get("react", True):
+                self._avatar_meter.start(settings.get("source", "voice"), parse_names(settings.get("apps", "")))
+            else:
+                self._avatar_meter.stop()
+        self._avatar_window.show()
+        if not self._avatar_timer.isActive():
+            self._avatar_timer.start()
+
+    def _close_avatar(self):
+        self._avatar_timer.stop()
+        window, self._avatar_window = self._avatar_window, None
+        meter, self._avatar_meter = self._avatar_meter, None
+        self._avatar_audio_key = None
+        if meter is not None:
+            meter.stop()
+        if window is not None:
+            try:
+                window.view.timer.stop()
+                window.close()
+                window.deleteLater()
+            except RuntimeError:
+                pass
+
+    def avatar_flags(self) -> dict:
+        from luxai.voices import barge_in_ready
+        cfg = getattr(self.host, "cfg", {}) or {}
+        home = getattr(self.host, "avatar", None)
+        return {
+            "error": time.monotonic() < self._avatar_error_until,
+            "exec": bool(getattr(self.host, "_processing", False)),
+            "speak": barge_in_ready.is_set(),
+            "mic_off": not cfg.get("microphone_enabled", True),
+            "quiet": not cfg.get("tts_enabled", True),
+            "prefix": bool(cfg.get("prefix_enabled", False)),
+            "listening": bool(getattr(home, "_listening", False)),
+        }
+
+    def avatar_event(self, event: str):
+        if event == "error":
+            self._avatar_error_until = time.monotonic() + 2.5
+
+    def _tick_avatar(self):
+        from luxai.avatar import resolve_state
+        window = self._avatar_window
+        if window is None:
+            return
+        settings = self.settings("visual_avatar")
+        _state, color = resolve_state(self.avatar_flags(), settings, self._avatar_base_color())
+        window.view.set_target(color)
+        self._avatar_ticks += 1
+        if self._avatar_ticks % 10 == 0:  # once a second
+            hide = bool(settings.get("hide_fullscreen", True)) and foreground_is_fullscreen()
+            if hide and window.isVisible():
+                window.hide()
+            elif not hide and not window.isVisible():
+                window.show()
+
+    def _avatar_moved(self, x: int, y: int):
+        value = f"{int(x)},{int(y)}"
+        if hasattr(self.host, "update_extension_setting"):
+            self.host.update_extension_setting("visual_avatar", "position", value)
+        else:
+            self.state.setdefault("visual_avatar", {"enabled": True, "settings": {}})["settings"]["position"] = value
+
+    def reset_avatar_position(self):
+        if hasattr(self.host, "update_extension_setting"):
+            self.host.update_extension_setting("visual_avatar", "position", "br")
+        else:
+            self.state.setdefault("visual_avatar", {"enabled": True, "settings": {}})["settings"]["position"] = "br"
+            if self._avatar_window is not None:
+                self._apply_avatar()
+
+    def show_avatar(self) -> str:
+        self._avatar_session_hidden = False
+        self._avatar_first_apply = False
+        if not self.enabled("visual_avatar") and hasattr(self.host, "set_extension_enabled"):
+            self.host.set_extension_enabled("visual_avatar", True)  # saves and applies
+        else:
+            self.state.setdefault("visual_avatar", {"enabled": True, "settings": {}})["enabled"] = True
+            self._apply_avatar()
+        return _tr3("Показал аватар.", "The avatar is on.", "Am afișat avatarul.", self.language)
+
+    def hide_avatar(self) -> str:
+        self._avatar_session_hidden = True
+        self._close_avatar()
+        return _tr3("Скрыл аватар.", "The avatar is hidden.", "Am ascuns avatarul.", self.language)
+
+    def handle_avatar_request(self, text: str) -> str | None:
+        phrase = " ".join(str(text or "").casefold().replace("ё", "е").split()).strip(" .!?")
+        phrase = re.sub(r"^(?:джарвис|жарвис|jarvis)[,\s]+", "", phrase)
+        if re.fullmatch(r"(?:покажи|включи|верни)\s+(?:визуальн\w+\s+)?аватар\w*|(?:show|turn\s+on)\s+(?:the\s+)?avatar"
+                        r"|(?:arat[ăa]|porne[șs]te)\s+avatarul", phrase):
+            return self.show_avatar()
+        if re.fullmatch(r"(?:скрой|спрячь|выключи|убери)\s+(?:визуальн\w+\s+)?аватар\w*|(?:hide|turn\s+off)\s+(?:the\s+)?avatar"
+                        r"|(?:ascunde|opre[șs]te)\s+avatarul", phrase):
+            return self.hide_avatar()
+        return None
+
     def stop(self):
+        self._close_avatar()
         self.hide_captions()
         self._notif_timer.stop()
         self._timer_tick.stop()
@@ -1089,6 +1235,7 @@ class ExtensionsRuntime(QObject):
             ("clipboard_history", "clear"): self.clear_clipboard,
             ("clipboard_history", "clear_all"): self.clear_clipboard_all,
             ("live_captions", "toggle"): self.toggle_captions,
+            ("visual_avatar", "reset_position"): self.reset_avatar_position,
             ("live_captions", "reset_position"): self.reset_captions_position,
             ("quick_inserts", "open"): lambda: self.open_snippets(paste=False),
             ("breaks", "test"): lambda: self.remind_break(force=True),
@@ -1801,7 +1948,8 @@ class ExtensionsRuntime(QObject):
     def handle_text_request(self, text: str) -> str | None:
         """Typed or spoken requests handled by extensions (notifications, timers)."""
         return (self.handle_notification_request(text) or self.handle_timer_request(text)
-                or self.handle_clipboard_request(text) or self.handle_captions_request(text))
+                or self.handle_clipboard_request(text) or self.handle_captions_request(text)
+                or self.handle_avatar_request(text))
 
     # -- converter circle --
     def _cw(self, key, **values):

@@ -84,6 +84,7 @@ _SPEECH_LANG = Setting(
              ("en", L("Английский", "English", "Engleză"))))
 
 _MINUTES = L(" мин", " min", " min")
+_PERMANENT = L("Постоянный режим", "Permanent mode", "Mod permanent")
 _ITEMS = L(" шт.", " items", " elem.")
 _DAYS = L(" дн.", " days", " zile")
 _MB = L(" МБ", " MB", " MB")
@@ -403,13 +404,71 @@ PLUGINS: tuple[Plugin, ...] = (
         L("Анимированный шар поверх экрана, который реагирует на голос ассистента, микрофон или системные звуки.",
           "An animated orb on top of the screen that reacts to the assistant's voice, the microphone or system sounds.",
           "O sferă animată deasupra ecranului care reacționează la vocea asistentului, microfon sau sunetele sistemului."),
-        False,
-        (Setting("react_to", "choice", L("Реагировать на", "React to", "Reacționează la"), "assistant",
-                 options=(("assistant", L("Голос ассистента", "Assistant voice", "Vocea asistentului")),
-                          ("mic", L("Микрофон", "Microphone", "Microfon")),
-                          ("system", L("Звуки системы", "System sounds", "Sunetele sistemului")))),
-         Setting("size", "int", L("Размер", "Size", "Mărime"), 160, minimum=80, maximum=400, suffix=L(" px", " px", " px")),
-         Setting("click_through", "bool", L("Пропускать клики сквозь аватар", "Let clicks pass through", "Lasă clicurile să treacă"), True)),
+        True,
+        (Setting("size", "int", L("Размер", "Size", "Mărime"), 100, minimum=50, maximum=200, suffix=L(" %", " %", " %")),
+         Setting("opacity", "int", L("Непрозрачность", "Opacity", "Opacitate"), 70, minimum=20, maximum=100, suffix=L(" %", " %", " %")),
+         Setting("glow", "int", L("Свечение", "Glow", "Strălucire"), 80, minimum=0, maximum=100, suffix=L(" %", " %", " %")),
+         Setting("color_mode", "choice", L("Цвет аватара", "Avatar colour", "Culoarea avatarului"), "custom",
+                 options=(("theme", L("Цвет темы", "Theme colour", "Culoarea temei")), ("custom", L("Свой", "Own", "Proprie")))),
+         Setting("color", "color", L("Цвет аватара", "Avatar colour", "Culoarea avatarului"), "#1f8fe0",
+                 hint=L("Цвет темы меняется вместе с темой Jarvis; состояния временно его перекрывают.",
+                        "The theme colour follows the Jarvis theme; states cover it for a moment.",
+                        "Culoarea temei urmează tema Jarvis; stările o acoperă pentru o clipă.")),
+         Setting("speed", "int", L("Скорость", "Speed", "Viteză"), 50, minimum=0, maximum=100, suffix=L(" %", " %", " %"), hint=L("Спокойно ← → живо.", "Calm ← → lively.", "Calm ← → viu.")),
+         Setting("intensity", "int", L("Интенсивность", "Intensity", "Intensitate"), 30, minimum=0, maximum=100, suffix=L(" %", " %", " %")),
+         Setting("amplitude", "int", L("Амплитуда", "Amplitude", "Amplitudine"), 50, minimum=0, maximum=100, suffix=L(" %", " %", " %")),
+         Setting("smoothness", "int", L("Плавность", "Smoothness", "Netezime"), 100, minimum=0, maximum=100, suffix=L(" %", " %", " %")),
+         Setting("react", "bool", L("Реакция на звук", "React to sound", "Reacție la sunet"), True,
+                 hint=L("Выключено — аватар только «дышит».", "Off — the avatar only “breathes”.", "Oprit — avatarul doar „respiră”.")),
+         Setting("sensitivity", "int", L("Чувствительность", "Sensitivity", "Sensibilitate"), 50, minimum=0, maximum=100, suffix=L(" %", " %", " %"), hint=L("Насколько тихий звук аватар замечает.", "How quiet a sound the avatar notices.", "Cât de încet sunet observă avatarul.")),
+         Setting("reaction", "int", L("Интенсивность реакции", "Reaction strength", "Intensitatea reacției"), 45, minimum=0, maximum=100, suffix=L(" %", " %", " %"), hint=L("Насколько сильно аватар отвечает на замеченный звук.", "How strongly the avatar answers a sound.", "Cât de tare răspunde avatarul la sunet.")),
+         Setting("state_colors", "bool", L("Смена цвета по состоянию", "Colour by state", "Culoare după stare"), True,
+                 hint=L("Выключено — аватар всегда одного цвета.", "Off — the avatar always has one colour.", "Oprit — avatarul are mereu o culoare.")),
+         Setting("s_exec", "bool", L("Выполняет команду", "Running a command", "Execută o comandă"), True),
+         Setting("c_exec", "color", L("Выполняет команду", "Running a command", "Execută o comandă"), "#2ecf8f"),
+         Setting("s_speak", "bool", L("Отвечает голосом", "Answering by voice", "Răspunde cu vocea"), True),
+         Setting("c_speak", "color", L("Отвечает голосом", "Answering by voice", "Răspunde cu vocea"), "#f5b942"),
+         Setting("s_error", "bool", L("Ошибка", "Error", "Eroare"), True),
+         Setting("c_error", "color", L("Ошибка", "Error", "Eroare"), "#ef5350"),
+         Setting("s_mic_off", "bool", L("Микрофон выключен", "Microphone off", "Microfon oprit"), True, hint=_PERMANENT),
+         Setting("c_mic_off", "color", L("Микрофон выключен", "Microphone off", "Microfon oprit"), "#7c8696"),
+         Setting("s_quiet", "bool", L("Тихий режим", "Quiet mode", "Mod silențios"), True, hint=_PERMANENT),
+         Setting("c_quiet", "color", L("Тихий режим", "Quiet mode", "Mod silențios"), "#8f98a8"),
+         Setting("s_prefix", "bool", L("Режим префикса", "Prefix mode", "Mod prefix"), True, hint=_PERMANENT),
+         Setting("c_prefix", "color", L("Режим префикса", "Prefix mode", "Mod prefix"), "#40d3b5"),
+         Setting("source", "choice", L("Источник", "Source", "Sursă"), "voice",
+                 hint=L("На какой звук реагирует аватар.", "Which sound the avatar reacts to.", "La ce sunet reacționează avatarul."),
+                 options=(("voice", L("Голос ассистента — только фразы и ответы Jarvis", "Assistant voice — only Jarvis's phrases",
+                                      "Vocea asistentului — doar frazele lui Jarvis")),
+                          ("system", L("Все звуки компьютера — музыка, видео, игры", "All PC sounds — music, video, games",
+                                       "Toate sunetele PC-ului — muzică, video, jocuri")),
+                          ("mic", L("Микрофон — ваш голос и звуки рядом", "Microphone — your voice and sounds nearby",
+                                    "Microfon — vocea ta și sunetele din jur")),
+                          ("apps", L("Звуки выбранных приложений", "Sounds of chosen programs", "Sunetele programelor alese")),
+                          ("all", L("Все источники — и компьютер, и микрофон", "All sources — PC and microphone",
+                                    "Toate sursele — PC și microfon")))),
+         Setting("apps", "tags", L("Программы", "Programs", "Programe"), "",
+                 hint=L("Программа, например Discord.exe", "Program, e.g. Discord.exe", "Program, de ex. Discord.exe"), max_length=600),
+         Setting("position", "text", L("Положение на экране", "Position on screen", "Poziția pe ecran"), "br", max_length=24),
+         Setting("monitor", "text", L("Монитор", "Monitor", "Monitor"), "0", max_length=3),
+         Setting("lock", "bool", L("Закрепить положение", "Lock position", "Fixează poziția"), False,
+                 hint=L("Не перетаскивается и пропускает щелчки.", "Cannot be dragged and lets clicks through.",
+                        "Nu se trage și lasă clicurile să treacă.")),
+         Setting("drag", "bool", L("Перетаскивание мышью", "Drag with the mouse", "Tragere cu mouse-ul"), True),
+         Setting("snap", "bool", L("Прилипание к краям", "Stick to edges", "Lipire de margini"), True,
+                 hint=L("Отпустили рядом с краем экрана — аватар прилипнет к нему.", "Released near a screen edge, it sticks to it.",
+                        "Lăsat lângă marginea ecranului, se lipește de ea.")),
+         Setting("mini", "bool", L("Мини-режим у края", "Mini mode at the edge", "Mod mini la margine"), True,
+                 hint=L("У края аватар наполовину прячется за него.", "At the edge the avatar half hides behind it.",
+                        "La margine avatarul se ascunde pe jumătate.")),
+         Setting("on_top", "bool", L("Показывать поверх окон", "Show above windows", "Deasupra ferestrelor"), True),
+         Setting("hide_fullscreen", "bool", L("Автоматически скрывать в полноэкранных приложениях",
+                                              "Hide automatically in full-screen apps", "Ascunde automat în aplicații pe tot ecranul"), True),
+         Setting("autostart", "bool", L("Запускать вместе с программой", "Start with the program", "Pornește odată cu programul"), True),
+         Setting("fps", "choice", L("Частота кадров", "Frame rate", "Cadre pe secundă"), "60",
+                 hint=L("30 — меньше нагрузка на компьютер.", "30 — less load on the PC.", "30 — mai puțină încărcare."),
+                 options=(("30", L("30 к/с", "30 fps", "30 fps")), ("60", L("60 к/с", "60 fps", "60 fps"))))),
+        (("reset_position", L("Вернуть на место", "Back to its place", "Înapoi la loc")),),
     ),
     Plugin(
         "desktop_pet", "desktop", "ghost", "#a24ee8",
@@ -732,6 +791,31 @@ CONVERTER_VIDEO_SECTORS = ("s_mp4", "s_vcompress", "s_gif", "s_tomp3", "s_mute")
 # "Settings" card. The "basic" (on/off) card and the actions/test card are
 # always added by the page itself.
 SECTIONS = {
+    "visual_avatar": (
+        Section("look", "palette", L("Внешний вид", "Look", "Aspect"),
+                L("Размер, прозрачность, свечение и цвет аватара.", "Size, transparency, glow and colour of the avatar.",
+                  "Mărimea, transparența, strălucirea și culoarea avatarului."),
+                ("size", "opacity", "glow", "color")),
+        Section("motion", "audio-lines", L("Анимация", "Animation", "Animație"),
+                L("Как аватар «дышит» сам по себе, даже в тишине.", "How the avatar “breathes” by itself, even in silence.",
+                  "Cum „respiră” avatarul singur, chiar și în liniște."),
+                ("speed", "intensity", "amplitude", "smoothness")),
+        Section("reaction", "volume-2", L("Реакция", "Reaction", "Reacție"),
+                L("Как аватар отвечает на звук выбранного источника.", "How the avatar answers the sound of the chosen source.",
+                  "Cum răspunde avatarul la sunetul sursei alese."),
+                ("react", "sensitivity", "reaction")),
+        Section("states", "layers", L("Цвет состояний", "State colours", "Culorile stărilor"),
+                L("Когда аватар временно меняет цвет на время события.", "When the avatar changes colour for an event.",
+                  "Când avatarul își schimbă culoarea pe durata unui eveniment."),
+                ("state_colors", "s_exec", "s_speak", "s_error", "s_mic_off", "s_quiet", "s_prefix")),
+        Section("source", "mic", L("Источник анимации", "Animation source", "Sursa animației"),
+                L("На какой звук реагирует аватар.", "Which sound the avatar reacts to.", "La ce sunet reacționează avatarul."),
+                ("source", "apps")),
+        Section("behaviour", "app-window", L("Поведение", "Behaviour", "Comportament"),
+                L("Где стоит аватар и как ведёт себя у края экрана.", "Where the avatar stands and how it behaves at the screen edge.",
+                  "Unde stă avatarul și cum se poartă la marginea ecranului."),
+                ("@position_grid", "@monitor", "lock", "drag", "snap", "mini", "on_top", "hide_fullscreen")),
+    ),
     "live_captions": (
         Section("sound", "headphones", L("Звук и язык", "Sound and language", "Sunet și limbă"),
                 L("На каком языке говорят и что слушать.", "Which language is spoken and what to listen to.",
@@ -859,6 +943,9 @@ ENABLED_IF = {
     "notification_reader": {"quiet_from": ("quiet_enabled", (True,)), "quiet_to": ("quiet_enabled", (True,))},
     "converter": {"folder": ("destination", ("folder",))},
     "live_captions": {"translate_to": ("translate", (True,)), "show_original": ("translate", (True,))},
+    "visual_avatar": dict({"sensitivity": ("react", (True,)), "reaction": ("react", (True,)),
+                           "apps": ("source", ("apps",)), "drag": ("lock", (False,))},
+                          **{f"s_{state}": ("state_colors", (True,)) for state in ("exec", "speak", "error", "mic_off", "quiet", "prefix")}),
     "timers": {"ring_seconds": ("sound", (True,))},
     "smart_dictation": {
         "hotkey": ("trigger", ("hotkey",)),
@@ -869,8 +956,8 @@ ENABLED_IF = {
 
 # The on/off card goes last for these plugins (as in Luxify) and can hold
 # extra settings.
-BASIC_LAST = {"pc_control"}
-BASIC_KEYS = {"pc_control": ("autostart",), "live_captions": ("show_on_start",)}
+BASIC_LAST = {"pc_control", "visual_avatar"}
+BASIC_KEYS = {"pc_control": ("autostart",), "live_captions": ("show_on_start",), "visual_avatar": ("autostart", "fps")}
 
 # Information shown in the basic card.
 BASIC_NOTE = {
@@ -916,6 +1003,8 @@ BASIC_ACTION_ROWS = {
 }
 # Several settings in ONE row: lead key -> other keys shown before its control.
 ROW_GROUPS = {
+    "visual_avatar": dict({"color": ("color_mode",)},
+                          **{f"s_{state}": (f"c_{state}",) for state in ("exec", "speak", "error", "mic_off", "quiet", "prefix")}),
     "breaks": {"eyes_on": ("eyes_every",), "stretch_on": ("stretch_every",), "water_on": ("water_every",),
                "quiet_enabled": ("quiet_from", "quiet_to")},
 }
@@ -951,7 +1040,7 @@ SECTION_NOTES = {
 }
 BASIC_KEYS["notification_reader"] = ("read_now",)
 # Settings edited by a custom card instead of a form row.
-HIDDEN_SETTINGS = {"notification_reader": ("app_rules",), "live_captions": ("source",)}
+HIDDEN_SETTINGS = {"notification_reader": ("app_rules",), "live_captions": ("source",), "visual_avatar": ("position", "monitor")}
 VOICE_HELP = {
     "notification_reader": L("Скажите: «что пришло» — пропущенные уведомления; «прочитай последнее сообщение»; "
                              "«не читай уведомления» / «читай уведомления»; «не беспокой» — помолчать час. "
@@ -965,6 +1054,10 @@ VOICE_HELP = {
 }
 
 BASIC_TEXT = {
+    "visual_avatar": (L("Включить аватар", "Turn the avatar on", "Pornește avatarul"),
+                      L("Шар поверх всех окон. Голосом: «покажи аватар» / «скрой аватар».",
+                        "An orb above all windows. By voice: “show the avatar” / “hide the avatar”.",
+                        "O sferă deasupra ferestrelor. Cu vocea: „arată avatarul” / „ascunde avatarul”.")),
     "live_captions": (L("Субтитры", "Captions", "Subtitrări"),
                       L("Показать или скрыть плашку с текстом поверх всех окон.", "Show or hide the text bar above all windows.",
                         "Arată sau ascunde banda cu text deasupra ferestrelor.")),
@@ -1159,6 +1252,11 @@ def validate_value(setting: Setting, value):
         if len(value) > setting.max_length or any(ord(char) < 33 for char in value):
             raise ValueError("invalid secret")
         return value
+    if kind == "color":
+        value = str(value or "").strip()
+        if not re.fullmatch(r"#[0-9a-fA-F]{6}", value):
+            raise ValueError("colour expected")
+        return value.lower()
     if kind == "tags":
         if not isinstance(value, str):
             raise ValueError("text expected")

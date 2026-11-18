@@ -100,6 +100,18 @@ W = {
     "apps_refresh": L("Обновить список", "Refresh the list", "Reîmprospătează lista"),
     "example": L("Пример", "Example", "Exemplu"),
     "today": L("Сегодня", "Today", "Azi"),
+    "pick_color": L("Выбрать цвет", "Pick a colour", "Alege culoarea"),
+    "avatar_idle": L("Ждёт", "Waiting", "Așteaptă"),
+    "avatar_listening": L("Слушает", "Listening", "Ascultă"),
+    "avatar_speak": L("Говорит", "Speaking", "Vorbește"),
+    "avatar_exec": L("Выполняет команду", "Running a command", "Execută o comandă"),
+    "avatar_position": L("Положение на экране", "Position on screen", "Poziția pe ecran"),
+    "avatar_preset": L("Щёлкните точку — аватар встанет туда.", "Click a dot — the avatar moves there.",
+                       "Apasă un punct — avatarul se mută acolo."),
+    "avatar_custom": L("Своё место — перетащено мышью.", "Own place — dragged with the mouse.", "Loc propriu — tras cu mouse-ul."),
+    "avatar_monitor_title": L("Монитор", "Monitor", "Monitor"),
+    "avatar_monitor": L("Монитор {n} — {w}×{h}", "Monitor {n} — {w}×{h}", "Monitor {n} — {w}×{h}"),
+    "avatar_primary": L("(основной)", "(primary)", "(principal)"),
     "captions_show": L("Показать субтитры", "Show captions", "Arată subtitrările"),
     "captions_hide": L("Скрыть субтитры", "Hide captions", "Ascunde subtitrările"),
     "captions_live": L("Субтитры на экране.", "Captions are on screen.", "Subtitrările sunt pe ecran."),
@@ -414,7 +426,7 @@ class TagsField(QWidget):
         row = QHBoxLayout()
         row.setSpacing(8)
         self.input = QLineEdit()
-        self.input.setPlaceholderText(w("tags_placeholder", language))
+        self.input.setPlaceholderText(text(setting.hint, language) if setting.hint else w("tags_placeholder", language))
         self.input.setMaxLength(60)
         self.input.returnPressed.connect(self._add)
         row.addWidget(self.input, 1)
@@ -465,6 +477,86 @@ class TagsField(QWidget):
     def set_value(self, value):
         self.names = [line.strip() for line in str(value or "").splitlines() if line.strip()]
         self._render()
+
+
+class ColorField(QWidget):
+    """A round colour swatch; a click opens the colour picker."""
+    changed = Signal()
+
+    def __init__(self, setting, language, parent=None):
+        super().__init__(parent)
+        self.language = language
+        self._value = str(setting.default)
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        self.button = QToolButton()
+        self.button.setFixedSize(26, 26)
+        self.button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.button.setToolTip(w("pick_color", language))
+        self.button.clicked.connect(self._pick)
+        row.addWidget(self.button)
+        self._paint()
+
+    def _paint(self):
+        self.button.setStyleSheet(f"QToolButton{{background:{self._value}; border:2px solid rgba(255,255,255,0.25);"
+                                  f" border-radius:13px;}} QToolButton:hover{{border-color:white;}}")
+
+    def _pick(self):
+        from PySide6.QtGui import QColor
+        from PySide6.QtWidgets import QColorDialog
+        chosen = QColorDialog.getColor(QColor(self._value), self, w("pick_color", self.language))
+        if chosen.isValid():
+            self.set_value(chosen.name())
+            self.changed.emit()
+
+    def value(self):
+        return self._value
+
+    def set_value(self, value):
+        self._value = str(value or "#1f8fe0")
+        self._paint()
+
+
+class PositionGrid(QWidget):
+    """3×3 screen picker. A dragged-to place shows as «своё место»."""
+    changed = Signal(str)
+    KEYS = ("tl", "tc", "tr", "ml", "mc", "mr", "bl", "bc", "br")
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(112, 76)
+        self.value = "br"
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def set_value(self, value):
+        self.value = str(value or "br")
+        self.update()
+
+    def _cells(self):
+        for index, key in enumerate(self.KEYS):
+            column, row = index % 3, index // 3
+            yield key, QPoint(18 + column * 38, 14 + row * 22)
+
+    def paintEvent(self, event):
+        from PySide6.QtGui import QColor, QPainter, QPen
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(QPen(QColor(255, 255, 255, 60), 1.5))
+        painter.setBrush(QColor(255, 255, 255, 10))
+        painter.drawRoundedRect(QRect(2, 2, 108, 64), 8, 8)
+        painter.drawRoundedRect(QRect(44, 70, 24, 4), 2, 2)
+        for key, point in self._cells():
+            chosen = key == self.value
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor("#3b82f6") if chosen else QColor(255, 255, 255, 90))
+            radius = 6 if chosen else 2.5
+            painter.drawEllipse(point, radius, radius)
+
+    def mousePressEvent(self, event):
+        position = event.position().toPoint()
+        key = min(self._cells(), key=lambda cell: (cell[1] - position).manhattanLength())[0]
+        self.set_value(key)
+        self.changed.emit(key)
 
 
 class FolderField(QWidget):
@@ -662,6 +754,12 @@ class PluginSettingsView(QWidget):
                 if key == "@position":
                     self._add_position_row(card)
                     continue
+                if key == "@position_grid":
+                    self._add_avatar_position_row(card)
+                    continue
+                if key == "@monitor":
+                    self._add_monitor_row(card)
+                    continue
                 if key == "@ai_status":
                     self._add_ai_status_row(card)
                     continue
@@ -687,7 +785,7 @@ class PluginSettingsView(QWidget):
             self._build_dictation_check()
         elif (plugin.actions and plugin.ready and runtime is not None and not has_status_row
               and plugin.id not in BASIC_ACTIONS and plugin.id not in BASIC_ACTION_ROWS
-              and plugin.id not in ("clipboard_history", "live_captions")):
+              and plugin.id not in ("clipboard_history", "live_captions", "visual_avatar")):
             self._build_actions()
         if plugin.id in BASIC_LAST:
             self._build_basic()
@@ -718,6 +816,8 @@ class PluginSettingsView(QWidget):
         self.how_text.setWordWrap(True)
         self.how_text.setObjectName("ExtHowText")
         how_layout.addWidget(self.how_text)
+        if plugin.id == "visual_avatar":
+            self._build_avatar_preview(how, how_layout)
         if plugin.id == "pc_control":
             caption.hide()
             self.how_chip.hide()
@@ -912,7 +1012,7 @@ class PluginSettingsView(QWidget):
                     field.addItem(text(label, language), value)
                 field.currentIndexChanged.connect(self._refresh)
         elif kind == "int":
-            if setting.maximum - setting.minimum <= 120:
+            if setting.maximum - setting.minimum <= 120 or (setting.suffix and "%" in str(setting.suffix.get("ru", ""))):
                 field = SliderField(setting, language)
                 field.changed.connect(self._refresh)
             else:
@@ -933,6 +1033,9 @@ class PluginSettingsView(QWidget):
             field = FolderField(setting, language)
             field.changed.connect(self._refresh)
             wide = True
+        elif kind == "color":
+            field = ColorField(setting, language)
+            field.changed.connect(self._refresh)
         elif kind == "tags":
             field = TagsField(setting, language)
             field.changed.connect(self._refresh)
@@ -1448,6 +1551,86 @@ class PluginSettingsView(QWidget):
         button.clicked.connect(lambda: self.runtime.reset_captions_position())
         card.add_row(_row(w("position", self.language), w("position_hint", self.language), button))
 
+    # -- visual avatar --
+    def _build_avatar_preview(self, frame, layout):
+        from luxai.avatar import AvatarView
+        caption = frame.findChildren(QLabel)[0]
+        self.how_chip.hide()
+        self.how_text.hide()
+        self.avatar_state_label = caption
+        self.avatar_preview = AvatarView()
+        self.avatar_preview.setMinimumHeight(120)
+        layout.addWidget(self.avatar_preview, 1)
+        self._preview_states = ["idle", "listening", "speak", "exec"]
+        self._preview_index = 0
+        self._preview_timer = QTimer(self)
+        self._preview_timer.timeout.connect(self._next_preview_state)
+        self._preview_timer.start(2600)
+
+    def _preview_color(self, draft, state):
+        from luxai.avatar import DEFAULT_STATE_COLORS
+        base = draft.get("color") or "#1f8fe0"
+        if draft.get("color_mode") == "theme":
+            host = getattr(self.runtime, "host", None)
+            base = (getattr(host, "cfg", {}) or {}).get("ui_accent", base)
+        if state in DEFAULT_STATE_COLORS and draft.get("state_colors", True) and draft.get(f"s_{state}", True):
+            return draft.get(f"c_{state}") or DEFAULT_STATE_COLORS[state]
+        return base
+
+    def _next_preview_state(self):
+        try:
+            self._preview_index = (self._preview_index + 1) % len(self._preview_states)
+            self._render_avatar_preview(self.draft())
+        except RuntimeError:
+            pass
+
+    def _render_avatar_preview(self, draft):
+        import math
+        if not hasattr(self, "avatar_preview"):
+            return
+        state = self._preview_states[self._preview_index]
+        self.avatar_state_label.setText(w("avatar_" + state, self.language))
+        self.avatar_preview.configure(draft, self._preview_color(draft, state))
+        speaking = state == "speak"
+        self.avatar_preview.demo_level = (lambda phase: 0.55 + 0.4 * math.sin(phase * 7.3) * math.sin(phase * 2.1)) \
+            if speaking else (lambda phase: 0.0)
+
+    def _add_avatar_position_row(self, card):
+        self.position_grid = PositionGrid()
+        self.position_grid.set_value(self._raw("position") if "position" in self.fields else "br")
+        self.position_grid.changed.connect(self._position_chosen)
+        self.position_row = _row(w("avatar_position", self.language), " ", self.position_grid)
+        card.add_row(self.position_row)
+        self._render_position_hint()
+
+    def _position_chosen(self, key):
+        if "position" in self.fields:
+            self.fields["position"].setPlainText(key)
+        self._render_position_hint()
+
+    def _render_position_hint(self):
+        value = self._raw("position") if "position" in self.fields else "br"
+        self.position_grid.set_value(value)
+        custom = value not in PositionGrid.KEYS
+        self.position_row.hint_label.setText(w("avatar_custom" if custom else "avatar_preset", self.language))
+
+    def _add_monitor_row(self, card):
+        from PySide6.QtGui import QGuiApplication
+        combo = QComboBox()
+        combo.setMinimumWidth(260)
+        primary = QGuiApplication.primaryScreen()
+        for index, screen in enumerate(QGuiApplication.screens()):
+            size = screen.geometry()
+            label = w("avatar_monitor", self.language).format(n=index + 1, w=size.width(), h=size.height())
+            if screen is primary:
+                label = label.replace(" —", " " + w("avatar_primary", self.language) + " —", 1)
+            combo.addItem(label, str(index))
+        current = self._raw("monitor") if "monitor" in self.fields else "0"
+        combo.setCurrentIndex(max(0, combo.findData(current)))
+        combo.currentIndexChanged.connect(lambda *_: self.fields["monitor"].setPlainText(combo.currentData() or "0"))
+        self.monitor_combo = combo
+        card.add_row(_row(w("avatar_monitor_title", self.language), "", combo))
+
     def _build_today_card(self):
         language = self.language
         card = SectionCard("today", "clock", w("today", language), w("today_sub", language), resettable=False)
@@ -1546,7 +1729,7 @@ class PluginSettingsView(QWidget):
         field = self.fields[key]
         if isinstance(field, (ToggleSwitch,)):
             return field.isChecked()
-        if isinstance(field, (Segmented, SliderField, HotkeyField, FolderField, SecretField, TagsField)):
+        if isinstance(field, (Segmented, SliderField, HotkeyField, FolderField, SecretField, TagsField, ColorField)):
             return field.value()
         if isinstance(field, QComboBox):
             return field.currentData()
@@ -1563,7 +1746,7 @@ class PluginSettingsView(QWidget):
         try:
             if isinstance(field, ToggleSwitch):
                 field.setChecked(bool(value))
-            elif isinstance(field, (Segmented, SliderField, HotkeyField, FolderField, SecretField, TagsField)):
+            elif isinstance(field, (Segmented, SliderField, HotkeyField, FolderField, SecretField, TagsField, ColorField)):
                 field.set_value(value)
             elif isinstance(field, QComboBox):
                 field.setCurrentIndex(max(0, field.findData(value)))
@@ -1577,6 +1760,18 @@ class PluginSettingsView(QWidget):
             field.blockSignals(False)
         if setting.kind == "hotkey" and isinstance(field, HotkeyField):
             field.set_value(value)
+        self._sync_custom_rows(key)
+
+    def _sync_custom_rows(self, key):
+        """Custom rows that show a hidden setting follow its loaded/reset value."""
+        if key == "source" and hasattr(self, "source_combo"):
+            self._fill_sources()
+        elif key == "position" and hasattr(self, "position_grid"):
+            self._render_position_hint()
+        elif key == "monitor" and hasattr(self, "monitor_combo"):
+            self.monitor_combo.blockSignals(True)
+            self.monitor_combo.setCurrentIndex(max(0, self.monitor_combo.findData(self._raw("monitor"))))
+            self.monitor_combo.blockSignals(False)
 
     def _plain_settings(self):
         return [setting for setting in self.plugin.settings if setting.kind != "secret"]
@@ -1626,6 +1821,7 @@ class PluginSettingsView(QWidget):
         self.status_label.setText(label)
         self.status_dot.set_color(color)
         self._render_translate_status(draft)
+        self._render_avatar_preview(draft)
         if hasattr(self, "captions_button") and self.plugin.ready:
             visible = bool(self.runtime is not None and self.runtime.captions_visible)
             if visible:
