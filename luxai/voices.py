@@ -361,6 +361,24 @@ class VoiceManager:
                 barge_in_ready.clear()
         return False
 
+    def _play_wav(self, wav_data: bytes, cancel_token: int) -> bool:
+        import soundfile as sf
+        audio, sample_rate = sf.read(io.BytesIO(wav_data), dtype="float32")
+        if _was_cancelled(cancel_token):
+            return False
+        volume = max(0.0, min(1.0, float(self.config.get("voice_volume", 80)) / 100))
+        import sounddevice as sd
+        with _cancel_lock:
+            if cancel_token != _cancel_generation:
+                return False
+            sd.play(audio * volume, sample_rate)
+            barge_in_ready.set()
+        try:
+            sd.wait()
+        finally:
+            barge_in_ready.clear()
+        return not _was_cancelled(cancel_token)
+
     def _prepare_fish(self) -> bool:
         """Warm everything the first Fish reply needs, without sending text.
 
@@ -380,6 +398,54 @@ class VoiceManager:
             self._log(f"Fish audio warm-up skipped ({type(exc).__name__}).")
         return fish_tts.warm_up_connection()
 
+    def prefetch(self, text: str, language: str | None = None) -> None:
+        """Synthesize the NEXT piece while the current one plays (Fish only).
+
+        The audio stays in memory (at most 3 pieces) and is dropped when speech
+        is stopped, so long texts are read without pauses between pieces.
+        """
+        text = re.sub(r"\s+", " ", str(text or "")).strip()[:700]
+        config = self._load_config()
+        if not text or str(config.get("voice_engine", "piper")).lower() != "fish":
+            return
+        language = (language or config.get("language", "ru") or "ru").lower()
+        key = (text, language, _cancel_generation)
+        with _prefetch_lock:
+            if key in _prefetched:
+                return
+            while len(_prefetched) >= 3:
+                _prefetched.pop(next(iter(_prefetched)))
+            slot = {"done": threading.Event(), "wav": None}
+            _prefetched[key] = slot
+
+        def work():
+            from luxai import fish_tts
+            from luxai.secure_keys import get_api_key
+            try:
+                api_key = get_api_key("fish")
+                if api_key:
+                    speed = max(0.7, min(1.4, float(config.get("voice_speed", 1.0))))
+                    slot["wav"] = fish_tts.synthesize(
+                        text, api_key, voice_id=config.get("fish_voice_id") or fish_tts.DEFAULT_FISH_VOICE,
+                        speed=speed, language=language,
+                        is_cancelled=lambda: key[2] != _cancel_generation)
+            except Exception:
+                slot["wav"] = None
+            finally:
+                slot["done"].set()
+
+        threading.Thread(target=work, daemon=True, name="JarvisFishPrefetch").start()
+
+    def _take_prefetched(self, text: str, language: str, cancel_token: int):
+        key = (text, language, cancel_token)
+        with _prefetch_lock:
+            slot = _prefetched.pop(key, None)
+        if slot is None:
+            return None
+        # Started while the previous piece played: usually ready already.
+        slot["done"].wait(30)
+        return slot["wav"]
+
     def _fish_speak(self, text: str, language: str, cancel_token: int) -> bool:
         """Use the explicitly selected free cloud voice, preserving stop behavior."""
         from luxai import fish_tts
@@ -387,6 +453,9 @@ class VoiceManager:
 
         if _was_cancelled(cancel_token):
             return False
+        ready = self._take_prefetched(text, language, cancel_token)
+        if ready:
+            return self._play_wav(ready, cancel_token)
         try:
             key = get_api_key("fish")
             if not key:
@@ -415,21 +484,7 @@ class VoiceManager:
             # The adapter validates mono PCM16 WAV metadata and bounds the
             # response before decoding, so a network reply cannot request an
             # unbounded sample allocation. No speech audio is persisted.
-            import soundfile as sf
-            audio, sample_rate = sf.read(io.BytesIO(wav_data), dtype="float32")
-            if _was_cancelled(cancel_token):
-                return False
-            import sounddevice as sd
-            with _cancel_lock:
-                if cancel_token != _cancel_generation:
-                    return False
-                sd.play(audio * volume, sample_rate)
-                barge_in_ready.set()
-            try:
-                sd.wait()
-            finally:
-                barge_in_ready.clear()
-            return not _was_cancelled(cancel_token)
+            return self._play_wav(wav_data, cancel_token)
         except fish_tts.FishTTSError as exc:
             if not _was_cancelled(cancel_token):
                 self._log(f"Fish Audio synthesis failed ({exc.code}).")
@@ -516,7 +571,7 @@ class _PCMStreamPlayer:
     audio device after a short pre-buffer, so slow playback never stalls the
     download and the first words sound as soon as they arrive.
     """
-    PREBUFFER_SECONDS = 0.25
+    PREBUFFER_SECONDS = 0.12
 
     def __init__(self, sample_rate, volume, cancel_token, log):
         import queue as _queue
@@ -636,6 +691,18 @@ _manager = VoiceManager()
 def warm_up_voice(settings: dict) -> bool:
     """Prepare speech without output; call from the serial speech worker."""
     return _manager.prepare(settings)
+
+
+_prefetched: dict = {}
+_prefetch_lock = threading.Lock()
+
+
+def prefetch(text: str, language: str | None = None) -> None:
+    """Prepare the next piece of speech in the background (Fish voice)."""
+    try:
+        _manager.prefetch(text, language)
+    except Exception:
+        pass
 
 
 def speak(text: str, enabled: bool = True, language: str | None = None) -> bool:

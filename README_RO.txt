@@ -1,4 +1,7 @@
-LUXAI LOCAL 0.4.2c — ACTUALIZARE 2026-11-18
+LUXAI LOCAL 0.4.2d — ACTUALIZARE 2026-11-18
+
+0.4.2d: Citirea cu voce pornește de două ori mai repede, fără pauze între bucăți;
+din Discord textul selectat se citește și prin UI Automation dacă Ctrl+C nu merge.
 
 0.4.2c: La Subtitrări live, în „Ce ascult” apar acum toate programele deschise
 (și Google Chrome), nu doar cele care cântă chiar în acel moment.

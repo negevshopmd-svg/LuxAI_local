@@ -12,6 +12,7 @@ from __future__ import annotations
 import ctypes
 import re
 import sys
+import threading
 
 from luxai.fast_intents import strip_wake_name
 
@@ -184,3 +185,84 @@ def extractive_fallback(text: str) -> str:
         "Удалось прочитать выделение, но AI сейчас недоступен. "
         "Начало текста без автоматического пересказа: " + result
     )
+
+
+def selected_text_by_automation(hwnd: int, timeout: float = 2.0) -> str:
+    """The selected text of the focused control via Windows UI Automation.
+
+    Used when an app ignores the synthetic Ctrl+C. Chromium/Electron apps
+    (Discord, browsers) expose their selection through the TextPattern once
+    an accessibility client asks. Returns "" when nothing can be read.
+    """
+    if sys.platform != "win32":
+        return ""
+    result = {"text": ""}
+
+    def work():
+        try:
+            import comtypes
+            import comtypes.client
+            # COM stays initialised for this short-lived thread: releasing it while
+            # UIA objects are still alive crashes the process.
+            try:
+                comtypes.CoInitialize()
+            except OSError:
+                pass  # COM is already set up for this thread
+            if True:
+                comtypes.client.GetModule("UIAutomationCore.dll")
+                from comtypes.gen import UIAutomationClient as uia
+                automation = comtypes.client.CreateObject(
+                    "{ff48dba4-60ef-4201-aa87-54103eef594e}", interface=uia.IUIAutomation)
+                candidates = []
+                try:
+                    candidates.append(automation.GetFocusedElement())
+                except Exception:
+                    pass
+                try:
+                    import ctypes as _ct
+                    candidates.append(automation.ElementFromHandle(_ct.c_void_p(int(hwnd))))
+                except Exception:
+                    pass
+                for element in candidates:
+                    for item in _text_pattern_elements(automation, uia, element):
+                        found = _selection_of(uia, item)
+                        if found:
+                            result["text"] = found
+                            return
+        except Exception:
+            result["text"] = ""
+
+    thread = threading.Thread(target=work, daemon=True, name="JarvisSelectionUIA")
+    thread.start()
+    thread.join(timeout)
+    return result["text"].strip()
+
+
+def _text_pattern_elements(automation, uia, element, limit: int = 40):
+    """The element itself, then descendants that support the TextPattern."""
+    if element is None:
+        return []
+    found = [element]
+    try:
+        condition = automation.CreatePropertyCondition(uia.UIA_IsTextPatternAvailablePropertyId, True)
+        items = element.FindAll(uia.TreeScope_Descendants, condition)
+        for index in range(min(items.Length, limit)):
+            found.append(items.GetElement(index))
+    except Exception:
+        pass
+    return found
+
+
+def _selection_of(uia, element) -> str:
+    try:
+        pattern = element.GetCurrentPattern(uia.UIA_TextPatternId)
+        if not pattern:
+            return ""
+        pattern = pattern.QueryInterface(uia.IUIAutomationTextPattern)
+        ranges = pattern.GetSelection()
+        parts = []
+        for index in range(ranges.Length):
+            parts.append(ranges.GetElement(index).GetText(MAX_SELECTED_CHARS))
+        return " ".join(part for part in parts if part and part.strip())
+    except Exception:
+        return ""

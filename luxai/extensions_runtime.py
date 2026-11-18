@@ -2863,6 +2863,10 @@ class ExtensionsRuntime(QObject):
                 if generation != self._reading_generation:
                     return  # stopped by a second press or a new reading
                 language = target
+                if not translate:
+                    # Read it in its own language (an English text with an English voice).
+                    own = translation.text_language(piece)
+                    language = own if own in ("ru", "ro", "en") else target
                 if translate:
                     translated = translate_piece(piece)
                     if translated:
@@ -2913,23 +2917,47 @@ class ExtensionsRuntime(QObject):
             self._notify(str(error))
             return
 
-        from luxai.selection import clipboard_sequence
+        from luxai.selection import clipboard_sequence, selected_text_by_automation
+
+        def give_up():
+            # No copy at all (some Electron apps ignore a synthetic Ctrl+C):
+            # read the selection through Windows UI Automation instead.
+            from luxai.selection import restore_clipboard
+            if saved is not None and clipboard_sequence() == before:
+                pass  # nothing changed, nothing to restore
+            text_found = selected_text_by_automation(hwnd)
+            if text_found:
+                read(text_found)
+                return
+            try:
+                finish_selected_copy(clipboard, hwnd, before, saved)
+            except Exception as error:
+                self._notify(str(error))
+
+        def read(selected):
+            limit = int(settings.get("max_chars", 4000))
+            selected = selected.split("\n[Выделение сокращено", 1)[0][:limit]
+            self.read_text(selected)
 
         def finish(attempt=0):
-            # Browsers may fill the clipboard a little later: wait up to ~1.2 s.
-            if clipboard_sequence() == before and attempt < 10:
-                QTimer.singleShot(100, lambda: finish(attempt + 1))
+            # Check at once and then often; Electron apps (Discord) may need ~1-2 s.
+            if clipboard_sequence() == before:
+                if attempt == 12:
+                    from luxai import keys
+                    keys.press("ctrl", "insert", interval=0.05)  # the other copy shortcut
+                if attempt < 45:
+                    QTimer.singleShot(40, lambda: finish(attempt + 1))
+                    return
+                give_up()
                 return
             try:
                 selected = finish_selected_copy(clipboard, hwnd, before, saved)
             except Exception as error:
                 self._notify(str(error))
                 return
-            limit = int(settings.get("max_chars", 4000))
-            selected = selected.split("\n[Выделение сокращено", 1)[0][:limit]
-            self.read_text(selected)
+            read(selected)
 
-        QTimer.singleShot(150, finish)
+        QTimer.singleShot(20, finish)
 
     # -- screenshots --
     def take_screenshot(self, window: bool = False) -> Path | None:

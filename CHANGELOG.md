@@ -1,3 +1,10 @@
+## 0.4.2d — Faster read aloud, Discord selections (2026-11-18)
+
+- Read aloud starts about twice as fast: the copied text is checked at once instead of after 150 ms, the first piece is short (about one sentence, ≤180 characters; then ≤450), and Fish playback starts with a smaller buffer. Measured F8 → first sound for a Russian text: 1.8 s → 0.9 s.
+- No pauses between pieces of a long text: while one piece plays, the next one is already synthesized by Fish (kept only in memory, dropped on «стоп»).
+- Without translation every piece is read in its own language (an English text with English pronunciation).
+- Discord and other Electron apps: Jarvis now waits up to ~2 s for the copy, tries Ctrl+Insert if Ctrl+C did nothing, and finally reads the selection through Windows UI Automation (no clipboard needed).
+
 ## 0.4.2c — Chrome in «Что слушать» (2026-11-18)
 
 - Live captions «Что слушать» listed only programs that had a Windows audio session at that moment; Chrome closes its sound service while silent, so it was missing. Now every open program with a window is offered too (those playing sound first), e.g. «Только программа: chrome». Capturing one program still includes all of its processes.

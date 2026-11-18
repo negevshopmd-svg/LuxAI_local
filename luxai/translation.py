@@ -52,8 +52,20 @@ def needs_translation(text: str, target: str) -> bool:
     return bool(source) and source != target
 
 
-def split_chunks(text: str, limit: int = 600) -> list[str]:
-    """Sentence-aligned pieces of at most ``limit`` characters."""
+def split_chunks(text: str, limit: int = 450, first_limit: int = 180) -> list[str]:
+    """Sentence-aligned pieces of at most ``limit`` characters.
+
+    The FIRST piece is short (about one sentence, ``first_limit``), so the
+    voice — and a translation, if any — starts almost at once.
+    """
+    pieces = _split(text, limit)
+    if pieces and len(pieces[0]) > first_limit:
+        head = _split(pieces[0], first_limit)
+        pieces = [head[0]] + _split(" ".join(head[1:] + pieces[1:]), limit) if len(head) > 1 else pieces
+    return pieces
+
+
+def _split(text: str, limit: int) -> list[str]:
     value = " ".join(str(text or "").split())
     if not value:
         return []

@@ -4707,6 +4707,10 @@ class MainWindow(QMainWindow):
         if self._closed:
             return
         item = (text, language, self._speech_generation)
+        if self._speech_queue.qsize() or voice_output_playing.is_set():
+            # Something is already speaking: prepare this piece meanwhile.
+            from luxai.voices import prefetch
+            prefetch(text, language)
         try:
             self._speech_queue.put_nowait(item)
         except queue.Full:
