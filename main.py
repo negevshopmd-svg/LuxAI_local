@@ -27,7 +27,7 @@ from luxai.ui_home import HomePage
 from luxai.ui_sidebar import NavigationSidebar
 from luxai.ui_window_chrome import WindowHeader, WindowChrome
 from luxai.styles import build_styles, theme_colors
-from luxai.ui_fonts import normalize_font_family, register_project_fonts
+from luxai.ui_fonts import font_families, normalize_font_family, register_project_fonts
 from luxai.icons import icon, refresh_icons, set_button_icon, set_label_icon
 from luxai.ui_i18n import get_ui_language, set_ui_language, translate_widgets, tr, normalize_language, chat_author, is_user_author
 from luxai.response_language import reply_language
@@ -1593,9 +1593,11 @@ class MainWindow(QMainWindow):
         if app is not None:
             register_project_fonts()
             preference = normalize_font_family(self.cfg.get("ui_font_family", "Onest"))
-            family = "Segoe UI" if preference == "system" else preference
-            if app.font().family() != family:
-                app.setFont(QFont(family, 10))
+            families = font_families(preference)
+            if list(app.font().families()) != families:
+                font = QFont(families[0], 10)
+                font.setFamilies(families)
+                app.setFont(font)
             styles = build_styles(theme, accent, background, font_family=preference)
             if app.styleSheet() != styles:
                 app.setStyleSheet(styles)

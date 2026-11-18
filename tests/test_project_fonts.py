@@ -31,7 +31,7 @@ class ProjectFontTests(unittest.TestCase):
         label.show()
         self.app.processEvents()
         self.assertEqual(QFontInfo(label.font()).family(), PROJECT_FONT)
-        self.assertIn("'Fuzzy Bubbles', 'Onest'", self.app.styleSheet())
+        self.assertIn("'Fuzzy Bubbles', 'Pangolin', 'Onest'", self.app.styleSheet())
 
     def test_existing_arial_selection_displays_project_font_and_saves_migration(self):
         from luxai.settings_panel import SettingsPanel

@@ -1,3 +1,8 @@
+## 0.4.1s — One font everywhere (2026-11-18)
+
+- With the «Fuzzy Bubbles» font, Russian text («Главная», «История команд»…) used to switch to Onest: Fuzzy Bubbles has no Cyrillic letters at all. Pangolin, a similar hand-written font with Cyrillic and Romanian letters (SIL OFL, bundled, no download at runtime), now fills in exactly the letters Fuzzy Bubbles lacks, so the whole interface keeps one look.
+- The application font is set with the full fallback list, so widgets that draw text themselves follow it too.
+
 ## 0.4.1r — Live captions in real time (2026-11-18)
 
 - Captions now appear while someone speaks: the text grows about every 1.2 s (≈0.3 s in «Мгновенно»), and continuous speech in videos is split into phrases of at most 5 s, cut at the quietest moment between words (nothing is lost). Before: the medium model needed ~4 s per pass and a phrase could wait up to 12 s.

@@ -1,4 +1,8 @@
-LUXAI LOCAL 0.4.1r — ACTUALIZARE 2026-11-18
+LUXAI LOCAL 0.4.1s — ACTUALIZARE 2026-11-18
+
+0.4.1s: Fontul Fuzzy Bubbles nu are litere rusești, de aceea textul rusesc apărea
+cu alt font. Acum literele lipsă vin din Pangolin (același stil, scris de mână),
+deci tot programul arată la fel.
 
 0.4.1r: Subtitrările apar din mers, cât vorbește omul (textul crește la ~1 s),
 fraze de cel mult 5 s; setare nouă „Viteza recunoașterii” (instant / rapid și
