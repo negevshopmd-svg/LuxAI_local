@@ -74,11 +74,12 @@ class ScrollAssistTests(unittest.TestCase):
                       Qt.MouseButton.MiddleButton)
         QApplication.sendEvent(self.label, press)
         self.assertFalse(hasattr(self.assist, "_mark"))  # nothing fixed is drawn at the start point
-        with unittest.mock.patch("luxai.scroll_assist.QGuiApplication.changeOverrideCursor") as change:
-            self.assist.anchor = QPoint(self.assist.anchor.x(), self.assist.anchor.y() - 200)
+        pointer = QPoint(500, 500)  # a fixed pointer: the real mouse may be anywhere
+        with unittest.mock.patch("luxai.scroll_assist.QGuiApplication.changeOverrideCursor") as change,                 unittest.mock.patch("luxai.scroll_assist.QCursor.pos", return_value=pointer):
+            self.assist.anchor = QPoint(500, 300)
             self.assist._tick()  # pointer far below the start: ▼
             self.assertEqual(self.assist.direction, 1)
-            self.assist.anchor = QPoint(self.assist.anchor.x(), self.assist.anchor.y() + 400)
+            self.assist.anchor = QPoint(500, 700)
             self.assist._tick()  # pointer far above: ▲
             self.assertEqual(self.assist.direction, -1)
             self.assertEqual(change.call_count, 2)
@@ -110,10 +111,18 @@ class ScrollAssistTests(unittest.TestCase):
             QTest.keyClick(self.button, Qt.Key.Key_Home)
             self.assertEqual(self.bar.value(), 0)
 
-    def test_scrollbars_are_wide_and_visible(self):
+    def test_scrollbars_are_visible_round_pills(self):
+        import re
         from luxai.styles import build_styles
         css = build_styles("dark", "#f97316")
-        self.assertIn("width: 14px", css.split("QScrollBar:vertical {", 1)[1][:80])
+        bar = css.split("QScrollBar:vertical {", 1)[1].split("}", 1)[0]
+        handle = css.split("QScrollBar::handle:vertical {", 1)[1].split("}", 1)[0]
+        width = int(re.search(r"width: (\d+)px", bar).group(1))
+        side = int(re.search(r"margin: 0 (\d+)px", handle).group(1))
+        radius = int(re.search(r"border-radius: (\d+)px", handle).group(1))
+        # Qt draws square corners when the radius is more than half the handle width.
+        self.assertEqual(radius * 2, width - 2 * side)
+        self.assertGreaterEqual(width - 2 * side, 6)  # still easy to see and grab
         self.assertNotIn("$barhandle", css)
         self.assertIn("QScrollBar::handle:vertical:hover", css)
 

@@ -1,4 +1,6 @@
-LUXAI LOCAL 0.4.2f — ACTUALIZARE 2026-11-18
+LUXAI LOCAL 0.4.2g — ACTUALIZARE 2026-11-18
+
+0.4.2g: Barele de derulare sunt subțiri și rotunde, ca în Luxify.
 
 0.4.2f: Setări → Sistem: „Pornește Jarvis ca administrator” — o sarcină programată
 creată o singură dată; apoi Jarvis pornește cu drepturi de administrator fără întrebări.

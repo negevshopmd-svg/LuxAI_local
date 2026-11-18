@@ -1,3 +1,7 @@
+## 0.4.2g — Round scrollbars (2026-11-18)
+
+- Scrollbars are thin round pills like in Luxify: the handle is 6 px wide with a 3 px radius. Before, the 5 px radius on an 8 px handle was more than half its width, so Qt drew square corners. Still highlighted with the accent colour on hover.
+
 ## 0.4.2f — Run Jarvis as administrator (2026-11-18)
 
 - New in Settings → System: «Запускать Jarvis от имени администратора». It creates one Windows scheduled task «LuxAI Jarvis (admin)» with the highest rights (Windows asks once); `run_windows.bat` and the Windows autostart then start Jarvis through it, without a prompt each time. Needed to read text from and press keys in programs started as administrator (Windows UIPI). Turning it off deletes the task. If the Windows prompt is declined, the switch returns to off.

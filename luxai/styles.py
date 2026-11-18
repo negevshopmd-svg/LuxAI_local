@@ -608,14 +608,15 @@ QProgressBar::chunk {
 }
 QScrollBar:vertical {
     background: transparent;
-    width: 14px;
-    margin: 2px 1px;
+    width: 12px;
+    margin: 4px 0;
 }
 QScrollBar::handle:vertical {
+    /* a thin pill: the radius is exactly half the 6 px width, so it is round */
     background: $barhandle;
-    border-radius: 5px;
+    border-radius: 3px;
     min-height: 40px;
-    margin: 0 2px;
+    margin: 0 3px;
 }
 QScrollBar::handle:vertical:hover, QScrollBar::handle:vertical:pressed {
     background: $accent;
@@ -623,19 +624,20 @@ QScrollBar::handle:vertical:hover, QScrollBar::handle:vertical:pressed {
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
     height: 0;
 }
-QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical,
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
     background: transparent;
 }
 QScrollBar:horizontal {
     background: transparent;
-    height: 14px;
-    margin: 1px 2px;
+    height: 12px;
+    margin: 0 4px;
 }
 QScrollBar::handle:horizontal {
     background: $barhandle;
-    border-radius: 5px;
+    border-radius: 3px;
     min-width: 40px;
-    margin: 2px 0;
+    margin: 3px 0;
 }
 QScrollBar::handle:horizontal:hover, QScrollBar::handle:horizontal:pressed {
     background: $accent;
