@@ -49,30 +49,47 @@ def loudness(rms: float, sensitivity: float) -> float:
     return max(0.0, min(1.0, (db - floor) / 35.0))
 
 
-def preset_point(position: str, area: QRect, size: int, margin: int = 24) -> QPoint:
+ORB_RATIO = 0.29     # visible orb radius / window side (the rest is room for the glow)
+EDGE_GAP = 12        # orb edge to screen edge when snapped or placed by the grid
+MINI_SHOWN = 0.2     # mini mode: the orb centre stays this many radii inside the screen
+
+
+def orb_radius(side: int) -> int:
+    return int(side * ORB_RATIO)
+
+
+def preset_point(position: str, area: QRect, size: int, margin: int = EDGE_GAP) -> QPoint:
+    """Top-left of the window so the ORB (not the window box) sits ``margin`` from the edges."""
     column = {"l": 0, "c": 1, "r": 2}[position[1]]
     row = {"t": 0, "m": 1, "b": 2}[position[0]]
-    x = (area.left() + margin, area.center().x() - size // 2, area.right() - size - margin)[column]
-    y = (area.top() + margin, area.center().y() - size // 2, area.bottom() - size - margin)[row]
-    return QPoint(x, y)
+    reach = orb_radius(size) + margin
+    cx = (area.left() + reach, area.center().x(), area.right() - reach)[column]
+    cy = (area.top() + reach, area.center().y(), area.bottom() - reach)[row]
+    return QPoint(cx - size // 2, cy - size // 2)
 
 
-def snap_to_edges(rect: QRect, area: QRect, distance: int = 48, mini: bool = False) -> tuple[QPoint, str]:
-    """Stick to a near screen edge. In mini mode most of the orb hides behind it."""
-    x, y = rect.x(), rect.y()
-    edge = ""
-    tuck = int(rect.width() * 0.55) if mini else 0
-    if rect.left() - area.left() <= distance:
-        x, edge = area.left() - tuck, "left"
-    elif area.right() - rect.right() <= distance:
-        x, edge = area.right() - rect.width() + 1 + tuck, "right"
-    if rect.top() - area.top() <= distance:
-        y = area.top() - (tuck if not edge else 0)
-        edge = edge or "top"
-    elif area.bottom() - rect.bottom() <= distance:
-        y = area.bottom() - rect.height() + 1 + (tuck if not edge else 0)
-        edge = edge or "bottom"
-    return QPoint(x, y), edge
+def snap_to_edges(rect: QRect, area: QRect, distance: int = 80, mini: bool = False) -> tuple[QPoint, str]:
+    """Stick the ORB to the nearest edge(s) — both at once in a corner.
+
+    Measured from the visible orb, not the window with its glow margin, so it
+    really reaches the edge. In mini mode the orb tucks behind the edge(s):
+    about half shows at a side, about a quarter in a corner (like Luxify).
+    """
+    radius = orb_radius(rect.width())
+    cx, cy = rect.x() + rect.width() // 2, rect.y() + rect.height() // 2
+    inside = (int(radius * MINI_SHOWN) if mini else radius + EDGE_GAP)
+    edges = []
+    if cx - radius - area.left() <= distance:
+        cx, _ = area.left() + inside, edges.append("left")
+    elif area.right() - (cx + radius) <= distance:
+        cx, _ = area.right() - inside, edges.append("right")
+    if cy - radius - area.top() <= distance:
+        cy, _ = area.top() + inside, edges.append("top")
+    elif area.bottom() - (cy + radius) <= distance:
+        cy, _ = area.bottom() - inside, edges.append("bottom")
+    if not edges:
+        return rect.topLeft(), ""
+    return QPoint(cx - rect.width() // 2, cy - rect.height() // 2), "-".join(edges)
 
 
 class LevelMeter:
@@ -309,7 +326,7 @@ class AvatarWindow(QWidget):
                 point = QPoint(x, y)
             except ValueError:
                 point = preset_point("br", area, self.width())
-            if not any(s.availableGeometry().adjusted(-self.width(), -self.height(), 0, 0).contains(point)
+            if not any(s.availableGeometry().adjusted(-self.width(), -self.height(), self.width(), self.height()).contains(point)
                        for s in QGuiApplication.screens()):
                 point = preset_point("br", area, self.width())
         self.move(point)

@@ -1,3 +1,9 @@
+## 0.4.1u — Avatar goes into the corner (2026-11-18)
+
+- The avatar now really reaches the screen edges and corners: snapping is measured from the visible orb, not from its window with the glow margin (which kept it ~40 px away), and it sticks to both edges at once in a corner.
+- Mini mode tucks the orb behind the edge(s): about half shows at a side, about a quarter in a corner — like Luxify.
+- The 3×3 position grid places the orb itself 12 px from the edges; the magnet distance is a little larger (80 px from the orb).
+
 ## 0.4.1t — Visual avatar like Luxify (2026-11-18)
 
 - **Визуальный аватар** works: a living orb above all windows. It "breathes" by itself and reacts to sound — Jarvis's own voice (only this program's sound), all PC sound, the microphone, chosen programs or everything at once. Loudness only; nothing is recorded or sent.

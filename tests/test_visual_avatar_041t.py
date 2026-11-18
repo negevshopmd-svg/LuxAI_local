@@ -37,13 +37,32 @@ class LogicTests(unittest.TestCase):
 
     def test_positions_and_edges(self):
         area = QRect(0, 0, 1920, 1040)
-        self.assertEqual(av.preset_point("br", area, 170), QPoint(1920 - 1 - 170 - 24, 1040 - 1 - 170 - 24))
-        self.assertEqual(av.preset_point("tl", area, 170), QPoint(24, 24))
-        point, edge = av.snap_to_edges(QRect(1720, 500, 170, 170), area, mini=False)
-        self.assertEqual((point.x() + 170 - 1, edge), (area.right(), "right"))
-        point, edge = av.snap_to_edges(QRect(1720, 500, 170, 170), area, mini=True)
-        self.assertGreater(point.x() + 170 - 1, area.right())  # half tucked behind the edge
-        point, edge = av.snap_to_edges(QRect(800, 400, 170, 170), area)
+        side, radius = 170, av.orb_radius(170)
+
+        def orb(point):  # visible orb box of a window placed at ``point``
+            cx, cy = point.x() + side // 2, point.y() + side // 2
+            return cx - radius, cy - radius, cx + radius, cy + radius
+
+        # The grid puts the ORB itself 12 px from the corner, not the glow box.
+        left, top, right, bottom = orb(av.preset_point("br", area, side))
+        self.assertEqual((area.right() - right, area.bottom() - bottom), (av.EDGE_GAP, av.EDGE_GAP))
+        left, top, _r, _b = orb(av.preset_point("tl", area, side))
+        self.assertEqual((left, top), (av.EDGE_GAP, av.EDGE_GAP))
+        # Dropped near the top-right corner: sticks to BOTH edges.
+        point, edge = av.snap_to_edges(QRect(1730, 20, side, side), area, mini=False)
+        left, top, right, bottom = orb(point)
+        self.assertEqual(edge, "right-top")
+        self.assertEqual((area.right() - right, top - area.top()), (av.EDGE_GAP, av.EDGE_GAP))
+        # Mini mode in the corner: the centre is just inside, about a quarter shows.
+        point, edge = av.snap_to_edges(QRect(1730, 20, side, side), area, mini=True)
+        cx, cy = point.x() + side // 2, point.y() + side // 2
+        self.assertEqual(edge, "right-top")
+        self.assertLess(area.right() - cx, radius * 0.3)
+        self.assertLess(cy - area.top(), radius * 0.3)
+        # The glow margin no longer keeps it away: a window whose BOX is 40 px off still snaps.
+        point, edge = av.snap_to_edges(QRect(1920 - side - 40, 500, side, side), area)
+        self.assertEqual(edge, "right")
+        point, edge = av.snap_to_edges(QRect(800, 400, side, side), area)
         self.assertEqual((point, edge), (QPoint(800, 400), ""))
 
     def test_failures_flash_red(self):
