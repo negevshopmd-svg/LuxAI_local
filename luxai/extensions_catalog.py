@@ -234,16 +234,47 @@ PLUGINS: tuple[Plugin, ...] = (
           "Optionally translated.",
           "Afișează deasupra ferestrelor textul a ceea ce se aude pe PC: video, apel, stream. "
           "Opțional cu traducere."),
-        False,
-        (_SPEECH_LANG,
-         Setting("translate_to", "choice", L("Переводить на", "Translate to", "Tradu în"), "none",
-                 options=(("none", L("Не переводить", "Do not translate", "Fără traducere")),
-                          ("ru", L("Русский", "Russian", "Rusă")),
-                          ("ro", L("Румынский", "Romanian", "Română")),
-                          ("en", L("Английский", "English", "Engleză")))),
-         Setting("position", "choice", L("Положение плашки", "Strip position", "Poziția benzii"), "bottom",
-                 options=(("bottom", L("Снизу", "Bottom", "Jos")), ("top", L("Сверху", "Top", "Sus")))),
-         Setting("font_size", "int", L("Размер текста", "Text size", "Mărimea textului"), 20, minimum=12, maximum=40, suffix=L(" px", " px", " px"))),
+        True,
+        (Setting("show_on_start", "bool", L("Показывать при запуске программы", "Show when the program starts",
+                                            "Afișează la pornirea programului"), False,
+                 hint=L("Субтитры появятся сами, как только запустится Jarvis.",
+                        "Captions appear by themselves as soon as Jarvis starts.",
+                        "Subtitrările apar singure de îndată ce pornește Jarvis.")),
+         Setting("language", "choice", L("Язык речи", "Speech language", "Limba vorbirii"), "auto",
+                 hint=L("На каком языке говорят в видео или звонке.", "The language spoken in the video or call.",
+                        "Limba în care se vorbește în video sau apel."),
+                 options=(("auto", L("Как у голосовых команд", "Same as voice commands", "Ca la comenzile vocale")),
+                          ("any", L("Определять самому", "Detect automatically", "Detectează singur")),
+                          ("ru", L("Русский", "Russian", "Rusă")), ("en", L("Английский", "English", "Engleză")),
+                          ("ro", L("Румынский", "Romanian", "Română")))),
+         Setting("source", "text", L("Что слушать", "What to listen to", "Ce ascult"), "", max_length=120),
+         Setting("translate", "bool", L("Переводить", "Translate", "Tradu"), False,
+                 hint=L("Под субтитрами — перевод законченных фраз.", "Under the captions — the translation of finished phrases.",
+                        "Sub subtitrări — traducerea frazelor terminate.")),
+         Setting("translate_to", "choice", L("Язык перевода", "Translation language", "Limba traducerii"), "app",
+                 hint=L("По умолчанию — язык программы.", "By default — the program's language.", "Implicit — limba programului."),
+                 options=(("app", L("Как язык программы", "Same as the program", "Ca limba programului")),
+                          ("ru", L("Русский", "Russian", "Rusă")), ("en", L("Английский", "English", "Engleză")),
+                          ("ro", L("Румынский", "Romanian", "Română")))),
+         Setting("show_original", "bool", L("Показывать оригинал", "Show the original", "Arată originalul"), True,
+                 hint=L("Выключено — на плашке только перевод.", "Off — only the translation on the bar.",
+                        "Oprit — pe bandă doar traducerea.")),
+         Setting("font_size", "int", L("Размер текста", "Text size", "Mărimea textului"), 26, minimum=14, maximum=48,
+                 hint=L("Перевод — чуть мельче оригинала.", "The translation is a little smaller than the original.",
+                        "Traducerea e puțin mai mică decât originalul.")),
+         Setting("opacity", "int", L("Непрозрачность фона", "Background opacity", "Opacitatea fundalului"), 72,
+                 minimum=20, maximum=100, suffix=L(" %", " %", " %"),
+                 hint=L("Меньше — сквозь плашку виднее видео.", "Less — the video shows through the bar.",
+                        "Mai puțin — video se vede prin bandă.")),
+         Setting("lines", "choice", L("Строк текста", "Lines of text", "Rânduri de text"), "2",
+                 hint=L("Старое уезжает вверх само.", "Old text scrolls up by itself.", "Textul vechi urcă singur."),
+                 options=(("1", L("1", "1", "1")), ("2", L("2", "2", "2")), ("3", L("3", "3", "3")))),
+         Setting("hotkey", "hotkey", L("Показать / скрыть", "Show / hide", "Arată / ascunde"), "",
+                 hint=L("По желанию: сочетание, которое показывает и прячет субтитры.",
+                        "Optional: a shortcut that shows and hides the captions.",
+                        "Opțional: o combinație care arată și ascunde subtitrările."))),
+        (("toggle", L("Показать субтитры", "Show captions", "Arată subtitrările")),
+         ("reset_position", L("Вернуть вниз по центру", "Back to bottom centre", "Înapoi jos la centru"))),
     ),
     Plugin(
         "meeting_notes", "voice", "clipboard-list", "#e5484d",
@@ -693,6 +724,24 @@ CONVERTER_VIDEO_SECTORS = ("s_mp4", "s_vcompress", "s_gif", "s_tomp3", "s_mute")
 # "Settings" card. The "basic" (on/off) card and the actions/test card are
 # always added by the page itself.
 SECTIONS = {
+    "live_captions": (
+        Section("sound", "headphones", L("Звук и язык", "Sound and language", "Sunet și limbă"),
+                L("На каком языке говорят и что слушать.", "Which language is spoken and what to listen to.",
+                  "Ce limbă se vorbește și ce ascult."),
+                ("language", "@source")),
+        Section("translate", "globe", L("Перевод", "Translation", "Traducere"),
+                L("Законченные фразы переводятся нейросетью на ваш язык.", "Finished phrases are translated by AI into your language.",
+                  "Frazele terminate sunt traduse de AI în limba ta."),
+                ("translate", "translate_to", "show_original", "@tr_status")),
+        Section("look", "sliders-horizontal", L("Вид", "Look", "Aspect"),
+                L("Размер текста, прозрачность плашки, сколько строк видно.", "Text size, bar transparency, how many lines show.",
+                  "Mărimea textului, transparența benzii, câte rânduri se văd."),
+                ("font_size", "opacity", "lines", "@position")),
+        Section("key", "keyboard", L("Клавиша", "Key", "Tastă"),
+                L("Показать и скрыть субтитры одним сочетанием.", "Show and hide the captions with one shortcut.",
+                  "Arată și ascunde subtitrările cu o combinație."),
+                ("hotkey",)),
+    ),
     "clipboard_history": (
         Section("key", "keyboard", L("Клавиша", "Key", "Tastă"),
                 L("По ней у курсора открывается окно истории.", "It opens the history window at the cursor.",
@@ -801,6 +850,7 @@ ENABLED_IF = {
     "read_aloud": {"translate_to": ("translate", (True,))},
     "notification_reader": {"quiet_from": ("quiet_enabled", (True,)), "quiet_to": ("quiet_enabled", (True,))},
     "converter": {"folder": ("destination", ("folder",))},
+    "live_captions": {"translate_to": ("translate", (True,)), "show_original": ("translate", (True,))},
     "timers": {"ring_seconds": ("sound", (True,))},
     "smart_dictation": {
         "hotkey": ("trigger", ("hotkey",)),
@@ -812,7 +862,7 @@ ENABLED_IF = {
 # The on/off card goes last for these plugins (as in Luxify) and can hold
 # extra settings.
 BASIC_LAST = {"pc_control"}
-BASIC_KEYS = {"pc_control": ("autostart",)}
+BASIC_KEYS = {"pc_control": ("autostart",), "live_captions": ("show_on_start",)}
 
 # Information shown in the basic card.
 BASIC_NOTE = {
@@ -863,6 +913,18 @@ ROW_GROUPS = {
 }
 # Info boxes at the end of a section card.
 SECTION_NOTES = {
+    ("live_captions", "sound"): L("Звук распознаётся на этом компьютере и никуда не отправляется и не сохраняется. Голос самого "
+                                  "Jarvis в субтитры не попадает.",
+                                  "Sound is recognised on this PC and is never sent or saved. Jarvis's own voice never "
+                                  "gets into the captions.",
+                                  "Sunetul e recunoscut pe acest PC și nu e trimis sau salvat nicăieri. Vocea lui Jarvis "
+                                  "nu ajunge în subtitrări."),
+    ("live_captions", "translate"): L("В нейросеть уходит только текст законченной фразы — для перевода и только когда перевод "
+                                      "включён. Сами субтитры работают без интернета.",
+                                      "Only the text of a finished phrase goes to AI — for translation, and only when it is on. "
+                                      "The captions themselves work offline.",
+                                      "La AI ajunge doar textul unei fraze terminate — pentru traducere și doar când e pornită. "
+                                      "Subtitrările merg și fără internet."),
     ("clipboard_history", "exclude"): L("Менеджеры паролей обычно сами помечают пароль «не для истории» — такие копирования не "
                                         "запоминаются ни из какой программы. Список ниже — на всякий случай.",
                                         "Password managers usually mark a password “not for history” themselves — such copies are "
@@ -881,7 +943,7 @@ SECTION_NOTES = {
 }
 BASIC_KEYS["notification_reader"] = ("read_now",)
 # Settings edited by a custom card instead of a form row.
-HIDDEN_SETTINGS = {"notification_reader": ("app_rules",)}
+HIDDEN_SETTINGS = {"notification_reader": ("app_rules",), "live_captions": ("source",)}
 VOICE_HELP = {
     "notification_reader": L("Скажите: «что пришло» — пропущенные уведомления; «прочитай последнее сообщение»; "
                              "«не читай уведомления» / «читай уведомления»; «не беспокой» — помолчать час. "
@@ -895,6 +957,9 @@ VOICE_HELP = {
 }
 
 BASIC_TEXT = {
+    "live_captions": (L("Субтитры", "Captions", "Subtitrări"),
+                      L("Показать или скрыть плашку с текстом поверх всех окон.", "Show or hide the text bar above all windows.",
+                        "Arată sau ascunde banda cu text deasupra ferestrelor.")),
     "clipboard_history": (L("История буфера обмена", "Clipboard history", "Istoric clipboard"),
                           L("Запоминает, что вы копируете, и открывает историю у курсора по клавише.",
                             "Remembers what you copy and opens the history at the cursor with a key.",
@@ -952,6 +1017,16 @@ def how_it_works(plugin: Plugin, settings: dict, language: str) -> tuple[str, st
         return chip, text(body, language)
     if plugin.id == "pc_control":
         return "", text(plugin.description, language)
+    if plugin.id == "live_captions":
+        chip = "+".join(part.capitalize() for part in str(settings.get("hotkey") or "").split("+") if part)
+        return chip, text(L("Субтитры — текст того, что звучит на компьютере. Покажите их кнопкой, клавишей или фразой "
+                            "«покажи субтитры» («включи субтитры»); спрячьте «×» на плашке или фразой «скрой субтитры». "
+                            "Ручка слева — перетащить.",
+                            "Captions are the text of what plays on the PC. Show them with the button, the key or by saying "
+                            "“show captions”; hide them with “×” on the bar or “hide captions”. Drag the handle on the left.",
+                            "Subtitrările sunt textul a ce se aude pe PC. Arată-le cu butonul, tasta sau spunând „arată "
+                            "subtitrările”; ascunde-le cu „×” pe bandă sau „ascunde subtitrările”. Trage de mânerul din stânga."),
+                          language)
     if plugin.id == "clipboard_history":
         chip = "+".join(part.capitalize() for part in str(settings.get("hotkey") or "").split("+") if part)
         key = chip or text(L("клавиша", "the key", "tasta"), language)

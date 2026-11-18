@@ -1,0 +1,204 @@
+"""0.4.1q: live captions like Luxify — segmenter, engine, bar, runtime, page."""
+from __future__ import annotations
+
+import tempfile
+import unittest
+from unittest import mock
+
+import numpy as np
+from PySide6.QtCore import QCoreApplication, QEvent
+from PySide6.QtWidgets import QApplication
+
+from luxai import extensions_catalog as catalog
+from luxai import live_captions as lc
+
+RATE = lc.SAMPLE_RATE
+
+
+def tone(seconds, level=0.2):
+    t = np.arange(int(RATE * seconds)) / RATE
+    return (level * np.sin(2 * np.pi * 220 * t)).astype(np.float32)
+
+
+def quiet(seconds):
+    return np.zeros(int(RATE * seconds), dtype=np.float32)
+
+
+class SegmenterTests(unittest.TestCase):
+    def test_phrase_ends_after_pause(self):
+        seg = lc.PhraseSegmenter()
+        seg.feed(quiet(2))
+        self.assertFalse(seg.phrase_finished())
+        self.assertLessEqual(seg.seconds, 0.31)  # only a short lead-in is kept
+        seg.feed(tone(1.5))
+        self.assertFalse(seg.phrase_finished())
+        seg.feed(quiet(0.3))
+        self.assertFalse(seg.phrase_finished())
+        seg.feed(quiet(0.5))
+        self.assertTrue(seg.phrase_finished())
+        audio = seg.take()
+        self.assertGreater(len(audio), RATE * 1.5)
+        self.assertFalse(seg.phrase_finished())
+
+    def test_long_speech_is_cut_at_twelve_seconds(self):
+        seg = lc.PhraseSegmenter()
+        seg.feed(tone(lc.MAX_PHRASE_SECONDS + 0.5))
+        self.assertTrue(seg.phrase_finished())
+
+
+class EngineTests(unittest.TestCase):
+    def test_partial_then_final(self):
+        partial, final = [], []
+        engine = lc.CaptionEngine(lambda: object(), "ru", partial.append, final.append)
+        with mock.patch.object(engine, "_transcribe", side_effect=["Привет", "Привет, мир"]):
+            engine.feed(tone(1.0))
+            engine.step(object())
+            self.assertEqual(partial, ["Привет"])
+            engine.feed(quiet(0.8))
+            engine.step(object())
+        self.assertEqual(final, ["Привет, мир"])
+        self.assertEqual(partial[-1], "")
+
+    def test_silence_never_reaches_whisper(self):
+        engine = lc.CaptionEngine(lambda: object(), "ru", lambda _: None, lambda _: None)
+        with mock.patch.object(engine, "_transcribe") as transcribe:
+            engine.feed(quiet(3))
+            engine.step(object())
+        transcribe.assert_not_called()
+
+
+class BarTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_lines_translation_and_original_switch(self):
+        bar = lc.CaptionBar()
+        self.addCleanup(bar.deleteLater)
+        bar.configure(lines=2)
+        for text in ("one", "two", "three"):
+            bar.add_final(text)
+        bar.set_partial("four…")
+        self.assertEqual([line for line, _ in bar.visible_lines()], ["three", "four…"])
+        bar.set_translation("three", "три")
+        self.assertIn("три", bar.text.text())
+        self.assertIn("three", bar.text.text())
+        bar.configure(show_original=False)
+        self.assertNotIn(">three<", bar.text.text())
+        bar.configure(lines=1)
+        self.assertEqual(len(bar.visible_lines()), 1)
+        self.assertNotIn("<script", bar.text.text())
+        bar.set_partial("")
+        bar.add_final("<script>x</script>")
+        self.assertIn("&lt;script&gt;", bar.text.text())
+
+
+class RuntimeTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self):
+        from luxai.extensions_runtime import ExtensionsRuntime
+        self.host = mock.Mock()
+        self.host.cfg = {"language": "ru", "extensions_meta": {}}
+        self.host.online_planner.enabled.return_value = True
+        self.runtime = ExtensionsRuntime(self.host)
+        self.runtime.state = catalog.normalize_state({"live_captions": {"enabled": False, "settings": {}}})
+        self.addCleanup(self._cleanup)
+
+    def _cleanup(self):
+        self.runtime.hide_captions()
+        self.runtime.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+    def test_show_turns_plugin_on_and_starts_audio(self):
+        with mock.patch.object(self.runtime, "_start_caption_audio") as start:
+            answer = self.runtime.handle_text_request("Джарвис, покажи субтитры")
+        self.assertEqual(answer, "Показал субтитры.")
+        self.host.set_extension_enabled.assert_called_once_with("live_captions", True)
+        start.assert_called_once()
+        self.assertTrue(self.runtime.captions_visible)
+        with mock.patch.object(self.runtime, "_stop_caption_audio"):
+            self.assertEqual(self.runtime.handle_text_request("скрой субтитры"), "Скрыл субтитры.")
+        self.assertFalse(self.runtime.captions_visible)
+        self.assertIsNone(self.runtime.handle_text_request("покажи погоду"))
+
+    def test_final_phrase_is_translated_into_program_language(self):
+        self.runtime.state["live_captions"]["enabled"] = True
+        self.runtime.state["live_captions"]["settings"]["translate"] = True
+        self.host.online_planner.translate_text.return_value = "Привет всем"
+
+        class Inline:
+            def __init__(self, target, **kwargs):
+                self.target = target
+
+            def start(self):
+                self.target()
+
+        with mock.patch.object(self.runtime, "_start_caption_audio"):
+            self.runtime.show_captions()
+        with mock.patch("luxai.extensions_runtime.threading.Thread", Inline):
+            self.runtime._on_cap_final("Hello everyone")
+        self.host.online_planner.translate_text.assert_called_once_with("Hello everyone", "ru")
+        self.assertEqual(self.runtime._captions_bar.lines[-1], ("Hello everyone", "Привет всем"))
+
+    def test_position_is_saved_and_reset(self):
+        self.runtime._save_captions_position(100, 200)
+        self.assertEqual(self.host.cfg["extensions_meta"]["captions_position"], [100, 200])
+        self.runtime.reset_captions_position()
+        self.assertNotIn("captions_position", self.host.cfg["extensions_meta"])
+
+    def test_jarvis_voice_is_muted_in_the_feed(self):
+        from luxai.voices import barge_in_ready
+        fed = []
+        self.runtime.state["live_captions"]["enabled"] = True
+        with mock.patch("luxai.live_captions.CaptionEngine.start", lambda engine: engine), \
+                mock.patch("luxai.live_captions.CaptionEngine.feed", lambda engine, chunk: fed.append(chunk)), \
+                mock.patch("luxai.loopback_audio.LoopbackCapture.start", lambda capture: capture):
+            self.runtime._start_caption_audio()
+            capture = self.runtime._captions_capture
+            barge_in_ready.set()
+            try:
+                capture.on_audio(tone(0.1))
+            finally:
+                barge_in_ready.clear()
+            self.assertEqual(float(np.abs(fed[-1]).max()), 0.0)
+            self.runtime._captions_capture = None
+            self.runtime._captions_engine = None
+
+
+class PageTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_page_like_luxify(self):
+        from luxai.extensions_runtime import ExtensionsRuntime
+        from luxai.ui_extension_settings import PluginSettingsView
+        host = mock.Mock()
+        host.cfg = {"language": "ru"}
+        host.online_planner.enabled.return_value = False
+        runtime = ExtensionsRuntime(host)
+        runtime.state = catalog.normalize_state({})
+        plugin = catalog.PLUGIN_BY_ID["live_captions"]
+        self.assertTrue(plugin.ready)
+        with mock.patch("luxai.loopback_audio.audio_apps", return_value=[("Discord.exe", 5), ("steam.exe", 6)]):
+            view = PluginSettingsView(plugin, runtime.state["live_captions"], "ru", runtime=runtime)
+        self.addCleanup(view.deleteLater)
+        self.assertEqual(list(view.cards), ["basic", "sound", "translate", "look", "key"])
+        self.assertEqual(view.captions_button.text(), "Показать субтитры")
+        self.assertIn("«Показать субтитры» включит", view.status_label.text())
+        items = [view.source_combo.itemText(i) for i in range(view.source_combo.count())]
+        self.assertEqual(items, ["Весь звук компьютера", "Только программа: Discord", "Только программа: steam"])
+        view.source_combo.setCurrentIndex(1)
+        self.assertEqual(view.collect()["source"], "Discord.exe")
+        self.assertIn("Перевод выключен", view.tr_label.text())
+        view.fields["translate"].setChecked(True)
+        self.assertIn("нужен облачный ИИ", view.tr_label.text())
+        self.assertTrue(view.rows["translate_to"].isEnabled())
+        view.detach()
+
+
+if __name__ == "__main__":
+    unittest.main()

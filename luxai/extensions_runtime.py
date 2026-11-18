@@ -605,6 +605,11 @@ class ExtensionsRuntime(QObject):
 
     breaks_changed = Signal()
     clipboard_changed = Signal()
+    captions_changed = Signal(bool)
+    _cap_partial = Signal(str)
+    _cap_final = Signal(str)
+    _cap_translated = Signal(str, str)
+    _cap_error = Signal(str)
     _clip_ai_ready = Signal(str, str)  # mode, result ("" = failed)
 
     def __init__(self, host, parent=None):
@@ -620,6 +625,16 @@ class ExtensionsRuntime(QObject):
         self._clip_save_timer.setInterval(1500)
         self._clip_save_timer.timeout.connect(self._save_clip_history)
         self._clip_ai_ready.connect(self._on_clip_ai_ready)
+        self.captions_visible = False
+        self._captions_bar = None
+        self._captions_capture = None
+        self._captions_engine = None
+        self._captions_config = None
+        self._captions_autostart_done = False
+        self._cap_partial.connect(self._on_cap_partial)
+        self._cap_final.connect(self._on_cap_final)
+        self._cap_translated.connect(self._on_cap_translated)
+        self._cap_error.connect(self._on_cap_error)
         self._ignore_clipboard_text = None
         self._listener = None
         self._reading = False
@@ -760,6 +775,7 @@ class ExtensionsRuntime(QObject):
         if not self.enabled("smart_dictation") and self.dictating:
             self.cancel_dictation()
         self._apply_pc_control()
+        self._apply_captions()
         self._apply_timers()
         self._apply_notifications()
         if self.enabled("downloads_cleanup") and self.settings("downloads_cleanup").get("auto"):
@@ -802,7 +818,220 @@ class ExtensionsRuntime(QObject):
         if self._listener is not None:
             self.errors = dict(self._listener.errors)
 
+    # -- live captions --
+    def _captions_settings_key(self):
+        settings = self.settings("live_captions")
+        return (settings.get("language"), settings.get("source"))
+
+    def _apply_captions(self):
+        if not self.enabled("live_captions"):
+            if self.captions_visible:
+                self.hide_captions()
+            return
+        if not self._captions_autostart_done:
+            self._captions_autostart_done = True
+            if self.settings("live_captions").get("show_on_start") and not self.captions_visible:
+                QTimer.singleShot(1500, self.show_captions)
+                return
+        if self.captions_visible:
+            self._configure_bar()
+            if self._captions_config != self._captions_settings_key():
+                self._start_caption_audio()  # language or source changed
+
+    def _configure_bar(self):
+        settings = self.settings("live_captions")
+        if self._captions_bar is None:
+            return
+        try:
+            lines = int(settings.get("lines", "2"))
+        except (TypeError, ValueError):
+            lines = 2
+        self._captions_bar.configure(
+            font_size=settings.get("font_size", 26), opacity=int(settings.get("opacity", 72)) / 100, lines=lines,
+            show_original=bool(settings.get("show_original", True)) or not settings.get("translate"))
+
+    def _captions_words(self, key: str, **values) -> str:
+        words = {
+            "listening": ("Слушаю звук компьютера…", "Listening to the PC sound…", "Ascult sunetul PC-ului…"),
+            "listening_app": ("Слушаю {app}…", "Listening to {app}…", "Ascult {app}…"),
+            "no_app": ("{app} сейчас не запущен — слушаю весь звук.", "{app} is not running — listening to all sound.",
+                       "{app} nu rulează — ascult tot sunetul."),
+            "error": ("Субтитры: {error}", "Captions: {error}", "Subtitrări: {error}"),
+            "shown": ("Показал субтитры.", "Captions are on.", "Am afișat subtitrările."),
+            "hidden": ("Скрыл субтитры.", "Captions are off.", "Am ascuns subtitrările."),
+        }[key]
+        index = {"ru": 0, "en": 1, "ro": 2}.get(self.language, 0)
+        return words[index].format(**values)
+
+    def show_captions(self):
+        from luxai.live_captions import CaptionBar
+        if not self.enabled("live_captions"):
+            # «Показать субтитры» turns the plugin on, as in Luxify.
+            if hasattr(self.host, "set_extension_enabled"):
+                self.host.set_extension_enabled("live_captions", True)
+            else:
+                self.state.setdefault("live_captions", {"enabled": False, "settings": {}})["enabled"] = True
+        if self._captions_bar is None:
+            bar = CaptionBar()
+            bar.closed_by_user.connect(self.hide_captions)
+            bar.moved.connect(self._save_captions_position)
+            self._captions_bar = bar
+        self._configure_bar()
+        cfg = getattr(self.host, "cfg", None)
+        saved = (cfg.get("extensions_meta", {}) if isinstance(cfg, dict) else {}).get("captions_position")
+        self._captions_bar.place(saved)
+        self._captions_bar.show()
+        self.captions_visible = True
+        self._start_caption_audio()
+        self.captions_changed.emit(True)
+        return self._captions_words("shown")
+
+    def hide_captions(self):
+        self._stop_caption_audio()
+        bar, self._captions_bar = self._captions_bar, None
+        if bar is not None:
+            try:
+                bar.close()
+                bar.deleteLater()
+            except RuntimeError:
+                pass
+        was = self.captions_visible
+        self.captions_visible = False
+        if was:
+            self.captions_changed.emit(False)
+        return self._captions_words("hidden")
+
+    def toggle_captions(self):
+        return self.hide_captions() if self.captions_visible else self.show_captions()
+
+    def reset_captions_position(self):
+        cfg = getattr(self.host, "cfg", None)
+        if isinstance(cfg, dict):
+            cfg.setdefault("extensions_meta", {}).pop("captions_position", None)
+            if hasattr(self.host, "save_extensions_meta"):
+                self.host.save_extensions_meta()
+        if self._captions_bar is not None:
+            self._captions_bar.place(None)
+
+    def _save_captions_position(self, x: int, y: int):
+        cfg = getattr(self.host, "cfg", None)
+        if isinstance(cfg, dict):
+            cfg.setdefault("extensions_meta", {})["captions_position"] = [int(x), int(y)]
+            if hasattr(self.host, "save_extensions_meta"):
+                self.host.save_extensions_meta()
+
+    def _caption_language(self):
+        settings = self.settings("live_captions")
+        language = settings.get("language", "auto")
+        if language == "auto":
+            language = (getattr(self.host, "cfg", {}) or {}).get("language", "auto")
+        return None if language in ("auto", "any", "", None) else language
+
+    def _start_caption_audio(self):
+        from luxai import dictation
+        from luxai.live_captions import CaptionEngine
+        from luxai.loopback_audio import LoopbackCapture, app_pid
+        self._stop_caption_audio()
+        settings = self.settings("live_captions")
+        self._captions_config = self._captions_settings_key()
+        cfg = dict(getattr(self.host, "cfg", {}) or {})
+        provider = getattr(self.host, "dictation_model", None)
+
+        def model():
+            loaded = provider() if callable(provider) else None
+            return loaded or dictation.load_model(cfg.get("whisper_model_path") or cfg.get("whisper_model") or "small")
+
+        engine = CaptionEngine(model, self._caption_language(), self._cap_partial.emit, self._cap_final.emit,
+                               on_error=self._cap_error.emit)
+        source = str(settings.get("source") or "")
+        pid = app_pid(source) if source else 0
+        if self._captions_bar is not None:
+            app = source.removesuffix(".exe")
+            if source and not pid:
+                self._captions_bar.placeholder = self._captions_words("no_app", app=app)
+            else:
+                self._captions_bar.placeholder = self._captions_words("listening_app" if pid else "listening", app=app)
+            self._captions_bar.render()
+        from luxai.voices import barge_in_ready as jarvis_speaking
+        import numpy as _np
+        mute = {"until": 0.0}
+
+        def feed(chunk):
+            # Jarvis's own voice never gets into the captions (plus a short tail).
+            if jarvis_speaking.is_set():
+                mute["until"] = time.monotonic() + 0.5
+            if time.monotonic() < mute["until"]:
+                chunk = _np.zeros_like(chunk)
+            engine.feed(chunk)
+
+        capture = LoopbackCapture(feed, app_pid=pid, on_error=self._cap_error.emit)
+        self._captions_engine = engine.start()
+        self._captions_capture = capture.start()
+
+    def _stop_caption_audio(self):
+        capture, self._captions_capture = self._captions_capture, None
+        engine, self._captions_engine = self._captions_engine, None
+        if capture is not None:
+            threading.Thread(target=capture.stop, daemon=True).start()
+        if engine is not None:
+            engine.stop()
+
+    def _on_cap_partial(self, text: str):
+        if self._captions_bar is not None:
+            self._captions_bar.set_partial(text)
+
+    def _on_cap_final(self, text: str):
+        if self._captions_bar is None:
+            return
+        self._captions_bar.add_final(text)
+        settings = self.settings("live_captions")
+        planner = getattr(self.host, "online_planner", None)
+        if not settings.get("translate") or planner is None or not planner.enabled():
+            return
+        from luxai.response_language import reply_language
+        from luxai.translation import text_language
+        target = settings.get("translate_to", "app")
+        if target not in ("ru", "en", "ro"):
+            target = reply_language(getattr(self.host, "cfg", {}) or {})
+        if text_language(text) == target:
+            return
+
+        def work():
+            try:
+                translated = planner.translate_text(text, target)
+            except Exception:
+                translated = None
+            if translated:
+                self._cap_translated.emit(text, translated)
+
+        threading.Thread(target=work, daemon=True, name="JarvisCaptionTranslate").start()
+
+    def _on_cap_translated(self, original: str, translated: str):
+        if self._captions_bar is not None:
+            self._captions_bar.set_translation(original, translated)
+
+    def _on_cap_error(self, error: str):
+        if self._captions_bar is not None:
+            self._captions_bar.placeholder = self._captions_words("error", error=error[:160])
+            self._captions_bar.render()
+
+    def handle_captions_request(self, text: str) -> str | None:
+        phrase = " ".join(str(text or "").casefold().replace("ё", "е").split()).strip(" .!?")
+        phrase = re.sub(r"^(?:джарвис|жарвис|jarvis)[,\s]+", "", phrase)
+        show = re.fullmatch(r"(?:покажи|включи|запусти|открой)\s+(?:живые\s+)?субтитры"
+                            r"|(?:show|turn\s+on|enable)\s+(?:the\s+)?(?:live\s+)?captions"
+                            r"|(?:arat[ăa]|porne[șs]te|activeaz[ăa])\s+subtitr[ăa]rile(?:\s+live)?", phrase)
+        hide = re.fullmatch(r"(?:скрой|спрячь|выключи|убери|закрой)\s+(?:живые\s+)?субтитры"
+                            r"|(?:hide|turn\s+off|disable)\s+(?:the\s+)?(?:live\s+)?captions"
+                            r"|(?:ascunde|opre[șs]te|dezactiveaz[ăa])\s+subtitr[ăa]rile(?:\s+live)?", phrase)
+        if show:
+            return self.show_captions()
+        if hide:
+            return self.hide_captions()
+        return None
+
     def stop(self):
+        self.hide_captions()
         self._notif_timer.stop()
         self._timer_tick.stop()
         self._ring_beeper.stop()
@@ -824,6 +1053,8 @@ class ExtensionsRuntime(QObject):
             self.toggle_dictation()
         elif plugin_id == "clipboard_history":
             self.open_clipboard_history()
+        elif plugin_id == "live_captions":
+            self.toggle_captions()
         elif plugin_id == "quick_inserts":
             self.open_snippets()
         elif plugin_id == "read_aloud":
@@ -852,6 +1083,8 @@ class ExtensionsRuntime(QObject):
             ("clipboard_history", "open"): self.open_clipboard_history,
             ("clipboard_history", "clear"): self.clear_clipboard,
             ("clipboard_history", "clear_all"): self.clear_clipboard_all,
+            ("live_captions", "toggle"): self.toggle_captions,
+            ("live_captions", "reset_position"): self.reset_captions_position,
             ("quick_inserts", "open"): lambda: self.open_snippets(paste=False),
             ("breaks", "test"): lambda: self.remind_break(force=True),
             ("breaks", "try_eyes"): lambda: self.show_break_card("eyes", test=True),
@@ -1563,7 +1796,7 @@ class ExtensionsRuntime(QObject):
     def handle_text_request(self, text: str) -> str | None:
         """Typed or spoken requests handled by extensions (notifications, timers)."""
         return (self.handle_notification_request(text) or self.handle_timer_request(text)
-                or self.handle_clipboard_request(text))
+                or self.handle_clipboard_request(text) or self.handle_captions_request(text))
 
     # -- converter circle --
     def _cw(self, key, **values):

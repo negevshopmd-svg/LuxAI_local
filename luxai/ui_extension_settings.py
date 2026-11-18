@@ -100,6 +100,30 @@ W = {
     "apps_refresh": L("Обновить список", "Refresh the list", "Reîmprospătează lista"),
     "example": L("Пример", "Example", "Exemplu"),
     "today": L("Сегодня", "Today", "Azi"),
+    "captions_show": L("Показать субтитры", "Show captions", "Arată subtitrările"),
+    "captions_hide": L("Скрыть субтитры", "Hide captions", "Ascunde subtitrările"),
+    "captions_live": L("Субтитры на экране.", "Captions are on screen.", "Subtitrările sunt pe ecran."),
+    "captions_off": L("Плагин выключен. «Показать субтитры» включит его.", "The plugin is off. “Show captions” turns it on.",
+                      "Pluginul e oprit. „Arată subtitrările” îl pornește."),
+    "source_hint": L("Весь звук компьютера (кроме голоса самого Jarvis) или звук одной программы — например, только браузера.",
+                     "All PC sound (except Jarvis's own voice) or the sound of one program — e.g. only the browser.",
+                     "Tot sunetul PC-ului (fără vocea lui Jarvis) sau sunetul unui singur program — de ex. doar browserul."),
+    "source_all": L("Весь звук компьютера", "All PC sound", "Tot sunetul PC-ului"),
+    "source_app": L("Только программа: {app}", "Only the program: {app}", "Doar programul: {app}"),
+    "source_refresh": L("Обновить список программ со звуком", "Refresh the list of programs with sound",
+                        "Reîmprospătează lista programelor cu sunet"),
+    "tr_off": L("Перевод выключен: субтитры на языке оригинала.", "Translation is off: captions in the original language.",
+                "Traducerea e oprită: subtitrări în limba originală."),
+    "tr_on": L("Перевод через облачный ИИ Jarvis ({provider}).", "Translated by Jarvis's cloud AI ({provider}).",
+               "Traducere prin AI-ul cloud al lui Jarvis ({provider})."),
+    "tr_missing": L("Для перевода нужен облачный ИИ — добавьте API-ключ в настройках Jarvis.",
+                    "Translation needs the cloud AI — add an API key in Jarvis settings.",
+                    "Traducerea are nevoie de AI cloud — adaugă o cheie API în setările Jarvis."),
+    "position": L("Положение", "Position", "Poziție"),
+    "position_hint": L("Плашку можно перетащить за ручку слева — место запомнится.",
+                       "Drag the bar by the handle on the left — the place is remembered.",
+                       "Trage banda de mânerul din stânga — locul se ține minte."),
+    "position_reset": L("Вернуть вниз по центру", "Back to bottom centre", "Înapoi jos la centru"),
     "tags_placeholder": L("Программа, например KeePassXC", "Program, e.g. KeePassXC", "Program, de ex. KeePassXC"),
     "tags_add": L("Добавить", "Add", "Adaugă"),
     "clip_now": L("Сейчас в истории", "In the history now", "Acum în istoric"),
@@ -629,6 +653,15 @@ class PluginSettingsView(QWidget):
                 if key == "@clip_now":
                     self._add_clip_now_row(card)
                     continue
+                if key == "@source":
+                    self._add_source_row(card)
+                    continue
+                if key == "@tr_status":
+                    self._add_translate_status_row(card)
+                    continue
+                if key == "@position":
+                    self._add_position_row(card)
+                    continue
                 if key == "@ai_status":
                     self._add_ai_status_row(card)
                     continue
@@ -654,7 +687,7 @@ class PluginSettingsView(QWidget):
             self._build_dictation_check()
         elif (plugin.actions and plugin.ready and runtime is not None and not has_status_row
               and plugin.id not in BASIC_ACTIONS and plugin.id not in BASIC_ACTION_ROWS
-              and plugin.id != "clipboard_history"):
+              and plugin.id not in ("clipboard_history", "live_captions")):
             self._build_actions()
         if plugin.id in BASIC_LAST:
             self._build_basic()
@@ -773,6 +806,17 @@ class PluginSettingsView(QWidget):
         separator_layout.setContentsMargins(0, 0, 0, 0)
         separator_layout.addWidget(status)
         card.add_row(separator)
+        if self.plugin.id == "live_captions":
+            self.captions_button = QPushButton()
+            self.captions_button.setObjectName("Primary")
+            self.captions_button.setEnabled(self.runtime is not None)
+            self.captions_button.clicked.connect(self._toggle_captions)
+            visible = bool(self.runtime is not None and self.runtime.captions_visible)
+            self.captions_button.setText(w("captions_hide" if visible else "captions_show", language))
+            set_button_icon(self.captions_button, "eye-off" if visible else "play", size=16, role="white")
+            status_row.addWidget(self.captions_button)
+            if self.runtime is not None:
+                self.runtime.captions_changed.connect(self._render_captions_button)
         if self.plugin.id in BASIC_NOTE:
             note = QLabel(text(BASIC_NOTE[self.plugin.id], language))
             note.setObjectName("ExtNote")
@@ -1307,6 +1351,103 @@ class PluginSettingsView(QWidget):
         line.addWidget(label, 1)
         card.add_row(holder)
 
+    # -- live captions rows --
+    def _toggle_captions(self):
+        if self.runtime is None:
+            return
+        if not self.runtime.captions_visible and not self.saved_enabled:
+            self.enable_switch.setChecked(True)  # «Показать субтитры» turns the plugin on
+        self.runtime.toggle_captions()
+        self._render_captions_button()
+
+    def _render_captions_button(self, *_):
+        try:
+            visible = bool(self.runtime is not None and self.runtime.captions_visible)
+            self.captions_button.setText(w("captions_hide" if visible else "captions_show", self.language))
+            set_button_icon(self.captions_button, "eye-off" if visible else "play", size=16, role="white")
+            self._refresh()
+        except RuntimeError:
+            pass
+
+    def _add_source_row(self, card):
+        language = self.language
+        holder = QWidget()
+        holder.setObjectName("ExtContent")
+        line = QHBoxLayout(holder)
+        line.setContentsMargins(0, 0, 0, 0)
+        line.setSpacing(6)
+        self.source_combo = QComboBox()
+        self.source_combo.setMinimumWidth(290)
+        self.source_combo.currentIndexChanged.connect(self._source_chosen)
+        refresh = QToolButton()
+        refresh.setAutoRaise(True)
+        refresh.setToolTip(w("source_refresh", language))
+        set_button_icon(refresh, "refresh-cw", size=16)
+        refresh.clicked.connect(self._fill_sources)
+        line.addWidget(self.source_combo)
+        line.addWidget(refresh)
+        card.add_row(_row(text(L("Что слушать", "What to listen to", "Ce ascult"), language), w("source_hint", language), holder))
+        self._fill_sources()
+
+    def _fill_sources(self):
+        from luxai.loopback_audio import audio_apps
+        current = self._raw("source") if "source" in self.fields else ""
+        self.source_combo.blockSignals(True)
+        self.source_combo.clear()
+        self.source_combo.addItem(w("source_all", self.language), "")
+        names = [name for name, _pid in audio_apps()]
+        if current and current not in names:
+            names.append(current)
+        for name in names:
+            self.source_combo.addItem(w("source_app", self.language).format(app=name.removesuffix(".exe")), name)
+        self.source_combo.setCurrentIndex(max(0, self.source_combo.findData(current)))
+        self.source_combo.blockSignals(False)
+
+    def _source_chosen(self, *_):
+        if "source" in self.fields:
+            self.fields["source"].setPlainText(self.source_combo.currentData() or "")
+
+    def _add_translate_status_row(self, card):
+        from luxai.ui_extensions import StatusDot
+        holder = QWidget()
+        holder.setObjectName("ExtContent")
+        line = QHBoxLayout(holder)
+        line.setContentsMargins(0, 12, 0, 12)
+        self.tr_dot = StatusDot()
+        self.tr_label = QLabel()
+        self.tr_label.setObjectName("ExtStatus")
+        self.tr_label.setWordWrap(True)
+        line.addWidget(self.tr_dot)
+        line.addWidget(self.tr_label, 1)
+        card.add_row(holder)
+
+    def _render_translate_status(self, draft):
+        if not hasattr(self, "tr_label"):
+            return
+        planner = getattr(getattr(self.runtime, "host", None), "online_planner", None)
+        if not draft.get("translate"):
+            self.tr_label.setText(w("tr_off", self.language))
+            self.tr_dot.set_color("#7c8696")
+        elif planner is not None and planner.enabled():
+            provider = ""
+            try:
+                provider = str(planner._provider() or "").capitalize()
+            except Exception:
+                pass
+            self.tr_label.setText(w("tr_on", self.language).format(provider=provider or "AI"))
+            self.tr_dot.set_color("#32b87a")
+        else:
+            self.tr_label.setText(w("tr_missing", self.language))
+            self.tr_dot.set_color("#e0a43a")
+
+    def _add_position_row(self, card):
+        button = QPushButton(w("position_reset", self.language))
+        button.setObjectName("ExtConfigure")
+        set_button_icon(button, "rotate-ccw", size=15)
+        button.setEnabled(self.runtime is not None)
+        button.clicked.connect(lambda: self.runtime.reset_captions_position())
+        card.add_row(_row(w("position", self.language), w("position_hint", self.language), button))
+
     def _build_today_card(self):
         language = self.language
         card = SectionCard("today", "clock", w("today", language), w("today_sub", language), resettable=False)
@@ -1484,6 +1625,15 @@ class PluginSettingsView(QWidget):
             label, color = w("disabled", self.language), "#7c8696"
         self.status_label.setText(label)
         self.status_dot.set_color(color)
+        self._render_translate_status(draft)
+        if hasattr(self, "captions_button") and self.plugin.ready:
+            visible = bool(self.runtime is not None and self.runtime.captions_visible)
+            if visible:
+                label, color = w("captions_live", self.language), "#32b87a"
+            elif not enabled:
+                label = w("captions_off", self.language)
+            self.status_label.setText(label)
+            self.status_dot.set_color(color)
         chip, body = how_it_works(self.plugin, draft, self.language)
         self.how_chip.setText(chip)
         self.how_chip.setVisible(bool(chip))
@@ -1576,6 +1726,11 @@ class PluginSettingsView(QWidget):
                 button.style().polish(button)
 
     def detach(self):
+        if self.runtime is not None and hasattr(self, "captions_button"):
+            try:
+                self.runtime.captions_changed.disconnect(self._render_captions_button)
+            except (RuntimeError, TypeError):
+                pass
         if self.runtime is not None and hasattr(self, "clip_row"):
             try:
                 self.runtime.clipboard_changed.disconnect(self._render_clip_now)

@@ -7,6 +7,10 @@
 > Updated for the **0.3.9.e work**, 2026-10-30. \`Update.bat\` installs the code merged into \`main\`, NOT an open PR.
 > Do NOT include real API keys, private logs, screen captures, model binaries, user audio, or personal paths in Git history.
 
+## 0. Release 0.4.1q — Live captions
+
+`luxai/loopback_audio.py`: `LoopbackCapture` (16 kHz mono PCM via AUTOCONVERTPCM; app = process loopback INCLUDE_TREE through `ActivateAudioInterfaceAsync`, all = default-speaker loopback; EXCLUDE_TREE of Jarvis is NOT used because it also drops programs Jarvis launched), `audio_apps()`, `app_pid()`. `luxai/live_captions.py`: `PhraseSegmenter` (energy, 0.7 s pause / 12 s max), `CaptionEngine` (partial ≈1 s, final via `dictation.transcribe`), `CaptionBar`. Runtime: `show/hide/toggle_captions`, `_start_caption_audio` (mutes while `voices.barge_in_ready`), translation via `translate_text`, position in `extensions_meta.captions_position`, voice `handle_captions_request`; host `set_extension_enabled`. Page rows `@source`, `@tr_status`, `@position`. Tests: `tests/test_live_captions_041q.py`.
+
 ## 0. Release 0.4.1p — Clipboard history like Luxify
 
 `luxai/clipboard_store.py`: `ClipboardHistory` (text+html / png+thumb items, dedupe by content, pins, `trim`, `prune`, DPAPI file `.luxai_data/clipboard_history.bin` with `LUXCLIP1` magic), `marked_private` (Exclude…/CanIncludeInClipboardHistory=0/Clipboard Viewer Ignore), `excluded_app`, `suppress()` (Jarvis's own temporary clipboard use; called in `selection.copy_selected_text`/`restore_clipboard` and quick-insert pastes). Runtime: `_on_clipboard`, `_remember_image`, `_paste_clip` (Shift+Enter = text only), `_clip_ai` → `OnlineAgent.transform_text` / `translate_text`, `handle_clipboard_request` («вставь предыдущее»), signal `clipboard_changed`. UI: `luxai/ui_clipboard.py` (`ClipboardPopup`), settings kind `tags` (`TagsField`, `FlowLayout`), keys `@note`, `@clip_now`, `@ai_status`, `NAV_TITLES`. Tests: `tests/test_clipboard_history_041p.py`.

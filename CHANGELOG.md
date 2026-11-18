@@ -1,3 +1,11 @@
+## 0.4.1q — Live captions like Luxify (2026-11-18)
+
+- **Живые субтитры** work now: an always-on-top bar with the text of what plays on the PC (video, call, stream). Show it with the button «Показать субтитры» (it also turns the plugin on), an optional key, or by voice «покажи субтитры» / «скрой субтитры»; «×» on the bar hides it; drag it by the handle on the left — the place is remembered («Вернуть вниз по центру» resets it).
+- «Что слушать»: all PC sound (Jarvis's own voice is muted while it speaks) or only one program (Windows process loopback — e.g. only Discord or the browser), with a refresh button for the list of programs that play sound.
+- Speech language: as for voice commands, auto-detect, Russian, English, Romanian. Recognition is local (Whisper); partial text appears while someone speaks, the phrase is finished after a short pause.
+- «Перевод»: finished phrases translated by the cloud AI into the program's or a chosen language, under the original (or instead of it).
+- «Вид»: text size, background opacity, 1–3 lines, position. Settings page like Luxify: Субтитры, Звук и язык, Перевод, Вид, Клавиша.
+
 ## 0.4.1p — Clipboard history like Luxify (2026-11-17)
 
 - **История буфера обмена** rebuilt after Luxify: Основное, Клавиша (Alt+Win+V by default), «Что и как долго помнить» (25–500 items, keep for 1/7/30 days or without limit, remember after restart, pictures), «Не запоминать» (program chips: KeePass, KeePassXC, Bitwarden, 1Password… plus your own), «Нейросеть».

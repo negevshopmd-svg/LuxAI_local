@@ -1,4 +1,8 @@
-LUXAI LOCAL 0.4.1p — ACTUALIZARE 2026-11-17
+LUXAI LOCAL 0.4.1q — ACTUALIZARE 2026-11-18
+
+0.4.1q: Subtitrări live ca în Luxify: o bandă deasupra ferestrelor cu textul a ce
+se aude pe PC (tot sunetul sau doar un program), recunoaștere locală, traducere
+opțională prin AI, mărime/opacitate/rânduri, „arată/ascunde subtitrările” cu vocea.
 
 0.4.1p: Istoricul clipboard-ului e ca în Luxify: text cu formatare și imagini,
 Alt+Win+V deschide lista lângă cursor (Enter lipește, Shift+Enter fără formatare),

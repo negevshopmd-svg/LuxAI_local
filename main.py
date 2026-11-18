@@ -760,6 +760,14 @@ class MainWindow(QMainWindow):
         if hasattr(self, "window_header") and hasattr(self.window_header, "set_back_visible"):
             self.window_header.set_back_visible(bool(title))
 
+    def set_extension_enabled(self, plugin_id, enabled):
+        """Turn a plugin on/off from code (e.g. «Показать субтитры»), saved like a click."""
+        page = getattr(self, "extensions_page", None)
+        if page is None or plugin_id not in page.state:
+            return
+        page.state[plugin_id]["enabled"] = bool(enabled)
+        page._commit()
+
     def update_extension_setting(self, plugin_id, key, value):
         """Change one extension setting (e.g. by voice) through the page, so it is saved."""
         page = getattr(self, "extensions_page", None)
