@@ -1,4 +1,6 @@
-LUXAI LOCAL 0.4.1x — ACTUALIZARE 2026-11-18
+LUXAI LOCAL 0.4.1y — ACTUALIZARE 2026-11-18
+
+0.4.1y: Iconiță nouă și clară pentru Avatarul vizual: o sferă cu o steluță.
 
 0.4.1x: Avatarul arată din nou ca înainte; rămâne doar turtirea la marginea
 ecranului (nu mai e tăiat) și faptul că nu mai dispare.

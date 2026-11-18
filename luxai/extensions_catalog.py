@@ -399,7 +399,7 @@ PLUGINS: tuple[Plugin, ...] = (
     ),
     # --- Desktop -----------------------------------------------------------
     Plugin(
-        "visual_avatar", "desktop", "orbit", "#3b78f0",
+        "visual_avatar", "desktop", "avatar-orb", "#3b78f0",
         L("Визуальный аватар", "Visual avatar", "Avatar vizual"),
         L("Анимированный шар поверх экрана, который реагирует на голос ассистента, микрофон или системные звуки.",
           "An animated orb on top of the screen that reacts to the assistant's voice, the microphone or system sounds.",

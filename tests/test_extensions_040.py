@@ -34,8 +34,12 @@ class CatalogTests(unittest.TestCase):
                 self.assertTrue(catalog.text(plugin.description, language))
                 for setting in plugin.settings:
                     self.assertTrue(catalog.text(setting.label, language), setting.key)
-            self.assertTrue((icons / f"{plugin.icon}.svg").is_file(), plugin.icon)
+            own = icons.parent / "project" / f"{plugin.icon}.svg"  # icons drawn for the project
+            self.assertTrue((icons / f"{plugin.icon}.svg").is_file() or own.is_file(), plugin.icon)
             self.assertRegex(plugin.color, r"^#[0-9a-f]{6}$")
+        self.assertEqual(catalog.PLUGIN_BY_ID["visual_avatar"].icon, "avatar-orb")
+        from luxai.icons import icon
+        self.assertFalse(icon("avatar-orb", color="#ffffff").isNull())
 
     def test_defaults_are_valid(self):
         for plugin in catalog.PLUGINS:

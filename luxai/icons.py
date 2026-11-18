@@ -65,7 +65,12 @@ def _svg(name):
     canonical = _ALIASES.get(name, name)
     if not canonical or any(char not in "abcdefghijklmnopqrstuvwxyz0123456789-" for char in canonical):
         raise ValueError("Invalid icon name")
-    path = ASSET_DIR / "jarvis.svg" if canonical == "jarvis" else ASSET_DIR / "lucide" / (canonical + ".svg")
+    if canonical == "jarvis":
+        path = ASSET_DIR / "jarvis.svg"
+    else:
+        # Icons drawn for the project itself live next to the Lucide set.
+        own = ASSET_DIR / "project" / (canonical + ".svg")
+        path = own if own.is_file() else ASSET_DIR / "lucide" / (canonical + ".svg")
     return path.read_bytes()
 
 

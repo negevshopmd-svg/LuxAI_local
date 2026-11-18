@@ -1,3 +1,7 @@
+## 0.4.1y — Clear icon for the visual avatar (2026-11-18)
+
+- «Визуальный аватар» has its own icon: an orb of rings with a small sparkle (drawn for the project, `luxai/assets/icons/project/avatar-orb.svg`) instead of the unclear «orbit». Project icons are looked up before the Lucide set.
+
 ## 0.4.1x — Avatar keeps its original look (2026-11-18)
 
 - The orb looks exactly as before 0.4.1w again (its bright rings and glow). Only the edge behaviour stays: at a screen edge in mini mode it is pressed flat against the edge instead of being cut off; it still never disappears when you switch apps or take a screenshot.
