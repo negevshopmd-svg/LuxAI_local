@@ -477,6 +477,14 @@ class AvatarWindow(QWidget):
             if not any(s.availableGeometry().adjusted(-self.width(), -self.height(), self.width(), self.height()).contains(point)
                        for s in QGuiApplication.screens()):
                 point = preset_point("br", area, self.width())
+            else:
+                # A place saved half outside the screen (older versions tucked the orb
+                # behind the edge): stick it to that edge instead, so it is never cut.
+                rect = QRect(point, self.size())
+                screen = QGuiApplication.screenAt(rect.center()) or QGuiApplication.primaryScreen()
+                if not screen.availableGeometry().contains(rect) and self.settings.get("snap", True):
+                    point, _edge = snap_to_edges(rect, screen.availableGeometry(),
+                                                 mini=bool(self.settings.get("mini", True)))
         self.move(point)
         self.update_walls()
 

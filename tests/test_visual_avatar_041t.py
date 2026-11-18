@@ -137,6 +137,10 @@ class WidgetTests(unittest.TestCase):
         self.assertEqual(window.pos(), av.preset_point("tl", area, window.width()))
         window.apply(dict(DEFAULTS, position=f"{area.left() + 300},{area.top() + 200}"), "#1f8fe0")
         self.assertEqual(window.pos(), QPoint(area.left() + 300, area.top() + 200))
+        # An old place half outside the screen is stuck to the edge, never cut off.
+        window.apply(dict(DEFAULTS, lock=False, position=f"{area.left() + 300},{area.top() - 70}"), "#1f8fe0")
+        self.assertEqual(window.pos().y(), area.top())
+        self.assertEqual(window.view.walls, {"top"})
 
 
 class RuntimeTests(unittest.TestCase):
