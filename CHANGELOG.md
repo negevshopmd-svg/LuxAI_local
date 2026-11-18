@@ -1,3 +1,7 @@
+## 0.4.2c — Chrome in «Что слушать» (2026-11-18)
+
+- Live captions «Что слушать» listed only programs that had a Windows audio session at that moment; Chrome closes its sound service while silent, so it was missing. Now every open program with a window is offered too (those playing sound first), e.g. «Только программа: chrome». Capturing one program still includes all of its processes.
+
 ## 0.4.2b — Sharp logo at every size (2026-11-18)
 
 - The logo inside the Jarvis icon is now a vector outline (traced from the master `jarvis-logo.png` with sub-pixel accuracy) instead of an embedded 256 px picture, which Qt drew without smoothing and looked pixelated at small sizes. Smooth, sharp edges from 16 px to full screen; the icon file shrank from 72 KB to 7.5 KB. On a light accent the logo turns dark as before.

@@ -202,6 +202,36 @@ class RuntimeTests(unittest.TestCase):
             self.runtime._captions_engine = None
 
 
+class AppListTests(unittest.TestCase):
+    def test_open_programs_are_listed_even_when_silent(self):
+        """A browser has no audio session until it plays: it must still be offered."""
+        import sys
+        if sys.platform != "win32":
+            self.skipTest("Windows only")
+        from luxai import loopback_audio as la
+
+        class Proc:
+            def __init__(self, pid, name, parent=None):
+                self.pid, self._name, self._parent = pid, name, parent
+
+            def name(self):
+                return self._name
+
+            def parent(self):
+                return self._parent
+
+        chrome_root = Proc(10, "chrome.exe")
+        chrome_tab = Proc(11, "chrome.exe", chrome_root)
+        discord = Proc(20, "Discord.exe")
+        explorer = Proc(30, "explorer.exe")
+        session = mock.Mock(Process=discord)
+        processes = {11: chrome_tab, 20: discord, 30: explorer}
+        with mock.patch("pycaw.pycaw.AudioUtilities.GetAllSessions", return_value=[session]),                 mock.patch.object(la, "_window_pids", return_value={11, 20, 30}),                 mock.patch("psutil.Process", side_effect=lambda pid: processes[pid]):
+            apps = la.audio_apps()
+        # Playing programs first, then the other open ones; Chrome by its top process.
+        self.assertEqual(apps, [("Discord.exe", 20), ("chrome.exe", 10)])
+
+
 class PageTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

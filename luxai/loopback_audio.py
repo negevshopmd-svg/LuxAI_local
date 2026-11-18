@@ -251,34 +251,92 @@ class LoopbackCapture:
                 pass
 
 
+# Windows parts that have windows but never play sound worth captioning.
+SYSTEM_APPS = frozenset({
+    "explorer.exe", "applicationframehost.exe", "textinputhost.exe", "shellexperiencehost.exe",
+    "searchhost.exe", "searchapp.exe", "startmenuexperiencehost.exe", "systemsettings.exe",
+    "taskmgr.exe", "lockapp.exe", "dwm.exe", "ctfmon.exe", "nvidia share.exe",
+})
+
+
+def _root(process):
+    """The top process of a program (Chrome/Discord run many with one name)."""
+    name, root = process.name(), process
+    while True:
+        parent = root.parent()
+        if parent is None or parent.name() != name:
+            return root
+        root = parent
+
+
+def _window_pids() -> set[int]:
+    """Processes that own a visible, titled top-level window."""
+    import ctypes
+    from ctypes import wintypes
+    # A private user32 with exact types (the shared one may carry other signatures).
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    for name in ("IsWindowVisible", "GetWindowTextLengthW"):
+        getattr(user32, name).argtypes = [wintypes.HWND]
+    user32.GetWindow.argtypes = [wintypes.HWND, wintypes.UINT]
+    user32.GetWindow.restype = wintypes.HWND
+    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    pids: set[int] = set()
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def collect(hwnd, _param):
+        if user32.IsWindowVisible(hwnd) and user32.GetWindowTextLengthW(hwnd) > 0 \
+                and not user32.GetWindow(hwnd, 4):  # GW_OWNER: skip dialogs/tool windows of others
+            pid = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            pids.add(pid.value)
+        return True
+
+    user32.EnumWindows(collect, 0)
+    return pids
+
+
 def audio_apps() -> list[tuple[str, int]]:
-    """(exe name, root pid) of programs that have an audio session now."""
+    """(exe name, root pid) of programs to listen to: those playing sound now
+    first, then every other open program with a window (a browser has no audio
+    session until it plays something, so it must be listed anyway)."""
     if sys.platform != "win32":
         return []
     import psutil
-    from pycaw.pycaw import AudioUtilities
-    found: dict[str, int] = {}
+    own = os.getpid()
+    playing: dict[str, int] = {}
+    windowed: dict[str, int] = {}
     try:
+        from pycaw.pycaw import AudioUtilities
         sessions = AudioUtilities.GetAllSessions()
     except Exception:
-        return []
-    own = os.getpid()
+        sessions = []
     for session in sessions:
         process = getattr(session, "Process", None)
         if process is None or process.pid == own:
             continue
         try:
-            name = process.name()
-            root = process
-            while True:
-                parent = root.parent()
-                if parent is None or parent.name() != name:
-                    break
-                root = parent
-            found.setdefault(name, root.pid)
+            root = _root(process)
+            playing.setdefault(root.name(), root.pid)
         except (psutil.Error, OSError):
             continue
-    return sorted(found.items(), key=lambda item: item[0].casefold())
+    try:
+        pids = _window_pids()
+    except Exception:
+        pids = set()
+    for pid in pids:
+        if pid in (0, own):
+            continue
+        try:
+            root = _root(psutil.Process(pid))
+            name = root.name()
+        except (psutil.Error, OSError):
+            continue
+        if name.casefold() in SYSTEM_APPS or name.casefold() in ("jarvis.exe", "python.exe", "pythonw.exe"):
+            continue
+        if name not in playing:
+            windowed.setdefault(name, root.pid)
+    order = lambda item: item[0].casefold()
+    return sorted(playing.items(), key=order) + sorted(windowed.items(), key=order)
 
 
 def app_pid(name: str) -> int:
