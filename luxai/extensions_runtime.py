@@ -638,6 +638,7 @@ class ExtensionsRuntime(QObject):
         self._avatar_session_hidden = False
         self._avatar_error_until = 0.0
         self._avatar_ticks = 0
+        self._avatar_full_seconds = 0
         self._avatar_timer = QTimer(self)
         self._avatar_timer.setInterval(100)
         self._avatar_timer.timeout.connect(self._tick_avatar)
@@ -1133,11 +1134,15 @@ class ExtensionsRuntime(QObject):
         window.view.set_target(color)
         self._avatar_ticks += 1
         if self._avatar_ticks % 10 == 0:  # once a second
-            hide = bool(settings.get("hide_fullscreen", True)) and foreground_is_fullscreen()
-            if hide and window.isVisible():
-                window.hide()
-            elif not hide and not window.isVisible():
-                window.show()
+            from luxai.avatar import fullscreen_app_running
+            full = bool(settings.get("hide_fullscreen", True)) and fullscreen_app_running()
+            self._avatar_full_seconds = self._avatar_full_seconds + 1 if full else 0
+            if self._avatar_full_seconds >= 2:  # a real game/video, not a flash of a screenshot overlay
+                if window.isVisible():
+                    window.hide()
+            else:
+                # Always back: shown, on top and on a screen, whatever happened.
+                window.keep_visible(self._avatar_screen())
 
     def _avatar_moved(self, x: int, y: int):
         value = f"{int(x)},{int(y)}"

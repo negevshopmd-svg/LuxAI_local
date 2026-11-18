@@ -72,24 +72,97 @@ def snap_to_edges(rect: QRect, area: QRect, distance: int = 80, mini: bool = Fal
     """Stick the ORB to the nearest edge(s) — both at once in a corner.
 
     Measured from the visible orb, not the window with its glow margin, so it
-    really reaches the edge. In mini mode the orb tucks behind the edge(s):
-    about half shows at a side, about a quarter in a corner (like Luxify).
+    really reaches the edge. In mini mode the window sits flush with the
+    edge(s) and the orb is drawn pressed flat against them (``walls``), like
+    Luxify — it is never cut off by the screen.
     """
     radius = orb_radius(rect.width())
-    cx, cy = rect.x() + rect.width() // 2, rect.y() + rect.height() // 2
-    inside = (int(radius * MINI_SHOWN) if mini else radius + EDGE_GAP)
+    width, height = rect.width(), rect.height()
+    cx, cy = rect.x() + width // 2, rect.y() + height // 2
+    x, y = rect.x(), rect.y()
     edges = []
     if cx - radius - area.left() <= distance:
-        cx, _ = area.left() + inside, edges.append("left")
+        x = area.left() if mini else area.left() + radius + EDGE_GAP - width // 2
+        edges.append("left")
     elif area.right() - (cx + radius) <= distance:
-        cx, _ = area.right() - inside, edges.append("right")
+        x = area.right() + 1 - width if mini else area.right() - radius - EDGE_GAP - width // 2
+        edges.append("right")
     if cy - radius - area.top() <= distance:
-        cy, _ = area.top() + inside, edges.append("top")
+        y = area.top() if mini else area.top() + radius + EDGE_GAP - height // 2
+        edges.append("top")
     elif area.bottom() - (cy + radius) <= distance:
-        cy, _ = area.bottom() - inside, edges.append("bottom")
+        y = area.bottom() + 1 - height if mini else area.bottom() - radius - EDGE_GAP - height // 2
+        edges.append("bottom")
     if not edges:
         return rect.topLeft(), ""
-    return QPoint(cx - rect.width() // 2, cy - rect.height() // 2), "-".join(edges)
+    return QPoint(x, y), "-".join(edges)
+
+
+def touching_walls(rect: QRect, area: QRect, tolerance: int = 2) -> set:
+    """Screen edges the window sits flush against (mini mode after a restart)."""
+    walls = set()
+    if abs(rect.left() - area.left()) <= tolerance:
+        walls.add("left")
+    elif abs(rect.right() - area.right()) <= tolerance:
+        walls.add("right")
+    if abs(rect.top() - area.top()) <= tolerance:
+        walls.add("top")
+    elif abs(rect.bottom() - area.bottom()) <= tolerance:
+        walls.add("bottom")
+    return walls
+
+
+def soft_press(value: float, wall: float, softness: float) -> float:
+    """Keep ``value`` on the inner side of ``wall`` with a rounded transition (softplus)."""
+    distance = (value - wall) / softness
+    if distance > 30:
+        return value
+    return wall + softness * math.log1p(math.exp(distance))
+
+
+# Screens that cover everything for a moment but are not a game or a video:
+# the screenshot overlay, Start, search, the lock screen, the desktop itself.
+OVERLAY_APPS = frozenset({
+    "screenclippinghost.exe", "snippingtool.exe", "shellexperiencehost.exe", "searchhost.exe", "searchapp.exe",
+    "startmenuexperiencehost.exe", "explorer.exe", "lockapp.exe", "textinputhost.exe", "applicationframehost.exe",
+    "sharex.exe", "lightshot.exe", "greenshot.exe", "flameshot.exe",
+})
+
+
+def fullscreen_app_running() -> bool:
+    """True only for a real full-screen game, video or presentation.
+
+    Windows itself reports it (SHQueryUserNotificationState): D3D full screen
+    or presentation mode always count; "busy" (a full-screen window) counts
+    unless that window belongs to a screenshot tool, Start, search or Jarvis.
+    """
+    import sys
+    if sys.platform != "win32":
+        return False
+    import ctypes
+    state = ctypes.c_int(0)
+    try:
+        if ctypes.windll.shell32.SHQueryUserNotificationState(ctypes.byref(state)) != 0:
+            return False
+    except (OSError, AttributeError):
+        return False
+    if state.value in (3, 4):
+        return True
+    if state.value != 2:
+        return False
+    try:
+        import psutil
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
+        user32.GetForegroundWindow.restype = wintypes.HWND
+        hwnd = user32.GetForegroundWindow()
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if not pid.value or pid.value == os.getpid():
+            return False
+        return psutil.Process(pid.value).name().casefold() not in OVERLAY_APPS
+    except Exception:
+        return False
 
 
 class LevelMeter:
@@ -173,6 +246,7 @@ class AvatarView(QWidget):
         self.react = True
         self.reaction = 0.45
         self.scale = 1.0
+        self.walls: set = set()  # screen edges the orb is pressed against (mini mode)
         self.demo_level = None  # preview: a made-up voice instead of a meter
         self._level = 0.0
         self._phase = 0.0
@@ -227,9 +301,30 @@ class AvatarView(QWidget):
             self.color.blueF() + (self.target.blueF() - self.color.blueF()) * mix)
         self.update()
 
-    def shape(self, radius: float, layer: int) -> QPainterPath:
-        center = QPointF(self.width() / 2, self.height() / 2)
-        points = 72
+    WALL_GAP = 3.0          # px between the flattened side and the screen edge
+    WALL_CENTER = 0.55      # orb centre this many radii from the wall
+    WALL_RING_STEP = 0.30   # inner rings press against lines a bit further in
+
+    def orb_center(self, radius: float) -> QPointF:
+        x, y = self.width() / 2, self.height() / 2
+        reach = self.WALL_GAP + radius * self.WALL_CENTER
+        if "left" in self.walls:
+            x = reach
+        elif "right" in self.walls:
+            x = self.width() - reach
+        if "top" in self.walls:
+            y = reach
+        elif "bottom" in self.walls:
+            y = self.height() - reach
+        return QPointF(x, y)
+
+    def shape(self, radius: float, layer: int, center: QPointF | None = None, outer: float | None = None) -> QPainterPath:
+        center = center if center is not None else QPointF(self.width() / 2, self.height() / 2)
+        outer = outer or radius
+        # Each ring is pressed flat against its own line: nested flat sides like Luxify.
+        inset = self.WALL_GAP + (1 - radius / outer) * outer * self.WALL_RING_STEP
+        softness = max(1.5, outer * 0.10)
+        points = 96 if self.walls else 72
         wobble = (0.03 + 0.07 * self.amplitude) * (0.6 + self._level * self.reaction * 1.8)
         harmonics = 2 if self.smoothness > 0.75 else 3 if self.smoothness > 0.4 else 5
         path = QPainterPath()
@@ -239,7 +334,16 @@ class AvatarView(QWidget):
             for h in range(2, 2 + harmonics):
                 offset += math.sin(h * angle + self._phase * (1.0 + 0.37 * h) + layer * 0.9 + h) / h
             r = radius * (1 + wobble * offset)
-            point = QPointF(center.x() + r * math.cos(angle), center.y() + r * math.sin(angle))
+            px, py = center.x() + r * math.cos(angle), center.y() + r * math.sin(angle)
+            if "top" in self.walls:
+                py = soft_press(py, inset, softness)
+            elif "bottom" in self.walls:
+                py = -soft_press(-py, -(self.height() - inset), softness)
+            if "left" in self.walls:
+                px = soft_press(px, inset, softness)
+            elif "right" in self.walls:
+                px = -soft_press(-px, -(self.width() - inset), softness)
+            point = QPointF(px, py)
             if index == 0:
                 path.moveTo(point)
             else:
@@ -247,30 +351,62 @@ class AvatarView(QWidget):
         path.closeSubpath()
         return path
 
+    # (size, brightness, saturation, alpha) of the rings, outside → in. One hue,
+    # darker outside and brighter inside — never washed out to white.
+    RINGS = ((1.00, 0.36, 1.00, 0.95), (0.80, 0.55, 1.00, 0.97), (0.61, 0.76, 0.95, 1.0), (0.40, 0.98, 0.82, 1.0))
+
+    def ring_colors(self):
+        hue, saturation, value, _alpha = self.color.getHsvF()
+        hue = max(0.0, hue)
+        colors = []
+        for _factor, brightness, sat, alpha in self.RINGS:
+            color = QColor.fromHsvF(hue, max(0.0, min(1.0, saturation * sat)), max(0.0, min(1.0, max(value, 0.75) * brightness)))
+            color.setAlphaF(max(0.0, min(1.0, alpha * (0.35 + 0.65 * self.opacity / 0.7))))
+            colors.append(color)
+        return colors
+
     def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        from PySide6.QtGui import QImage
         size = min(self.width(), self.height())
         breath = 1 + self.intensity * 0.09 * math.sin(self._phase * 1.3)
         swell = 1 + self._level * self.reaction * 0.32
-        radius = size * 0.27 * breath * swell * self.scale
-        center = QPointF(self.width() / 2, self.height() / 2)
+        radius = size * 0.27 * breath * swell * self.scale * (0.92 if self.walls else 1.0)
+        # Drawn at half size and smoothly enlarged: soft edges like a real glow.
+        image = QImage(max(1, self.width() // 2), max(1, self.height() // 2), QImage.Format.Format_ARGB32_Premultiplied)
+        image.fill(Qt.GlobalColor.transparent)
+        canvas = QPainter(image)
+        canvas.setRenderHint(QPainter.RenderHint.Antialiasing)
+        canvas.scale(0.5, 0.5)
+        center = self.orb_center(radius)
         if self.glow > 0:
-            gradient = QRadialGradient(center, radius * 1.75)
+            gradient = QRadialGradient(center, radius * 1.6)
             glow = QColor(self.color)
-            glow.setAlphaF(min(1.0, 0.55 * self.glow * (0.7 + self._level * 0.6)))
+            glow.setAlphaF(min(1.0, 0.32 * self.glow * (0.8 + self._level * 0.5)))
             gradient.setColorAt(0.0, glow)
+            glow.setAlphaF(min(1.0, 0.12 * self.glow))
+            gradient.setColorAt(0.6, glow)
             glow.setAlphaF(0.0)
             gradient.setColorAt(1.0, glow)
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(gradient)
-            painter.drawEllipse(center, radius * 1.75, radius * 1.75)
-        painter.setPen(Qt.PenStyle.NoPen)
-        for layer, (factor, alpha, light) in enumerate(((1.0, 0.45, 100), (0.78, 0.6, 115), (0.57, 0.8, 130), (0.36, 1.0, 150))):
-            color = QColor(self.color).lighter(light)
-            color.setAlphaF(max(0.0, min(1.0, alpha * self.opacity / 0.7)))
-            painter.setBrush(color)
-            painter.drawPath(self.shape(radius * factor, layer))
+            canvas.setPen(Qt.PenStyle.NoPen)
+            canvas.setBrush(gradient)
+            canvas.drawEllipse(center, radius * 1.6, radius * 1.6)
+        canvas.setPen(Qt.PenStyle.NoPen)
+        for layer, ((factor, *_rest), color) in enumerate(zip(self.RINGS, self.ring_colors())):
+            # Inner rings sit a little higher (or towards the wall): it looks round.
+            lift = radius * 0.05 * layer
+            ring_center = QPointF(center)
+            if not self.walls:
+                ring_center.setY(center.y() - lift)
+            feather = QColor(color)
+            feather.setAlphaF(color.alphaF() * 0.3)
+            canvas.setBrush(feather)
+            canvas.drawPath(self.shape(radius * factor * 1.025, layer, ring_center, radius))
+            canvas.setBrush(color)
+            canvas.drawPath(self.shape(radius * factor, layer, ring_center, radius))
+        canvas.end()
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        painter.drawImage(self.rect(), image)
 
 
 class AvatarWindow(QWidget):
@@ -310,6 +446,18 @@ class AvatarWindow(QWidget):
         self._flags(on_top=bool(settings.get("on_top", True)), locked=bool(settings.get("lock", False)))
         self.place(screen_index)
 
+    def keep_visible(self, screen_index: int = 0):
+        """Put it back on top and on a screen, whatever another window did."""
+        import sys
+        if not self.isVisible():
+            self.show()
+        if not any(s.geometry().intersects(self.geometry()) for s in QGuiApplication.screens()):
+            self.place(screen_index)  # a monitor was unplugged or the layout changed
+        if sys.platform == "win32" and self.settings.get("on_top", True):
+            import ctypes
+            # HWND_TOPMOST, without moving, resizing or taking the focus.
+            ctypes.windll.user32.SetWindowPos(int(self.winId()), -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010 | 0x0040)
+
     def screen_area(self, screen_index: int) -> QRect:
         screens = QGuiApplication.screens()
         screen = screens[screen_index] if 0 <= screen_index < len(screens) else QGuiApplication.primaryScreen()
@@ -330,6 +478,16 @@ class AvatarWindow(QWidget):
                        for s in QGuiApplication.screens()):
                 point = preset_point("br", area, self.width())
         self.move(point)
+        self.update_walls()
+
+    def update_walls(self):
+        """Mini mode at an edge: the orb is pressed flat against it, not cut."""
+        walls = set()
+        if self.settings.get("mini", True) and self.settings.get("snap", True):
+            screen = QGuiApplication.screenAt(self.geometry().center()) or QGuiApplication.primaryScreen()
+            walls = touching_walls(self.geometry(), screen.availableGeometry())
+        self.view.walls = walls
+        self._edge = "-".join(sorted(walls))
 
     # -- mouse --
     def mousePressEvent(self, event):
@@ -340,6 +498,7 @@ class AvatarWindow(QWidget):
     def mouseMoveEvent(self, event):
         if self._grab is not None:
             self.view.scale = 1.0
+            self.view.walls = set()  # round again while it is carried
             self.move(event.globalPosition().toPoint() - self._grab)
 
     def mouseReleaseEvent(self, event):
@@ -352,6 +511,7 @@ class AvatarWindow(QWidget):
             point, self._edge = snap_to_edges(self.geometry(), screen.availableGeometry(),
                                               mini=bool(self.settings.get("mini", True)))
             self.move(point)
+            self.update_walls()
         self.moved.emit(self.x(), self.y())
 
 

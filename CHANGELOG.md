@@ -1,3 +1,9 @@
+## 0.4.1w — Avatar at the edge like Luxify, always on screen (2026-11-18)
+
+- At a screen edge (mini mode) the orb is no longer cut off by the screen: it stays whole and is pressed flat against the edge — flat side with rounded corners, the inner rings flattened too; in a corner against both edges. While you carry it, it is round again.
+- The orb looks closer to Luxify: one hue, darker outside and brighter inside (never washed out to white), distinct rings with soft edges.
+- The avatar no longer disappears when you switch apps or take a screenshot: the screenshot overlay (Win+Shift+S), Start and search are not treated as full-screen apps; only a game/video/presentation that Windows itself reports, for 2 seconds, hides it, and it comes back at once. Every second it is put back on top and on a screen, whatever another window did.
+
 ## 0.4.1v — Plugin settings save themselves (2026-11-18)
 
 - No more «Сохранить» in plugin settings: every change (switch, slider, list, colour, key, program chips, reset) is saved by itself half a second later and applied at once. The side panel shows «Сохраняю…» → «✓ Сохраняется автоматически».

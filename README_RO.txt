@@ -1,4 +1,8 @@
-LUXAI LOCAL 0.4.1v — ACTUALIZARE 2026-11-18
+LUXAI LOCAL 0.4.1w — ACTUALIZARE 2026-11-18
+
+0.4.1w: La marginea ecranului avatarul se turtește de margine ca în Luxify (nu mai
+e tăiat); culori mai apropiate de Luxify; nu mai dispare când schimbi aplicația
+sau faci o captură de ecran.
 
 0.4.1v: Setările pluginurilor se salvează singure după fiecare schimbare — nu mai
 trebuie apăsat „Salvează”. Cheile și tokenurile se salvează când termini de scris.

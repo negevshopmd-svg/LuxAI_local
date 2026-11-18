@@ -53,17 +53,26 @@ class LogicTests(unittest.TestCase):
         left, top, right, bottom = orb(point)
         self.assertEqual(edge, "right-top")
         self.assertEqual((area.right() - right, top - area.top()), (av.EDGE_GAP, av.EDGE_GAP))
-        # Mini mode in the corner: the centre is just inside, about a quarter shows.
+        # Mini mode in the corner: the window sits flush with both edges (never cut off)…
         point, edge = av.snap_to_edges(QRect(1730, 20, side, side), area, mini=True)
-        cx, cy = point.x() + side // 2, point.y() + side // 2
         self.assertEqual(edge, "right-top")
-        self.assertLess(area.right() - cx, radius * 0.3)
-        self.assertLess(cy - area.top(), radius * 0.3)
+        self.assertEqual((point.x() + side - 1, point.y()), (area.right(), area.top()))
+        self.assertEqual(av.touching_walls(QRect(point.x(), point.y(), side, side), area), {"right", "top"})
+        # …and the orb is pressed flat against the walls, with a rounded transition.
+        self.assertAlmostEqual(av.soft_press(-50.0, 3.0, 5.0), 3.0, delta=0.01)
+        self.assertAlmostEqual(av.soft_press(80.0, 3.0, 5.0), 80.0, delta=0.01)
+        self.assertGreater(av.soft_press(3.0, 3.0, 5.0), 3.0)
         # The glow margin no longer keeps it away: a window whose BOX is 40 px off still snaps.
         point, edge = av.snap_to_edges(QRect(1920 - side - 40, 500, side, side), area)
         self.assertEqual(edge, "right")
         point, edge = av.snap_to_edges(QRect(800, 400, side, side), area)
         self.assertEqual((point, edge), (QPoint(800, 400), ""))
+
+    def test_screenshot_overlay_is_not_a_fullscreen_game(self):
+        self.assertIn("screenclippinghost.exe", av.OVERLAY_APPS)
+        self.assertIn("snippingtool.exe", av.OVERLAY_APPS)
+        with mock.patch("sys.platform", "linux"):
+            self.assertFalse(av.fullscreen_app_running())
 
     def test_failures_flash_red(self):
         self.assertTrue(av.looks_failed("Не удалось открыть Discord"))
@@ -100,6 +109,22 @@ class WidgetTests(unittest.TestCase):
             view._last = time.monotonic() - 0.05
             view._tick()
         self.assertLess(view._level, 0.05)
+
+    def test_orb_is_pressed_against_the_wall_not_cut(self):
+        view = av.AvatarView()
+        self.addCleanup(view.deleteLater)
+        view.resize(170, 170)
+        view.walls = {"top"}
+        radius = 170 * 0.27
+        center = view.orb_center(radius)
+        path = view.shape(radius, 0, center, radius)
+        box = path.boundingRect()
+        self.assertGreaterEqual(box.top(), view.WALL_GAP - 0.01)   # nothing above the screen edge
+        self.assertLess(box.top(), view.WALL_GAP + 3)               # flat side right at the edge
+        self.assertGreater(box.width(), box.height())               # a «D» lying on its flat side
+        view.walls = set()
+        round_box = view.shape(radius, 0).boundingRect()
+        self.assertAlmostEqual(round_box.width(), round_box.height(), delta=radius * 0.3)
 
     def test_window_size_lock_and_preset(self):
         window = av.AvatarWindow(av.LevelMeter())
@@ -172,10 +197,22 @@ class RuntimeTests(unittest.TestCase):
     def test_fullscreen_hides_and_moving_saves_place(self):
         self.runtime.apply(self.state())
         window = self.runtime._avatar_window
-        with mock.patch("luxai.extensions_runtime.foreground_is_fullscreen", return_value=True):
+        with mock.patch("luxai.avatar.fullscreen_app_running", return_value=True):
+            for _ in range(10):
+                self.runtime._tick_avatar()
+            self.assertTrue(window.isVisible())  # one second is not enough (screenshot overlay)
             for _ in range(10):
                 self.runtime._tick_avatar()
         self.assertFalse(window.isVisible())
+        with mock.patch("luxai.avatar.fullscreen_app_running", return_value=False):
+            for _ in range(10):
+                self.runtime._tick_avatar()
+        self.assertTrue(window.isVisible())  # back at once after the game
+        window.hide()  # hidden by something else
+        with mock.patch("luxai.avatar.fullscreen_app_running", return_value=False):
+            for _ in range(10):
+                self.runtime._tick_avatar()
+        self.assertTrue(window.isVisible())
         self.runtime._avatar_moved(100, 200)
         self.host.update_extension_setting.assert_called_with("visual_avatar", "position", "100,200")
 
