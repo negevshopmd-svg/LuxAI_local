@@ -1,4 +1,7 @@
-LUXAI LOCAL 0.4.1z — ACTUALIZARE 2026-11-18
+LUXAI LOCAL 0.4.2 — ACTUALIZARE 2026-11-18
+
+0.4.2: Când Jarvis ascultă, avatarul are o animație proprie: sfera devine rotundă
+și liniștită, iar din ea pleacă unde ca un sonar. Când vorbește, se umflă după voce.
 
 0.4.1z: În Task Manager apare „Jarvis” cu iconița lui, nu „Python”. run_windows.bat
 pornește prin .venv\Scripts\Jarvis.exe (creat automat; dacă nu se poate, ca înainte).

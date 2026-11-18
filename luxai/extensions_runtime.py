@@ -1130,8 +1130,9 @@ class ExtensionsRuntime(QObject):
         if window is None:
             return
         settings = self.settings("visual_avatar")
-        _state, color = resolve_state(self.avatar_flags(), settings, self._avatar_base_color())
+        state, color = resolve_state(self.avatar_flags(), settings, self._avatar_base_color())
         window.view.set_target(color)
+        window.view.mode = state  # listening has its own animation (waves, calm orb)
         self._avatar_ticks += 1
         if self._avatar_ticks % 10 == 0:  # once a second
             from luxai.avatar import fullscreen_app_running

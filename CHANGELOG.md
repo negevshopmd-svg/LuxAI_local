@@ -1,3 +1,7 @@
+## 0.4.2 — Avatar: listening looks different (2026-11-18)
+
+- While Jarvis listens, the avatar has its own animation: the orb becomes round and still (it "holds its breath", a slow attentive pulse, the core gently glows) and thin sonar waves leave it and fade out. Speaking stays as it was — the orb swells and wobbles with the voice. The states blend smoothly into each other; the settings preview shows it too.
+
 ## 0.4.1z — "Jarvis" with its icon in Task Manager (2026-11-18)
 
 - Task Manager showed Jarvis as "Python" without an icon (it ran inside pythonw.exe). `run_windows.bat` now builds `.venv\Scripts\Jarvis.exe` when needed — the same Python interpreter with the description/product name "Jarvis" and the Jarvis icon (`luxai/jarvis_exe.py`) — and starts Jarvis through it, as one process. Every build is test-started first; if it cannot be built, pythonw.exe is used as before.

@@ -248,6 +248,9 @@ class AvatarView(QWidget):
         self.scale = 1.0
         self.walls: set = set()  # screen edges the orb is pressed against (mini mode)
         self.demo_level = None  # preview: a made-up voice instead of a meter
+        self.mode = "idle"      # idle | listening | speak | exec | error | …
+        self._listen = 0.0      # 0..1, eases in/out so states blend smoothly
+        self._ripple = 0.0      # listening waves travel outwards
         self._level = 0.0
         self._phase = 0.0
         self._last = time.monotonic()
@@ -294,6 +297,9 @@ class AvatarView(QWidget):
         # Quick to rise, slower to fall: the orb "speaks" without flicker.
         rate = 18.0 if raw > self._level else 5.0
         self._level += (raw - self._level) * min(1.0, delta * rate)
+        listening = 1.0 if self.mode == "listening" else 0.0
+        self._listen += (listening - self._listen) * min(1.0, delta * 4.0)
+        self._ripple = (self._ripple + delta / 1.7) % 1.0
         mix = min(1.0, delta * 6.0)
         self.color = QColor.fromRgbF(
             self.color.redF() + (self.target.redF() - self.color.redF()) * mix,
@@ -326,6 +332,7 @@ class AvatarView(QWidget):
         softness = max(1.5, outer * 0.10)
         points = 96 if self.walls else 72
         wobble = (0.03 + 0.07 * self.amplitude) * (0.6 + self._level * self.reaction * 1.8)
+        wobble *= 1.0 - 0.75 * self._listen  # listening: round and still, holding its breath
         harmonics = 2 if self.smoothness > 0.75 else 3 if self.smoothness > 0.4 else 5
         path = QPainterPath()
         for index in range(points + 1):
@@ -357,6 +364,9 @@ class AvatarView(QWidget):
         size = min(self.width(), self.height())
         breath = 1 + self.intensity * 0.09 * math.sin(self._phase * 1.3)
         swell = 1 + self._level * self.reaction * 0.32
+        # Listening: a little smaller and calmer, with a slow attentive pulse.
+        listen = self._listen
+        breath = breath * (1 - listen) + (0.93 + 0.03 * math.sin(self._phase * 0.8)) * listen
         radius = size * 0.27 * breath * swell * self.scale * (0.92 if self.walls else 1.0)
         # Away from the edges: the centre of the window. At an edge (mini mode)
         # it moves to the edge and is pressed flat against it.
@@ -371,12 +381,29 @@ class AvatarView(QWidget):
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(gradient)
             painter.drawEllipse(center, radius * 1.75, radius * 1.75)
+        if listen > 0.02:
+            self._paint_listening_waves(painter, center, radius, listen)
         painter.setPen(Qt.PenStyle.NoPen)
         for layer, (factor, alpha, light) in enumerate(((1.0, 0.45, 100), (0.78, 0.6, 115), (0.57, 0.8, 130), (0.36, 1.0, 150))):
-            color = QColor(self.color).lighter(light)
+            color = QColor(self.color).lighter(light + int(25 * listen * (layer == 3) * (0.5 + 0.5 * math.sin(self._phase * 2.2))))
             color.setAlphaF(max(0.0, min(1.0, alpha * self.opacity / 0.7)))
             painter.setBrush(color)
             painter.drawPath(self.shape(radius * factor, layer, center, radius))
+
+    def _paint_listening_waves(self, painter, center, radius, listen):
+        """Thin rings leave the orb and fade, like sonar: «I am listening»."""
+        from PySide6.QtGui import QPen
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        for index in range(2):
+            t = (self._ripple + index * 0.5) % 1.0
+            ring = QColor(self.color).lighter(130)
+            ring.setAlphaF(max(0.0, min(1.0, 0.8 * (1 - t) ** 1.6 * listen * (0.4 + 0.6 * self.opacity / 0.7))))
+            pen = QPen(ring)
+            pen.setWidthF(max(1.0, radius * 0.07 * (1 - t)))
+            painter.setPen(pen)
+            reach = radius * (1.02 + 0.85 * t)
+            painter.drawEllipse(center, reach, reach)
+        painter.setPen(Qt.PenStyle.NoPen)
 
 
 class AvatarWindow(QWidget):

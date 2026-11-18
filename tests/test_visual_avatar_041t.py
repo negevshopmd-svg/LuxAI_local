@@ -126,6 +126,33 @@ class WidgetTests(unittest.TestCase):
         round_box = view.shape(radius, 0).boundingRect()
         self.assertAlmostEqual(round_box.width(), round_box.height(), delta=radius * 0.3)
 
+    def test_listening_looks_different_from_speaking(self):
+        import time
+        view = av.AvatarView()
+        self.addCleanup(view.deleteLater)
+        view.resize(170, 170)
+        view.mode = "listening"
+        for _ in range(40):
+            view._last = time.monotonic() - 0.05
+            view._tick()
+        self.assertGreater(view._listen, 0.9)          # eased into listening
+        with mock.patch.object(view, "_paint_listening_waves") as waves:
+            view.grab()
+        waves.assert_called_once()                       # sonar waves only while listening
+        radius = 170 * 0.27
+        still = view.shape(radius, 0).boundingRect()
+        view.mode = "speak"
+        for _ in range(40):
+            view._last = time.monotonic() - 0.05
+            view._tick()
+        self.assertLess(view._listen, 0.1)
+        with mock.patch.object(view, "_paint_listening_waves") as waves:
+            view.grab()
+        waves.assert_not_called()
+        moving = view.shape(radius, 0).boundingRect()
+        # Listening is round (width ≈ height), speaking wobbles more.
+        self.assertLess(abs(still.width() - still.height()), abs(moving.width() - moving.height()) + 0.5)
+
     def test_window_size_lock_and_preset(self):
         window = av.AvatarWindow(av.LevelMeter())
         self.addCleanup(window.deleteLater)
@@ -153,6 +180,7 @@ class RuntimeTests(unittest.TestCase):
         self.host = mock.Mock()
         self.host.cfg = {"language": "ru", "microphone_enabled": True, "tts_enabled": True, "ui_accent": "#ff8800"}
         self.host._processing = False
+        self.host.avatar._listening = False
         self.runtime = ExtensionsRuntime(self.host)
         self.meter = mock.patch("luxai.avatar.LevelMeter.start").start()
         self.addCleanup(mock.patch.stopall)
@@ -171,9 +199,16 @@ class RuntimeTests(unittest.TestCase):
         window = self.runtime._avatar_window
         self.assertIsNotNone(window)
         self.meter.assert_called_once_with("voice", [])
+        self.runtime._tick_avatar()
+        self.assertEqual(window.view.mode, "idle")
+        self.host.avatar._listening = True
+        self.runtime._tick_avatar()
+        self.assertEqual(window.view.mode, "listening")
+        self.host.avatar._listening = False
         self.host._processing = True
         self.runtime._tick_avatar()
         self.assertEqual(window.view.target.name(), "#2ecf8f")
+        self.assertEqual(window.view.mode, "exec")
         self.host._processing = False
         self.runtime.avatar_event("error")
         self.runtime._tick_avatar()

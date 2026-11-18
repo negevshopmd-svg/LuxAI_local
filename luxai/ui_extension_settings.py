@@ -1613,6 +1613,7 @@ class PluginSettingsView(QWidget):
         state = self._preview_states[self._preview_index]
         self.avatar_state_label.setText(w("avatar_" + state, self.language))
         self.avatar_preview.configure(draft, self._preview_color(draft, state))
+        self.avatar_preview.mode = state
         speaking = state == "speak"
         self.avatar_preview.demo_level = (lambda phase: 0.55 + 0.4 * math.sin(phase * 7.3) * math.sin(phase * 2.1)) \
             if speaking else (lambda phase: 0.0)
