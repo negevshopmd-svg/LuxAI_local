@@ -351,62 +351,32 @@ class AvatarView(QWidget):
         path.closeSubpath()
         return path
 
-    # (size, brightness, saturation, alpha) of the rings, outside → in. One hue,
-    # darker outside and brighter inside — never washed out to white.
-    RINGS = ((1.00, 0.36, 1.00, 0.95), (0.80, 0.55, 1.00, 0.97), (0.61, 0.76, 0.95, 1.0), (0.40, 0.98, 0.82, 1.0))
-
-    def ring_colors(self):
-        hue, saturation, value, _alpha = self.color.getHsvF()
-        hue = max(0.0, hue)
-        colors = []
-        for _factor, brightness, sat, alpha in self.RINGS:
-            color = QColor.fromHsvF(hue, max(0.0, min(1.0, saturation * sat)), max(0.0, min(1.0, max(value, 0.75) * brightness)))
-            color.setAlphaF(max(0.0, min(1.0, alpha * (0.35 + 0.65 * self.opacity / 0.7))))
-            colors.append(color)
-        return colors
-
     def paintEvent(self, event):
-        from PySide6.QtGui import QImage
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         size = min(self.width(), self.height())
         breath = 1 + self.intensity * 0.09 * math.sin(self._phase * 1.3)
         swell = 1 + self._level * self.reaction * 0.32
         radius = size * 0.27 * breath * swell * self.scale * (0.92 if self.walls else 1.0)
-        # Drawn at half size and smoothly enlarged: soft edges like a real glow.
-        image = QImage(max(1, self.width() // 2), max(1, self.height() // 2), QImage.Format.Format_ARGB32_Premultiplied)
-        image.fill(Qt.GlobalColor.transparent)
-        canvas = QPainter(image)
-        canvas.setRenderHint(QPainter.RenderHint.Antialiasing)
-        canvas.scale(0.5, 0.5)
+        # Away from the edges: the centre of the window. At an edge (mini mode)
+        # it moves to the edge and is pressed flat against it.
         center = self.orb_center(radius)
         if self.glow > 0:
-            gradient = QRadialGradient(center, radius * 1.6)
+            gradient = QRadialGradient(center, radius * 1.75)
             glow = QColor(self.color)
-            glow.setAlphaF(min(1.0, 0.32 * self.glow * (0.8 + self._level * 0.5)))
+            glow.setAlphaF(min(1.0, 0.55 * self.glow * (0.7 + self._level * 0.6)))
             gradient.setColorAt(0.0, glow)
-            glow.setAlphaF(min(1.0, 0.12 * self.glow))
-            gradient.setColorAt(0.6, glow)
             glow.setAlphaF(0.0)
             gradient.setColorAt(1.0, glow)
-            canvas.setPen(Qt.PenStyle.NoPen)
-            canvas.setBrush(gradient)
-            canvas.drawEllipse(center, radius * 1.6, radius * 1.6)
-        canvas.setPen(Qt.PenStyle.NoPen)
-        for layer, ((factor, *_rest), color) in enumerate(zip(self.RINGS, self.ring_colors())):
-            # Inner rings sit a little higher (or towards the wall): it looks round.
-            lift = radius * 0.05 * layer
-            ring_center = QPointF(center)
-            if not self.walls:
-                ring_center.setY(center.y() - lift)
-            feather = QColor(color)
-            feather.setAlphaF(color.alphaF() * 0.3)
-            canvas.setBrush(feather)
-            canvas.drawPath(self.shape(radius * factor * 1.025, layer, ring_center, radius))
-            canvas.setBrush(color)
-            canvas.drawPath(self.shape(radius * factor, layer, ring_center, radius))
-        canvas.end()
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        painter.drawImage(self.rect(), image)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(gradient)
+            painter.drawEllipse(center, radius * 1.75, radius * 1.75)
+        painter.setPen(Qt.PenStyle.NoPen)
+        for layer, (factor, alpha, light) in enumerate(((1.0, 0.45, 100), (0.78, 0.6, 115), (0.57, 0.8, 130), (0.36, 1.0, 150))):
+            color = QColor(self.color).lighter(light)
+            color.setAlphaF(max(0.0, min(1.0, alpha * self.opacity / 0.7)))
+            painter.setBrush(color)
+            painter.drawPath(self.shape(radius * factor, layer, center, radius))
 
 
 class AvatarWindow(QWidget):

@@ -1,3 +1,7 @@
+## 0.4.1x — Avatar keeps its original look (2026-11-18)
+
+- The orb looks exactly as before 0.4.1w again (its bright rings and glow). Only the edge behaviour stays: at a screen edge in mini mode it is pressed flat against the edge instead of being cut off; it still never disappears when you switch apps or take a screenshot.
+
 ## 0.4.1w — Avatar at the edge like Luxify, always on screen (2026-11-18)
 
 - At a screen edge (mini mode) the orb is no longer cut off by the screen: it stays whole and is pressed flat against the edge — flat side with rounded corners, the inner rings flattened too; in a corner against both edges. While you carry it, it is round again.

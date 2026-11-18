@@ -1,4 +1,7 @@
-LUXAI LOCAL 0.4.1w — ACTUALIZARE 2026-11-18
+LUXAI LOCAL 0.4.1x — ACTUALIZARE 2026-11-18
+
+0.4.1x: Avatarul arată din nou ca înainte; rămâne doar turtirea la marginea
+ecranului (nu mai e tăiat) și faptul că nu mai dispare.
 
 0.4.1w: La marginea ecranului avatarul se turtește de margine ca în Luxify (nu mai
 e tăiat); culori mai apropiate de Luxify; nu mai dispare când schimbi aplicația
