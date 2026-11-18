@@ -37,5 +37,13 @@ if not exist "launch_windows.py" (
     pause
     exit /b 1
 )
+rem Jarvis.exe = the same Python with the name "Jarvis" and its icon, so Task
+rem Manager shows "Jarvis" instead of "Python". Built/refreshed when needed;
+rem if it cannot be built, pythonw.exe is used as before.
+if exist ".venv\Scripts\python.exe" ".venv\Scripts\python.exe" -m luxai.jarvis_exe >nul 2>&1
+if exist ".venv\Scripts\Jarvis.exe" if exist ".venv\Scripts\Jarvis.exe.stamp" (
+    start "" ".venv\Scripts\Jarvis.exe" "%~dp0launch_windows.py"
+    exit /b 0
+)
 start "" ".venv\Scripts\pythonw.exe" "%~dp0launch_windows.py"
 exit /b 0

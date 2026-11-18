@@ -427,6 +427,7 @@ class MainWindow(QMainWindow):
         # Check cloud and local AI right after start, so «Дополнения» is green
         # without waiting for the first question.
         QTimer.singleShot(3000, self._startup_ai_checks)
+        QTimer.singleShot(6000, self._refresh_autostart_entry)
         self.mic_status.setText(self._provider_status_text())
         self._on_audio_state("stopped", {})
         # Remember the last other foreground window while Jarvis is out of
@@ -1635,6 +1636,19 @@ class MainWindow(QMainWindow):
             self.show()
         self._update_home_backdrop()
 
+    def _refresh_autostart_entry(self):
+        """An existing Windows autostart entry starts Jarvis the current way (Jarvis.exe)."""
+        if sys.platform != "win32" or self._closed:
+            return
+        try:
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run") as key:
+                current, _kind = winreg.QueryValueEx(key, "LuxAI_Jarvis")
+        except OSError:
+            return  # autostart is off
+        if "Jarvis.exe" not in str(current) or "launch_windows.py" not in str(current):
+            self._set_autostart(True)
+
     def _set_autostart(self, enabled):
         if sys.platform != "win32":
             return
@@ -1643,7 +1657,11 @@ class MainWindow(QMainWindow):
             key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
             with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as key:
                 if enabled:
-                    executable = str(BASE / ".venv" / "Scripts" / "pythonw.exe")
+                    scripts = BASE / ".venv" / "Scripts"
+                    # Jarvis.exe shows "Jarvis" with its icon in Task Manager.
+                    jarvis = scripts / "Jarvis.exe"
+                    executable = str(jarvis if jarvis.is_file() and (scripts / "Jarvis.exe.stamp").is_file()
+                                     else scripts / "pythonw.exe")
                     command = f'"{executable}" "{BASE / "launch_windows.py"}"'
                     winreg.SetValueEx(key, "LuxAI_Jarvis", 0, winreg.REG_SZ, command)
                 else:

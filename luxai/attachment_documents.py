@@ -137,7 +137,7 @@ def extract_pdf(data: bytes, *, max_chars: int = 24_000) -> tuple[str, tuple[str
     if not data.startswith(b"%PDF-"):
         raise ValueError("The selected file is not a valid PDF document.")
     interpreter = Path(sys.executable)
-    if interpreter.name.casefold() == "pythonw.exe":
+    if interpreter.name.casefold() in ("pythonw.exe", "jarvis.exe"):  # Jarvis.exe = renamed pythonw
         # GUI startup uses pythonw, whose standard streams may be absent.
         # Launch the sibling console interpreter invisibly with real pipes.
         interpreter = interpreter.with_name("python.exe")

@@ -1,4 +1,7 @@
-LUXAI LOCAL 0.4.1y — ACTUALIZARE 2026-11-18
+LUXAI LOCAL 0.4.1z — ACTUALIZARE 2026-11-18
+
+0.4.1z: În Task Manager apare „Jarvis” cu iconița lui, nu „Python”. run_windows.bat
+pornește prin .venv\Scripts\Jarvis.exe (creat automat; dacă nu se poate, ca înainte).
 
 0.4.1y: Iconiță nouă și clară pentru Avatarul vizual: o sferă cu o steluță.
 

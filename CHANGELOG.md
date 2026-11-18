@@ -1,3 +1,8 @@
+## 0.4.1z — "Jarvis" with its icon in Task Manager (2026-11-18)
+
+- Task Manager showed Jarvis as "Python" without an icon (it ran inside pythonw.exe). `run_windows.bat` now builds `.venv\Scripts\Jarvis.exe` when needed — the same Python interpreter with the description/product name "Jarvis" and the Jarvis icon (`luxai/jarvis_exe.py`) — and starts Jarvis through it, as one process. Every build is test-started first; if it cannot be built, pythonw.exe is used as before.
+- Helper processes treat Jarvis.exe like pythonw.exe (console Python for probes and the PDF reader). An existing Windows autostart entry is updated to start Jarvis the same way.
+
 ## 0.4.1y — Clear icon for the visual avatar (2026-11-18)
 
 - «Визуальный аватар» has its own icon: an orb of rings with a small sparkle (drawn for the project, `luxai/assets/icons/project/avatar-orb.svg`) instead of the unclear «orbit». Project icons are looked up before the Lucide set.

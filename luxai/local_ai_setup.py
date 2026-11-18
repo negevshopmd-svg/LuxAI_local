@@ -36,7 +36,7 @@ def runtime_python(python: str | Path = sys.executable) -> str:
     can have no standard streams; its sibling belongs to the same environment.
     """
     executable = Path(python)
-    if executable.name.casefold() == "pythonw.exe":
+    if executable.name.casefold() in ("pythonw.exe", "jarvis.exe"):  # Jarvis.exe = renamed pythonw
         console = executable.with_name("python.exe")
         if console.is_file():
             executable = console
