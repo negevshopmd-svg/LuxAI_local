@@ -1,23 +1,41 @@
 """Live captions: turn what the PC plays into text on an always-on-top bar.
 
-Audio comes from ``loopback_audio`` (all sound except Jarvis, or one
-program). The recogniser re-reads the current phrase about once a second
-(partial text) and finishes it after a short pause or 12 seconds. Finished
-phrases can be translated by the cloud AI. Audio is never saved or sent.
+Audio comes from ``loopback_audio`` (all PC sound, or one program). The
+recogniser re-reads the current phrase as often as the model allows (partial
+text grows while someone speaks) and finishes it after a short pause or at
+most 5 seconds — cut at the quietest moment, so continuous speech in videos
+keeps flowing. A fast model of its own keeps it live. Finished phrases can be
+translated by the cloud AI. Audio is never saved or sent.
 """
 from __future__ import annotations
 
+import os
 import threading
-import time
 
 import numpy as np
 
 SAMPLE_RATE = 16000
 FRAME = 480                 # 30 ms
-PAUSE_SECONDS = 0.7         # quiet this long after speech = the phrase is finished
-MAX_PHRASE_SECONDS = 12.0
-PARTIAL_EVERY = 0.9
+PAUSE_SECONDS = 0.45        # quiet this long after speech = the phrase is finished
+MAX_PHRASE_SECONDS = 5.0    # continuous speech is cut into short phrases
+CUT_SEARCH_SECONDS = 1.5    # look for the quietest moment in the last 1.5 s
+MIN_PARTIAL_GROWTH = 0.25   # re-read only when at least this much new audio came
 KEEP_FINAL = 12
+
+# quality setting -> faster-whisper model ("precise" = the voice-command model)
+QUALITY_MODELS = {"fast": "tiny", "balanced": "small"}
+_models: dict = {}
+_models_lock = threading.Lock()
+
+
+def caption_model(name: str):
+    """A captions-only model, loaded once (int8 on the CPU)."""
+    with _models_lock:
+        if name not in _models:
+            from faster_whisper import WhisperModel
+            _models[name] = WhisperModel(name, device="cpu", compute_type="int8",
+                                         cpu_threads=max(2, min(8, (os.cpu_count() or 4) // 2)), num_workers=1)
+        return _models[name]
 
 
 def frame_rms(audio: np.ndarray) -> np.ndarray:
@@ -61,16 +79,40 @@ class PhraseSegmenter:
     def seconds(self) -> float:
         return len(self.buffer) / SAMPLE_RATE
 
+    @property
+    def paused(self) -> bool:
+        return self.heard_speech and self.quiet_frames * FRAME / SAMPLE_RATE >= PAUSE_SECONDS
+
     def phrase_finished(self) -> bool:
         if not self.heard_speech:
             return False
-        return self.quiet_frames * FRAME / SAMPLE_RATE >= PAUSE_SECONDS or self.seconds >= MAX_PHRASE_SECONDS
+        return self.paused or self.seconds >= MAX_PHRASE_SECONDS
 
-    def take(self) -> np.ndarray:
-        audio = self.buffer
-        self.buffer = np.zeros(0, dtype=np.float32)
-        self.heard_speech = False
-        self.quiet_frames = 0
+    def cut_point(self) -> int:
+        """Sample index after the quietest 30 ms frame in the last 1.5 s (between words)."""
+        rms = frame_rms(self.buffer)
+        if not len(rms):
+            return len(self.buffer)
+        first = max(1, len(rms) - int(CUT_SEARCH_SECONDS * SAMPLE_RATE / FRAME))
+        quietest = first + int(np.argmin(rms[first:]))
+        return (quietest + 1) * FRAME
+
+    def take(self, until: int | None = None) -> np.ndarray:
+        """The phrase audio; with ``until`` the rest stays for the next phrase."""
+        if until is None or until >= len(self.buffer):
+            audio, self.buffer = self.buffer, np.zeros(0, dtype=np.float32)
+            self.heard_speech = False
+            self.quiet_frames = 0
+            return audio
+        audio, self.buffer = self.buffer[:until], self.buffer[until:]
+        rms = frame_rms(self.buffer)
+        self.heard_speech = bool(len(rms) and (rms >= self.threshold).any())
+        quiet = 0
+        for value in rms[::-1]:
+            if value >= self.threshold:
+                break
+            quiet += 1
+        self.quiet_frames = quiet
         return audio
 
 
@@ -87,7 +129,8 @@ class CaptionEngine:
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread = None
-        self._last_partial = 0.0
+        self._partial_len = 0
+        self._partial_text = ""
 
     def feed(self, audio: np.ndarray) -> None:
         with self._lock:
@@ -102,26 +145,54 @@ class CaptionEngine:
         self._stop.set()
 
     def _transcribe(self, model, audio) -> str:
-        from luxai.dictation import transcribe
-        return transcribe(model, audio, self.language, 1)
+        from luxai.dictation import voiced_seconds
+        from luxai.voice_rules import is_hallucinated_outro, is_repetitive_transcript
+        if len(audio) < SAMPLE_RATE * 0.3 or voiced_seconds(audio) < 0.2:
+            return ""
+        peak = float(np.max(np.abs(audio)))
+        if 0.0 < peak < 0.1:
+            audio = (audio * min(16.0, 0.1 / peak)).astype(np.float32)
+        segments, _info = model.transcribe(
+            audio, language=self.language, beam_size=1, best_of=1, temperature=0.0, vad_filter=False,
+            condition_on_previous_text=False, without_timestamps=True, no_speech_threshold=0.6)
+        text = " ".join(segment.text.strip() for segment in segments).strip()
+        if is_hallucinated_outro(text) or is_repetitive_transcript(text):
+            return ""
+        return text
 
-    def step(self, model) -> None:
-        """One pass: finish a phrase or refresh the partial text."""
+    def step(self, model) -> bool:
+        """One pass: finish a phrase or refresh the growing partial text. True = did work."""
         with self._lock:
-            finished = self.segmenter.phrase_finished()
-            audio = self.segmenter.take() if finished else self.segmenter.buffer.copy()
-            speaking = self.segmenter.heard_speech
+            segmenter = self.segmenter
+            finished = segmenter.phrase_finished()
+            if finished:
+                audio = segmenter.take() if segmenter.paused else segmenter.take(segmenter.cut_point())
+            else:
+                audio = segmenter.buffer.copy()
+            speaking = segmenter.heard_speech
         if finished:
-            text = self._transcribe(model, audio)
+            # The last partial already read (almost) this audio: no second pass.
+            extra = frame_rms(audio[self._partial_len:]) if self._partial_len <= len(audio) else None
+            only_quiet_added = extra is not None and (not len(extra) or float(extra.max()) < self.segmenter.threshold)
+            if self._partial_text and self._partial_len <= len(audio) and (
+                    only_quiet_added or len(audio) - self._partial_len <= SAMPLE_RATE * MIN_PARTIAL_GROWTH):
+                text = self._partial_text
+            else:
+                text = self._transcribe(model, audio)
+            self._partial_len, self._partial_text = 0, ""
             self.on_partial("")
             if text:
                 self.on_final(text)
-            return
-        if speaking and time.monotonic() - self._last_partial >= PARTIAL_EVERY and len(audio) >= SAMPLE_RATE * 0.6:
-            self._last_partial = time.monotonic()
+            return True
+        if speaking and len(audio) >= SAMPLE_RATE * 0.5 \
+                and len(audio) - self._partial_len >= SAMPLE_RATE * MIN_PARTIAL_GROWTH:
             text = self._transcribe(model, audio)
+            self._partial_len = len(audio)
             if text:
+                self._partial_text = text
                 self.on_partial(text)
+            return True
+        return False
 
     def _run(self):
         model = None
@@ -131,12 +202,12 @@ class CaptionEngine:
                     model = self.model_provider()
                     if model is None:
                         raise RuntimeError("speech model is not loaded")
-                self.step(model)
+                if not self.step(model):
+                    self._stop.wait(0.05)
             except Exception as error:
                 if self.on_error is not None:
                     self.on_error(f"{type(error).__name__}: {error}")
                 self._stop.wait(3)
-            self._stop.wait(0.2)
 
 
 # -- the bar -------------------------------------------------------------------

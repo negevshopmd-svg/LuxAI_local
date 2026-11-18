@@ -1,3 +1,9 @@
+## 0.4.1r — Live captions in real time (2026-11-18)
+
+- Captions now appear while someone speaks: the text grows about every 1.2 s (≈0.3 s in «Мгновенно»), and continuous speech in videos is split into phrases of at most 5 s, cut at the quietest moment between words (nothing is lost). Before: the medium model needed ~4 s per pass and a phrase could wait up to 12 s.
+- Captions use their own fast model: new setting «Скорость распознавания» — «Мгновенно» (tiny), «Быстро и точно» (small, default) or «Как у голосовых команд».
+- A finished phrase is not recognised twice when only silence came after the last pass.
+
 ## 0.4.1q — Live captions like Luxify (2026-11-18)
 
 - **Живые субтитры** work now: an always-on-top bar with the text of what plays on the PC (video, call, stream). Show it with the button «Показать субтитры» (it also turns the plugin on), an optional key, or by voice «покажи субтитры» / «скрой субтитры»; «×» on the bar hides it; drag it by the handle on the left — the place is remembered («Вернуть вниз по центру» resets it).

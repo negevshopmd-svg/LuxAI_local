@@ -40,10 +40,27 @@ class SegmenterTests(unittest.TestCase):
         self.assertGreater(len(audio), RATE * 1.5)
         self.assertFalse(seg.phrase_finished())
 
-    def test_long_speech_is_cut_at_twelve_seconds(self):
+    def test_long_speech_is_cut_at_five_seconds(self):
         seg = lc.PhraseSegmenter()
         seg.feed(tone(lc.MAX_PHRASE_SECONDS + 0.5))
         self.assertTrue(seg.phrase_finished())
+        self.assertEqual(lc.MAX_PHRASE_SECONDS, 5.0)
+
+    def test_continuous_speech_is_cut_between_words_and_rest_is_kept(self):
+        seg = lc.PhraseSegmenter()
+        seg.feed(tone(4.2))
+        seg.feed(quiet(0.12))   # a short gap between two words (not a pause)
+        seg.feed(tone(1.0))
+        self.assertTrue(seg.phrase_finished())
+        self.assertFalse(seg.paused)
+        cut = seg.cut_point()
+        gap_start, gap_end = int(RATE * 4.2), int(RATE * 4.32)
+        self.assertTrue(gap_start <= cut <= gap_end + lc.FRAME, cut)
+        total = len(seg.buffer)
+        phrase = seg.take(cut)
+        self.assertEqual(len(phrase) + len(seg.buffer), total)  # nothing is lost
+        self.assertTrue(seg.heard_speech)  # the next phrase already started
+        self.assertFalse(seg.phrase_finished())
 
 
 class EngineTests(unittest.TestCase):
@@ -58,6 +75,23 @@ class EngineTests(unittest.TestCase):
             engine.step(object())
         self.assertEqual(final, ["Привет, мир"])
         self.assertEqual(partial[-1], "")
+
+    def test_final_reuses_partial_that_covers_the_phrase(self):
+        final = []
+        engine = lc.CaptionEngine(lambda: object(), "ru", lambda _: None, final.append)
+        with mock.patch.object(engine, "_transcribe", side_effect=["Привет, мир"]) as transcribe:
+            engine.feed(tone(1.0))
+            engine.feed(quiet(0.15))
+            engine.step(object())        # partial over almost everything
+            engine.feed(quiet(0.4))      # pause: phrase done, only silence was added
+            engine.step(object())
+        self.assertEqual(final, ["Привет, мир"])
+        self.assertEqual(transcribe.call_count, 1)  # no second, slow pass
+
+    def test_speed_setting_picks_a_fast_model(self):
+        self.assertEqual(lc.QUALITY_MODELS, {"fast": "tiny", "balanced": "small"})
+        plugin = catalog.PLUGIN_BY_ID["live_captions"]
+        self.assertEqual(catalog.default_settings(plugin)["quality"], "balanced")
 
     def test_silence_never_reaches_whisper(self):
         engine = lc.CaptionEngine(lambda: object(), "ru", lambda _: None, lambda _: None)

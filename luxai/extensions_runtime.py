@@ -821,7 +821,7 @@ class ExtensionsRuntime(QObject):
     # -- live captions --
     def _captions_settings_key(self):
         settings = self.settings("live_captions")
-        return (settings.get("language"), settings.get("source"))
+        return (settings.get("language"), settings.get("source"), settings.get("quality"))
 
     def _apply_captions(self):
         if not self.enabled("live_captions"):
@@ -937,7 +937,12 @@ class ExtensionsRuntime(QObject):
         cfg = dict(getattr(self.host, "cfg", {}) or {})
         provider = getattr(self.host, "dictation_model", None)
 
+        quality = settings.get("quality", "balanced")
+
         def model():
+            from luxai.live_captions import QUALITY_MODELS, caption_model
+            if quality in QUALITY_MODELS:
+                return caption_model(QUALITY_MODELS[quality])
             loaded = provider() if callable(provider) else None
             return loaded or dictation.load_model(cfg.get("whisper_model_path") or cfg.get("whisper_model") or "small")
 

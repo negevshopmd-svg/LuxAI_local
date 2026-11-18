@@ -1,4 +1,8 @@
-LUXAI LOCAL 0.4.1q — ACTUALIZARE 2026-11-18
+LUXAI LOCAL 0.4.1r — ACTUALIZARE 2026-11-18
+
+0.4.1r: Subtitrările apar din mers, cât vorbește omul (textul crește la ~1 s),
+fraze de cel mult 5 s; setare nouă „Viteza recunoașterii” (instant / rapid și
+precis / ca la comenzile vocale).
 
 0.4.1q: Subtitrări live ca în Luxify: o bandă deasupra ferestrelor cu textul a ce
 se aude pe PC (tot sunetul sau doar un program), recunoaștere locală, traducere
