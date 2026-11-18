@@ -1,3 +1,7 @@
+## 0.4.2f — Run Jarvis as administrator (2026-11-18)
+
+- New in Settings → System: «Запускать Jarvis от имени администратора». It creates one Windows scheduled task «LuxAI Jarvis (admin)» with the highest rights (Windows asks once); `run_windows.bat` and the Windows autostart then start Jarvis through it, without a prompt each time. Needed to read text from and press keys in programs started as administrator (Windows UIPI). Turning it off deletes the task. If the Windows prompt is declined, the switch returns to off.
+
 ## 0.4.2e — Clear message for apps started as administrator (2026-11-18)
 
 - Found the Discord read-aloud cause: the running Discord was started as administrator, and Windows (UIPI) blocks keys and UI Automation from ordinary programs into such windows, so Ctrl+C sent by Jarvis never arrived. Read aloud and Discord shortcuts now detect this and say so plainly («Discord запущен от имени администратора… откройте его обычным способом») instead of a vague copy error.

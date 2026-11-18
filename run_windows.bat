@@ -41,6 +41,12 @@ rem Jarvis.exe = the same Python with the name "Jarvis" and its icon, so Task
 rem Manager shows "Jarvis" instead of "Python". Built/refreshed when needed;
 rem if it cannot be built, pythonw.exe is used as before.
 if exist ".venv\Scripts\python.exe" ".venv\Scripts\python.exe" -m luxai.jarvis_exe >nul 2>&1
+rem Run-as-administrator mode: start through the scheduled task (no prompt).
+schtasks /Query /TN "LuxAI Jarvis (admin)" >nul 2>&1
+if not errorlevel 1 (
+    schtasks /Run /TN "LuxAI Jarvis (admin)" >nul 2>&1
+    if not errorlevel 1 exit /b 0
+)
 if exist ".venv\Scripts\Jarvis.exe" if exist ".venv\Scripts\Jarvis.exe.stamp" (
     start "" ".venv\Scripts\Jarvis.exe" "%~dp0launch_windows.py"
     exit /b 0

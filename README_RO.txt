@@ -1,4 +1,7 @@
-LUXAI LOCAL 0.4.2e — ACTUALIZARE 2026-11-18
+LUXAI LOCAL 0.4.2f — ACTUALIZARE 2026-11-18
+
+0.4.2f: Setări → Sistem: „Pornește Jarvis ca administrator” — o sarcină programată
+creată o singură dată; apoi Jarvis pornește cu drepturi de administrator fără întrebări.
 
 0.4.2e: Dacă un program (de ex. Discord) e pornit ca administrator, Jarvis spune
 clar de ce nu poate citi din el și cum se rezolvă.

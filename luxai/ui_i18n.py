@@ -374,6 +374,10 @@ Piper загружает русскую модель Дмитрий при пе�
 Запуск вместе с Windows и работа в фоновом режиме.|||Start with Windows and run in background.|||Pornește cu Windows și rulează în fundal.
 Автозапуск программы|||Start with Windows|||Pornește odată cu Windows
 Запускать Jarvis при входе в Windows.|||Start Jarvis on Windows sign-in.|||Pornește Jarvis la autentificarea în Windows.
+Запускать Jarvis от имени администратора|||Run Jarvis as administrator|||Pornește Jarvis ca administrator
+Нужно, чтобы читать текст и нажимать клавиши в программах, запущенных от имени администратора (например, Discord). Windows один раз спросит разрешение. Тогда у Jarvis полные права на компьютере.|||Needed to read text and press keys in programs started as administrator (for example Discord). Windows asks for permission once. Jarvis then has full rights on the computer.|||Necesar ca să citească text și să apese taste în programe pornite ca administrator (de ex. Discord). Windows cere permisiunea o singură dată. Atunci Jarvis are drepturi depline pe calculator.
+Готово. Перезапустить Jarvis с правами администратора сейчас?|||Done. Restart Jarvis with administrator rights now?|||Gata. Repornesc Jarvis cu drepturi de administrator acum?
+Windows не разрешил изменить запуск от имени администратора.|||Windows did not allow changing the run-as-administrator mode.|||Windows nu a permis schimbarea pornirii ca administrator.
 Сворачивать в трей при закрытии|||Minimize to tray on close|||Minimizează în zona de notificare la închidere
 Не завершать Jarvis при закрытии главного окна.|||Keep Jarvis running when closing the main window.|||Păstrează Jarvis activ când închizi fereastra principală.
 Город для прогноза погоды|||Forecast city|||Oraș pentru prognoza meteo

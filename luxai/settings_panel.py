@@ -1317,6 +1317,11 @@ class SettingsPanel(QWidget):
         panel = self._section("Система", "Запуск вместе с Windows и работа в фоновом режиме.")
         self.autostart = self._toggle(self.cfg.get("autostart_windows", False))
         self._row(panel, "Автозапуск программы", "Запускать Jarvis при входе в Windows.", self.autostart)
+        self.run_as_admin = self._toggle(self.cfg.get("run_as_admin", False))
+        self._row(panel, "Запускать Jarvis от имени администратора",
+                  "Нужно, чтобы читать текст и нажимать клавиши в программах, запущенных от имени "
+                  "администратора (например, Discord). Windows один раз спросит разрешение. "
+                  "Тогда у Jarvis полные права на компьютере.", self.run_as_admin)
         self.tray_on_close = self._toggle(self.cfg.get("minimize_to_tray", False))
         self._row(panel, "Сворачивать в трей при закрытии", "Не завершать Jarvis при закрытии главного окна.", self.tray_on_close)
         self.weather_city = QLineEdit(self.cfg.get("weather_city", "Кишинёв"))
@@ -1465,6 +1470,7 @@ class SettingsPanel(QWidget):
             "ui_animations": self.animations.isChecked(),
             "always_on_top": self.on_top.isChecked(),
             "autostart_windows": self.autostart.isChecked(),
+            "run_as_admin": self.run_as_admin.isChecked(),
             "minimize_to_tray": self.tray_on_close.isChecked(),
             "weather_city": self.weather_city.text().strip()[:70] or "Кишинёв",
             "tesseract_path": self.cfg.get("tesseract_path", ""),

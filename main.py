@@ -1388,6 +1388,8 @@ class MainWindow(QMainWindow):
             self.apply_appearance()
         if old.get("ui_language", "ru") != self.cfg.get("ui_language", "ru"):
             self.apply_ui_language()
+        if old.get("run_as_admin", False) != self.cfg.get("run_as_admin", False):
+            QTimer.singleShot(0, lambda: self._apply_admin_mode(self.cfg.get("run_as_admin", False)))
         if old.get("autostart_windows", False) != self.cfg.get("autostart_windows", False):
             self._set_autostart(self.cfg.get("autostart_windows", False))
         if hasattr(self, "home_prefix"):
@@ -1636,6 +1638,36 @@ class MainWindow(QMainWindow):
             self.show()
         self._update_home_backdrop()
 
+    def _apply_admin_mode(self, enabled):
+        """Create/delete the «run as administrator» task; restart Jarvis with the rights."""
+        from luxai import admin_mode
+        if sys.platform != "win32":
+            return
+        ok = admin_mode.enable(BASE) if enabled else admin_mode.disable()
+        if not ok:
+            # The Windows prompt was declined: show the switch as it really is
+            # (switch first, then save directly — never ask again in a loop).
+            actual = admin_mode.task_exists()
+            if hasattr(self, "settings_panel"):
+                self.settings_panel.run_as_admin.blockSignals(True)
+                self.settings_panel.run_as_admin.setChecked(actual)
+                self.settings_panel.run_as_admin.blockSignals(False)
+            self.cfg["run_as_admin"] = actual
+            try:
+                save_config(self.cfg)
+            except OSError:
+                pass
+            QMessageBox.warning(self, "Jarvis", tr("Windows не разрешил изменить запуск от имени администратора."))
+            return
+        if self.cfg.get("autostart_windows", False):
+            self._set_autostart(True)  # the autostart now starts Jarvis the same way
+        if enabled and not admin_mode.is_admin():
+            answer = QMessageBox.question(
+                self, "Jarvis", tr("Готово. Перезапустить Jarvis с правами администратора сейчас?"))
+            if answer == QMessageBox.StandardButton.Yes and admin_mode.run_task():
+                self._quitting = True
+                QTimer.singleShot(300, QApplication.instance().quit)
+
     def _refresh_autostart_entry(self):
         """An existing Windows autostart entry starts Jarvis the current way (Jarvis.exe)."""
         if sys.platform != "win32" or self._closed:
@@ -1646,7 +1678,8 @@ class MainWindow(QMainWindow):
                 current, _kind = winreg.QueryValueEx(key, "LuxAI_Jarvis")
         except OSError:
             return  # autostart is off
-        if "Jarvis.exe" not in str(current) or "launch_windows.py" not in str(current):
+        from luxai.admin_mode import autostart_command
+        if str(current) != autostart_command(BASE):
             self._set_autostart(True)
 
     def _set_autostart(self, enabled):
@@ -1657,13 +1690,10 @@ class MainWindow(QMainWindow):
             key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
             with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as key:
                 if enabled:
-                    scripts = BASE / ".venv" / "Scripts"
-                    # Jarvis.exe shows "Jarvis" with its icon in Task Manager.
-                    jarvis = scripts / "Jarvis.exe"
-                    executable = str(jarvis if jarvis.is_file() and (scripts / "Jarvis.exe.stamp").is_file()
-                                     else scripts / "pythonw.exe")
-                    command = f'"{executable}" "{BASE / "launch_windows.py"}"'
-                    winreg.SetValueEx(key, "LuxAI_Jarvis", 0, winreg.REG_SZ, command)
+                    # Jarvis.exe (name and icon in Task Manager), or the
+                    # «administrator» task when that mode is on.
+                    from luxai.admin_mode import autostart_command
+                    winreg.SetValueEx(key, "LuxAI_Jarvis", 0, winreg.REG_SZ, autostart_command(BASE))
                 else:
                     try:
                         winreg.DeleteValue(key, "LuxAI_Jarvis")
