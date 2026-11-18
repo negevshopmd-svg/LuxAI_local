@@ -1,4 +1,7 @@
-LUXAI LOCAL 0.4.2d — ACTUALIZARE 2026-11-18
+LUXAI LOCAL 0.4.2e — ACTUALIZARE 2026-11-18
+
+0.4.2e: Dacă un program (de ex. Discord) e pornit ca administrator, Jarvis spune
+clar de ce nu poate citi din el și cum se rezolvă.
 
 0.4.2d: Citirea cu voce pornește de două ori mai repede, fără pauze între bucăți;
 din Discord textul selectat se citește și prin UI Automation dacă Ctrl+C nu merge.

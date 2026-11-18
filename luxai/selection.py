@@ -266,3 +266,60 @@ def _selection_of(uia, element) -> str:
         return " ".join(part for part in parts if part and part.strip())
     except Exception:
         return ""
+
+
+def window_runs_as_admin(hwnd: int) -> bool:
+    """True when the window's program runs with higher rights than Jarvis.
+
+    Windows then blocks keys and UI Automation from ordinary programs (UIPI):
+    Ctrl+C sent by Jarvis never arrives. Checked only when a copy failed.
+    """
+    if sys.platform != "win32" or not hwnd:
+        return False
+    import os
+    from ctypes import wintypes
+    user32 = ctypes.WinDLL("user32")
+    kernel32 = ctypes.WinDLL("kernel32")
+    advapi32 = ctypes.WinDLL("advapi32")
+    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    advapi32.OpenProcessToken.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE)]
+    advapi32.GetTokenInformation.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD,
+                                             ctypes.POINTER(wintypes.DWORD)]
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+
+    def elevated(pid: int):
+        process = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not process:
+            return None
+        try:
+            token = wintypes.HANDLE()
+            if not advapi32.OpenProcessToken(process, 0x0008, ctypes.byref(token)):  # TOKEN_QUERY
+                return True  # a higher-rights process refuses even this
+            try:
+                value, size = wintypes.DWORD(), wintypes.DWORD()
+                if not advapi32.GetTokenInformation(token, 20, ctypes.byref(value), 4, ctypes.byref(size)):
+                    return None
+                return bool(value.value)  # TokenElevation
+            finally:
+                kernel32.CloseHandle(token)
+        finally:
+            kernel32.CloseHandle(process)
+
+    pid = wintypes.DWORD()
+    user32.GetWindowThreadProcessId(ctypes.c_void_p(int(hwnd)), ctypes.byref(pid))
+    if not pid.value:
+        return False
+    target, own = elevated(pid.value), elevated(os.getpid())
+    return bool(target) and not own
+
+
+def admin_window_message(hwnd: int) -> str:
+    """Plain words for the user: what blocks the copy and how to fix it."""
+    from luxai.screen_interact import _window_title
+    title = (_window_title(hwnd) or "").strip()
+    name = "Discord" if "discord" in title.casefold() else (title.rsplit(" - ", 1)[-1] or "это окно")
+    return (f"{name} запущен от имени администратора, поэтому Windows не даёт Jarvis копировать из него "
+            f"текст и нажимать в нём клавиши. Закройте {name} полностью (в трее «Выйти») и откройте "
+            f"его обычным способом — без «Запуск от имени администратора».")

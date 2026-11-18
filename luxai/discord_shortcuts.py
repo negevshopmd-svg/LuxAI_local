@@ -261,6 +261,9 @@ def run_discord_shortcut(shortcut_id: str, language: str = "ru") -> str:
         return ("Discord не запущен.", "Discord is not running.", "Discord nu rulează.")[index]
     try:
         hwnd = find_discord_window()
+        from luxai.selection import admin_window_message, window_runs_as_admin
+        if window_runs_as_admin(hwnd):
+            return admin_window_message(hwnd)  # its keys would be blocked by Windows
         press_in_discord(hwnd, *item.keys)
     except (OSError, ValueError, RuntimeError) as exc:
         return ("Не удалось открыть окно Discord: ", "Could not bring Discord forward: ",

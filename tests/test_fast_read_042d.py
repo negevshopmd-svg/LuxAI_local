@@ -75,5 +75,36 @@ class ReadLanguageTests(unittest.TestCase):
         runtime.deleteLater()
 
 
+class AdminWindowTests(unittest.TestCase):
+    def test_clear_message_when_the_target_runs_as_admin(self):
+        from PySide6.QtWidgets import QApplication
+        from luxai import extensions_catalog as catalog
+        from luxai.extensions_runtime import ExtensionsRuntime
+        app = QApplication.instance() or QApplication([])
+        host = mock.Mock()
+        host.cfg = {"language": "ru"}
+        runtime = ExtensionsRuntime(host)
+        runtime.state = catalog.normalize_state({"read_aloud": {"enabled": True, "settings": {}}})
+        notices = []
+        runtime._notify = lambda message, *a, **k: notices.append(message)
+        with mock.patch("luxai.screen_interact._foreground_hwnd", return_value=77),                 mock.patch("luxai.selection.copy_selected_text", return_value=("pending", 5, {})),                 mock.patch("luxai.selection.clipboard_sequence", return_value=5),                 mock.patch("luxai.keys.press"),                 mock.patch("luxai.selection.selected_text_by_automation", return_value=""),                 mock.patch("luxai.selection.window_runs_as_admin", return_value=True),                 mock.patch("luxai.screen_interact._window_title", return_value="Личные сообщения - Discord"):
+            runtime.read_selection()
+            import time
+            end = time.time() + 4
+            while time.time() < end and not notices:
+                app.processEvents()
+                time.sleep(0.01)
+        self.assertTrue(notices)
+        self.assertIn("Discord запущен от имени администратора", notices[0])
+        runtime.deleteLater()
+
+    def test_discord_shortcut_explains_instead_of_pressing(self):
+        from luxai import discord_shortcuts as ds
+        with mock.patch("luxai.windows_control.running_pids", return_value=[1]),                 mock.patch("luxai.discord_window_state.find_discord_window", return_value=9),                 mock.patch("luxai.selection.window_runs_as_admin", return_value=True),                 mock.patch("luxai.screen_interact._window_title", return_value="Discord"),                 mock.patch.object(ds, "press_in_discord") as press:
+            answer = ds.run_discord_shortcut("next_server", "ru")
+        press.assert_not_called()
+        self.assertIn("администратора", answer)
+
+
 if __name__ == "__main__":
     unittest.main()

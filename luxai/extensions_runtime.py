@@ -2929,6 +2929,10 @@ class ExtensionsRuntime(QObject):
             if text_found:
                 read(text_found)
                 return
+            from luxai.selection import admin_window_message, window_runs_as_admin
+            if window_runs_as_admin(hwnd):
+                self._notify(admin_window_message(hwnd))  # Windows blocks Jarvis there
+                return
             try:
                 finish_selected_copy(clipboard, hwnd, before, saved)
             except Exception as error:

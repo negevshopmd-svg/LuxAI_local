@@ -1,3 +1,7 @@
+## 0.4.2e — Clear message for apps started as administrator (2026-11-18)
+
+- Found the Discord read-aloud cause: the running Discord was started as administrator, and Windows (UIPI) blocks keys and UI Automation from ordinary programs into such windows, so Ctrl+C sent by Jarvis never arrived. Read aloud and Discord shortcuts now detect this and say so plainly («Discord запущен от имени администратора… откройте его обычным способом») instead of a vague copy error.
+
 ## 0.4.2d — Faster read aloud, Discord selections (2026-11-18)
 
 - Read aloud starts about twice as fast: the copied text is checked at once instead of after 150 ms, the first piece is short (about one sentence, ≤180 characters; then ≤450), and Fish playback starts with a smaller buffer. Measured F8 → first sound for a Russian text: 1.8 s → 0.9 s.
