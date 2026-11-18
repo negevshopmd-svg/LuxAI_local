@@ -1,3 +1,7 @@
+## 0.4.2b — Sharp logo at every size (2026-11-18)
+
+- The logo inside the Jarvis icon is now a vector outline (traced from the master `jarvis-logo.png` with sub-pixel accuracy) instead of an embedded 256 px picture, which Qt drew without smoothing and looked pixelated at small sizes. Smooth, sharp edges from 16 px to full screen; the icon file shrank from 72 KB to 7.5 KB. On a light accent the logo turns dark as before.
+
 ## 0.4.2a — New Jarvis logo (2026-11-18)
 
 - The robot icon is replaced by your new logo, white on the accent-coloured tile (orange with your theme) — in the app corner, the window/taskbar, the tray and Task Manager (Jarvis.exe now takes your accent colour too and is rebuilt when it changes). On a very light accent the logo turns dark automatically.

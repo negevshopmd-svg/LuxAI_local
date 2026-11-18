@@ -1,4 +1,6 @@
-LUXAI LOCAL 0.4.2a — ACTUALIZARE 2026-11-18
+LUXAI LOCAL 0.4.2b — ACTUALIZARE 2026-11-18
+
+0.4.2b: Logo-ul e acum vectorial — clar și fără pixeli la orice mărime.
 
 0.4.2a: Logo nou pentru Jarvis (alb pe pătratul în culoarea temei) în locul
 robotului — în aplicație, bara de activități, tray și Task Manager.
