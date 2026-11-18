@@ -129,6 +129,9 @@ def _colored_icon(name, color):
             # White/custom pastel tiles need dark robot details, including
             # the small antenna. Ordinary brand colors retain their artwork.
             svg = re.sub(rb'\b(stroke|fill)="white"', rb'\1="#172332"', svg)
+            # The logo is a picture: show its dark version on a light tile.
+            svg = svg.replace(b'id="logo-light" opacity="1"', b'id="logo-light" opacity="0"')
+            svg = svg.replace(b'id="logo-dark" opacity="0"', b'id="logo-dark" opacity="1"')
     return QIcon(_SvgEngine(svg.replace(b"currentColor", color.encode("ascii"))))
 
 

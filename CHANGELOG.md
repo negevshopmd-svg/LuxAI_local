@@ -1,3 +1,8 @@
+## 0.4.2a — New Jarvis logo (2026-11-18)
+
+- The robot icon is replaced by your new logo, white on the accent-coloured tile (orange with your theme) — in the app corner, the window/taskbar, the tray and Task Manager (Jarvis.exe now takes your accent colour too and is rebuilt when it changes). On a very light accent the logo turns dark automatically.
+- Five layouts were compared at 256/64/32/20 px on dark and light backgrounds; white-on-accent-tile stayed the clearest everywhere. The cleaned master is `luxai/assets/icons/jarvis-logo.png`.
+
 ## 0.4.2 — Avatar: listening looks different (2026-11-18)
 
 - While Jarvis listens, the avatar has its own animation: the orb becomes round and still (it "holds its breath", a slow attentive pulse, the core gently glows) and thin sonar waves leave it and fade out. Speaking stays as it was — the orb swells and wobbles with the voice. The states blend smoothly into each other; the settings preview shows it too.

@@ -1,4 +1,7 @@
-LUXAI LOCAL 0.4.2 — ACTUALIZARE 2026-11-18
+LUXAI LOCAL 0.4.2a — ACTUALIZARE 2026-11-18
+
+0.4.2a: Logo nou pentru Jarvis (alb pe pătratul în culoarea temei) în locul
+robotului — în aplicație, bara de activități, tray și Task Manager.
 
 0.4.2: Când Jarvis ascultă, avatarul are o animație proprie: sfera devine rotundă
 și liniștită, iar din ea pleacă unde ca un sonar. Când vorbește, se umflă după voce.

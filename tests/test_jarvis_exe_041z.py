@@ -54,7 +54,7 @@ class BuilderTests(unittest.TestCase):
         home.mkdir()
         (home / "pythonw.exe").write_bytes(b"MZ fake")
         (root / ".venv" / "pyvenv.cfg").write_text(f"home = {home}\n", encoding="utf-8")
-        key = f"{je.BUILD}|{je._digest(home / 'pythonw.exe')}|{je._digest(je.ICON_SVG)}"
+        key = f"{je.BUILD}|{je._digest(home / 'pythonw.exe')}|{je._digest(je.ICON_SVG)}|{je.theme_accent(root)}"
         (scripts / "Jarvis.exe").write_bytes(b"MZ built")
         (scripts / "Jarvis.exe.stamp").write_text(key, encoding="utf-8")
         with mock.patch.object(je, "patch_resources") as patch:
@@ -68,6 +68,12 @@ class BuilderTests(unittest.TestCase):
             self.assertIsNone(je.ensure_jarvis_exe(root, log=lambda _: None))
         self.assertFalse((scripts / "Jarvis.exe").exists())
         self.assertFalse((scripts / "Jarvis.new.exe").exists())
+
+    def test_exe_icon_follows_the_theme_accent(self):
+        root = Path(tempfile.mkdtemp())
+        self.assertEqual(je.theme_accent(root), "#3978f6")  # no config yet
+        (root / "config.json").write_text('{"ui_accent": "#f97316"}', encoding="utf-8")
+        self.assertEqual(je.theme_accent(root), "#f97316")
 
     def test_helpers_treat_jarvis_exe_like_pythonw(self):
         from luxai.local_ai_setup import runtime_python

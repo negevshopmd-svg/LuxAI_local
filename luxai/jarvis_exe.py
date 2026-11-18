@@ -62,21 +62,33 @@ def rename_version(blob: bytes, old: str = "Python", new: str = "Jarvis") -> byt
     return bytes(data)
 
 
+def theme_accent(root: Path = ROOT) -> str:
+    """The accent colour from config.json (the icon tile follows it)."""
+    import json
+    try:
+        value = json.loads((root / "config.json").read_text(encoding="utf-8")).get("ui_accent") or "#3978f6"
+    except (OSError, ValueError):
+        value = "#3978f6"
+    return value if isinstance(value, str) and len(value) == 7 and value.startswith("#") else "#3978f6"
+
+
 def icon_images(svg: Path = ICON_SVG) -> list[tuple[int, bytes]]:
     """(size, PNG bytes) of the Jarvis icon, rendered locally with Qt."""
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PySide6.QtCore import QBuffer, QByteArray, QIODevice, Qt
     from PySide6.QtGui import QGuiApplication, QImage, QPainter
-    from PySide6.QtSvg import QSvgRenderer
     app = QGuiApplication.instance() or QGuiApplication([])  # noqa: F841 - needed for painting
-    renderer = QSvgRenderer(str(svg))
+    from luxai.icons import icon
+    accent = theme_accent()
     images = []
     for size in ICON_SIZES:
         image = QImage(size, size, QImage.Format.Format_ARGB32)
         image.fill(Qt.GlobalColor.transparent)
         painter = QPainter(image)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        renderer.render(painter)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        # Same colour as the app's own icon (your theme accent), not the default blue.
+        icon("jarvis", color=accent).paint(painter, 0, 0, size, size)
         painter.end()
         array = QByteArray()
         buffer = QBuffer(array)
@@ -155,7 +167,7 @@ def ensure_jarvis_exe(root: Path = ROOT, *, log=print) -> Path | None:
         return None
     target = scripts / "Jarvis.exe"
     stamp = scripts / "Jarvis.exe.stamp"
-    key = f"{BUILD}|{_digest(source)}|{_digest(ICON_SVG)}"
+    key = f"{BUILD}|{_digest(source)}|{_digest(ICON_SVG)}|{theme_accent(root)}"
     if target.is_file() and stamp.is_file() and stamp.read_text(encoding="utf-8").strip() == key:
         return target
     for pattern in RUNTIME_DLLS:
