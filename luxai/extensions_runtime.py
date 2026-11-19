@@ -895,6 +895,11 @@ class ExtensionsRuntime(QObject):
         self._captions_bar.show()
         self.captions_visible = True
         self._start_caption_audio()
+        if self.settings("live_captions").get("translate"):
+            from luxai import offline_translate
+            offline_translate.download_in_background()  # once, ≈640 MB; online until then
+            if offline_translate.installed():  # load it now so the first phrase is not late
+                threading.Thread(target=offline_translate.get, daemon=True, name="JarvisTranslatorLoad").start()
         self.captions_changed.emit(True)
         return self._captions_words("shown")
 
@@ -1007,7 +1012,10 @@ class ExtensionsRuntime(QObject):
             return
         settings = self.settings("live_captions")
         planner = getattr(self.host, "online_planner", None)
-        if not settings.get("translate") or planner is None or not planner.enabled():
+        if planner is not None and not planner.enabled():
+            planner = None
+        from luxai import offline_translate
+        if not settings.get("translate") or (planner is None and not offline_translate.installed()):
             self._captions_bar.add_final(text)
             return
         from luxai.response_language import reply_language
@@ -1020,11 +1028,13 @@ class ExtensionsRuntime(QObject):
             return
         self._captions_bar.add_final(text, pending=True)
 
-        self._queue_caption_translation(planner, text, target)
+        engine = self._captions_engine
+        source = (getattr(engine, "detected", None) or self._caption_language() or "") if engine else ""
+        self._queue_caption_translation(planner, text, target, source)
 
     CAPTION_TRANSLATE_TIMEOUT = 6.0   # a late translation is useless on a live bar
 
-    def _queue_caption_translation(self, planner, text: str, target: str):
+    def _queue_caption_translation(self, planner, text: str, target: str, source: str = ""):
         """One translation at a time, newest first; a slow or failed one shows the original.
 
         Firing a request per phrase in parallel overloads the provider (each then
@@ -1046,18 +1056,24 @@ class ExtensionsRuntime(QObject):
                             return
                         self._cap_translated.emit(item[1], "")
                         item = stale
-                    worker_planner, original, language = item
-                    try:
-                        translated = worker_planner.translate_text(original, language,
-                                                                   timeout=self.CAPTION_TRANSLATE_TIMEOUT)
-                    except TypeError:  # an older planner without the timeout argument
-                        translated = worker_planner.translate_text(original, language)
+                    worker_planner, original, language, spoken = item
+                    from luxai.translation import translate_offline
+                    try:  # offline first: ≈0.5 s, while the online model takes 8-15 s
+                        translated = translate_offline(original, language, spoken)
                     except Exception:
                         translated = None
+                    if not translated and worker_planner is not None:
+                        try:
+                            translated = worker_planner.translate_text(original, language,
+                                                                       timeout=self.CAPTION_TRANSLATE_TIMEOUT)
+                        except TypeError:  # an older planner without the timeout argument
+                            translated = worker_planner.translate_text(original, language)
+                        except Exception:
+                            translated = None
                     self._cap_translated.emit(original, translated or "")  # "" = show the original
 
             threading.Thread(target=worker, daemon=True, name="JarvisCaptionTranslate").start()
-        self._cap_translate_queue.put((planner, text, target))
+        self._cap_translate_queue.put((planner, text, target, source))
 
     def _on_cap_translated(self, original: str, translated: str):
         if self._captions_bar is not None:
@@ -1889,7 +1905,9 @@ class ExtensionsRuntime(QObject):
         def work():
             translated = None
             try:
-                if planner is not None and hasattr(planner, "translate_text"):
+                from luxai.translation import translate_offline
+                translated = translate_offline(body, target)
+                if translated is None and planner is not None and hasattr(planner, "translate_text"):
                     translated = planner.translate_text(body, target)
                 if translated is None and cfg.get("local_llm_fallback_enabled", True):
                     from luxai.local_models import resolve_model_path
@@ -2793,7 +2811,8 @@ class ExtensionsRuntime(QObject):
                     target = reply_language(getattr(self.host, "cfg", {}) or {})
                     if text_language(value) == target:
                         target = "en" if target != "en" else "ru"
-                    result = planner.translate_text(value, target)
+                    from luxai.translation import translate_offline
+                    result = translate_offline(value, target) or planner.translate_text(value, target)
                 else:
                     result = planner.transform_text(value, mode)
             except Exception:
@@ -2880,8 +2899,8 @@ class ExtensionsRuntime(QObject):
         planner = getattr(self.host, "online_planner", None)
 
         def translate_piece(piece):
-            result = None
-            if planner is not None and hasattr(planner, "translate_text"):
+            result = translation.translate_offline(piece, target)
+            if result is None and planner is not None and hasattr(planner, "translate_text"):
                 result = planner.translate_text(piece, target)
             if result is None:
                 from luxai.local_models import resolve_model_path

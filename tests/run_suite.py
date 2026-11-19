@@ -84,7 +84,7 @@ def hard_exit(code: int) -> None:
 def run_module(item, directory, timeout):
     module, tests = item
     print(f"Running {module} ({len(tests)} tests)", flush=True)
-    environment = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1")
+    environment = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1", LUXAI_NO_DOWNLOADS="1")
     try:
         completed = subprocess.run(
             [sys.executable, str(Path(__file__).resolve()), "--child"],

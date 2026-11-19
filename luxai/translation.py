@@ -107,3 +107,14 @@ def translate_locally(text: str, target: str, model_path: str) -> str | None:
     content = (choice.get("message") or {}).get("content") or choice.get("text") or ""
     result = strip_thinking(content)
     return result or None
+
+
+def translate_offline(text: str, target: str, source: str = "") -> str | None:
+    """The offline NLLB translator (0.4.2i), ≈0.5 s per sentence; None = not possible here.
+
+    ``source`` is the known spoken language (captions); otherwise it is guessed
+    from the text. Callers fall back to the online / local model on None.
+    """
+    from luxai import offline_translate
+    source = source if source in offline_translate.CODES else text_language(text)
+    return offline_translate.translate(text, source, target)

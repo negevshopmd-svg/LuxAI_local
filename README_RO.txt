@@ -1,4 +1,8 @@
-LUXAI LOCAL 0.4.2h — ACTUALIZARE 2026-11-19
+LUXAI LOCAL 0.4.2i — ACTUALIZARE 2026-11-19
+
+0.4.2i: Traducător offline (NLLB, ~640 MB în models\): subtitrările, citirea cu
+voce și notificările se traduc în ~0,5 s pe frază, fără internet; Gemini rămâne
+doar de rezervă.
 
 0.4.2h: Subtitrările detectează singure limba (engleză, română, rusă), nu mai inventează
 text și, cu traducerea pornită, arată doar traducerea.

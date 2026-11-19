@@ -1,3 +1,11 @@
+## 0.4.2i — Offline translator (2026-11-19)
+
+- New offline translator: NLLB-200 distilled 600M (CTranslate2 int8, ≈640 MB in `models/nllb-200-600M-ct2-int8`, kept by Update.bat, downloaded once in the background the first time caption translation is used). Measured on caption phrases: ≈0.3–0.8 s per phrase, while Gemini took 8–15 s today and returned nothing for about half of them; quality is nearly the same.
+- Used first for live captions, read aloud, notification translation and the clipboard «Перевести»; the online model (then the local GGUF) is only the fallback when the model is missing or a language pair is not ru/en/ro.
+- Each sentence is translated separately in one batch (NLLB otherwise drops the first of two half-sentences); Romanian output uses the correct ș/ț letters. The model is loaded when captions start, so the first phrase is not late.
+- Checked live on YouTube: English → Russian, Romanian → Russian, Russian → Romanian; translations appear ≈0.5–1.2 s after each phrase.
+- Model licence: CC-BY-NC 4.0 (non-commercial use).
+
 ## 0.4.2h — Live captions: right language, no invented text, translation only (2026-11-19)
 
 - The main cause of nonsense: «Язык речи» = «Как у голосовых команд» forced Russian on English/Romanian videos, so Whisper "translated" and invented text. Now the default is «Определять самому»: the spoken language is detected once and re-checked about every 30 s (detecting on every pass would double the time). Checked on real YouTube videos in English, Romanian and Russian.
