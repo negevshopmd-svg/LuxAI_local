@@ -933,11 +933,15 @@ class ExtensionsRuntime(QObject):
                 self.host.save_extensions_meta()
 
     def _caption_language(self):
+        """None = detect what is spoken (a video's language is not the voice-command one)."""
+        language = self.settings("live_captions").get("language", "auto")
+        return language if language in ("ru", "en", "ro") else None
+
+    def _captions_translate_only(self) -> bool:
         settings = self.settings("live_captions")
-        language = settings.get("language", "auto")
-        if language == "auto":
-            language = (getattr(self.host, "cfg", {}) or {}).get("language", "auto")
-        return None if language in ("auto", "any", "", None) else language
+        planner = getattr(self.host, "online_planner", None)
+        return bool(settings.get("translate")) and not settings.get("show_original", False) \
+            and planner is not None and planner.enabled()
 
     def _start_caption_audio(self):
         from luxai import dictation
@@ -995,15 +999,16 @@ class ExtensionsRuntime(QObject):
 
     def _on_cap_partial(self, text: str):
         if self._captions_bar is not None:
-            self._captions_bar.set_partial(text)
+            # «Only the translation»: the growing original is not shown.
+            self._captions_bar.set_partial("" if self._captions_translate_only() else text)
 
     def _on_cap_final(self, text: str):
         if self._captions_bar is None:
             return
-        self._captions_bar.add_final(text)
         settings = self.settings("live_captions")
         planner = getattr(self.host, "online_planner", None)
         if not settings.get("translate") or planner is None or not planner.enabled():
+            self._captions_bar.add_final(text)
             return
         from luxai.response_language import reply_language
         from luxai.translation import text_language
@@ -1011,17 +1016,48 @@ class ExtensionsRuntime(QObject):
         if target not in ("ru", "en", "ro"):
             target = reply_language(getattr(self.host, "cfg", {}) or {})
         if text_language(text) == target:
+            self._captions_bar.add_final(text)  # already in the wanted language
             return
+        self._captions_bar.add_final(text, pending=True)
 
-        def work():
-            try:
-                translated = planner.translate_text(text, target)
-            except Exception:
-                translated = None
-            if translated:
-                self._cap_translated.emit(text, translated)
+        self._queue_caption_translation(planner, text, target)
 
-        threading.Thread(target=work, daemon=True, name="JarvisCaptionTranslate").start()
+    CAPTION_TRANSLATE_TIMEOUT = 6.0   # a late translation is useless on a live bar
+
+    def _queue_caption_translation(self, planner, text: str, target: str):
+        """One translation at a time, newest first; a slow or failed one shows the original.
+
+        Firing a request per phrase in parallel overloads the provider (each then
+        takes 8-60 s); a «…» must never stay on the bar for good.
+        """
+        import queue as _queue
+        if getattr(self, "_cap_translate_queue", None) is None:
+            self._cap_translate_queue = _queue.Queue()
+
+            def worker():
+                while True:
+                    item = self._cap_translate_queue.get()
+                    if item is None:
+                        return
+                    # Too many waiting: the older ones show their original right away.
+                    while self._cap_translate_queue.qsize() > 1:
+                        stale = self._cap_translate_queue.get()
+                        if stale is None:
+                            return
+                        self._cap_translated.emit(item[1], "")
+                        item = stale
+                    worker_planner, original, language = item
+                    try:
+                        translated = worker_planner.translate_text(original, language,
+                                                                   timeout=self.CAPTION_TRANSLATE_TIMEOUT)
+                    except TypeError:  # an older planner without the timeout argument
+                        translated = worker_planner.translate_text(original, language)
+                    except Exception:
+                        translated = None
+                    self._cap_translated.emit(original, translated or "")  # "" = show the original
+
+            threading.Thread(target=worker, daemon=True, name="JarvisCaptionTranslate").start()
+        self._cap_translate_queue.put((planner, text, target))
 
     def _on_cap_translated(self, original: str, translated: str):
         if self._captions_bar is not None:

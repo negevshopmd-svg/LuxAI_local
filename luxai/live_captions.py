@@ -21,6 +21,25 @@ MAX_PHRASE_SECONDS = 5.0    # continuous speech is cut into short phrases
 CUT_SEARCH_SECONDS = 1.5    # look for the quietest moment in the last 1.5 s
 MIN_PARTIAL_GROWTH = 0.25   # re-read only when at least this much new audio came
 KEEP_FINAL = 12
+REDETECT_SECONDS = 30.0     # re-check the spoken language after this much speech
+
+
+_FILLERS = frozenset({"you", "you.", "thank you.", "thanks.", "bye.", "спасибо.", "мне.", "и", "а", "ну"})
+
+
+def lone_filler(text: str) -> bool:
+    """A single word Whisper writes for a pause or a breath («you», «Спасибо.»)."""
+    return text.strip().casefold() in _FILLERS
+
+
+def trustworthy(segment) -> bool:
+    """Whisper's own confidence: drop invented words (silence, music, noise)."""
+    no_speech = getattr(segment, "no_speech_prob", 0.0)
+    logprob = getattr(segment, "avg_logprob", 0.0)
+    ratio = getattr(segment, "compression_ratio", 1.0)
+    if no_speech > 0.6 and logprob < -0.7:
+        return False
+    return logprob > -1.25 and ratio < 2.4
 
 # quality setting -> faster-whisper model ("precise" = the voice-command model)
 QUALITY_MODELS = {"fast": "tiny", "balanced": "small"}
@@ -121,7 +140,11 @@ class CaptionEngine:
 
     def __init__(self, model_provider, language, on_partial, on_final, on_error=None):
         self.model_provider = model_provider
-        self.language = language
+        self.language = language          # None = detect the spoken language
+        self.detected = None              # sticky detected language
+        self._speech_since_detect = 0.0
+        self._prompt = ""                 # end of the previous phrase: context for the next one
+        self._last_final = ""
         self.on_partial = on_partial
         self.on_final = on_final
         self.on_error = on_error
@@ -144,7 +167,26 @@ class CaptionEngine:
     def stop(self):
         self._stop.set()
 
-    def _transcribe(self, model, audio) -> str:
+    def _spoken_language(self, model, audio):
+        """The language to decode with: fixed, or detected once and re-checked every ~30 s.
+
+        Detecting on every pass would double the time; forcing a wrong language
+        (an English video read as Russian) makes Whisper invent text.
+        """
+        if self.language:
+            return self.language
+        due = self.detected is None or self._speech_since_detect >= REDETECT_SECONDS
+        if due and len(audio) >= SAMPLE_RATE * 1.5 and hasattr(model, "detect_language"):
+            try:
+                language, probability, _ = model.detect_language(audio)
+                if probability >= 0.55 or self.detected is None:
+                    self.detected = language
+                self._speech_since_detect = 0.0
+            except Exception:
+                pass
+        return self.detected
+
+    def _transcribe(self, model, audio, final: bool = False) -> str:
         from luxai.dictation import voiced_seconds
         from luxai.voice_rules import is_hallucinated_outro, is_repetitive_transcript
         if len(audio) < SAMPLE_RATE * 0.3 or voiced_seconds(audio) < 0.2:
@@ -152,11 +194,17 @@ class CaptionEngine:
         peak = float(np.max(np.abs(audio)))
         if 0.0 < peak < 0.1:
             audio = (audio * min(16.0, 0.1 / peak)).astype(np.float32)
+        language = self._spoken_language(model, audio)
         segments, _info = model.transcribe(
-            audio, language=self.language, beam_size=1, best_of=1, temperature=0.0, vad_filter=False,
-            condition_on_previous_text=False, without_timestamps=True, no_speech_threshold=0.6)
-        text = " ".join(segment.text.strip() for segment in segments).strip()
-        if is_hallucinated_outro(text) or is_repetitive_transcript(text):
+            audio, language=language, beam_size=1, best_of=1, temperature=0.0,
+            # Silero VAD drops music/noise, where Whisper invents words.
+            vad_filter=True, vad_parameters={"min_silence_duration_ms": 300, "speech_pad_ms": 200},
+            condition_on_previous_text=False, without_timestamps=True,
+            no_speech_threshold=0.6, log_prob_threshold=-1.0, compression_ratio_threshold=2.4,
+            initial_prompt=(self._prompt or None) if final else None)
+        kept = [segment.text.strip() for segment in segments if trustworthy(segment)]
+        text = " ".join(part for part in kept if part).strip()
+        if is_hallucinated_outro(text) or is_repetitive_transcript(text) or lone_filler(text):
             return ""
         return text
 
@@ -178,10 +226,13 @@ class CaptionEngine:
                     only_quiet_added or len(audio) - self._partial_len <= SAMPLE_RATE * MIN_PARTIAL_GROWTH):
                 text = self._partial_text
             else:
-                text = self._transcribe(model, audio)
+                text = self._transcribe(model, audio, final=True)
             self._partial_len, self._partial_text = 0, ""
+            self._speech_since_detect += len(audio) / SAMPLE_RATE
             self.on_partial("")
-            if text:
+            if text and text.casefold() != self._last_final.casefold():  # no doubled lines
+                self._last_final = text
+                self._prompt = text[-160:]
                 self.on_final(text)
             return True
         if speaking and len(audio) >= SAMPLE_RATE * 0.5 \
@@ -240,6 +291,9 @@ class _Handle(QLabel):
         if self._grab is not None:
             self._grab = None
             self.bar.moved.emit(self.bar.x(), self.bar.y())
+
+
+PENDING = "\u2026pending"
 
 
 class CaptionBar(QWidget):
@@ -306,14 +360,19 @@ class CaptionBar(QWidget):
         self.render()
         self.update()
 
-    def add_final(self, original: str, translation: str = ""):
+    def add_final(self, original: str, translation: str = "", pending: bool = False):
+        """``pending``: a translation is coming; with «only translation» the
+        original is never shown, a «…» waits instead."""
+        if pending and not translation:
+            translation = PENDING
         self.lines.append((original, translation))
         self.lines = self.lines[-KEEP_FINAL:]
         self.render()
 
     def set_translation(self, original: str, translation: str):
+        """``translation`` "" = it failed or came too late: the original is shown instead."""
         for index in range(len(self.lines) - 1, -1, -1):
-            if self.lines[index][0] == original and not self.lines[index][1]:
+            if self.lines[index][0] == original and self.lines[index][1] in ("", PENDING):
                 self.lines[index] = (original, translation)
                 break
         self.render()
@@ -334,6 +393,12 @@ class CaptionBar(QWidget):
         blocks = []
         for original, translation in self.visible_lines():
             parts = []
+            if translation == PENDING:
+                if self.show_original:
+                    translation = ""  # the original shows now, the translation will follow
+                else:
+                    blocks.append(f"<div style='margin:0; font-size:{small}px; color:rgba(255,255,255,0.5);'>…</div>")
+                    continue
             if self.show_original or not translation:
                 parts.append(f"<div style='margin:0; font-size:{self.font_size}px; color:white;'>{html.escape(original)}</div>")
             if translation:

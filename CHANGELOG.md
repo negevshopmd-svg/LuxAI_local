@@ -1,3 +1,10 @@
+## 0.4.2h — Live captions: right language, no invented text, translation only (2026-11-19)
+
+- The main cause of nonsense: «Язык речи» = «Как у голосовых команд» forced Russian on English/Romanian videos, so Whisper "translated" and invented text. Now the default is «Определять самому»: the spoken language is detected once and re-checked about every 30 s (detecting on every pass would double the time). Checked on real YouTube videos in English, Romanian and Russian.
+- Fewer hallucinations: Silero VAD skips music and noise; segments Whisper itself is unsure of, looping text and lone fillers («you», «Спасибо.») are dropped; a phrase is never shown twice; each phrase gets the end of the previous one as context.
+- «Переводить» + «Показывать оригинал» off (now the default) shows only the translation — not the growing original; «…» waits until it arrives.
+- Translations go one at a time (parallel requests overloaded Gemini: 8–60 s each), stale ones are skipped, and after 6 s without an answer the original is shown instead of «…» forever.
+
 ## 0.4.2g — Round scrollbars (2026-11-18)
 
 - Scrollbars are thin round pills like in Luxify: the handle is 6 px wide with a 3 px radius. Before, the 5 px radius on an 8 px handle was more than half its width, so Qt drew square corners. Still highlighted with the accent colour on hover.

@@ -162,20 +162,32 @@ class RuntimeTests(unittest.TestCase):
         self.runtime.state["live_captions"]["enabled"] = True
         self.runtime.state["live_captions"]["settings"]["translate"] = True
         self.host.online_planner.translate_text.return_value = "Привет всем"
-
-        class Inline:
-            def __init__(self, target, **kwargs):
-                self.target = target
-
-            def start(self):
-                self.target()
-
         with mock.patch.object(self.runtime, "_start_caption_audio"):
             self.runtime.show_captions()
-        with mock.patch("luxai.extensions_runtime.threading.Thread", Inline):
-            self.runtime._on_cap_final("Hello everyone")
-        self.host.online_planner.translate_text.assert_called_once_with("Hello everyone", "ru")
+        self.runtime._on_cap_final("Hello everyone")
+        import time
+        end = time.time() + 5  # the translation worker answers through a Qt signal
+        while time.time() < end and self.runtime._captions_bar.lines[-1][1] != "Привет всем":
+            QApplication.processEvents()
+            time.sleep(0.01)
+        self.host.online_planner.translate_text.assert_called_once_with(
+            "Hello everyone", "ru", timeout=self.runtime.CAPTION_TRANSLATE_TIMEOUT)
         self.assertEqual(self.runtime._captions_bar.lines[-1], ("Hello everyone", "Привет всем"))
+
+    def test_failed_translation_shows_the_original_not_dots_forever(self):
+        self.runtime.state["live_captions"]["enabled"] = True
+        self.runtime.state["live_captions"]["settings"]["translate"] = True
+        self.host.online_planner.translate_text.return_value = None  # provider too slow / failed
+        with mock.patch.object(self.runtime, "_start_caption_audio"):
+            self.runtime.show_captions()
+        self.runtime._on_cap_final("Hello everyone")
+        import time
+        end = time.time() + 5
+        while time.time() < end and self.runtime._captions_bar.lines[-1][1] == lc.PENDING:
+            QApplication.processEvents()
+            time.sleep(0.01)
+        self.assertEqual(self.runtime._captions_bar.lines[-1], ("Hello everyone", ""))
+        self.assertIn("Hello everyone", self.runtime._captions_bar.text.text())
 
     def test_position_is_saved_and_reset(self):
         self.runtime._save_captions_position(100, 200)
@@ -200,6 +212,67 @@ class RuntimeTests(unittest.TestCase):
             self.assertEqual(float(np.abs(fed[-1]).max()), 0.0)
             self.runtime._captions_capture = None
             self.runtime._captions_engine = None
+
+
+class QualityTests(unittest.TestCase):
+    def test_language_is_detected_once_and_kept(self):
+        engine = lc.CaptionEngine(lambda: None, None, lambda _: None, lambda _: None)
+        model = mock.Mock()
+        model.detect_language.return_value = ("en", 0.97, [])
+        self.assertEqual(engine._spoken_language(model, tone(2.0)), "en")
+        self.assertEqual(engine._spoken_language(model, tone(2.0)), "en")
+        self.assertEqual(model.detect_language.call_count, 1)  # not on every pass (it doubles the time)
+        engine._speech_since_detect = lc.REDETECT_SECONDS
+        model.detect_language.return_value = ("ro", 0.9, [])
+        self.assertEqual(engine._spoken_language(model, tone(2.0)), "ro")  # re-checked after ~30 s
+        fixed = lc.CaptionEngine(lambda: None, "ru", lambda _: None, lambda _: None)
+        self.assertEqual(fixed._spoken_language(model, tone(2.0)), "ru")
+
+    def test_untrustworthy_segments_are_dropped(self):
+        good = mock.Mock(no_speech_prob=0.05, avg_logprob=-0.3, compression_ratio=1.4)
+        silence = mock.Mock(no_speech_prob=0.9, avg_logprob=-0.9, compression_ratio=1.2)
+        looped = mock.Mock(no_speech_prob=0.1, avg_logprob=-0.4, compression_ratio=3.1)
+        unsure = mock.Mock(no_speech_prob=0.2, avg_logprob=-1.6, compression_ratio=1.3)
+        self.assertEqual([lc.trustworthy(s) for s in (good, silence, looped, unsure)], [True, False, False, False])
+
+    def test_doubled_final_line_is_not_repeated(self):
+        finals = []
+        engine = lc.CaptionEngine(lambda: object(), "en", lambda _: None, finals.append)
+        with mock.patch.object(engine, "_transcribe", return_value="Hello there."):
+            for _ in range(2):
+                engine.feed(tone(1.0)); engine.feed(quiet(0.6))
+                engine.step(object())
+        self.assertEqual(finals, ["Hello there."])
+
+    def test_auto_means_detect_not_the_voice_command_language(self):
+        from luxai.extensions_runtime import ExtensionsRuntime
+        QApplication.instance() or QApplication([])
+        host = mock.Mock()
+        host.cfg = {"language": "ru"}
+        runtime = ExtensionsRuntime(host)
+        runtime.state = catalog.normalize_state({"live_captions": {"enabled": True, "settings": {"language": "auto"}}})
+        self.assertIsNone(runtime._caption_language())
+        runtime.state["live_captions"]["settings"]["language"] = "ro"
+        self.assertEqual(runtime._caption_language(), "ro")
+        runtime.deleteLater()
+
+
+class TranslateOnlyTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_only_the_translation_is_shown(self):
+        bar = lc.CaptionBar()
+        self.addCleanup(bar.deleteLater)
+        bar.configure(show_original=False, lines=2)
+        bar.add_final("Hello everyone", pending=True)
+        self.assertNotIn("Hello everyone", bar.text.text())  # original never shown
+        self.assertIn("…", bar.text.text())
+        bar.set_translation("Hello everyone", "Всем привет")
+        self.assertIn("Всем привет", bar.text.text())
+        self.assertNotIn("Hello everyone", bar.text.text())
+        self.assertFalse(catalog.default_settings(catalog.PLUGIN_BY_ID["live_captions"])["show_original"])
 
 
 class AppListTests(unittest.TestCase):

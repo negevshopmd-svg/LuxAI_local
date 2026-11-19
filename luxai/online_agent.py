@@ -426,7 +426,7 @@ class OnlinePlanner:
             self._log(f"{provider} selection summary failed: {type(exc).__name__}")
         return None
 
-    def translate_text(self, text: str, target: str) -> str | None:
+    def translate_text(self, text: str, target: str, timeout: float | None = None) -> str | None:
         """Translate selected text for Read aloud; None if the cloud is unavailable.
 
         Only used when the user selected text and pressed the Read aloud key.
@@ -448,7 +448,8 @@ class OnlinePlanner:
         )
         messages = [{"role": "system", "content": system}, {"role": "user", "content": excerpt}]
         try:
-            response = self._request(provider, model, key, messages, request_timeout(self.config), max_tokens=1500)
+            response = self._request(provider, model, key, messages, timeout or request_timeout(self.config),
+                                     max_tokens=1500)
             parsed = self._read_json_content(self._extract_text(response, provider))
             if isinstance(parsed, dict) and isinstance(parsed.get("reply"), str) and parsed["reply"].strip():
                 return parsed["reply"].strip()[:4000]

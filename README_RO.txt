@@ -1,4 +1,7 @@
-LUXAI LOCAL 0.4.2g — ACTUALIZARE 2026-11-18
+LUXAI LOCAL 0.4.2h — ACTUALIZARE 2026-11-19
+
+0.4.2h: Subtitrările detectează singure limba (engleză, română, rusă), nu mai inventează
+text și, cu traducerea pornită, arată doar traducerea.
 
 0.4.2g: Barele de derulare sunt subțiri și rotunde, ca în Luxify.
 
