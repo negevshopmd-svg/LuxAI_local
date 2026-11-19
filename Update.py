@@ -39,7 +39,109 @@ SKIP_SUFFIXES = {".pyc", ".pyo", ".onnx", ".gguf"}
 CLEANUP_MANIFEST = "runtime_cleanup_manifest.json"
 
 
-def report(message: str) -> None:
+# ---- Setup window (0.4.2l) -------------------------------------------------
+# scripts/setup_ui.ps1 shows the progress; this file only appends JSON lines.
+UI_EVENTS: Path | None = None
+_CONSOLE_HIDDEN = False
+
+
+def ui_emit(**event) -> None:
+    if UI_EVENTS is None:
+        return
+    try:
+        with UI_EVENTS.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(event, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
+def ui_step(step: str, state: str) -> None:
+    ui_emit(t="step", id=step, state=state)
+
+
+def ui_detail(ro: str, ru: str = "", en: str = "") -> None:
+    ui_emit(t="detail", text=ro, ru=ru or ro, en=en or ro)
+
+
+def _console(show: bool) -> None:
+    global _CONSOLE_HIDDEN
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        window = ctypes.windll.kernel32.GetConsoleWindow()
+        if window:
+            ctypes.windll.user32.ShowWindow(window, 5 if show else 0)
+            _CONSOLE_HIDDEN = not show
+    except Exception:
+        pass
+
+
+def _setup_ui_script() -> Path | None:
+    local = ROOT / "scripts" / "setup_ui.ps1"
+    if local.is_file():
+        return local
+    # First run of an older installation: the window comes with this update.
+    try:
+        target = Path(tempfile.gettempdir()) / "luxai_setup_ui.ps1"
+        download(f"https://raw.githubusercontent.com/{OWNER}/{REPO}/{BRANCH}/scripts/setup_ui.ps1", target)
+        return target if target.stat().st_size > 1000 else None
+    except Exception:
+        return None
+
+
+def start_ui(mode: str = "update") -> bool:
+    """Open the setup window and hide this console; False = stay in the console."""
+    global UI_EVENTS
+    if sys.platform != "win32" or os.environ.get("LUXAI_NO_UI") or os.environ.get("LUXAI_NO_DOWNLOADS"):
+        return False
+    script = _setup_ui_script()
+    if script is None:
+        return False
+    import time
+    temp = Path(tempfile.gettempdir())
+    events = temp / f"luxai_{mode}_{os.getpid()}.jsonl"
+    ready = events.with_suffix(".ready")
+    try:
+        events.write_text("", encoding="utf-8")
+        ready.unlink(missing_ok=True)
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        subprocess.Popen(
+            ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-STA", "-WindowStyle", "Hidden",
+             "-File", str(script), "-Events", str(events), "-Mode", mode, "-Root", str(ROOT),
+             "-ProducerPid", str(os.getpid()), "-Ready", str(ready)],
+            cwd=str(ROOT), creationflags=flags, stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
+    except OSError:
+        return False
+    UI_EVENTS = events
+    os.environ["LUXAI_UI_EVENTS"] = str(events)  # helpers (translator download) report bytes too
+    deadline = time.monotonic() + 12
+    while time.monotonic() < deadline:
+        if ready.exists():
+            _console(False)
+            try:
+                (ROOT / ".luxai_update_ui").write_text("1", encoding="ascii")  # Update.bat: no «pause»
+            except OSError:
+                pass
+            return True
+        time.sleep(0.1)
+    return True  # the window may still come; keep the console visible meanwhile
+
+
+def ui_finish(ok: bool, ro: str, ru: str, en: str) -> None:
+    ui_emit(t="done", ok=ok, message=ro, ru=ru, en=en)
+    if not ok and _CONSOLE_HIDDEN and not os.environ.get("LUXAI_BAT_UI"):
+        _console(True)  # an older Update.bat waits with «pause» in its console
+
+
+def report(message: str, ru: str = "", en: str = "") -> None:
+    """Console line + a line in the window's «Details» (in the app's language when given)."""
+    ui_emit(t="log", text=message, ru=ru or message, en=en or message)
+    _report_console(message)
+
+
+def _report_console(message: str) -> None:
     """Keep console/redirect encoding failures outside update transactions.
 
     Windows redirected stdout can still use a strict legacy code page even
@@ -80,18 +182,30 @@ def request_json(url: str) -> dict:
         return json.loads(response.read().decode("utf-8"))
 
 
+_SHOW_BYTES = False  # the next download shows its bytes in the setup window
+
+
 def download(url: str, target: Path) -> None:
+    import time
+    progress = _SHOW_BYTES
     req = urllib.request.Request(url, headers={"User-Agent": "LuxAI-Updater"})
     total = 0
+    shown = 0.0
     with urllib.request.urlopen(req, timeout=60) as response, target.open("wb") as out:
+        size = int(response.headers.get("Content-Length") or 0)
         while True:
-            chunk = response.read(1024 * 1024)
+            chunk = response.read(256 * 1024)
             if not chunk:
                 break
             total += len(chunk)
             if total > MAX_DOWNLOAD_BYTES:
                 raise RuntimeError("Arhiva depășește limita de siguranță de 500 MB.")
             out.write(chunk)
+            if progress and time.monotonic() - shown > 0.25:
+                shown = time.monotonic()
+                ui_emit(t="bytes", done=total, total=size)
+    if progress:
+        ui_emit(t="bytes", done=total, total=size or total)
 
 
 def is_preserved(rel: Path) -> bool:
@@ -550,7 +664,7 @@ def upgrade_dependencies() -> bool:
     ]
     for command in commands:
         try:
-            result = subprocess.run(command, cwd=str(ROOT), timeout=480, check=False)
+            result = run_streamed(command, timeout=480)
             if result.returncode != 0:
                 report("Dependențe: actualizarea/verificarea a eșuat. Rulează install_windows.bat.")
                 return False
@@ -559,6 +673,162 @@ def upgrade_dependencies() -> bool:
             return False
     report("Bibliotecile LuxAI sunt actualizate la ultimele versiuni compatibile.")
     return True
+
+
+_PIP_LINE = [
+    (re.compile(r"^Collecting (\S+)"), ("Verific {0}", "Проверяю {0}", "Checking {0}")),
+    (re.compile(r"^Requirement already satisfied: (\S+)"), ("Verific {0}", "Проверяю {0}", "Checking {0}")),
+    (re.compile(r"^\s*Downloading (\S+?)-\d\S* \(([^)]+)\)"), ("Descarc {0} ({1})", "Скачиваю {0} ({1})", "Downloading {0} ({1})")),
+    (re.compile(r"^Installing collected packages: (.+)"), ("Instalez {0}", "Устанавливаю {0}", "Installing {0}")),
+    (re.compile(r"^Successfully installed (.+)"), ("Instalat: {0}", "Установлено: {0}", "Installed: {0}")),
+]
+
+
+def run_streamed(command: list[str], timeout: float, cwd: Path | None = None):
+    """subprocess.run with every output line also shown in the setup window."""
+    import threading
+    process = subprocess.Popen(command, cwd=str(cwd or ROOT), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               stdin=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace")
+    timer = threading.Timer(timeout, process.kill)
+    timer.start()
+    try:
+        for raw in process.stdout:
+            line = raw.rstrip()
+            if not line:
+                continue
+            _report_console(line)
+            ui_emit(t="log", text=line)
+            for pattern, (ro, ru, en) in _PIP_LINE:
+                match = pattern.search(line)
+                if match:
+                    parts = [part[:60] for part in match.groups()]
+                    ui_detail(ro.format(*parts), ru.format(*parts), en.format(*parts))
+                    break
+        process.wait()
+    finally:
+        timer.cancel()
+    if process.returncode is None or process.returncode < 0:
+        raise subprocess.TimeoutExpired(command, timeout)
+    return process
+
+
+def ensure_offline_translator() -> bool:
+    """The offline translator (captions, read aloud, notifications, chat), installed once.
+
+    A pinned, hash-checked model in models/, which the updater preserves.
+    Failure is not fatal — the app retries in the background on first use.
+    """
+    python = ROOT / ".venv" / "Scripts" / "python.exe"
+    if not python.is_file():
+        return False
+    if not (ROOT / "models" / "nllb-200-600M-ct2-int8" / "model.bin").is_file():
+        ui_detail("Descarc traducătorul (~640 MB, o singură dată)",
+                  "Скачиваю переводчик (~640 МБ, один раз)", "Downloading the translator (~640 MB, once)")
+    else:
+        ui_detail("Traducătorul e deja instalat", "Переводчик уже установлен", "The translator is already installed")
+    try:
+        result = run_streamed([str(python), "-m", "luxai.offline_translate"], timeout=1800)
+        if result.returncode != 0:
+            report("AVERTISMENT: traducatorul offline nu s-a descarcat acum; Jarvis il descarca singur la prima traducere.",
+                   "ВНИМАНИЕ: офлайн-переводчик сейчас не скачался; Jarvis скачает его сам при первом переводе.",
+                   "WARNING: the offline translator did not download now; Jarvis downloads it on first use.")
+            return False
+        return True
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        report(f"Traducator offline: eroare la descarcare: {exc}")
+        return False
+
+
+def ensure_ocr() -> bool:
+    """Tesseract OCR in .luxai_data/ocr (preserved); failure does not break the update."""
+    venv_python = ROOT / ".venv" / "Scripts" / "python.exe"
+    if sys.platform != "win32" or not venv_python.is_file():
+        return True
+    report("Pregatesc OCR integrat: Tesseract + rusa/engleza...",
+           "Готовлю встроенный OCR: Tesseract + русский/английский…", "Preparing built-in OCR: Tesseract + Russian/English…")
+    try:
+        ok = run_streamed([str(venv_python), "-m", "luxai.ocr_setup"], timeout=330).returncode == 0
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        ok = False
+        report(f"OCR: eroare la instalare: {exc}")
+    if not ok:
+        report("AVERTISMENT: Codul Jarvis este actualizat, dar Tesseract nu s-a instalat. Verifica internetul "
+               "sau permisiunile Windows. Instalarea OCR se reincearca si automat din aplicatie.",
+               "ВНИМАНИЕ: Jarvis обновлён, но Tesseract не установился. Проверьте интернет или права Windows — "
+               "приложение попробует ещё раз само.",
+               "WARNING: Jarvis is updated, but Tesseract did not install. Check the internet or Windows permissions; "
+               "the app retries by itself.")
+    return ok
+
+
+def run_step(step: str, action) -> bool:
+    """One row of the window: active → done / warn."""
+    ui_step(step, "active")
+    try:
+        ok = action()
+    except Exception:
+        ui_step(step, "warn")
+        raise
+    ui_step(step, "done" if ok is not False else "warn")
+    return ok is not False
+
+
+CLOSE_JARVIS_PS = r"""
+$root = [IO.Path]::GetFullPath($env:LUXAI_ROOT).TrimEnd('\') + '\'
+$skip = @([int]$env:LUXAI_SELF, [int]$env:LUXAI_PARENT)
+Get-CimInstance Win32_Process -Filter "Name='Jarvis.exe' OR Name='pythonw.exe' OR Name='python.exe'" | Where-Object {
+    $_.ProcessId -notin $skip -and $_.ExecutablePath -and
+    ([IO.Path]::GetFullPath($_.ExecutablePath)).StartsWith($root, [StringComparison]::OrdinalIgnoreCase) -and
+    ($_.Name -eq 'Jarvis.exe' -or $_.CommandLine -match 'main\.py')
+} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; $_.ProcessId }
+"""
+
+
+def close_jarvis() -> int:
+    """Close a running Jarvis of THIS folder before files and libraries are replaced.
+
+    The elevated one (scheduled task «LuxAI Jarvis (admin)») is ended through its
+    task; others by path. The updater itself is never touched.
+    """
+    if sys.platform != "win32" or os.environ.get("LUXAI_NO_DOWNLOADS") or not (ROOT / ".venv").exists():
+        return 0  # tests and folders without an installed Jarvis
+    import time
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    try:
+        subprocess.run(["schtasks", "/End", "/TN", "LuxAI Jarvis (admin)"], capture_output=True, timeout=15,
+                       creationflags=flags, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    env = dict(os.environ, LUXAI_ROOT=str(ROOT), LUXAI_SELF=str(os.getpid()), LUXAI_PARENT=str(os.getppid()))
+    try:
+        result = subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", CLOSE_JARVIS_PS],
+                                capture_output=True, text=True, timeout=40, env=env, creationflags=flags, check=False)
+        closed = len([line for line in (result.stdout or "").split() if line.strip().isdigit()])
+    except (OSError, subprocess.TimeoutExpired):
+        closed = 0
+    if closed:
+        report(f"Am închis Jarvis ({closed} proces/e) pentru actualizare.",
+               f"Закрыл Jarvis (процессов: {closed}) для обновления.", f"Closed Jarvis ({closed} process(es)) for the update.")
+        time.sleep(1.5)  # let Windows release the files
+    return closed
+
+
+def _remote_version(sha: str) -> str:
+    try:
+        req = urllib.request.Request(f"https://raw.githubusercontent.com/{OWNER}/{REPO}/{sha}/version.txt",
+                                     headers={"User-Agent": "LuxAI-Updater"})
+        with urllib.request.urlopen(req, timeout=10) as response:
+            value = response.read(64).decode("utf-8", "replace").strip()
+        return value if re.fullmatch(r"[0-9][0-9A-Za-z.\-]{0,30}", value) else ""
+    except Exception:
+        return ""
+
+
+def _local_version() -> str:
+    try:
+        return (ROOT / "version.txt").read_text(encoding="utf-8").strip()[:32]
+    except OSError:
+        return ""
 
 
 def ensure_local_ai_backend() -> bool:
@@ -572,10 +842,7 @@ def ensure_local_ai_backend() -> bool:
         return False
     report("Verific motorul local GGUF (llama-cpp-python)...")
     try:
-        result = subprocess.run(
-            [str(python), "-m", "luxai.local_ai_setup"],
-            cwd=str(ROOT), timeout=480, check=False,
-        )
+        result = run_streamed([str(python), "-m", "luxai.local_ai_setup"], timeout=480)
         if result.returncode == 0:
             report("Motorul GGUF este instalat si verificat.")
             return True
@@ -697,8 +964,17 @@ def cleanup_retired_fish_local() -> bool:
 
 
 def perform_update() -> int:
-    report("=== Lux AI | Actualizare automată din GitHub ===")
+    translator_weight = 5 if (ROOT / "models" / "nllb-200-600M-ct2-int8" / "model.bin").is_file() else 70
+    plan = [("check", 2), ("download", 8), ("apply", 3), ("libs", 25), ("gguf", 8), ("ocr", 4),
+            ("translator", translator_weight), ("cleanup", 2)]
+    ui_emit(t="plan", mode="update", version=_local_version(), steps=[{"id": i, "w": w} for i, w in plan])
+    report("=== Lux AI | Actualizare automată din GitHub ===",
+           "=== Lux AI | Автоматическое обновление с GitHub ===", "=== Lux AI | Automatic update from GitHub ===")
     report(f"Repository: https://github.com/{OWNER}/{REPO}")
+    ui_step("check", "active")
+    ui_detail("Închid Jarvis, dacă e deschis", "Закрываю Jarvis, если он открыт", "Closing Jarvis if it is open")
+    close_jarvis()
+    ui_detail("Întreb GitHub de ultima versiune", "Спрашиваю у GitHub последнюю версию", "Asking GitHub for the latest version")
     try:
         commit = request_json(f"{API}/commits/{BRANCH}")
         latest_sha = commit.get("sha", "")
@@ -713,19 +989,39 @@ def perform_update() -> int:
         current_sha = state.get("commit", "") if isinstance(state, dict) else ""
         if not isinstance(current_sha, str) or len(current_sha) != 40 or any(c not in "0123456789abcdef" for c in current_sha):
             current_sha = ""
-        report(f"Commit instalat: {current_sha[:12] if current_sha else 'necunoscut'}")
-        report(f"Commit GitHub:   {latest_sha[:12]}")
+        report(f"Commit instalat: {current_sha[:12] if current_sha else 'necunoscut'}",
+               f"Установленный коммит: {current_sha[:12] if current_sha else 'неизвестен'}",
+               f"Installed commit: {current_sha[:12] if current_sha else 'unknown'}")
+        report(f"Commit GitHub:   {latest_sha[:12]}", f"Коммит на GitHub: {latest_sha[:12]}", f"GitHub commit: {latest_sha[:12]}")
+        remote = _remote_version(latest_sha)
+        if remote:
+            ui_emit(t="plan", version=remote, steps=[])
+        ui_step("check", "done")
         if current_sha == latest_sha:
-            report("Lux AI este deja la zi. Verific si bibliotecile instalate...")
-            if not upgrade_dependencies():
+            report("Lux AI este deja la zi. Verific si bibliotecile instalate...",
+                   "Lux AI уже последней версии. Проверяю установленные библиотеки…",
+                   "Lux AI is up to date. Checking the installed libraries…")
+            ui_step("download", "skip")
+            ui_step("apply", "skip")
+            if not run_step("libs", upgrade_dependencies):
+                ui_finish(False, "Bibliotecile nu s-au putut verifica. Rulează install_windows.bat.",
+                          "Не удалось проверить библиотеки. Запустите install_windows.bat.",
+                          "The libraries could not be checked. Run install_windows.bat.")
                 return 1
-            ensure_local_ai_backend()
-            cleanup_development_files()
-            cleanup_legacy_backups()
-            cleanup_retired_fish_local()
+            run_step("gguf", ensure_local_ai_backend)
+            run_step("ocr", ensure_ocr)
+            run_step("translator", ensure_offline_translator)
+            run_step("cleanup", lambda: (cleanup_development_files(), cleanup_legacy_backups(),
+                                         cleanup_retired_fish_local()) and True)
+            ui_finish(True, "Jarvis e deja la ultima versiune — am verificat bibliotecile și modelele.",
+                      "Jarvis уже последней версии — проверил библиотеки и модели.",
+                      "Jarvis is already the latest version — libraries and models checked.")
             return 0
     except Exception as e:
-        report(f"Nu pot verifica GitHub: {e}")
+        ui_step("check", "fail")
+        report(f"Nu pot verifica GitHub: {e}", f"Не могу проверить GitHub: {e}", f"Cannot reach GitHub: {e}")
+        ui_finish(False, f"Nu pot verifica GitHub: {e}. Verifică internetul.",
+                  f"Не могу связаться с GitHub: {e}. Проверьте интернет.", f"Cannot reach GitHub: {e}. Check the internet.")
         return 1
 
     # Update proceeds automatically without an interactive confirmation.
@@ -738,7 +1034,17 @@ def perform_update() -> int:
         extracted.mkdir()
         try:
             # GitHub's archive endpoint works without publishing a Release.
-            download(f"{API}/zipball/{latest_sha}", archive)
+            ui_step("download", "active")
+            ui_detail("Arhiva programului de pe GitHub", "Архив программы с GitHub", "The program archive from GitHub")
+            global _SHOW_BYTES
+            _SHOW_BYTES = True
+            try:
+                download(f"{API}/zipball/{latest_sha}", archive)
+            finally:
+                _SHOW_BYTES = False
+            ui_step("download", "done")
+            ui_step("apply", "active")
+            ui_detail("Despachetez și verific fișierele", "Распаковываю и проверяю файлы", "Unpacking and checking the files")
             safe_extract(archive, extracted)
 
             roots = [p for p in extracted.iterdir() if p.is_dir()]
@@ -760,84 +1066,60 @@ def perform_update() -> int:
             if not files:
                 raise RuntimeError("Nu am găsit fișiere de proiect pentru actualizare.")
 
-            report(f"Aplic {len(files)} fișiere...")
+            report(f"Aplic {len(files)} fișiere...", f"Применяю файлов: {len(files)}…", f"Applying {len(files)} files…")
+            ui_detail(f"Aplic {len(files)} fișiere", f"Применяю файлов: {len(files)}", f"Applying {len(files)} files")
             with file_transaction(files):
+                ui_step("apply", "done")
                 # Direct dependencies are rechecked against the index, even when
                 # already installed. Stay within requirements and Python markers.
-                if not upgrade_dependencies():
+                if not run_step("libs", upgrade_dependencies):
+                    ui_step("libs", "fail")
                     raise RuntimeError(
                         "Actualizarea bibliotecilor a eșuat. Se încearcă restaurarea codului anterior; "
                         "pip poate să fi modificat parțial mediul .venv. "
                         "Rulează install_windows.bat pentru repararea bibliotecilor."
                     )
 
-                # Refresh the optional llama.cpp backend automatically as well.
-                # Failure does not invalidate the core application update.
-                ensure_local_ai_backend()
-
-                # Prepare Tesseract OCR on the user's PC as part of the
-                # normal updater. The verified Windows installer and both
-                # language models live in .luxai_data/ocr, a preserved local
-                # folder. Failure does not corrupt the already-updated app.
-                ocr_ready = True
-                if sys.platform == "win32" and (ROOT / ".venv" / "Scripts" / "python.exe").is_file():
-                    report("Pregatesc OCR integrat: Tesseract + rusa/engleza...")
-                    venv_python = ROOT / ".venv" / "Scripts" / "python.exe"
-                    try:
-                        ocr_result = subprocess.run(
-                            [str(venv_python), "-m", "luxai.ocr_setup"],
-                            cwd=str(ROOT), check=False, timeout=330,
-                        )
-                        ocr_ready = ocr_result.returncode == 0
-                    except (subprocess.TimeoutExpired, OSError) as exc:
-                        ocr_ready = False
-                        report(f"OCR: eroare la instalare: {exc}")
-                    if not ocr_ready:
-                        report(
-                            "AVERTISMENT: Codul Jarvis este actualizat, dar "
-                            "Tesseract nu s-a instalat. Verifica internetul "
-                            "sau permisiunile Windows. Instalarea OCR se "
-                            "reincearca si automat din aplicatie."
-                        )
-
-                # The offline translator (captions, read aloud, notifications,
-                # chat): a pinned, hash-checked model in models/, which the
-                # updater preserves. Downloaded once; failure is not fatal —
-                # the app retries in the background on first use.
-                if (ROOT / ".venv" / "Scripts" / "python.exe").is_file():
-                    venv_python = ROOT / ".venv" / "Scripts" / "python.exe"
-                    try:
-                        translator = subprocess.run(
-                            [str(venv_python), "-m", "luxai.offline_translate"],
-                            cwd=str(ROOT), check=False, timeout=1800,
-                        )
-                        if translator.returncode != 0:
-                            report("AVERTISMENT: traducatorul offline nu s-a descarcat acum; "
-                                   "Jarvis il descarca singur la prima traducere.")
-                    except (subprocess.TimeoutExpired, OSError) as exc:
-                        report(f"Traducator offline: eroare la descarcare: {exc}")
+                # Optional parts: failures warn but never undo the code update.
+                run_step("gguf", ensure_local_ai_backend)
+                run_step("ocr", ensure_ocr)
+                run_step("translator", ensure_offline_translator)
 
                 write_update_state(latest_sha)
-            report("Actualizare instalată cu succes.")
-            cleanup_development_files()
-            cleanup_legacy_backups()
-            cleanup_retired_fish_local()
-            report("Nu păstrez backupuri permanente ale fișierelor programului.")
-            report("Modelele personale si config.json au fost pastrate, cu exceptia Fish S2 local.")
-            report("Pornește Lux AI cu run_windows.bat.")
+            report("Actualizare instalată cu succes.", "Обновление установлено.", "Update installed.")
+            run_step("cleanup", lambda: (cleanup_development_files(), cleanup_legacy_backups(),
+                                         cleanup_retired_fish_local()) and True)
+            report("Nu păstrez backupuri permanente ale fișierelor programului.",
+                   "Постоянные резервные копии файлов программы не хранятся.", "No permanent backups of program files are kept.")
+            report("Modelele personale si config.json au fost pastrate, cu exceptia Fish S2 local.",
+                   "Личные модели и config.json сохранены (кроме локального Fish S2).",
+                   "Personal models and config.json were kept (except local Fish S2).")
+            report("Pornește Lux AI cu run_windows.bat.", "Запустите Lux AI через run_windows.bat.", "Start Lux AI with run_windows.bat.")
+            version = _local_version()
+            ui_finish(True, f"Jarvis {version} e instalat. Setările și modelele tale au rămas neschimbate.",
+                      f"Jarvis {version} установлен. Ваши настройки и модели не тронуты.",
+                      f"Jarvis {version} is installed. Your settings and models were kept.")
             return 0
         except Exception as e:
-            report(f"Actualizarea a eșuat: {e}")
-            report("Datele personale au fost păstrate. Verifică mesajele de restaurare de mai sus.")
+            report(f"Actualizarea a eșuat: {e}", f"Обновление не удалось: {e}", f"The update failed: {e}")
+            report("Datele personale au fost păstrate. Verifică mesajele de restaurare de mai sus.",
+                   "Личные данные сохранены. Смотрите сообщения о восстановлении выше.",
+                   "Personal data was kept. See the restore messages above.")
+            ui_finish(False, f"{e}\nFișierele anterioare au fost restaurate, datele tale sunt neatinse.",
+                      f"{e}\nПрежние файлы восстановлены, ваши данные не тронуты.",
+                      f"{e}\nThe previous files were restored; your data is untouched.")
             return 1
 
 
 def main() -> int:
+    start_ui("update")
     try:
         with updater_lock():
             return perform_update()
     except (OSError, RuntimeError) as exc:
-        report(f"Actualizarea nu poate porni: {exc}")
+        report(f"Actualizarea nu poate porni: {exc}", f"Обновление не может начаться: {exc}", f"The update cannot start: {exc}")
+        ui_finish(False, f"Actualizarea nu poate porni: {exc}", f"Обновление не может начаться: {exc}",
+                  f"The update cannot start: {exc}")
         return 1
 
 

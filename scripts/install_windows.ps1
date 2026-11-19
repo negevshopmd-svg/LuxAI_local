@@ -1,4 +1,4 @@
-param([switch]$SelfTest, [switch]$CheckVenv, [switch]$SkipOcr, [switch]$SkipLocalAI, [switch]$InventoryOnly)
+﻿param([switch]$SelfTest, [switch]$CheckVenv, [switch]$SkipOcr, [switch]$SkipLocalAI, [switch]$InventoryOnly)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -13,9 +13,79 @@ $script:LogFile = Join-Path $script:LogDir 'install_windows.log'
 New-Item -ItemType Directory -Path $script:LogDir -Force | Out-Null
 "===== LuxAI setup $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') =====" | Out-File -LiteralPath $script:LogFile -Append -Encoding UTF8
 
+# ---- Setup window (0.4.2l): scripts\setup_ui.ps1 shows what happens here ----
+$script:UiEvents = $null
+$script:Utf8 = New-Object System.Text.UTF8Encoding($false)
+function Send-Ui([hashtable]$Event) {
+    if (-not $script:UiEvents) { return }
+    try { [IO.File]::AppendAllText($script:UiEvents, (($Event | ConvertTo-Json -Compress -Depth 4) + "`n"), $script:Utf8) } catch { }
+}
+function Set-UiStep([string]$Id, [string]$State) { Send-Ui @{ t = 'step'; id = $Id; state = $State } }
+function Set-UiDetail([string]$Ro, [string]$Ru, [string]$En) { Send-Ui @{ t = 'detail'; text = $Ro; ru = $Ru; en = $En } }
+function Start-SetupWindow {
+    if ($env:LUXAI_NO_UI) { return }
+    $ui = Join-Path $PSScriptRoot 'setup_ui.ps1'
+    if (-not (Test-Path -LiteralPath $ui)) { return }
+    $events = Join-Path $env:TEMP ("luxai_install_$PID.jsonl")
+    $ready = [IO.Path]::ChangeExtension($events, '.ready')
+    try {
+        [IO.File]::WriteAllText($events, '', $script:Utf8)
+        Remove-Item -LiteralPath $ready -Force -ErrorAction SilentlyContinue
+        $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-STA', '-WindowStyle', 'Hidden', '-File', "`"$ui`"",
+            '-Events', "`"$events`"", '-Mode', 'install', '-Root', "`"$script:Root`"", '-ProducerPid', "$PID", '-Ready', "`"$ready`"")
+        Start-Process -FilePath 'powershell.exe' -ArgumentList $arguments -WindowStyle Hidden | Out-Null
+    } catch { return }
+    $script:UiEvents = $events
+    $env:LUXAI_UI_EVENTS = $events
+    for ($i = 0; $i -lt 120; $i++) {
+        if (Test-Path -LiteralPath $ready) {
+            try {
+                Add-Type -Namespace LuxAI -Name Console -MemberDefinition '[DllImport("kernel32.dll")] public static extern System.IntPtr GetConsoleWindow(); [DllImport("user32.dll")] public static extern bool ShowWindow(System.IntPtr h, int c);'
+                [void][LuxAI.Console]::ShowWindow([LuxAI.Console]::GetConsoleWindow(), 0)
+                Set-Content -LiteralPath (Join-Path $script:LogDir '.setup_ui') -Value '1' -Encoding ASCII
+            } catch { }
+            return
+        }
+        Start-Sleep -Milliseconds 100
+    }
+}
+
+function Stop-RunningJarvis {
+    # A running Jarvis locks its libraries: close the one of THIS folder (the elevated one via its task).
+    try { & schtasks.exe /End /TN 'LuxAI Jarvis (admin)' *> $null } catch { }
+    $root = [IO.Path]::GetFullPath($script:Root).TrimEnd('\') + '\'
+    $closed = 0
+    Get-CimInstance Win32_Process -Filter "Name='Jarvis.exe' OR Name='pythonw.exe' OR Name='python.exe'" -ErrorAction SilentlyContinue | Where-Object {
+        $_.ProcessId -ne $PID -and $_.ExecutablePath -and
+        ([IO.Path]::GetFullPath($_.ExecutablePath)).StartsWith($root, [StringComparison]::OrdinalIgnoreCase) -and
+        ($_.Name -eq 'Jarvis.exe' -or $_.CommandLine -match 'main\.py')
+    } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; $closed++ }
+    if ($closed) { Write-Status "Closed the running Jarvis ($closed process(es)) before setup."; Start-Sleep -Milliseconds 1500 }
+}
+
 function Write-Status([string]$Message) {
     Write-Host $Message
     Add-Content -LiteralPath $script:LogFile -Value $Message -Encoding UTF8
+    Send-Ui @{ t = 'log'; text = $Message }
+}
+
+$script:PipDetails = @(
+    @('^Collecting (\S+)', 'Verific {0}', 'Проверяю {0}', 'Checking {0}'),
+    @('^Requirement already satisfied: (\S+)', 'Verific {0}', 'Проверяю {0}', 'Checking {0}'),
+    @('^\s*Downloading (\S+?)-\d\S* \(([^)]+)\)', 'Descarc {0} ({1})', 'Скачиваю {0} ({1})', 'Downloading {0} ({1})'),
+    @('^Installing collected packages: (.+)', 'Instalez {0}', 'Устанавливаю {0}', 'Installing {0}'),
+    @('^Successfully installed (.+)', 'Instalat: {0}', 'Установлено: {0}', 'Installed: {0}')
+)
+function Show-PipDetail([string]$Line) {
+    if (-not $script:UiEvents) { return }
+    foreach ($rule in $script:PipDetails) {
+        $m = [regex]::Match($Line, $rule[0])
+        if ($m.Success) {
+            $parts = @($m.Groups | Select-Object -Skip 1 | ForEach-Object { $v = $_.Value; if ($v.Length -gt 60) { $v.Substring(0, 60) } else { $v } })
+            Set-UiDetail ($rule[1] -f $parts) ($rule[2] -f $parts) ($rule[3] -f $parts)
+            return
+        }
+    }
 }
 
 function Get-CompatiblePythonVersion([string]$Path) {
@@ -232,6 +302,8 @@ function Invoke-PythonStep([string]$Executable, [string[]]$Arguments, [string]$T
             if ($line) {
                 Write-Host $line
                 Add-Content -LiteralPath $script:LogFile -Value $line -Encoding UTF8
+                Send-Ui @{ t = 'log'; text = $line }
+                Show-PipDetail $line
             }
         }
         $code = $LASTEXITCODE
@@ -301,8 +373,20 @@ function Assert-ProjectFiles {
 }
 
 try {
+    if (-not ($SelfTest -or $CheckVenv -or $InventoryOnly)) {
+        Start-SetupWindow
+        $translatorReady = Test-Path -LiteralPath (Join-Path $script:Root 'models\nllb-200-600M-ct2-int8\model.bin')
+        $version = ''
+        try { $version = (Get-Content -LiteralPath (Join-Path $script:Root 'version.txt') -Raw).Trim() } catch { }
+        Send-Ui @{ t = 'plan'; mode = 'install'; version = $version; steps = @(
+                @{ id = 'python'; w = 6 }, @{ id = 'venv'; w = 12 }, @{ id = 'libs'; w = 150 }, @{ id = 'gguf'; w = 40 },
+                @{ id = 'ocr'; w = 25 }, @{ id = 'translator'; w = $(if ($translatorReady) { 5 } else { 70 }) }, @{ id = 'cleanup'; w = 3 }) }
+        Set-UiStep 'python' 'active'
+        Set-UiDetail 'Caut un Python 3.11+ potrivit' 'Ищу подходящий Python 3.11+' 'Looking for a suitable Python 3.11+'
+    }
     Write-Status '=== LuxAI Local | Windows setup ==='
     Assert-ProjectFiles
+    if (-not ($SelfTest -or $CheckVenv -or $InventoryOnly)) { Stop-RunningJarvis }
     if ($InventoryOnly) {
         Show-PythonCompatibility
         exit 0
@@ -337,9 +421,13 @@ try {
     Show-PythonCompatibility
     $basePython = Find-PreferredPython
     if (-not $basePython -and -not (Test-UsableVenv)) {
+        Set-UiDetail 'Descarc Python oficial de pe python.org' 'Скачиваю официальный Python с python.org' 'Downloading the official Python from python.org'
         Install-OfficialPython
         $basePython = Find-PreferredPython
     }
+    Set-UiStep 'python' 'done'
+    Set-UiStep 'venv' 'active'
+    Set-UiDetail 'Verific mediul .venv' 'Проверяю окружение .venv' 'Checking the .venv environment'
 
     $venvUsable = Test-UsableVenv
     if (-not $venvUsable) {
@@ -363,6 +451,8 @@ try {
         Write-Status 'Existing .venv is valid; no reinstall of Python required.'
     }
 
+    Set-UiStep 'venv' 'done'
+    Set-UiStep 'libs' 'active'
     # Attempt newer runtimes first, automatically stepping down to an
     # installed, older interpreter if third-party native wheels are unavailable.
     # Never claim success unless dependencies and application import work.
@@ -397,6 +487,8 @@ try {
             }
         }
     }
+    Set-UiStep 'libs' 'done'
+    Set-UiStep 'gguf' 'active'
     # GGUF models do not work merely because the .gguf file exists.
     # Install the optional CPU wheel by default; no C++ compiler or source build.
     # If a wheel is unavailable, keep core Jarvis and its voice controls usable.
@@ -408,8 +500,11 @@ try {
         } catch {
             Write-Status "WARNING: Local GGUF engine could not be installed: $($_.Exception.Message)"
             Write-Status 'Jarvis can still run. Automatic setup retries on launch; see logs\local_ai_install.log or retry Update.bat online.'
+            Set-UiStep 'gguf' 'warn'
         }
     }
+    Set-UiStep 'gguf' 'done'
+    Set-UiStep 'ocr' 'active'
 
     if ($SkipOcr) {
         Write-Status 'Optional OCR installation skipped for test environment.'
@@ -419,15 +514,39 @@ try {
         } catch {
             Write-Status "WARNING: OCR could not be installed: $($_.Exception.Message)"
             Write-Status 'Jarvis can start; OCR setup will be retried when needed.'
+            Set-UiStep 'ocr' 'warn'
         }
     }
+    Set-UiStep 'ocr' 'done'
 
+    # The offline translator (captions, read aloud, notifications, chat): pinned and hash-checked.
+    Set-UiStep 'translator' 'active'
+    if (-not $SkipOcr) {
+        try {
+            Invoke-PythonStep $script:VenvPython @('-m', 'luxai.offline_translate') 'Installing the offline translator (NLLB, ~640 MB once)'
+            Set-UiStep 'translator' 'done'
+        } catch {
+            Write-Status "WARNING: the offline translator could not be downloaded now: $($_.Exception.Message)"
+            Write-Status 'Jarvis downloads it by itself on the first translation.'
+            Set-UiStep 'translator' 'warn'
+        }
+    } else {
+        Set-UiStep 'translator' 'skip'
+    }
+
+    Set-UiStep 'cleanup' 'active'
     Invoke-PythonStep $script:VenvPython @('Update.py', '--clean-installation') 'Removing unchanged bundled development files'
+    Set-UiStep 'cleanup' 'done'
     Write-Status 'SUCCESS: LuxAI installation completed. Launch run_windows.bat.'
     Write-Status 'Note: voice models may download on first use; internet access may be required.'
+    Send-Ui @{ t = 'done'; ok = $true; message = 'Jarvis e instalat. Apasă „Pornește Jarvis”.'
+        ru = 'Jarvis установлен. Нажмите «Запустить Jarvis».'; en = 'Jarvis is installed. Press “Launch Jarvis”.' }
     exit 0
 } catch {
     Write-Status "ERROR: $($_.Exception.Message)"
     Write-Status "Installation incomplete. Details: $script:LogFile"
+    $reason = $_.Exception.Message
+    Send-Ui @{ t = 'done'; ok = $false; message = "Instalarea nu s-a terminat: $reason"
+        ru = "Установка не завершилась: $reason"; en = "Setup did not finish: $reason" }
     exit 1
 }

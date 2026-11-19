@@ -17,3 +17,4 @@ models/
 voices/*.onnx
 voices/*.onnx.json
 .luxai_update_state.json
+.luxai_update_ui

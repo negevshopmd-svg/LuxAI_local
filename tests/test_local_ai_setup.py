@@ -64,8 +64,10 @@ class LocalAISetupTests(unittest.TestCase):
         wrapper = (root / "install_local_ai.bat").read_text(encoding="utf-8")
         self.assertIn("'luxai.local_ai_setup'", powershell)
         self.assertIn("def ensure_local_ai_backend()", updater)
-        self.assertIn("ensure_local_ai_backend()", updater.split("if current_sha == latest_sha:", 1)[1])
-        self.assertIn("ensure_local_ai_backend()", updater.split("# Prepare Tesseract OCR", 1)[0].split("# Refresh the optional llama.cpp backend", 1)[1])
+        # Both paths (already up to date, and a real update) run it as a row of the setup window.
+        up_to_date, update = updater.split("if current_sha == latest_sha:", 1)[1].split("# Update proceeds automatically", 1)
+        self.assertIn('run_step("gguf", ensure_local_ai_backend)', up_to_date)
+        self.assertIn('run_step("gguf", ensure_local_ai_backend)', update)
         self.assertIn("luxai.local_ai_setup", wrapper)
 
 

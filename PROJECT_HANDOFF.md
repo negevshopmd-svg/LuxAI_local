@@ -279,3 +279,7 @@ Never use a random Steam community page or a friend's chat profile for the user'
 > Continue the project at https://github.com/negevshopmd-svg/LuxAI_local. FIRST read PROJECT_HANDOFF.md and inspect latest \`main\` + \`version.txt\` + current CI. Preserve the current design and existing functionality. My request is [describe problem]. Trace \`main.py\` command routing to the dedicated implementation; reproduce with a regression test; make minimal fixes; run all GitHub Actions tests; merge when green, then verify \`main\` version so I can install using \`Update.bat\`. Never guess an on-screen result without a fresh observation.
 
 Keep this document updated when components, important bugs, or release workflows change; it exists to preserve project context across chats.
+
+## Setup window (0.4.2l)
+
+`scripts/setup_ui.ps1` (WPF, UTF-8 BOM required for PowerShell 5.1) reads JSON lines from `-Events` (`plan`, `step`, `detail`, `log`, `bytes`, `done`; texts carry `ru`/`en` beside `text`) and measures internet speed from the network adapters. Producers: `Update.py` (`start_ui`, `ui_emit`, `ui_step`, `ui_detail`, `run_step`, `run_streamed`, `ui_finish`, `close_jarvis`) and `scripts/install_windows.ps1` (`Start-SetupWindow`, `Send-Ui`, `Stop-RunningJarvis`). The batch files skip `pause` when the window was shown (`.luxai_update_ui`, `logs\.setup_ui`). `LUXAI_NO_UI=1` keeps the console; `LUXAI_UI_SNAPSHOT=dir;sec,sec` saves PNGs for checks. Tests: `tests/test_setup_ui_042l.py`.

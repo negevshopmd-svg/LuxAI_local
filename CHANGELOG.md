@@ -1,3 +1,11 @@
+## 0.4.2l — Setup window for Update.bat and install_windows.bat (2026-11-19)
+
+- Update.bat and install_windows.bat now open a Jarvis window (`scripts/setup_ui.ps1`, built-in WPF — works before Python exists) and hide the console. Ideas taken from known installers: the Visual Studio Installer step list with ticks and per-step time, Steam's live internet-speed chart with speed / downloaded figures, Discord's compact borderless branded window with a soft accent glow, Windows 11 Fluent rounded corners, shadow and thin rounded progress bar.
+- Shows: what is being done right now (pip package being checked or downloaded, files applied, translator download with MB of MB), overall progress and the time left (from step weights, the measured pace and the real download speed), the real internet speed (from the network adapters) with a chart, downloaded MB, elapsed time; «Подробнее» opens the full log. In Jarvis' accent, theme, font and language (from config.json; Windows language for a first install). At the end: «Запустить Jarvis» / «Закрыть», closes by itself after 60 s (waits while the log is open); on an error: the reason, the log open, «Открыть журнал».
+- A running Jarvis of this folder is closed when the update or setup starts (the elevated one through its scheduled task), so files and libraries are not locked.
+- The already-up-to-date path also checks OCR and the offline translator; install_windows.bat now installs the offline translator too.
+- Update.py output and the window texts are in ru/ro/en; the window cannot be closed while working (only minimised), and if the updater stops unexpectedly the window says so.
+
 ## 0.4.2k — Translator installed by Update.bat, translation in the chat (2026-11-19)
 
 - Update.bat now installs the offline translator itself (`python -m luxai.offline_translate`, ≈640 MB once, into the preserved `models/`). The download is pinned to one commit of the model repository and `model.bin` / `tokenizer.json` are checked by SHA-256; a damaged file is deleted, never loaded. If it fails (no internet), the update still succeeds and Jarvis downloads it on first use.

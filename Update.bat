@@ -4,6 +4,9 @@ chcp 65001 >nul
 cd /d "%~dp0"
 echo === Lux AI Updater ===
 echo Inchide Jarvis inainte de actualizare.
+rem The setup window (scripts\setup_ui.ps1) shows the progress; this console hides itself.
+set "LUXAI_BAT_UI=1"
+del /q ".luxai_update_ui" >nul 2>nul
 
 rem Use LuxAI's own working interpreter first, not an unrelated Python on PATH.
 set "LUXAI_PYTHON="
@@ -61,6 +64,11 @@ rem The current updater filters development sources and safely trims old bundled
     %LUXAI_PYTHON% Update.py.new
     if errorlevel 1 (
         del /q "Update.py.new" >nul 2>nul
+        rem The window already shows the error and its details: no hidden «pause».
+        if exist ".luxai_update_ui" (
+            del /q ".luxai_update_ui" >nul 2>nul
+            exit /b 1
+        )
         echo.
         echo Actualizarea NU s-a incheiat cu succes. Citeste eroarea de mai sus.
         pause
@@ -75,10 +83,15 @@ rem The current updater filters development sources and safely trims old bundled
             if errorlevel 1 (
                 echo AVERTISMENT: Fish S2 local nu a putut fi eliminat complet.
                 echo Inchide Jarvis si ruleaza din nou Update.bat.
+                if exist ".luxai_update_ui" (
+                    del /q ".luxai_update_ui" >nul 2>nul
+                    exit /b 1
+                )
                 pause
                 exit /b 1
             )
         )
+        del /q ".luxai_update_ui" >nul 2>nul
         exit /b 0
     )
 )

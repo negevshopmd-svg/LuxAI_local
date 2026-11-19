@@ -23,7 +23,7 @@ class WindowsInstallPolicyTests(unittest.TestCase):
                 self.assertIn(flag, source)
             self.assertIn("requirements", source)
         self.assertIn("if current_sha == latest_sha:", updater)
-        self.assertIn("if not upgrade_dependencies():", updater)
+        self.assertIn('if not run_step("libs", upgrade_dependencies):', updater)
         self.assertIn("def upgrade_dependencies()", updater)
 
     def test_wheels_can_be_upgraded_when_already_installed(self):

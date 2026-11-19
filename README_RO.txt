@@ -1,4 +1,8 @@
-LUXAI LOCAL 0.4.2k — ACTUALIZARE 2026-11-19
+LUXAI LOCAL 0.4.2l — ACTUALIZARE 2026-11-19
+
+0.4.2l: Update.bat și install_windows.bat au o fereastră frumoasă în stilul lui
+Jarvis: ce se face acum, cât timp a rămas, viteza internetului, cât s-a descărcat.
+Jarvis se închide singur la pornirea actualizării.
 
 0.4.2k: Update.bat instalează singur traducătorul offline. În chat (și cu vocea):
 „tradu în engleză: …”, „переведи на румынский: …”, „cum se spune … în rusă” —

@@ -10,6 +10,7 @@ converted by JustFrederik/nllb-200-distilled-600M-ct2-int8.
 """
 from __future__ import annotations
 
+import os
 import re
 import threading
 from pathlib import Path
@@ -264,7 +265,30 @@ def main() -> int:
         print("Traducator offline: deja instalat.")
         return 0
     print("Descarc traducatorul offline (NLLB, ~640 MB, o singura data)...", flush=True)
-    if ensure_downloaded():
+    events = os.environ.get("LUXAI_UI_EVENTS")  # the setup window shows the bytes
+    stop = threading.Event()
+    if events:
+        def watch():
+            import json
+            folder = model_dir()
+            while not stop.wait(0.5):
+                done = 0
+                for item in folder.rglob("*") if folder.exists() else []:
+                    try:
+                        done += item.stat().st_size if item.is_file() else 0
+                    except OSError:
+                        pass
+                try:
+                    with open(events, "a", encoding="utf-8") as stream:
+                        stream.write(json.dumps({"t": "bytes", "done": done, "total": 647_000_000}) + "\n")
+                except OSError:
+                    pass
+        threading.Thread(target=watch, daemon=True).start()
+    try:
+        ready = ensure_downloaded()
+    finally:
+        stop.set()
+    if ready:
         print("Traducator offline: instalat.")
         return 0
     print("Traducator offline: descarcarea a esuat (internet?). Se reincearca automat din aplicatie.")
@@ -276,7 +300,6 @@ if __name__ == "__main__":
 
 
 def download_in_background(directory: Path | None = None):
-    import os
     if installed(directory) or _downloading or os.environ.get("LUXAI_NO_DOWNLOADS"):
         return
     threading.Thread(target=ensure_downloaded, args=(directory,), daemon=True,

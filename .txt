@@ -1,0 +1,1 @@
+tick=1 ok=True cd=60 type=Int32
