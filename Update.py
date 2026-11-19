@@ -224,6 +224,8 @@ def is_development_file(rel: Path) -> bool:
     parts = tuple(part.casefold() for part in rel.parts)
     return bool(parts) and (
         rel.suffix.casefold() == ".md"
+        # Git settings and an old example: needed on GitHub, not on the user's PC (0.4.2o).
+        or (len(parts) == 1 and parts[0] in {".gitattributes", ".gitignore", "manifest.example.json"})
         or parts[0] in {"tests", ".github"}
         or (len(parts) == 2 and parts[0] == "scripts"
             and parts[1].startswith("test_") and parts[1].endswith(".py"))

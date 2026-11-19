@@ -1,4 +1,13 @@
-LUXAI LOCAL 0.4.2n — ACTUALIZARE 2026-11-19
+LUXAI LOCAL 0.4.2o — ACTUALIZARE 2026-11-19
+(Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.2o: Comenzile arată ca în Luxify: iconițele reale ale programelor (Chrome,
+Telegram, Word, Discord, Steam) și grupul separat „Control Discord” — 35 de comenzi
+pe care Jarvis le face singur, fără cloud: oprește/pornește microfonul și căștile,
+răspunde sau respinge un apel, canale, servere, căutare, mențiuni și altele.
+Microfonul și căștile Discord se citesc și se apasă direct (accesibilitatea
+Windows), fără capturi de ecran; captura prin AI cloud e doar de rezervă.
+Fișierele .gitattributes, .gitignore și manifest.example.json rămân doar pe GitHub.
 
 0.4.2n: Update.bat merge din nou (în 0.4.2l consola Windows tăia comenzile).
 Dacă Update.bat dă erori „'ho' is not recognized”, rulează o dată în folderul Jarvis:

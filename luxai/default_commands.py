@@ -90,3 +90,42 @@ BUILTINS = [
     )),
 ]
 
+
+# Discord without the cloud (0.4.2o): its account-bar buttons and its own shortcuts.
+DISCORD_COMMANDS = [
+    _built_in("Discord", 'Выключить микрофон', "discord_key", 'mic_off', ('выключи микрофон в дискорде', 'mute my discord microphone', 'oprește microfonul în discord')),
+    _built_in("Discord", 'Включить микрофон', "discord_key", 'mic_on', ('включи микрофон в дискорде', 'unmute my discord microphone', 'pornește microfonul în discord')),
+    _built_in("Discord", 'Выключить звук (наушники)', "discord_key", 'sound_off', ('выключи наушники в дискорде', 'deafen me in discord', 'oprește căștile în discord')),
+    _built_in("Discord", 'Включить звук (наушники)', "discord_key", 'sound_on', ('включи наушники в дискорде', 'undeafen me in discord', 'pornește căștile în discord')),
+    _built_in("Discord", 'Принять звонок', "discord_key", 'answer_call', ('прими звонок в дискорде', 'answer the discord call', 'răspunde la apel în discord')),
+    _built_in("Discord", 'Отклонить звонок', "discord_key", 'decline_call', ('отклони звонок в дискорде', 'decline the discord call', 'respinge apelul în discord')),
+    _built_in("Discord", 'Перейти к текущему звонку', "discord_key", 'jump_call', ('вернись в звонок в дискорде', 'back to the call in discord', 'înapoi la apel în discord')),
+    _built_in("Discord", 'Следующий непрочитанный канал', "discord_key", 'next_unread', ('следующий непрочитанный в дискорде', 'next unread in discord', 'următorul necitit în discord')),
+    _built_in("Discord", 'Предыдущий непрочитанный канал', "discord_key", 'prev_unread', ('предыдущий непрочитанный в дискорде', 'previous unread in discord', 'necititul anterior în discord')),
+    _built_in("Discord", 'Следующий сервер', "discord_key", 'next_server', ('следующий сервер в дискорде', 'next server in discord', 'serverul următor în discord')),
+    _built_in("Discord", 'Предыдущий сервер', "discord_key", 'prev_server', ('предыдущий сервер в дискорде', 'previous server in discord', 'serverul anterior în discord')),
+    _built_in("Discord", 'Следующий канал', "discord_key", 'next_channel', ('следующий канал в дискорде', 'next channel in discord', 'canalul următor în discord')),
+    _built_in("Discord", 'Предыдущий канал', "discord_key", 'prev_channel', ('предыдущий канал в дискорде', 'previous channel in discord', 'canalul anterior în discord')),
+    _built_in("Discord", 'Отметить канал прочитанным', "discord_key", 'mark_read', ('отметь канал прочитанным в дискорде', 'mark the channel read in discord', 'marchează canalul citit în discord')),
+    _built_in("Discord", 'Отметить сервер прочитанным', "discord_key", 'mark_server_read', ('отметь сервер прочитанным в дискорде', 'mark the server read in discord', 'marchează serverul citit în discord')),
+    _built_in("Discord", 'Личные сообщения', "discord_key", 'toggle_dms', ('открой личные сообщения в дискорде', 'open direct messages in discord', 'deschide mesajele directe în discord')),
+    _built_in("Discord", 'Назад', "discord_key", 'back', ('назад в дискорде', 'go back in discord', 'înapoi în discord')),
+    _built_in("Discord", 'Вперёд', "discord_key", 'forward', ('вперёд в дискорде', 'go forward in discord', 'înainte în discord')),
+    _built_in("Discord", 'Быстрый переход', "discord_key", 'quick_switcher', ('быстрый переход в дискорде', 'quick switcher in discord', 'comutare rapidă în discord')),
+    _built_in("Discord", 'Поиск по сообщениям', "discord_key", 'search', ('открой поиск в дискорде', 'open search in discord', 'deschide căutarea în discord')),
+    _built_in("Discord", 'Закреплённые сообщения', "discord_key", 'pins', ('закреплённые в дискорде', 'pinned messages in discord', 'mesajele fixate în discord')),
+    _built_in("Discord", 'Входящие и упоминания', "discord_key", 'inbox', ('входящие в дискорде', 'inbox in discord', 'mențiunile în discord')),
+    _built_in("Discord", 'Список участников', "discord_key", 'members', ('участники в дискорде', 'member list in discord', 'lista de membri în discord')),
+    _built_in("Discord", 'Эмодзи', "discord_key", 'emoji', ('эмодзи в дискорде', 'emoji in discord', 'emoji în discord')),
+    _built_in("Discord", 'GIF', "discord_key", 'gif', ('гиф в дискорде', 'gif in discord', 'gif în discord')),
+    _built_in("Discord", 'Стикеры', "discord_key", 'stickers', ('стикеры в дискорде', 'stickers in discord', 'stickere în discord')),
+    _built_in("Discord", 'Загрузить файл', "discord_key", 'upload', ('загрузи файл в дискорд', 'upload a file in discord', 'încarcă un fișier în discord')),
+    _built_in("Discord", 'Звуковая панель', "discord_key", 'soundboard', ('звуковая панель в дискорде', 'soundboard in discord', 'soundboard în discord')),
+    _built_in("Discord", 'Скопировать ссылку на канал', "discord_key", 'copy_link', ('скопируй ссылку в дискорде', 'copy the link in discord', 'copiază linkul în discord')),
+    _built_in("Discord", 'Создать группу', "discord_key", 'create_group', ('создай группу в дискорде', 'create a group in discord', 'creează un grup în discord')),
+    _built_in("Discord", 'Пролистать чат вверх', "discord_key", 'scroll_up', ('пролистай вверх в дискорде', 'scroll up in discord', 'derulează în sus în discord')),
+    _built_in("Discord", 'Пролистать чат вниз', "discord_key", 'scroll_down', ('пролистай вниз в дискорде', 'scroll down in discord', 'derulează în jos în discord')),
+    _built_in("Discord", 'Настройки Discord', "discord_key", 'settings', ('открой настройки дискорда', 'open discord settings', 'deschide setările discord')),
+    _built_in("Discord", 'Горячие клавиши Discord', "discord_key", 'help', ('горячие клавиши дискорда', 'discord shortcuts', 'scurtăturile discord')),
+]
+BUILTINS.extend(DISCORD_COMMANDS)

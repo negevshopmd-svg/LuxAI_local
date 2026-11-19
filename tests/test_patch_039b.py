@@ -93,7 +93,9 @@ class Patch039bTests(unittest.TestCase):
         page = CommandsPage(self.registry)
         self.addCleanup(page.close)
         self.assertEqual(page.tree.topLevelItem(0).childCount() > 0, True)
-        personal = page.tree.topLevelItem(1).child(0)
+        tops = [page.tree.topLevelItem(i) for i in range(page.tree.topLevelItemCount())]
+        # 0.4.2o: «Управление Discord» sits between the defaults and the personal folders.
+        personal = next(top for top in tops[1:] if top.childCount() and top.child(0).text(0) == "Test personal").child(0)
         self.assertEqual(personal.text(0), "Test personal")
         self.assertIsInstance(page.tree.itemWidget(personal, 3), QToolButton)
         self.assertTrue(page.import_button.isEnabled())

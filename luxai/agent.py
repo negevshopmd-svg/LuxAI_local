@@ -613,6 +613,17 @@ class LocalAgent:
                     f"Sent Steam the launch request for {title} (AppID {app_id})." if success else f"Could not send Steam a launch request.",
                     text,
                 )
+        elif action == "discord_key" and isinstance(target, str):
+            from luxai.command_registry import discord_targets
+            if target not in discord_targets():
+                return None
+            from luxai.discord_audio import run_target
+            language = self._say("ru", "ro", "en", text)  # the reply language of this request
+            try:
+                answer = run_target(target, language)
+                self.last_execution_success = True
+            except (OSError, RuntimeError, ValueError) as exc:
+                answer = self._say("Discord: не получилось — ", "Discord: nu a reușit — ", "Discord: failed — ", text) + str(exc)[:160]
         elif action == "minimize_windows":
             # Reuse the same local execution path and confirmation rules.
             answer = self._simple_action("сверни все окна", confirm_callback)

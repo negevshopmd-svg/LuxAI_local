@@ -783,6 +783,38 @@ Windows не удалось зарегистрировать сочетание.
 Некорректный список необязательных слов.|||Invalid optional word list.|||Listă nevalidă de cuvinte opționale.
 Некорректное необязательное слово.|||Invalid optional word.|||Cuvânt opțional nevalid.
 Запись поддерживает от 1 до 8 действий.|||Recording supports 1 to 8 actions.|||Înregistrarea acceptă între 1 și 8 acțiuni.
+Управление Discord|||Manage Discord|||Control Discord
+Включить микрофон|||Unmute the microphone|||Pornește microfonul
+Выключить звук (наушники)|||Deafen (headphones off)|||Oprește sunetul (căștile)
+Включить звук (наушники)|||Undeafen (headphones on)|||Pornește sunetul (căștile)
+Принять звонок|||Answer the call|||Răspunde la apel
+Отклонить звонок|||Decline the call|||Respinge apelul
+Перейти к текущему звонку|||Jump to the current call|||Treci la apelul curent
+Следующий непрочитанный канал|||Next unread channel|||Următorul canal necitit
+Предыдущий непрочитанный канал|||Previous unread channel|||Canalul necitit anterior
+Следующий сервер|||Next server|||Serverul următor
+Предыдущий сервер|||Previous server|||Serverul anterior
+Следующий канал|||Next channel|||Canalul următor
+Предыдущий канал|||Previous channel|||Canalul anterior
+Отметить канал прочитанным|||Mark the channel read|||Marchează canalul ca citit
+Отметить сервер прочитанным|||Mark the server read|||Marchează serverul ca citit
+Личные сообщения|||Direct messages|||Mesaje directe
+Вперёд|||Forward|||Înainte
+Быстрый переход|||Quick switcher|||Comutare rapidă
+Поиск по сообщениям|||Search messages|||Caută în mesaje
+Закреплённые сообщения|||Pinned messages|||Mesaje fixate
+Входящие и упоминания|||Inbox and mentions|||Mențiuni
+Список участников|||Member list|||Lista de membri
+Эмодзи|||Emoji|||Emoji
+Стикеры|||Stickers|||Stickere
+Загрузить файл|||Upload a file|||Încarcă un fișier
+Звуковая панель|||Soundboard|||Soundboard
+Скопировать ссылку на канал|||Copy the channel link|||Copiază linkul canalului
+Создать группу|||Create a group|||Creează un grup
+Пролистать чат вверх|||Scroll the chat up|||Derulează chatul în sus
+Пролистать чат вниз|||Scroll the chat down|||Derulează chatul în jos
+Настройки Discord|||Discord settings|||Setările Discord
+Горячие клавиши Discord|||Discord shortcuts|||Scurtăturile Discord
 """
 
 # Every entry is a Russian source string and an English/Romanian translation.

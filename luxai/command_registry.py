@@ -29,8 +29,15 @@ APP_TARGETS = (
 GAME_TARGETS = tuple(GAMES)
 ACTIONS = {
     "open_app", "launch_game", "steam_verified", "create_file",
-    "create_folder", "list_files", "time", "minimize_windows",
+    "create_folder", "list_files", "time", "minimize_windows", "discord_key",
 } | {name for name, item in CATALOG.items() if item["available"]}
+
+
+def discord_targets() -> frozenset:
+    """Only Discord's own buttons and shortcuts — never arbitrary keys."""
+    from luxai.discord_audio import TARGETS
+    from luxai.discord_shortcuts import BY_ID
+    return frozenset(TARGETS) | frozenset(BY_ID)
 
 
 from luxai.default_commands import BUILTINS, _built_in
@@ -236,6 +243,8 @@ def checked_command(raw, builtin=False):
         raise ValueError("Unknown application")
     if action == "launch_game" and target not in GAMES:
         raise ValueError("Unknown preset game")
+    if action == "discord_key" and target not in discord_targets():
+        raise ValueError("Unknown Discord command")
     if action == "steam_verified":
         appid = raw.get("appid")
         if not isinstance(appid, int) or isinstance(appid, bool) or not (1 <= appid <= 100_000_000):
@@ -244,7 +253,7 @@ def checked_command(raw, builtin=False):
             raise ValueError("Invalid Steam game title")
     if action in ("create_file", "create_folder"):
         target = safe_name(target, is_folder=action == "create_folder")
-    if action not in ("create_file", "create_folder", "open_app", "launch_game", "steam_verified"):
+    if action not in ("create_file", "create_folder", "open_app", "launch_game", "steam_verified", "discord_key"):
         target = ""
     if location not in ALLOWED_LOCATIONS:
         raise ValueError("Invalid destination")

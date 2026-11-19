@@ -164,7 +164,8 @@ class CommandLibrary093cTests(unittest.TestCase):
             menu.setActiveAction(menu.actions()[-1])
             QTest.keyClick(menu, Qt.Key.Key_Return)
         confirm.assert_called_once()
-        self.assertEqual(len(self.registry.entries()), 20)
+        from luxai.default_commands import BUILTINS
+        self.assertEqual(len(self.registry.entries()), len(BUILTINS))  # nothing deleted
 
     def test_folder_clone_disables_new_records_and_preserves_originals(self):
         group = self.group("Управление Windows").data(0, GROUP_ROLE)

@@ -21,7 +21,43 @@ from PySide6.QtWidgets import (
 )
 from luxai.command_registry import CommandRegistry, checked_command
 from luxai.ui_i18n import tr, get_ui_language, translate_widgets
-from luxai.icons import icon, refresh_icons, set_button_icon, set_item_icon
+from luxai.icons import icon, refresh_icons, set_button_icon, set_item_app_icon, set_item_icon
+
+
+def count_label(count: int, language: str) -> str:
+    """«1 команда», «3 команды», «20 команд» / «1 command» / «1 comandă», «20 de comenzi»."""
+    if language == "en":
+        return f"{count} command" + ("" if count == 1 else "s")
+    if language == "ro":
+        if count == 1:
+            return "1 comandă"
+        return f"{count} " + ("de comenzi" if count % 100 >= 20 or count % 100 == 0 and count else "comenzi")
+    tail = count % 100
+    if 11 <= tail <= 14:
+        word = "команд"
+    else:
+        word = {1: "команда", 2: "команды", 3: "команды", 4: "команды"}.get(count % 10, "команд")
+    return f"{count} {word}"
+
+
+DISCORD_GROUP = "Управление Discord"
+_DISCORD_ICONS = {  # only glyphs bundled in luxai/assets/icons/lucide
+    "mic_off": "mic-off", "mic_on": "mic", "sound_off": "volume-x", "sound_on": "headphones",
+    "answer_call": "bell-ring", "decline_call": "circle-x", "jump_call": "corner-down-left",
+    "next_unread": "circle-dot", "prev_unread": "circle-dot-dashed", "next_server": "layers",
+    "prev_server": "layers", "next_channel": "arrow-down", "prev_channel": "arrow-up",
+    "mark_read": "check-check", "mark_server_read": "check-check", "toggle_dms": "message-square",
+    "back": "chevron-left", "forward": "chevron-right", "quick_switcher": "zap", "search": "search",
+    "pins": "pin", "inbox": "bell", "members": "user-round", "emoji": "sparkles", "gif": "images", "stickers": "image",
+    "upload": "file-plus-corner", "soundboard": "audio-lines", "copy_link": "link", "create_group": "plus",
+    "scroll_up": "chevron-up", "scroll_down": "chevron-down", "settings": "settings", "help": "keyboard",
+}
+
+
+def _entry_icon(entry) -> str:
+    if entry.get("action") == "discord_key":
+        return _DISCORD_ICONS.get(entry.get("target", ""), "message-square")
+    return CATALOG.get(entry["action"], {}).get("icon", "list-checks")
 from luxai.action_catalog import CATALOG
 from luxai.ui_command_editor import CommandEditor
 from luxai.ui_command_menu import CommandContextMenu
@@ -187,7 +223,7 @@ class CommandsPage(QWidget):
         self.tree.setIndentation(21)
         self.tree.setRootIsDecorated(True)
         self.tree.setUniformRowHeights(True)
-        self.tree.setIconSize(QSize(20, 20))
+        self.tree.setIconSize(QSize(26, 26))  # app tiles, as in Luxify
         self.tree.header().setStretchLastSection(False)
         self.tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         # Long voice phrases must not steal the title and action controls' width.
@@ -346,10 +382,12 @@ class CommandsPage(QWidget):
         default_entries = ([] if self._agent_mode else
                            [entry for entry in entries if entry["builtin"] and entry["category"] not in named_groups])
         personal = [entry for entry in entries if entry not in default_entries]
+        discord_entries = [entry for entry in default_entries if self._default_group(entry) == DISCORD_GROUP]
+        default_entries = [entry for entry in default_entries if entry not in discord_entries]
         root = QTreeWidgetItem([tr("Команды по умолчанию", self.interface_language),
                                 f"{len(default_entries)}", "", ""])
         self._set_group_data(root, "defaults", "Команды по умолчанию", default_entries)
-        set_item_icon(root, "folder", widget=self.tree, column=0, role="muted")
+        set_item_app_icon(root, "defaults", widget=self.tree, column=0)
         if not self._agent_mode:
             self.tree.addTopLevelItem(root)
         groups = defaultdict(list)
@@ -365,15 +403,8 @@ class CommandsPage(QWidget):
             category = QTreeWidgetItem([tr(name, self.interface_language),
                                        f"{len(groups[name])}", "", ""])
             self._set_group_data(category, "default:" + name, name, groups[name])
-            set_item_icon(category, {"Управление Windows": "monitor",
-                                     "Управление Google Chrome": "app-window",
-                                     "Управление YouTube": "globe",
-                                     "Управление Telegram": "app-window",
-                                     "Управление Spotify": "app-window",
-                                     "Управление Word": "file-text",
-                                     "Управление Yandex Music": "app-window",
-                                     "Игры Steam": "gamepad-2"}.get(name, "folder"),
-                          widget=self.tree, column=0, role="muted")
+            from luxai.app_icons import GROUP_KEYS
+            set_item_app_icon(category, GROUP_KEYS.get(name, "other"), widget=self.tree, column=0)
             root.addChild(category)
             for entry in groups[name]:
                 self._add_entry(category, entry)
@@ -382,6 +413,16 @@ class CommandsPage(QWidget):
         root.setExpanded(expanded.get("defaults", True))
         if not self._agent_mode:
             self._attach_group_power(root, [item["id"] for item in default_entries])
+        if discord_entries:
+            # Everything Jarvis does in Discord by itself, without the cloud: buttons and shortcuts.
+            discord = QTreeWidgetItem([tr(DISCORD_GROUP, self.interface_language), "", "", ""])
+            self._set_group_data(discord, "default:" + DISCORD_GROUP, DISCORD_GROUP, discord_entries)
+            set_item_app_icon(discord, "discord", widget=self.tree, column=0)
+            self.tree.addTopLevelItem(discord)
+            for entry in discord_entries:
+                self._add_entry(discord, entry)
+            discord.setExpanded(expanded.get("default:" + DISCORD_GROUP, False))
+            self._attach_group_power(discord, [item["id"] for item in discord_entries])
 
         user_groups = defaultdict(list)
         for entry in personal:
@@ -403,7 +444,7 @@ class CommandsPage(QWidget):
                 "Мои команды", "Выученные команды", "Команды агента") else name
             category = QTreeWidgetItem([label, f"{len(items)}", "", ""])
             self._set_group_data(category, "user:" + name, name, items, kind)
-            set_item_icon(category, "folder", widget=self.tree, column=0)
+            set_item_app_icon(category, "folder", widget=self.tree, column=0)
             self.tree.addTopLevelItem(category)
             for entry in items:
                 self._add_entry(category, entry)
@@ -452,8 +493,9 @@ class CommandsPage(QWidget):
         item.setData(0, GROUP_ROLE, {"key": key, "name": name, "kind": kind,
                                     "agent": self._agent_mode,
                                     "ids": [entry["id"] for entry in members]})
-        item.setText(1, tr("{count} команд", self.interface_language).format(count=len(members)))
-        item.setSizeHint(0, QSize(0, 38))
+        item.setText(1, count_label(len(members), self.interface_language))
+        item.setTextAlignment(1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        item.setSizeHint(0, QSize(0, 40))
 
     def _iter_nodes(self):
         def visit(item):
@@ -466,6 +508,8 @@ class CommandsPage(QWidget):
     @staticmethod
     def _default_group(entry):
         category = entry.get("category")
+        if category == "Discord" or (category == "Приложения" and entry.get("target") == "discord"):
+            return DISCORD_GROUP
         if category in ("Windows", "Файлы"):
             return "Управление Windows"
         if category == "Приложения":
@@ -514,10 +558,9 @@ class CommandsPage(QWidget):
         item.setToolTip(0, ", ".join(entry.get("phrases", [])))
         item.setToolTip(1, ", ".join(entry.get("phrases", [])))
         item.setSizeHint(0, QSize(0, 36))
-        set_item_icon(item, CATALOG.get(entry["action"], {}).get("icon", "list-checks"),
-                      widget=self.tree, column=0)
+        set_item_icon(item, _entry_icon(entry), widget=self.tree, column=0, pad=17)
         set_item_icon(item, "power" if entry["enabled"] else "circle-minus",
-                      widget=self.tree, column=4, role="success" if entry["enabled"] else "muted")
+                      widget=self.tree, column=4, role="success" if entry["enabled"] else "muted", pad=19)
         category.addChild(item)
         pencil = LibraryHoverButton(self.tree)
         pencil.setObjectName("LibraryMore")

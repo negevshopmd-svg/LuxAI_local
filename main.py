@@ -246,6 +246,7 @@ class MainWindow(QMainWindow):
     discord_review_ready = Signal(int, object, str, object)
     discord_mic_visual_ready = Signal(str, str)
     discord_headphones_ready = Signal(str, str)
+    discord_audio_offline_ready = Signal(str, str, str)  # text, kind, answer ("" = state not readable)
     discord_call_ready = Signal(str, str)
     discord_quick_ready = Signal(str, str, str)
     steam_profile_ready = Signal(str, str)
@@ -288,6 +289,7 @@ class MainWindow(QMainWindow):
         self.discord_send_ready.connect(self._on_discord_send_ready)
         self.discord_review_ready.connect(self._on_discord_review_ready)
         self.discord_mic_visual_ready.connect(self._on_discord_mic_visual_ready)
+        self.discord_audio_offline_ready.connect(self._on_discord_audio_offline_ready)
         self.discord_headphones_ready.connect(self._on_discord_headphones_ready)
         self.discord_call_ready.connect(self._on_discord_call_ready)
         self.discord_quick_ready.connect(self._on_discord_quick_ready)
@@ -3069,9 +3071,8 @@ class MainWindow(QMainWindow):
                 self._start_discord_mic_visual(text)
                 return
             if not protected_workflow and wants_discord_mic_mute(text):
-                self._current_route = "Discord: глобальная комбинация клавиш"
-                answer = toggle_discord_microphone(self.confirm_action)
-                self._resolved_command(text, answer)
+                # Reads the real button first (0.4.2o): no blind toggle, no question.
+                self._start_discord_audio_offline(text, "mic")
                 return
             # Native keyboard and mouse commands always use local Windows
             # tools, never the cloud task planner. No approval prompt for
@@ -4275,7 +4276,54 @@ class MainWindow(QMainWindow):
             return
         self._resolved_command(text, answer)
 
+    # -- Discord mic / headphones without the cloud (0.4.2o) ------------------------------
+    def _start_discord_audio_offline(self, text, kind):
+        """Read and press Discord's real buttons through UI Automation; the screenshot way only if unreadable."""
+        if kind == "mic":
+            from luxai.voice_desktop import discord_mic_visual_mode
+            mode = {"mute": "off", "unmute": "on"}.get(discord_mic_visual_mode(text) or "", "toggle")
+        else:
+            from luxai.discord_headphones_visual import discord_headphones_mode
+            mode = discord_headphones_mode(text) or "toggle"
+        self._current_route = "Discord: кнопки без облака"
+        self.mic_status.setText("Discord…")
+        language = reply_language(self.cfg, text)
+
+        def worker():
+            try:
+                from luxai.discord_audio import set_discord_audio
+                answer = set_discord_audio(kind, mode, language) or ""
+            except Exception:
+                answer = ""
+            if not self._closed:
+                try:
+                    self.discord_audio_offline_ready.emit(text, kind, answer)
+                except RuntimeError:
+                    pass
+
+        threading.Thread(target=worker, daemon=True, name="JarvisDiscordAudio").start()
+
+    def _on_discord_audio_offline_ready(self, text, kind, answer):
+        if self._closed or not self._processing or self._active_text != text:
+            return
+        if answer:
+            self._resolved_command(text, answer)
+            return
+        # The buttons could not be read: the screenshot way if a cloud AI is on, else Discord's own toggle.
+        if self.online_planner.enabled():
+            (self._start_discord_mic_screenshot if kind == "mic" else self._start_discord_headphones_screenshot)(text)
+            return
+        try:
+            from luxai.discord_audio import force_toggle
+            answer = force_toggle(kind, reply_language(self.cfg, text))
+        except Exception as exc:
+            answer = "Discord: " + str(exc)[:160]
+        self._resolved_command(text, answer)
+
     def _start_discord_headphones_visual(self, text):
+        self._start_discord_audio_offline(text, "deaf")
+
+    def _start_discord_headphones_screenshot(self, text):
         if not self.online_planner.enabled():
             self._resolved_command(text, "Для проверки наушников Discord нужен AI с изображениями.")
             return
@@ -4395,6 +4443,9 @@ class MainWindow(QMainWindow):
         self._resolved_command(text, result)
 
     def _start_discord_mic_visual(self, text):
+        self._start_discord_audio_offline(text, "mic")
+
+    def _start_discord_mic_screenshot(self, text):
         """Restore a specific local visual command without cloud macro planning."""
         if not self.online_planner.enabled():
             self._current_route = "Discord: визуальное управление"

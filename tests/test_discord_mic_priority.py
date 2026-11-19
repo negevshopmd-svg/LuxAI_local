@@ -281,7 +281,7 @@ class DiscordMicPriorityUITests(unittest.TestCase):
             mock.patch.object(window, "_resolved_command") as resolved,
             mock.patch("main.threading.Thread") as thread,
         ):
-            window._start_discord_mic_visual(VOICE)
+            window._start_discord_mic_screenshot(VOICE)  # the cloud fallback since 0.4.2o
         self.assertIn("до закрытия Jarvis", confirm.call_args.args[0])
         self.assertIn("отменено", resolved.call_args.args[1])
         thread.assert_not_called()

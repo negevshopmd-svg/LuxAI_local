@@ -19,6 +19,8 @@ from PySide6.QtWidgets import QComboBox, QLabel, QListWidget, QTreeWidget, QWidg
 ASSET_DIR = Path(__file__).resolve().parent / "assets" / "icons"
 ICON_NAME_ROLE = int(Qt.ItemDataRole.UserRole) + 60
 ICON_COLOR_ROLE = int(Qt.ItemDataRole.UserRole) + 61
+ICON_APP_ROLE = int(Qt.ItemDataRole.UserRole) + 62   # a program's real icon on a tile (luxai.app_icons)
+ICON_PAD_ROLE = int(Qt.ItemDataRole.UserRole) + 63   # draw the glyph this many px inside the icon box
 _theme, _accent = "dark", "#3978f6"
 _ALIASES = {
     "stop-square": "square-stop", "check-circle-2": "circle-check",
@@ -163,20 +165,40 @@ def set_label_icon(label, name, *, size=18, role="default"):
 def _refresh_item(item, widget, *, column=None):
     if column is None:
         name, role = item.data(ICON_NAME_ROLE), item.data(ICON_COLOR_ROLE)
+        app, pad = item.data(ICON_APP_ROLE), item.data(ICON_PAD_ROLE)
     else:
         name, role = item.data(column, ICON_NAME_ROLE), item.data(column, ICON_COLOR_ROLE)
-    if name:
+        app, pad = item.data(column, ICON_APP_ROLE), item.data(column, ICON_PAD_ROLE)
+    box = widget.iconSize().width() if hasattr(widget, "iconSize") else 20
+    if app:
+        from luxai.app_icons import tile_icon
+        theme, _accent_value = _context(widget)
+        value = tile_icon(str(app), theme, size=box)
+    elif name:
         value = icon(str(name), color=_color(str(role or "default"), widget))
-        item.setIcon(value) if column is None else item.setIcon(column, value)
+        if pad:
+            from luxai.app_icons import padded_icon
+            value = padded_icon(value, int(pad), size=box)
+    else:
+        return
+    item.setIcon(value) if column is None else item.setIcon(column, value)
 
 
-def set_item_icon(item, name, *, widget, column=None, role="default"):
+def set_item_icon(item, name, *, widget, column=None, role="default", pad=None):
     if column is None:
         item.setData(ICON_NAME_ROLE, name)
         item.setData(ICON_COLOR_ROLE, role)
+        item.setData(ICON_PAD_ROLE, pad)
     else:
         item.setData(column, ICON_NAME_ROLE, name)
         item.setData(column, ICON_COLOR_ROLE, role)
+        item.setData(column, ICON_PAD_ROLE, pad)
+    _refresh_item(item, widget, column=column)
+
+
+def set_item_app_icon(item, key, *, widget, column=0):
+    """The real icon of a program (Chrome, Telegram, Discord…) on a rounded tile; follows the theme."""
+    item.setData(column, ICON_APP_ROLE, key)
     _refresh_item(item, widget, column=column)
 
 

@@ -204,7 +204,8 @@ class VisualRoutingTests(unittest.TestCase):
             mock.patch.object(window, "_resolved_command") as done,
             mock.patch("main.threading.Thread") as thread,
         ):
-            window._start_discord_headphones_visual("Выключи наушники в Discord")
+            # 0.4.2o: buttons are read offline first; the cloud screenshot path still asks for consent.
+            window._start_discord_headphones_screenshot("Выключи наушники в Discord")
         thread.assert_not_called()
         self.assertIn("отменён", done.call_args.args[1])
 
