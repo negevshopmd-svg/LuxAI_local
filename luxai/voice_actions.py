@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from luxai.fast_intents import command_text, strip_wake_name
+from luxai.fast_intents import command_text
 from luxai.action_catalog import HOTKEYS, SINGLE_KEYS, validate_step
 
 KEY_WORDS = {

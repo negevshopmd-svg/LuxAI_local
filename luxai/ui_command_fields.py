@@ -1,6 +1,6 @@
 """Wrapping, editable phrase chips used by the command editor."""
 from PySide6.QtCore import QPoint, QRect, QSize, Signal
-from PySide6.QtWidgets import QHBoxLayout, QLayout, QLineEdit, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLayout, QLineEdit, QPushButton, QVBoxLayout, QWidget
 
 
 class FlowLayout(QLayout):

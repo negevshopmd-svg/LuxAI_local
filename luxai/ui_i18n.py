@@ -815,6 +815,10 @@ Windows не удалось зарегистрировать сочетание.
 Пролистать чат вниз|||Scroll the chat down|||Derulează chatul în jos
 Настройки Discord|||Discord settings|||Setările Discord
 Горячие клавиши Discord|||Discord shortcuts|||Scurtăturile Discord
+Перевожу…|||Translating…|||Traduc…
+Расширение не смогло выполнить запрос: |||An extension could not handle the request: |||O extensie nu a putut executa cererea: 
+Ключи API не изменены.|||API keys were not changed.|||Cheile API nu au fost schimbate.
+config.json был повреждён — настройки сброшены, копия сохранена: |||config.json was damaged — settings were reset, a copy was kept: |||config.json era deteriorat — setările au fost resetate, copia a fost păstrată: 
 """
 
 # Every entry is a Russian source string and an English/Romanian translation.

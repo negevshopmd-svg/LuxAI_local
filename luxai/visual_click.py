@@ -10,12 +10,10 @@ from __future__ import annotations
 import base64
 from dataclasses import dataclass
 import io
-import json
 import re
 import sys
 import time
 import math
-from typing import Callable
 
 
 MAX_IMAGE_BYTES = 1_200_000

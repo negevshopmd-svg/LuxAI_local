@@ -1,5 +1,5 @@
 """Integrated window header with native move/resize and accessible controls."""
-from PySide6.QtCore import Signal, QEvent, QObject, QPoint, QRect, Qt
+from PySide6.QtCore import Signal, QEvent, QObject, QRect, Qt
 from PySide6.QtWidgets import QHBoxLayout, QPushButton, QWidget
 
 from luxai.icons import set_button_icon

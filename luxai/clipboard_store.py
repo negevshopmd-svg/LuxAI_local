@@ -121,9 +121,16 @@ class ClipboardHistory:
         return self._push(item, "i:" + digest)
 
     # -- limits --
-    def trim(self, keep: int) -> None:
+    def trim(self, keep: int, budget: int = 160 * 1024 * 1024) -> None:
         ordinary = [item for item in self.items if not item.get("pinned")]
         for item in ordinary[max(1, int(keep)):]:
+            self.items.remove(item)
+        # A total size limit: the oldest unpinned pictures go first, so memory and the saved file stay bounded.
+        total = sum(len(item.get("png") or b"") + len(item.get("thumb") or b"") for item in self.items)
+        for item in reversed([entry for entry in self.items if entry["kind"] == "image" and not entry.get("pinned")]):
+            if total <= budget:
+                break
+            total -= len(item.get("png") or b"") + len(item.get("thumb") or b"")
             self.items.remove(item)
 
     def prune(self, max_age_days: int, now: float | None = None) -> None:
@@ -136,10 +143,17 @@ class ClipboardHistory:
     def find(self, item_id: int) -> dict | None:
         return next((item for item in self.items if item["id"] == item_id), None)
 
+    PINNED_IMAGE_BUDGET = 64 * 1024 * 1024
+
     def toggle_pin(self, item_id: int) -> bool:
         item = self.find(item_id)
         if item is None:
             return False
+        if not item.get("pinned") and item["kind"] == "image":
+            pinned = sum(len(entry.get("png") or b"") for entry in self.items
+                         if entry.get("pinned") and entry["kind"] == "image")
+            if pinned + len(item.get("png") or b"") > self.PINNED_IMAGE_BUDGET:
+                return False  # pinned pictures are exempt from trimming, so they have their own limit
         item["pinned"] = not item.get("pinned")
         return item["pinned"]
 
@@ -196,9 +210,14 @@ class ClipboardHistory:
         from luxai.secure_keys import _win_crypt
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        temp = path.with_suffix(".tmp")
-        temp.write_bytes(FILE_MAGIC + _win_crypt(self.to_bytes(), True))
-        temp.replace(path)
+        import os as _os
+        import uuid as _uuid
+        temp = path.with_name(f"{path.name}.{_os.getpid()}.{_uuid.uuid4().hex[:6]}.tmp")  # unique (audit #12)
+        try:
+            temp.write_bytes(FILE_MAGIC + _win_crypt(self.to_bytes(), True))
+            temp.replace(path)
+        finally:
+            temp.unlink(missing_ok=True)
         return True
 
     def load(self, path: Path) -> bool:

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import importlib.util
-from pathlib import Path
 import threading
 
 from PySide6.QtCore import QEvent, QObject, QTimer, Signal, Slot

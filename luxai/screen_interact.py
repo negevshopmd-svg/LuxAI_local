@@ -20,7 +20,7 @@ from luxai.fast_intents import strip_wake_name
 from luxai.win32 import get_user32, hwnd_value
 
 BUTTON_NAMES = {
-    "yes": {"yes", "y", "да", "да!", "da", "oui", "так", "ok", "okay", "ок", "confirm", "confirmă", "confirm",
+    "yes": {"yes", "y", "да", "да!", "da", "oui", "так", "ok", "okay", "ок", "confirm", "confirmă",
             "accept", "acceptă", "accepta"},
     "no": {"no", "нет", "nu", "cancel", "отмена", "отменить", "отклонить"},
 }

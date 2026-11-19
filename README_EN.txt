@@ -1,4 +1,11 @@
-LUXAI LOCAL (JARVIS) 0.4.2q — UPDATE 2026-11-19
+LUXAI LOCAL (JARVIS) 0.4.2r — UPDATE 2026-11-19
+
+0.4.2r: Fixed the findings of the 19 November audit: the clipboard no longer causes native
+errors, dictation never types into another window, video conversion keeps frame times,
+alarms are not lost, reminders keep their message, translation keeps punctuation and no
+longer freezes the window, Telegram does not hang, one Jarvis per folder, the update
+closes Jarvis safely, checks the updater against GitHub's hash, restores libraries on
+failure and tells the truth about the restore.
 
 0.4.2q: The Discord microphone works without the cloud in Russian Discord too: the button is
 «Заглушить», the headphones «Откл. звук»; Jarvis reads and presses them directly.

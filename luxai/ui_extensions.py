@@ -11,14 +11,14 @@ import copy
 from PySide6.QtCore import QEvent, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import (
-    QButtonGroup, QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout, QFrame, QGridLayout,
-    QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea,
-    QSizePolicy, QSpinBox, QStackedWidget, QVBoxLayout, QWidget,
+    QButtonGroup, QCheckBox, QFrame, QGridLayout,
+    QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea,
+    QSizePolicy, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from luxai.extensions_catalog import (
     CATEGORIES, CONNECTIONS, PLUGINS, PLUGIN_BY_ID, Plugin, enabled_count, matches,
-    normalize_state, text, ui, validate_value,
+    normalize_state, text, ui,
 )
 from luxai.icons import icon, set_button_icon
 from luxai.ui_home import ToggleSwitch

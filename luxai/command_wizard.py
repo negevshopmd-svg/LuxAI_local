@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 
-from luxai.command_registry import APP_TARGETS, CommandRegistry, checked_command
+from luxai.command_registry import CommandRegistry, checked_command
 from luxai.fast_intents import strip_wake_name, has_launch_verb
 from luxai.file_actions import parse_file_intent
 from luxai.steam_games import local_game_intent, GAMES

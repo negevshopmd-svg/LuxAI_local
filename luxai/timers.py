@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import math
 import os
 import re
 import uuid
@@ -78,6 +79,8 @@ def parse_duration(text: str) -> int | None:
             value = re.sub(pattern, " ", value)
     for unit, unit_pattern in _UNITS.items():
         for match in re.finditer(r"(?<![\w:])" + _NUMBER + r"\s*" + unit_pattern + r"(?!\w)", value, re.I):
+            if re.search(r"[-−–]\s*$", value[:match.start()]):
+                return None  # «-5 minutes» is not five minutes (audit #16)
             total += int(round(_number(match.group(1)) * _FACTOR[unit]))
     if total == 0:
         # A bare unit means one: «на минуту», «на час», «на секунду».
@@ -112,14 +115,51 @@ def parse_clock(text: str, now: dt.datetime) -> dt.datetime | None:
     return target
 
 
-def _label(text: str) -> str:
-    """Words after the time in a reminder: «… через 20 минут выключить плиту»."""
+_DURATION_PART = re.compile(
+    r"(?<![\w:])" + _NUMBER + r"\s*(?:" + "|".join(_UNITS.values()) + r")(?!\w)|полчаса|пол\s*часа|полтора\s+часа|"
+    r"half\s+an\s+hour|quarter\s+of\s+an\s+hour|четверть\s+часа|o\s+jum[aă]tate\s+de\s+or[aă]", re.I)
+_JOIN = re.compile(r"^\s*(?:,|и|and|și|si)?\s*$", re.I)
+
+
+def _first_duration(text: str) -> tuple[str, str]:
+    """(the first duration phrase with its compound parts, the words after it).
+
+    «remind me in 5 minutes to check the oven for 2 minutes» → ("5 minutes", "to check the oven for 2 minutes"):
+    only the first clause sets the time; the rest is the message (audit #15).
+    """
     value = str(text or "")
-    pieces = re.split(r"(?:\d+\s*(?:" + "|".join(_UNITS.values()) + r")|полчаса|полтора\s+часа|half\s+an\s+hour)",
-                      value, flags=re.I)
-    tail = pieces[-1] if len(pieces) > 1 else ""
-    tail = re.sub(r"^[\s,.:;—-]*(?:что(?:бы)?|о\s+том,?\s+что(?:бы)?|să|sa|to|about)?\s*", "", tail, flags=re.I).strip(" .,!?")
+    matches = list(_DURATION_PART.finditer(value))
+    if not matches:
+        return "", ""
+    end = matches[0].end()
+    parts = [matches[0].group(0)]
+    for match in matches[1:]:
+        if _JOIN.match(value[end:match.start()]):
+            parts.append(match.group(0))
+            end = match.end()
+        else:
+            break
+    return " ".join(parts), value[end:]
+
+
+def _clean_label(tail: str) -> str:
+    tail = re.sub(r"^[\s,.:;—-]*(?:что(?:бы)?|о\s+том,?\s+что(?:бы)?|să|sa|to|about|that)?\s*", "", tail,
+                  flags=re.I).strip(" .,!?")
     return tail[:80]
+
+
+def _label(text: str) -> str:
+    """Words after the time in a reminder: «… через 20 минут выключить плиту», «in five minutes to call Ana»."""
+    return _clean_label(_first_duration(text)[1])
+
+
+def _clock_label(text: str) -> str:
+    """Words after the clock time in «remind me at 09:30 to call Ana»."""
+    value = str(text or "")
+    match = re.search(r"(?<!\d)\d{1,2}[:.]\d{2}(?!\d)(?:\s*(?:am|pm|a\.m\.|p\.m\.|утра|вечера|дня))?", value, re.I)
+    if not match:
+        match = re.search(r"(?:\bв\b|\bla\b|\bat\b|\bora\b)\s+\d{1,2}(?:\s*(?:am|pm|утра|вечера|дня))?", value, re.I)
+    return _clean_label(value[match.end():]) if match else ""
 
 
 @dataclass
@@ -141,8 +181,8 @@ def parse_request(text: str, now: dt.datetime | None = None) -> Request | None:
     timerish = bool(_TIMER_WORDS.search(lowered))
     alarmish = bool(_ALARM_WORDS.search(lowered))
     remind = bool(_REMIND_WORDS.search(lowered))
-    if _LIST_WORDS.search(lowered):
-        return Request("list")
+    if _LIST_WORDS.search(lowered) and (timerish or alarmish or len(lowered.split()) <= 4):
+        return Request("list")  # a long general question («… left in this video») goes to the chat (audit #16)
     if (timerish or alarmish) and _CANCEL_WORDS.search(lowered) and not re.search(r"\bна\s+\d|\bfor\s+\d|\bde\s+\d", lowered):
         return Request("cancel", all=bool(_ALL_WORDS.search(lowered)),
                        label="alarm" if alarmish and not timerish else ("timer" if timerish and not alarmish else ""))
@@ -155,13 +195,19 @@ def parse_request(text: str, now: dt.datetime | None = None) -> Request | None:
             return Request("alarm", at=now + dt.timedelta(seconds=seconds))
         return None
     if timerish or remind:
-        seconds = parse_duration(lowered)
-        if seconds:
-            return Request("timer", seconds=seconds, label=_label(value) if remind else "")
         if remind:
+            # Only the first clause sets the time; a duration inside the message stays in it.
+            first, _tail = _first_duration(value)
+            seconds = parse_duration(first) if first else None
+            if seconds:
+                return Request("timer", seconds=seconds, label=_label(value))
             at = parse_clock(lowered, now)
             if at is not None:
-                return Request("alarm", at=at, label=_label(re.sub(r"\d{1,2}[:.]\d{2}", "", value)))
+                return Request("alarm", at=at, label=_clock_label(value))
+            return None
+        seconds = parse_duration(lowered)
+        if seconds:
+            return Request("timer", seconds=seconds)
     return None
 
 
@@ -223,6 +269,9 @@ def new_timer(kind: str, due: float, label: str = "", duration: int = 0) -> Time
     return Timer(uuid.uuid4().hex[:12], kind, float(due), str(label or "")[:80], int(duration))
 
 
+_LATEST = dt.datetime(2200, 1, 1).timestamp()
+
+
 class TimerStore:
     def __init__(self, path: Path):
         self.path = Path(path)
@@ -239,41 +288,54 @@ class TimerStore:
             try:
                 if entry.get("kind") not in ("timer", "alarm"):
                     continue
-                items.append(Timer(str(entry["id"])[:20], entry["kind"], float(entry["due"]),
-                                   str(entry.get("label", ""))[:80], int(entry.get("duration", 0)),
-                                   float(entry.get("created", 0))))
-            except (KeyError, TypeError, ValueError, AttributeError):
+                due, created = float(entry["due"]), float(entry.get("created", 0))
+                # NaN / infinity / year 3000 would break the countdown or never ring (audit #17).
+                if not (math.isfinite(due) and math.isfinite(created) and 0 < due < _LATEST):
+                    continue
+                duration = int(entry.get("duration", 0))
+                if not 0 <= duration <= MAX_SECONDS:
+                    continue
+                items.append(Timer(str(entry["id"])[:20], entry["kind"], due,
+                                   str(entry.get("label", ""))[:80], duration, created))
+            except (KeyError, TypeError, ValueError, AttributeError, OverflowError):
                 continue
         self.items = sorted(items, key=lambda item: item.due)[:MAX_TIMERS]
 
-    def save(self):
+    def save(self, items: list[Timer] | None = None):
+        items = self.items if items is None else items
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        staging = self.path.with_name(self.path.name + ".tmp")
-        staging.write_text(json.dumps([asdict(item) for item in self.items], ensure_ascii=False, indent=1), encoding="utf-8")
-        os.replace(staging, self.path)
+        staging = self.path.with_name(f"{self.path.name}.{os.getpid()}.{uuid.uuid4().hex[:6]}.tmp")
+        try:
+            staging.write_text(json.dumps([asdict(item) for item in items], ensure_ascii=False, indent=1), encoding="utf-8")
+            os.replace(staging, self.path)
+        finally:
+            staging.unlink(missing_ok=True)
+
+    def _commit(self, items: list[Timer]) -> None:
+        """Write first, change the list after: a failed save leaves memory and disk the same (audit #18)."""
+        items = sorted(items, key=lambda item: item.due)
+        self.save(items)
+        self.items = items
 
     def add(self, timer: Timer) -> Timer:
         if len(self.items) >= MAX_TIMERS:
             raise ValueError("too many timers")
-        self.items.append(timer)
-        self.items.sort(key=lambda item: item.due)
-        self.save()
+        self._commit(self.items + [timer])
         return timer
 
     def remove(self, identifier: str) -> bool:
-        before = len(self.items)
-        self.items = [item for item in self.items if item.id != identifier]
-        if len(self.items) != before:
-            self.save()
-            return True
-        return False
+        remaining = [item for item in self.items if item.id != identifier]
+        if len(remaining) == len(self.items):
+            return False
+        self._commit(remaining)
+        return True
 
     def clear(self, kind: str = "") -> int:
-        before = len(self.items)
-        self.items = [item for item in self.items if kind and item.kind != kind]
-        if len(self.items) != before:
-            self.save()
-        return before - len(self.items)
+        remaining = [item for item in self.items if kind and item.kind != kind]
+        removed = len(self.items) - len(remaining)
+        if removed:
+            self._commit(remaining)
+        return removed
 
     def due(self, now: float | None = None) -> list[Timer]:
         now = dt.datetime.now().timestamp() if now is None else now

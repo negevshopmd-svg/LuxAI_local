@@ -13,7 +13,7 @@ import os
 import sys
 import threading
 
-from luxai.action_catalog import HOTKEYS, SINGLE_KEYS, validate_step
+from luxai.action_catalog import HOTKEYS, validate_step
 
 
 class RecordingBuffer:

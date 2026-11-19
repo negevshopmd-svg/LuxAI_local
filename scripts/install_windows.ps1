@@ -10,8 +10,11 @@ $script:VenvPythonw = Join-Path $script:Venv 'Scripts\pythonw.exe'
 $script:LogDir = Join-Path $script:Root 'logs'
 $script:LogFile = Join-Path $script:LogDir 'install_windows.log'
 
-New-Item -ItemType Directory -Path $script:LogDir -Force | Out-Null
-"===== LuxAI setup $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') =====" | Out-File -LiteralPath $script:LogFile -Append -Encoding UTF8
+if (-not $CheckVenv) {
+    # The quick check before every start is read-only: no log folder needed (audit #34).
+    New-Item -ItemType Directory -Path $script:LogDir -Force | Out-Null
+    "===== LuxAI setup $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') =====" | Out-File -LiteralPath $script:LogFile -Append -Encoding UTF8
+}
 
 # ---- Setup window (0.4.2l): scripts\setup_ui.ps1 shows what happens here ----
 $script:UiEvents = $null
@@ -50,22 +53,47 @@ function Start-SetupWindow {
     }
 }
 
-function Stop-RunningJarvis {
-    # A running Jarvis locks its libraries: close the one of THIS folder (the elevated one via its task).
-    try { & schtasks.exe /End /TN 'LuxAI Jarvis (admin)' *> $null } catch { }
+function Test-AdminTaskIsOurs {
+    # The admin task of ANOTHER installation is never ended (audit #6).
+    try {
+        $xml = (& schtasks.exe /Query /TN 'LuxAI Jarvis (admin)' /XML 2>$null) -join "`n"
+    } catch { return $false }
+    $match = [regex]::Match($xml, '<WorkingDirectory>(.*?)</WorkingDirectory>')
+    if (-not $match.Success) { return $false }
+    $folder = [System.Net.WebUtility]::HtmlDecode($match.Groups[1].Value).TrimEnd('\')
+    return ([IO.Path]::GetFullPath($folder) -ieq [IO.Path]::GetFullPath($script:Root).TrimEnd('\'))
+}
+
+function Get-JarvisProcesses {
     $root = [IO.Path]::GetFullPath($script:Root).TrimEnd('\') + '\'
-    $closed = 0
-    Get-CimInstance Win32_Process -Filter "Name='Jarvis.exe' OR Name='pythonw.exe' OR Name='python.exe'" -ErrorAction SilentlyContinue | Where-Object {
+    @(Get-CimInstance Win32_Process -Filter "Name='Jarvis.exe' OR Name='pythonw.exe' OR Name='python.exe'" -ErrorAction SilentlyContinue | Where-Object {
         $_.ProcessId -ne $PID -and $_.ExecutablePath -and
         ([IO.Path]::GetFullPath($_.ExecutablePath)).StartsWith($root, [StringComparison]::OrdinalIgnoreCase) -and
-        ($_.Name -eq 'Jarvis.exe' -or $_.CommandLine -match 'main\.py')
-    } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; $closed++ }
-    if ($closed) { Write-Status "Closed the running Jarvis ($closed process(es)) before setup."; Start-Sleep -Milliseconds 1500 }
+        ($_.Name -eq 'Jarvis.exe' -or $_.CommandLine -match '(main|launch_windows)\.py')
+    })
+}
+
+function Stop-RunningJarvis {
+    # A running Jarvis locks its libraries: close the one of THIS folder, also when started as
+    # pythonw launch_windows.py, and wait until it really exited (audit #5).
+    if (Test-AdminTaskIsOurs) {
+        try { & schtasks.exe /End /TN 'LuxAI Jarvis (admin)' *> $null } catch { }
+    }
+    $found = Get-JarvisProcesses
+    foreach ($process in $found) { Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue }
+    for ($i = 0; $i -lt 30 -and (Get-JarvisProcesses).Count; $i++) { Start-Sleep -Milliseconds 500 }
+    $left = Get-JarvisProcesses
+    if ($left.Count) {
+        throw "Jarvis is still running (PID $(($left | ForEach-Object ProcessId) -join ', ')). Close it from the tray and run install_windows.bat again."
+    }
+    if ($found.Count) { Write-Status "Closed the running Jarvis ($($found.Count) process(es)) before setup."; Start-Sleep -Milliseconds 1000 }
 }
 
 function Write-Status([string]$Message) {
     Write-Host $Message
-    Add-Content -LiteralPath $script:LogFile -Value $Message -Encoding UTF8
+    if (-not $CheckVenv) {
+        try { Add-Content -LiteralPath $script:LogFile -Value $Message -Encoding UTF8 } catch { }
+    }
     Send-Ui @{ t = 'log'; text = $Message }
 }
 
@@ -285,10 +313,13 @@ function Test-UsableVenv {
 }
 
 if ($CheckVenv) {
-    if (Test-UsableVenv) {
-        exit 0
+    if (-not (Test-UsableVenv)) {
+        exit 1
     }
-    exit 1
+    # A valid Python without the app's libraries is not ready to start Jarvis (audit #34).
+    & $script:VenvPython -I -c "import PySide6.QtWidgets, numpy" 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) { exit 1 }
+    exit 0
 }
 
 function Invoke-PythonStep([string]$Executable, [string[]]$Arguments, [string]$Title) {

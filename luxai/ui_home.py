@@ -11,10 +11,10 @@ import time
 from PySide6.QtCore import QRectF, Qt, QTimer
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
-    QCheckBox, QFrame, QHBoxLayout, QLabel, QProgressBar, QPushButton, QScrollArea, QSlider, QTextEdit,
+    QCheckBox, QFrame, QHBoxLayout, QLabel, QProgressBar, QScrollArea, QSlider, QTextEdit,
     QSizePolicy, QVBoxLayout, QWidget,
 )
-from luxai.icons import set_button_icon, set_label_icon
+from luxai.icons import set_label_icon
 from luxai.styles import theme_colors, mix_colors
 
 

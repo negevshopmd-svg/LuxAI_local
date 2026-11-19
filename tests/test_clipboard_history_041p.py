@@ -134,12 +134,12 @@ class RuntimeTests(unittest.TestCase):
         data.setText("hunter2 password")
         with mock.patch.object(QApplication.clipboard(), "mimeData", return_value=data), \
                 mock.patch("luxai.clipboard_store.clipboard_owner_app", return_value="KeePassXC.exe"):
-            self.runtime._on_clipboard()
+            self.runtime._read_clipboard_now()
         self.assertEqual(self.runtime.clip_history.items, [])
         data.setData('application/x-qt-windows-mime;value="ExcludeClipboardContentFromMonitorProcessing"', b"")
         with mock.patch.object(QApplication.clipboard(), "mimeData", return_value=data), \
                 mock.patch("luxai.clipboard_store.clipboard_owner_app", return_value="notepad.exe"):
-            self.runtime._on_clipboard()
+            self.runtime._read_clipboard_now()
         self.assertEqual(self.runtime.clip_history.items, [])
 
     def test_text_with_html_and_images_are_kept(self):
@@ -148,24 +148,43 @@ class RuntimeTests(unittest.TestCase):
         data.setHtml("<b>hello</b> world")
         with mock.patch.object(QApplication.clipboard(), "mimeData", return_value=data), \
                 mock.patch("luxai.clipboard_store.clipboard_owner_app", return_value="WINWORD.EXE"):
-            self.runtime._on_clipboard()
+            self.runtime._read_clipboard_now()
         item = self.runtime.clip_history.items[0]
         self.assertEqual((item["text"], item["app"]), ("hello world", "WINWORD.EXE"))
         self.assertIn("<b>hello</b>", item["html"])
         image = QImage(40, 30, QImage.Format.Format_RGB32)
         image.fill(Qt.GlobalColor.red)
         self.runtime._remember_image(image, "SnippingTool.exe")
+        import time as _time
+        end = _time.time() + 5  # encoded on a worker thread since 0.4.2r (audit #13)
+        while self.runtime.clip_history.items[0]["kind"] != "image" and _time.time() < end:
+            QApplication.processEvents()
+            _time.sleep(0.01)
         picture = self.runtime.clip_history.items[0]
         self.assertEqual(picture["kind"], "image")
         self.assertEqual(picture["size"], [40, 30])
         self.assertTrue(picture["thumb"].startswith(b"\x89PNG"))
+
+    def test_reading_waits_for_the_clipboard_notification_to_end(self):
+        """Reading OLE data inside dataChanged crashed with 0x8001010D (audit #1): it is deferred."""
+        with mock.patch.object(self.runtime, "_read_clipboard_now") as read:
+            self.runtime._on_clipboard()
+            read.assert_not_called()
+            self.assertTrue(self.runtime._clip_read_timer.isActive())
+        self.runtime._clip_read_timer.stop()
+
+    def test_nothing_is_read_after_stop(self):
+        self.runtime._stopping = True
+        self.runtime._on_clipboard()
+        self.assertFalse(self.runtime._clip_read_timer.isActive())
+        self.runtime._stopping = False
 
     def test_jarvis_own_temporary_copies_are_skipped(self):
         store.suppress(2)
         data = QMimeData()
         data.setText("selection copied for read aloud")
         with mock.patch.object(QApplication.clipboard(), "mimeData", return_value=data):
-            self.runtime._on_clipboard()
+            self.runtime._read_clipboard_now()
         self.assertEqual(self.runtime.clip_history.items, [])
         store._suppress_until = 0.0
 

@@ -6,7 +6,6 @@ launches an executable/shortcut discovered on the current user's machine.
 """
 from __future__ import annotations
 
-import glob
 import ctypes
 import os
 from pathlib import Path

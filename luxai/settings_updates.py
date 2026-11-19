@@ -31,13 +31,18 @@ CHANGELOG_URL = "https://github.com/negevshopmd-svg/LuxAI_local/blob/main/CHANGE
 _VERSION = re.compile(r"v?(\d+)\.(\d+)\.(\d+)(?:\.?([a-z]+))?", re.IGNORECASE)
 
 
-def version_key(value: str) -> tuple[int, int, int, str]:
-    """Support both historical 0.3.9.e and compact 0.3.9g patch labels."""
+def version_key(value: str) -> tuple[int, int, int, tuple[int, str]]:
+    """Support both historical 0.3.9.e and compact 0.3.9g patch labels.
+
+    Letter counters grow like spreadsheet columns: … y, z, aa, ab — so a longer suffix is newer
+    (plain string order put 0.4.2aa before 0.4.2z, audit #39).
+    """
     match = _VERSION.fullmatch(str(value).strip())
     if not match:
         raise ValueError("Invalid application version")
     major, minor, patch, suffix = match.groups()
-    return int(major), int(minor), int(patch), (suffix or "").lower()
+    suffix = (suffix or "").lower()
+    return int(major), int(minor), int(patch), (len(suffix), suffix)
 
 
 def fetch_latest_version() -> str:
@@ -70,15 +75,29 @@ kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
 kernel.WaitForSingleObject.restype = wintypes.DWORD
 kernel.CloseHandle.argtypes = [wintypes.HANDLE]
 kernel.CloseHandle.restype = wintypes.BOOL
+def give_up():
+    # Never a silent exit (audit #36): the user sees why the update did not start.
+    try:
+        log = root / "logs" / "update_handoff.log"
+        log.parent.mkdir(exist_ok=True)
+        with log.open("a", encoding="utf-8") as stream:
+            stream.write("Jarvis did not exit within 60 s; Update.bat was not started.\n")
+    except OSError:
+        pass
+    ctypes.windll.user32.MessageBoxW(None, "Jarvis не закрылся за минуту, поэтому обновление не запущено.\n"
+                                     "Закройте Jarvis (значок в трее) и запустите Update.bat.\n\n"
+                                     "Jarvis nu s-a închis într-un minut; actualizarea nu a pornit. "
+                                     "Închide-l și rulează Update.bat.", "Jarvis", 0x30)
+    sys.exit(1)
 handle = kernel.OpenProcess(0x00100000, False, pid)
 if handle:
     try:
         if kernel.WaitForSingleObject(handle, 60000) != 0:
-            sys.exit(1)
+            give_up()
     finally:
         kernel.CloseHandle(handle)
 elif ctypes.get_last_error() != 87:
-    sys.exit(1)
+    give_up()
 subprocess.Popen([os.environ.get("COMSPEC", "cmd.exe"), "/d", "/c", "Update.bat"],
                  cwd=str(root), creationflags=subprocess.CREATE_NEW_CONSOLE)
 '''

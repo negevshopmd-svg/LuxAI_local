@@ -310,12 +310,22 @@ def press_virtual_key(code: int) -> None:
     user32.keybd_event(code, 0, 0x0001 | 0x0002, 0)  # + KEYEVENTF_KEYUP
 
 
-def _set_foreground(hwnd: int) -> None:
-    if sys.platform == "win32" and hwnd:
-        try:
-            ctypes.windll.user32.SetForegroundWindow(hwnd)
-        except OSError:
-            pass
+def _set_foreground(hwnd: int) -> bool:
+    """Bring ``hwnd`` forward; True only when it exists and really is the foreground window now."""
+    if sys.platform != "win32" or not hwnd:
+        return False
+    try:
+        user32 = ctypes.windll.user32
+        if not user32.IsWindow(hwnd):
+            return False
+        user32.SetForegroundWindow(hwnd)
+        for _ in range(10):
+            if int(user32.GetForegroundWindow() or 0) == int(hwnd):
+                return True
+            time.sleep(0.03)
+    except OSError:
+        return False
+    return False
 
 
 def _send_paste() -> None:
@@ -582,6 +592,10 @@ def _tr3(ru, en, ro, language):
     return {"ru": ru, "en": en, "ro": ro}.get(language, ru)
 
 
+class AsyncReply(str):
+    """Returned by a chat handler that answers later through ``ExtensionsRuntime.chat_reply``."""
+
+
 class ExtensionsRuntime(QObject):
     """Starts/stops ready plugins. ``host`` is the MainWindow-like object.
 
@@ -590,6 +604,7 @@ class ExtensionsRuntime(QObject):
     """
     hotkey = Signal(str)
     notice = Signal(str)
+    chat_reply = Signal(str, str)  # reply, voice language ("" = Jarvis' own) — answers that come later
     dictation_result = Signal(str, str, bool)  # text, error, test
     dictation_done = Signal(str)  # last dictated text, for the settings page
     _read_chunk = Signal(str, str, int)  # text, language, reading generation
@@ -611,6 +626,7 @@ class ExtensionsRuntime(QObject):
     _cap_translated = Signal(str, str)
     _cap_error = Signal(str)
     _clip_ai_ready = Signal(str, str)  # mode, result ("" = failed)
+    _clip_image_ready = Signal(bytes, bytes, int, int, str)  # png, thumb, width, height, app
 
     def __init__(self, host, parent=None):
         super().__init__(parent)
@@ -624,6 +640,13 @@ class ExtensionsRuntime(QObject):
         self._clip_save_timer.setSingleShot(True)
         self._clip_save_timer.setInterval(1500)
         self._clip_save_timer.timeout.connect(self._save_clip_history)
+        self._clip_read_timer = QTimer(self)
+        self._clip_read_timer.setSingleShot(True)
+        self._clip_read_timer.setInterval(60)
+        self._clip_read_timer.timeout.connect(self._read_clipboard)
+        self._clip_image_ready.connect(self._on_clip_image_ready)
+        self._clip_save_lock = threading.Lock()
+        self._stopping = False
         self._clip_ai_ready.connect(self._on_clip_ai_ready)
         self.captions_visible = False
         self._captions_bar = None
@@ -1226,6 +1249,18 @@ class ExtensionsRuntime(QObject):
         return None
 
     def stop(self):
+        self._stopping = True  # late clipboard / dictation / translation callbacks do nothing now
+        clipboard = QApplication.clipboard() if QApplication.instance() else None
+        if clipboard is not None and self._clipboard_connected:
+            try:
+                clipboard.dataChanged.disconnect(self._on_clipboard)
+            except (RuntimeError, TypeError):
+                pass
+            self._clipboard_connected = False
+        self._clip_read_timer.stop()
+        if self._clip_save_timer.isActive():
+            self._clip_save_timer.stop()
+            self._save_clip_history(wait=True)  # the last copies are not lost on close (audit #14)
         self._close_avatar()
         self.hide_captions()
         self._notif_timer.stop()
@@ -1374,6 +1409,7 @@ class ExtensionsRuntime(QObject):
             self._notify(self._dictation_words("mic") + str(error))
             return False
         self._recorder = recorder
+        self._dictation_gen = getattr(self, "_dictation_gen", 0) + 1
         self._dictation_test = test
         self._dictation_source = source
         self._dictation_target = 0 if test else (target if target is not None else _foreground_window())
@@ -1413,6 +1449,8 @@ class ExtensionsRuntime(QObject):
 
     def cancel_dictation(self):
         from luxai.dictation import DICTATION_ACTIVE
+        self._dictation_gen = getattr(self, "_dictation_gen", 0) + 1  # a running transcription is dropped
+        self._dictation_busy = False
         self._dictation_timer.stop()
         if self._recorder is not None:
             self._recorder.stop()
@@ -1443,6 +1481,10 @@ class ExtensionsRuntime(QObject):
         planner = getattr(self.host, "online_planner", None)
         test = self._dictation_test
         self._dictation_busy = True
+        generation = getattr(self, "_dictation_gen", 0)
+
+        def current() -> bool:
+            return generation == getattr(self, "_dictation_gen", 0) and not getattr(self, "_stopping", False)
 
         def work():
             try:
@@ -1450,9 +1492,12 @@ class ExtensionsRuntime(QObject):
                 if model is None:
                     model = dictation.load_model(cfg.get("whisper_model_path") or cfg.get("whisper_model") or "small")
                 text = dictation.transcribe(model, audio, language, int(cfg.get("whisper_beam_size", 1) or 1))
-                self.dictation_result.emit(self.finish_text(text, settings, planner), "", test)
+                result = (self.finish_text(text, settings, planner), "", test)
             except Exception as error:
-                self.dictation_result.emit("", f"{type(error).__name__}: {error}", test)
+                result = ("", f"{type(error).__name__}: {error}", test)
+            if current():
+                self._dictation_result_gen = generation
+                self.dictation_result.emit(*result)
 
         threading.Thread(target=work, daemon=True, name="JarvisDictation").start()
 
@@ -1467,6 +1512,10 @@ class ExtensionsRuntime(QObject):
 
     def _on_dictation_result(self, text: str, error: str, test: bool):
         from luxai.dictation import DICTATION_ACTIVE
+        if (getattr(self, "_stopping", False) or not self.enabled("smart_dictation")
+                or getattr(self, "_dictation_result_gen", 0) != getattr(self, "_dictation_gen", 0)):
+            self._dictation_busy = False
+            return  # cancelled, turned off or closing meanwhile (audit #4)
         self._dictation_busy = False
         if self._overlay is not None:
             self._overlay.hide()
@@ -1496,7 +1545,14 @@ class ExtensionsRuntime(QObject):
                               "Niciun câmp activ — textul a fost copiat în clipboard.", self.language))
             return
         wait_for_modifiers_released()
-        _set_foreground(target)
+        if not _set_foreground(target):
+            # The window was closed or Windows refused to bring it forward: typing now would land in
+            # whatever window is active (audit #3). Keep the text for an explicit paste instead.
+            QApplication.clipboard().setText(text)
+            self._notify(_tr3("Окно, куда вы диктовали, недоступно — текст скопирован в буфер обмена.",
+                              "The window you dictated into is not available — the text is on the clipboard.",
+                              "Fereastra în care dictai nu mai e disponibilă — textul e în clipboard.", self.language))
+            return
         try:
             type_text(text)
         except Exception as error:
@@ -1603,6 +1659,12 @@ class ExtensionsRuntime(QObject):
         self.pc_status_changed.emit(state, dict(details))
 
     def _on_pc_status(self, state, details):
+        if state == "undelivered":
+            # A reply to the phone was lost: say so here, so the command is not sent twice blindly (audit #24).
+            self.notice.emit(_tr3("Telegram: ответ на телефон не доставлен — ", "Telegram: the reply to the phone was not delivered — ",
+                                  "Telegram: răspunsul către telefon nu a fost livrat — ", self.language)
+                             + str(details.get("message", ""))[:160])
+            return
         if state == "stopped" and self._bot is not None and self._bot.running:
             return
         self._set_pc_status(state, details)
@@ -2018,15 +2080,22 @@ class ExtensionsRuntime(QObject):
                         "The translator is still downloading (≈640 MB, once) — try again in a few minutes.",
                         "Traducătorul încă se descarcă (≈640 MB, o singură dată) — încearcă peste câteva minute.",
                         self.language)
-        try:
-            result = translate_offline(value, target, source)
-        except Exception:
-            result = None
-        if not result:
-            return _tr3("Не получилось перевести этот текст.", "Could not translate this text.",
-                        "Textul nu a putut fi tradus.", self.language)
-        self._reply_language = target if target in ("ru", "en", "ro") else None
-        return result
+        language = self.language
+
+        def work():
+            # Loading the model (~1 s) and translating must never freeze the window (audit 2026-11-19, #26).
+            try:
+                result = translate_offline(value, target, source)
+            except Exception:
+                result = None
+            if result:
+                self.chat_reply.emit(result, target if target in ("ru", "en", "ro") else "")
+            else:
+                self.chat_reply.emit(_tr3("Не получилось перевести этот текст.", "Could not translate this text.",
+                                          "Textul nu a putut fi tradus.", language), "")
+
+        threading.Thread(target=work, daemon=True, name="JarvisChatTranslate").start()
+        return AsyncReply("…")
 
     def take_reply_language(self) -> str | None:
         """The language of the last reply when it differs from Jarvis' (a translation), once."""
@@ -2310,6 +2379,8 @@ class ExtensionsRuntime(QObject):
                 QTimer.singleShot(0, self._check_timers)  # ring alarms missed while closed
         else:
             self._timer_tick.stop()
+            if self._ringing:
+                self.stop_ringing()  # turning the extension off silences a ringing alarm too (audit #19)
 
     def _words(self, key, **values):
         words = {
@@ -2361,6 +2432,10 @@ class ExtensionsRuntime(QObject):
             self.timer_store.add(timer)
         except ValueError:
             return self._words("too_many")
+        except OSError:
+            return _tr3("Не удалось сохранить таймер на диск — попробуйте ещё раз.",
+                        "Could not save the timer to disk — please try again.",
+                        "Cronometrul nu a putut fi salvat pe disc — încearcă din nou.", self.language)
         self._apply_timers()
         self.timers_changed.emit()
         if kind == "alarm":
@@ -2411,16 +2486,36 @@ class ExtensionsRuntime(QObject):
         return self._words("cancel_one", what=self._describe(first))
 
     def _check_timers(self):
+        if not self.enabled("timers"):
+            return  # a delayed check after the extension was turned off (audit #19)
+        rung = getattr(self, "_rung_ids", None)
+        if rung is None:
+            rung = self._rung_ids = set()
         for timer in self.timer_store.due():
-            self.timer_store.remove(timer.id)
-            self.timers_changed.emit()
+            if timer.id in rung:
+                # Rang already, but its removal could not be saved: try again, never ring twice.
+                try:
+                    self.timer_store.remove(timer.id)
+                    rung.discard(timer.id)
+                except OSError:
+                    pass
+                continue
+            # Ring FIRST, then remove: a locked file or a crash in between may ring again
+            # after a restart, but never loses the alarm (audit #9).
+            rung.add(timer.id)
             self.ring(timer)
+            try:
+                self.timer_store.remove(timer.id)
+                rung.discard(timer.id)
+            except OSError:
+                pass
+            self.timers_changed.emit()
 
     def _ring_text(self, timer) -> str:
         from luxai.timers import format_duration
-        if timer.kind == "alarm":
+        if timer.kind == "alarm" and not timer.label:
             return self._words("ring_alarm", t=_dt.datetime.fromtimestamp(timer.due).strftime("%H:%M"))
-        if timer.label:
+        if timer.label:  # «remind me at 09:30 to call Ana» shows «call Ana» (audit #15)
             return self._words("ring_remind", label=timer.label)
         return self._words("ring_timer", d=format_duration(timer.duration, self.language))
 
@@ -2612,6 +2707,31 @@ class ExtensionsRuntime(QObject):
         return [item for item in self.clip_history.items if item["kind"] == "text"]
 
     def _on_clipboard(self):
+        """dataChanged arrives inside a Windows clipboard notification; reading OLE data there failed
+        with 0x8001010D / 0x80010108 (logs/fatal_error.log). Read a moment later, on the Qt loop."""
+        if getattr(self, "_stopping", False):
+            return
+        if not self._clip_read_timer.isActive():
+            self._clip_read_timer.start()
+
+    def _read_clipboard(self):
+        if getattr(self, "_stopping", False) or not self.enabled("clipboard_history"):
+            return
+        try:
+            self._read_clipboard_now()
+        except Exception as error:  # a clipboard owner that fails to deliver must not break Jarvis
+            self._clip_error(error)
+
+    def _clip_error(self, error):
+        try:
+            folder = Path(__file__).resolve().parents[1] / "logs"
+            folder.mkdir(exist_ok=True)
+            with (folder / "clipboard_error.log").open("a", encoding="utf-8") as stream:
+                stream.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {type(error).__name__}: {str(error)[:200]}\n")
+        except OSError:
+            pass
+
+    def _read_clipboard_now(self):
         from luxai import clipboard_store as store
         if store.suppressed():
             return
@@ -2660,8 +2780,26 @@ class ExtensionsRuntime(QObject):
             picture.save(buffer, "PNG")
             return bytes(array)
 
-        thumb = image.scaled(96, 64, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-        self.clip_history.add_image(png(image), thumb=png(thumb), size=(image.width(), image.height()), app=app)
+        width, height = image.width(), image.height()
+        # A huge screenshot is reduced BEFORE encoding (the store keeps at most MAX_IMAGE_BYTES anyway).
+        if width * height > 12_000_000:
+            image = image.scaled(4096, 4096, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        picture = image.copy()  # QImage is safe to encode on another thread once copied
+
+        def work():
+            try:
+                thumb = picture.scaled(96, 64, Qt.AspectRatioMode.KeepAspectRatio,
+                                       Qt.TransformationMode.SmoothTransformation)
+                self._clip_image_ready.emit(png(picture), png(thumb), width, height, app)
+            except Exception as error:
+                self._clip_error(error)
+
+        threading.Thread(target=work, daemon=True, name="JarvisClipboardImage").start()
+
+    def _on_clip_image_ready(self, data: bytes, thumb: bytes, width: int, height: int, app: str):
+        if getattr(self, "_stopping", False) or not self.enabled("clipboard_history"):
+            return
+        self.clip_history.add_image(data, thumb=thumb, size=(width, height), app=app)
         self._clip_changed()
 
     def _clip_changed(self):
@@ -2679,16 +2817,28 @@ class ExtensionsRuntime(QObject):
         self.clip_history.trim(keep)
         self.clip_history.prune(age)
 
-    def _save_clip_history(self):
-        from luxai.clipboard_store import history_file
+    def _save_clip_history(self, *, wait: bool = False):
+        """Encrypt and write the history on a worker thread (it can be megabytes); ``wait`` on close."""
+        from luxai.clipboard_store import ClipboardHistory, history_file
         path = history_file()
-        try:
-            if self.settings("clipboard_history").get("persist", True) and self.enabled("clipboard_history"):
-                self.clip_history.save(path)
-            elif path.exists():
-                path.unlink()
-        except OSError:
-            pass
+        persist = self.settings("clipboard_history").get("persist", True) and self.enabled("clipboard_history")
+        snapshot = ClipboardHistory()
+        snapshot.items = [dict(item) for item in self.clip_history.items]
+
+        def work():
+            with self._clip_save_lock:
+                try:
+                    if persist:
+                        snapshot.save(path)
+                    elif path.exists():
+                        path.unlink()
+                except OSError as error:  # reported, and the previous file stays as it was (audit #14)
+                    self._clip_error(error)
+
+        if wait:
+            work()
+        else:
+            threading.Thread(target=work, daemon=True, name="JarvisClipboardSave").start()
 
     def clear_clipboard(self):
         self.clip_history.clear()
@@ -3055,19 +3205,34 @@ class ExtensionsRuntime(QObject):
     # -- screenshots --
     def take_screenshot(self, window: bool = False) -> Path | None:
         settings = self.settings("screenshots")
+        to_clipboard, to_file = bool(settings.get("to_clipboard", True)), bool(settings.get("to_file", True))
+        if not (to_clipboard or to_file):
+            self._notify(_tr3("Снимок не сделан: включите «В буфер обмена» или «Сохранять в папку».",
+                              "No screenshot: turn on «To clipboard» or «Save to folder».",
+                              "Nicio captură: activează „În clipboard” sau „Salvează în folder”.", self.language))
+            return None
         region = _foreground_rect() if window else None
+        if window and not region:
+            # None means «whole screen» to capture_png: a window shot must never become a full-screen
+            # picture (with everything else on it) — audit #37.
+            self._notify(_tr3("Не удалось определить активное окно — снимок не сделан.",
+                              "Could not find the active window — no screenshot taken.",
+                              "Fereastra activă nu a putut fi găsită — nu am făcut captura.", self.language))
+            return None
         try:
             data = capture_png(region)
         except Exception as error:
             self._notify(_tr3("Не удалось сделать снимок: ", "Screenshot failed: ", "Captura a eșuat: ", self.language) + str(error))
             return None
         saved = None
-        if settings.get("to_clipboard", True):
+        copied = False
+        if to_clipboard:
             image = QImage.fromData(data, "PNG")
             if not image.isNull():
                 self._ignore_clipboard_text = None
                 QApplication.clipboard().setImage(image)
-        if settings.get("to_file", True):
+                copied = True
+        if to_file:
             try:
                 folder = screenshots_folder(settings.get("folder", ""))
                 folder.mkdir(parents=True, exist_ok=True)
@@ -3076,8 +3241,14 @@ class ExtensionsRuntime(QObject):
             except OSError as error:
                 self._notify(str(error))
                 return None
-        where = str(saved) if saved else _tr3("буфер обмена", "clipboard", "clipboard", self.language)
-        self._notify(_tr3("Снимок сохранён: ", "Screenshot saved: ", "Captură salvată: ", self.language) + where)
+        places = ([str(saved)] if saved else []) + ([_tr3("буфер обмена", "clipboard", "clipboard", self.language)]
+                                                    if copied else [])
+        if not places:
+            self._notify(_tr3("Снимок не сохранён.", "The screenshot was not saved.", "Captura nu a fost salvată.",
+                              self.language))
+            return None
+        self._notify(_tr3("Снимок сохранён: ", "Screenshot saved: ", "Captură salvată: ", self.language)
+                     + " + ".join(places))
         return saved
 
     def open_screenshots_folder(self):

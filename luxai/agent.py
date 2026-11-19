@@ -1,6 +1,5 @@
-import json, os, re, subprocess, webbrowser, datetime
+import os, re, subprocess, webbrowser, datetime
 import urllib.parse
-from pathlib import Path
 from luxai.screen import capture_screen, read_screen_text
 from luxai.steam_games import GAMES, local_game_request, mentions_known_game, launch_steam_game
 from luxai.fast_intents import strip_wake_name, quick_reply
@@ -109,7 +108,6 @@ class LocalAgent:
         except ValueError:
             return False
         import shutil
-        import os
         import glob
 
         uri_schemes = {
@@ -326,7 +324,6 @@ class LocalAgent:
             if not confirm_callback(self._say("Свернуть все окна", "Minimizează toate ferestrele deschise", "Minimize all windows", text)):
                 return self._say("Хорошо, окна не тронуты.", "Bine, nu am schimbat ferestrele.", "Okay, windows left as they were.", text)
             try:
-                import ctypes
                 from luxai.win32 import WNDENUMPROC, get_user32
                 user32 = get_user32()
                 SW_MINIMIZE = 6
@@ -609,8 +606,8 @@ class LocalAgent:
                         self.last_app = target
                 answer = self._say(
                     f"Отправил Steam команду запуска {title} (AppID {app_id}). Проверьте, открылся ли Steam." if success else f"Не удалось передать Steam запрос на запуск {title}.",
-                    f"Am trimis către Steam cererea de pornire pentru {title} (AppID {app_id})." if success else f"Nu am putut trimite cererea către Steam.",
-                    f"Sent Steam the launch request for {title} (AppID {app_id})." if success else f"Could not send Steam a launch request.",
+                    f"Am trimis către Steam cererea de pornire pentru {title} (AppID {app_id})." if success else "Nu am putut trimite cererea către Steam.",
+                    f"Sent Steam the launch request for {title} (AppID {app_id})." if success else "Could not send Steam a launch request.",
                     text,
                 )
         elif action == "discord_key" and isinstance(target, str):

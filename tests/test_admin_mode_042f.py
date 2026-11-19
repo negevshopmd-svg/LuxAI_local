@@ -60,7 +60,10 @@ class AdminModeTests(unittest.TestCase):
         bat = (Path(__file__).resolve().parents[1] / "run_windows.bat").read_text(encoding="utf-8")
         self.assertIn('schtasks /Run /TN "LuxAI Jarvis (admin)"', bat)
         self.assertLess(bat.index('schtasks /Run /TN "LuxAI Jarvis (admin)"'),
-                        bat.index('".venv\\Scripts\\Jarvis.exe" "%~dp0launch_windows.py"'))
+                        bat.index('start "" "%JARVIS_EXE%" "%~dp0launch_windows.py"'))
+        # 0.4.2r (audit #6): the task runs only when it belongs to this folder.
+        self.assertLess(bat.index("<WorkingDirectory>%HERE%</WorkingDirectory>"),
+                        bat.index('schtasks /Run /TN "LuxAI Jarvis (admin)"'))
 
 
 if __name__ == "__main__":

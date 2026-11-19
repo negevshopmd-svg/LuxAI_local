@@ -5,7 +5,6 @@ validator owns Windows execution. Visual analysis is used only if required.
 No model output is ever executed as an unrestricted shell command.
 """
 from __future__ import annotations
-import json
 import re
 import subprocess
 import sys

@@ -84,8 +84,10 @@ class BuilderTests(unittest.TestCase):
     def test_run_windows_starts_through_jarvis_exe_with_fallback(self):
         bat = (Path(__file__).resolve().parents[1] / "run_windows.bat").read_text(encoding="utf-8")
         self.assertIn("-m luxai.jarvis_exe", bat)
-        self.assertLess(bat.index('".venv\\Scripts\\Jarvis.exe" "%~dp0launch_windows.py"'),
-                        bat.rindex('".venv\\Scripts\\pythonw.exe" "%~dp0launch_windows.py"'))
+        # 0.4.2r: one start line; Jarvis.exe replaces the pythonw default when it is ready.
+        self.assertLess(bat.index('set "JARVIS_EXE=.venv\\Scripts\\pythonw.exe"'),
+                        bat.index('set "JARVIS_EXE=.venv\\Scripts\\Jarvis.exe"'))
+        self.assertIn('start "" "%JARVIS_EXE%" "%~dp0launch_windows.py"', bat)
 
 
 if __name__ == "__main__":

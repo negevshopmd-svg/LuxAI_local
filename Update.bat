@@ -29,41 +29,58 @@ if not defined LUXAI_PYTHON (
 )
 
 echo Descarc versiunea actuala a programului de actualizare din GitHub...
+set "BOOT="
+if not exist "scripts\fetch_updater.py" goto legacy_download
 
-where curl.exe >nul 2>nul
-if errorlevel 1 (
-    echo EROARE: curl.exe nu este disponibil. Pe Windows 10/11 ar trebui sa fie inclus.
-    echo Nu pornesc updaterul vechi.
+rem 0.4.2r: one exact commit through the GitHub API, git hash checked, compiled,
+rem unique file name, and a lock so a second Update.bat cannot touch this one.
+for /f "usebackq delims=" %%L in (`%LUXAI_PYTHON% -I "scripts\fetch_updater.py"`) do set "BOOT=%%L"
+if "%BOOT%"=="BUSY" (
+    echo O alta actualizare LuxAI ruleaza deja. Asteapta sa termine.
     pause
     exit /b 1
 )
+if not defined BOOT goto boot_failed
+if "%BOOT:~0,5%"=="ERROR" goto boot_failed
+if not exist "%BOOT%" goto boot_failed
+goto run_update
 
-curl.exe -fL --retry 2 --connect-timeout 15 --max-time 180 -o "Update.py.new" "https://raw.githubusercontent.com/negevshopmd-svg/LuxAI_local/main/Update.py"
+:boot_failed
+echo EROARE: Nu am putut descarca si verifica updaterul din GitHub.
+if defined BOOT echo %BOOT%
+echo Verifica conexiunea la internet si incearca din nou.
+del /q ".luxai_bootstrap.lock" >nul 2>nul
+pause
+exit /b 1
+
+:legacy_download
+rem An installation older than 0.4.2r has no fetch_updater.py yet.
+set "BOOT=Update.py.new"
+curl.exe -fL --retry 2 --connect-timeout 15 --max-time 180 -o "%BOOT%" "https://raw.githubusercontent.com/negevshopmd-svg/LuxAI_local/main/Update.py"
 if errorlevel 1 (
-    del /q "Update.py.new" >nul 2>nul
+    del /q "%BOOT%" >nul 2>nul
     echo EROARE: Nu am putut descarca updaterul din GitHub.
     echo Verifica conexiunea la internet si incearca din nou.
     pause
     exit /b 1
 )
-
-rem Never replace the installed updater with a truncated/invalid Python file.
 %LUXAI_PYTHON% -I -c "from pathlib import Path; compile(Path('Update.py.new').read_bytes(), 'Update.py', 'exec')"
 if errorlevel 1 (
-    del /q "Update.py.new" >nul 2>nul
+    del /q "%BOOT%" >nul 2>nul
     echo EROARE: Updaterul descarcat nu este valid. Am pastrat versiunea existenta.
     pause
     exit /b 1
 )
 
+:run_update
 rem Parse this entire block before Update.py can replace the running batch file.
 rem Run the validated download in place. Its normal transaction installs Update.py,
 rem so bootstrap failures never replace the installed updater or leave a backup.
-rem The current updater filters development sources and safely trims old bundled copies.
 (
-    %LUXAI_PYTHON% Update.py.new
+    %LUXAI_PYTHON% "%BOOT%"
     if errorlevel 1 (
-        del /q "Update.py.new" >nul 2>nul
+        del /q "%BOOT%" >nul 2>nul
+        del /q ".luxai_bootstrap.lock" >nul 2>nul
         rem The window already shows the error and its details: no hidden pause.
         if exist ".luxai_update_ui" (
             del /q ".luxai_update_ui" >nul 2>nul
@@ -74,7 +91,8 @@ rem The current updater filters development sources and safely trims old bundled
         pause
         exit /b 1
     ) else (
-        del /q "Update.py.new" >nul 2>nul
+        del /q "%BOOT%" >nul 2>nul
+        del /q ".luxai_bootstrap.lock" >nul 2>nul
         rem Also retry removing the discontinued local Fish S2 installation
         rem after a successful update. Update.py handles link/junction safety.
         if exist "models\fishaudio\" (

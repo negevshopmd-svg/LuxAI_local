@@ -12,7 +12,7 @@ import re
 from urllib.parse import urlsplit, urlunsplit
 import webbrowser
 
-from luxai.fast_intents import strip_wake_name, has_launch_verb
+from luxai.fast_intents import strip_wake_name
 
 SITES = {
     # Age-restricted websites are ordinary HTTPS destinations, not an
@@ -27,7 +27,6 @@ SITES = {
     "порно хам": "https://www.pornhub.com/",
     "порно хаб": "https://www.pornhub.com/",
     "порн хам": "https://www.pornhub.com/",
-    "порнхаб": "https://www.pornhub.com/",
     "youtube": "https://www.youtube.com/",
     "ютуб": "https://www.youtube.com/",
     "ютубе": "https://www.youtube.com/",

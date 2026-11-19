@@ -559,15 +559,75 @@ def file_transaction(files: list[tuple[Path, Path]], backup: Path | None = None)
                 report("Nu am putut elimina toate fișierele temporare ale actualizării.")
 
 
-def write_update_state(latest_sha: str) -> None:
+PENDING_FILE = ROOT / ".luxai_update_pending.json"
+
+
+def write_pending(latest_sha: str) -> None:
+    try:
+        PENDING_FILE.write_text(json.dumps({"commit": latest_sha, "started": int(__import__("time").time())}),
+                                encoding="utf-8")
+    except OSError:
+        pass
+
+
+def clear_pending() -> None:
+    try:
+        PENDING_FILE.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _installed_hashes(files) -> dict[str, str]:
+    hashes = {}
+    for _src, rel in files or []:
+        destination = _destination(rel)
+        try:
+            hashes[rel.as_posix()] = hashlib.sha256(destination.read_bytes()).hexdigest()
+        except OSError:
+            continue
+    return hashes
+
+
+def write_update_state(latest_sha: str, files=None) -> None:
     fd, name = tempfile.mkstemp(prefix=".luxai-state-", dir=ROOT)
     os.close(fd)
     temporary = Path(name)
+    state = {"commit": latest_sha, "branch": BRANCH}
+    if files is not None:
+        state["files"] = _installed_hashes(files)
+        previous = {}
+        try:
+            old = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+            previous = old.get("files", {}) if isinstance(old, dict) and isinstance(old.get("files"), dict) else {}
+        except (OSError, ValueError):
+            previous = {}
+        remove_dropped_files(previous, state["files"])
     try:
-        temporary.write_text(json.dumps({"commit": latest_sha, "branch": BRANCH}, indent=2), encoding="utf-8")
+        temporary.write_text(json.dumps(state, indent=2), encoding="utf-8")
         os.replace(temporary, STATE_FILE)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def remove_dropped_files(previous: dict, current: dict) -> int:
+    """Files the previous update installed that the new version no longer has: removed when UNCHANGED (audit #29)."""
+    removed = 0
+    for rel, digest in previous.items():
+        if rel in current or not isinstance(rel, str) or not isinstance(digest, str):
+            continue
+        path = PurePosixPath(rel)
+        if path.is_absolute() or ".." in path.parts or is_preserved(Path(*path.parts)):
+            continue
+        target = ROOT.joinpath(*path.parts)
+        try:
+            if target.is_file() and not _is_link(target) and hashlib.sha256(target.read_bytes()).hexdigest() == digest:
+                target.unlink()
+                removed += 1
+        except OSError:
+            continue
+    if removed:
+        report(f"Fișiere vechi eliminate: {removed}.", f"Удалено старых файлов: {removed}.", f"Old files removed: {removed}.")
+    return removed
 
 
 @contextmanager
@@ -647,6 +707,41 @@ def validate_staged_requirements(source: Path) -> None:
 
 
 
+def snapshot_packages() -> str:
+    """The exact installed package versions (pip freeze), to put back if the update fails (audit #7)."""
+    python = ROOT / ".venv" / "Scripts" / "python.exe"
+    if not python.is_file():
+        return ""
+    try:
+        result = subprocess.run([str(python), "-m", "pip", "freeze", "--all", "--disable-pip-version-check"],
+                                capture_output=True, text=True, timeout=120, check=False,
+                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    lines = [line for line in result.stdout.splitlines() if "==" in line and not line.startswith("-e")]
+    return "\n".join(lines) + "\n" if result.returncode == 0 and lines else ""
+
+
+def restore_packages(snapshot: str) -> bool:
+    """Put the libraries back to the versions that worked before this update."""
+    python = ROOT / ".venv" / "Scripts" / "python.exe"
+    if not snapshot or not python.is_file():
+        return False
+    fd, name = tempfile.mkstemp(prefix="luxai_packages_", suffix=".txt")
+    os.close(fd)
+    try:
+        Path(name).write_text(snapshot, encoding="utf-8")
+        report("Revin la versiunile anterioare ale bibliotecilor...",
+               "Возвращаю прежние версии библиотек…", "Restoring the previous library versions…")
+        result = run_streamed([str(python), "-m", "pip", "install", "--disable-pip-version-check", "--no-deps",
+                               "--prefer-binary", "-r", name], timeout=900)
+        return result.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    finally:
+        Path(name).unlink(missing_ok=True)
+
+
 def upgrade_dependencies() -> bool:
     """Upgrade direct requirements in the existing venv to the latest compatible releases.
 
@@ -693,30 +788,49 @@ _PIP_LINE = [
 
 
 def run_streamed(command: list[str], timeout: float, cwd: Path | None = None):
-    """subprocess.run with every output line also shown in the setup window."""
+    """subprocess.run with every output line also shown in the setup window.
+
+    The output is read on a helper thread and the time limit is kept by the caller, so a child
+    process that holds the pipe open cannot stretch the wait; on time-out the whole process tree is
+    ended and TimeoutExpired is raised — never a misleading exit code (audit #42).
+    """
     import threading
     process = subprocess.Popen(command, cwd=str(cwd or ROOT), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                stdin=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace")
-    timer = threading.Timer(timeout, process.kill)
-    timer.start()
+
+    def pump():
+        try:
+            for raw in process.stdout:
+                line = raw.rstrip()
+                if not line:
+                    continue
+                _report_console(line)
+                ui_emit(t="log", text=line)
+                for pattern, (ro, ru, en) in _PIP_LINE:
+                    match = pattern.search(line)
+                    if match:
+                        parts = [part[:60] for part in match.groups()]
+                        ui_detail(ro.format(*parts), ru.format(*parts), en.format(*parts))
+                        break
+        except (OSError, ValueError):
+            pass
+
+    reader = threading.Thread(target=pump, daemon=True)
+    reader.start()
     try:
-        for raw in process.stdout:
-            line = raw.rstrip()
-            if not line:
-                continue
-            _report_console(line)
-            ui_emit(t="log", text=line)
-            for pattern, (ro, ru, en) in _PIP_LINE:
-                match = pattern.search(line)
-                if match:
-                    parts = [part[:60] for part in match.groups()]
-                    ui_detail(ro.format(*parts), ru.format(*parts), en.format(*parts))
-                    break
-        process.wait()
-    finally:
-        timer.cancel()
-    if process.returncode is None or process.returncode < 0:
-        raise subprocess.TimeoutExpired(command, timeout)
+        process.wait(timeout)
+    except subprocess.TimeoutExpired:
+        if sys.platform == "win32":
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(process.pid)], capture_output=True,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), check=False)
+        else:
+            process.kill()
+        try:
+            process.stdout.close()
+        except OSError:
+            pass
+        raise
+    reader.join(5)
     return process
 
 
@@ -781,44 +895,95 @@ def run_step(step: str, action) -> bool:
     return ok is not False
 
 
-CLOSE_JARVIS_PS = r"""
+FIND_JARVIS_PS = r"""
 $root = [IO.Path]::GetFullPath($env:LUXAI_ROOT).TrimEnd('\') + '\'
 $skip = @([int]$env:LUXAI_SELF, [int]$env:LUXAI_PARENT)
 Get-CimInstance Win32_Process -Filter "Name='Jarvis.exe' OR Name='pythonw.exe' OR Name='python.exe'" | Where-Object {
     $_.ProcessId -notin $skip -and $_.ExecutablePath -and
     ([IO.Path]::GetFullPath($_.ExecutablePath)).StartsWith($root, [StringComparison]::OrdinalIgnoreCase) -and
-    ($_.Name -eq 'Jarvis.exe' -or $_.CommandLine -match 'main\.py')
-} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; $_.ProcessId }
+    ($_.Name -eq 'Jarvis.exe' -or $_.CommandLine -match '(main|launch_windows)\.py')
+} | ForEach-Object { if ($env:LUXAI_KILL -eq '1') { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; $_.ProcessId }
 """
+TASK_NAME = "LuxAI Jarvis (admin)"
+
+
+def admin_task_is_ours() -> bool:
+    """The «LuxAI Jarvis (admin)» task belongs to THIS folder (another installation's task is never touched)."""
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    try:
+        result = subprocess.run(["schtasks", "/Query", "/TN", TASK_NAME, "/XML"], capture_output=True,
+                                timeout=20, creationflags=flags, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    if result.returncode != 0:
+        return False
+    raw = result.stdout
+    text = raw.decode("utf-16", "ignore") if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else raw.decode("utf-8", "ignore")
+    match = re.search(r"<WorkingDirectory>(.*?)</WorkingDirectory>", text, re.I | re.S)
+    if not match:
+        return False
+    import html
+    folder = html.unescape(match.group(1)).strip().rstrip("\\/")
+    return os.path.normcase(os.path.abspath(folder)) == os.path.normcase(os.path.abspath(str(ROOT)))
+
+
+def _jarvis_pids(kill: bool) -> list[int]:
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    env = dict(os.environ, LUXAI_ROOT=str(ROOT), LUXAI_SELF=str(os.getpid()), LUXAI_PARENT=str(os.getppid()),
+               LUXAI_KILL="1" if kill else "0")
+    try:
+        result = subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", FIND_JARVIS_PS],
+                                capture_output=True, text=True, timeout=40, env=env, creationflags=flags, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    return [int(line) for line in (result.stdout or "").split() if line.strip().isdigit()]
+
+
+def _task_running() -> bool:
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    try:
+        result = subprocess.run(["schtasks", "/Query", "/TN", TASK_NAME, "/FO", "CSV", "/NH"], capture_output=True,
+                                timeout=20, creationflags=flags, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    # The status column is localized; «Running» / «Выполняется» / «În execuție» all differ from Ready/Disabled.
+    line = result.stdout.decode("utf-8", "ignore") + result.stdout.decode("cp866", "ignore")
+    return any(word in line for word in ("Running", "Выполняется", "execu", "Wird ausgef"))
 
 
 def close_jarvis() -> int:
-    """Close a running Jarvis of THIS folder before files and libraries are replaced.
+    """Close a running Jarvis of THIS folder before files and libraries are replaced (audit #5, #6).
 
-    The elevated one (scheduled task «LuxAI Jarvis (admin)») is ended through its
-    task; others by path. The updater itself is never touched.
+    The elevated one is ended through the admin task, but only when the task belongs to this
+    folder; others by path, also when started as pythonw launch_windows.py. Then wait until they
+    really exited; a Jarvis that keeps running stops the update before anything is replaced.
     """
     if sys.platform != "win32" or os.environ.get("LUXAI_NO_DOWNLOADS") or not (ROOT / ".venv").exists():
         return 0  # tests and folders without an installed Jarvis
     import time
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    try:
-        subprocess.run(["schtasks", "/End", "/TN", "LuxAI Jarvis (admin)"], capture_output=True, timeout=15,
-                       creationflags=flags, check=False)
-    except (OSError, subprocess.TimeoutExpired):
-        pass
-    env = dict(os.environ, LUXAI_ROOT=str(ROOT), LUXAI_SELF=str(os.getpid()), LUXAI_PARENT=str(os.getppid()))
-    try:
-        result = subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", CLOSE_JARVIS_PS],
-                                capture_output=True, text=True, timeout=40, env=env, creationflags=flags, check=False)
-        closed = len([line for line in (result.stdout or "").split() if line.strip().isdigit()])
-    except (OSError, subprocess.TimeoutExpired):
-        closed = 0
+    ours = admin_task_is_ours()
+    if ours:
+        try:
+            subprocess.run(["schtasks", "/End", "/TN", TASK_NAME], capture_output=True, timeout=15,
+                           creationflags=flags, check=False)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    closed = _jarvis_pids(kill=True)
+    deadline = time.monotonic() + 15
+    remaining = _jarvis_pids(kill=False)
+    while (remaining or (ours and _task_running())) and time.monotonic() < deadline:
+        time.sleep(0.7)
+        remaining = _jarvis_pids(kill=False)
+    if remaining or (ours and _task_running()):
+        raise RuntimeError("Jarvis nu s-a închis (PID " + ", ".join(map(str, remaining)) + "). "
+                           "Închide-l din bara de sistem și pornește din nou Update.bat.")
     if closed:
-        report(f"Am închis Jarvis ({closed} proces/e) pentru actualizare.",
-               f"Закрыл Jarvis (процессов: {closed}) для обновления.", f"Closed Jarvis ({closed} process(es)) for the update.")
-        time.sleep(1.5)  # let Windows release the files
-    return closed
+        report(f"Am închis Jarvis ({len(closed)} proces/e) pentru actualizare.",
+               f"Закрыл Jarvis (процессов: {len(closed)}) для обновления.",
+               f"Closed Jarvis ({len(closed)} process(es)) for the update.")
+        time.sleep(1.0)  # let Windows release the files
+    return len(closed)
 
 
 def _remote_version(sha: str) -> str:
@@ -995,6 +1160,12 @@ def perform_update() -> int:
             except (OSError, json.JSONDecodeError):
                 state = {}
         current_sha = state.get("commit", "") if isinstance(state, dict) else ""
+        if PENDING_FILE.exists():
+            # The last update was interrupted between files: install everything again (audit #29).
+            current_sha = ""
+            report("Actualizarea anterioară a fost întreruptă — reinstalez toate fișierele.",
+                   "Прошлое обновление было прервано — устанавливаю все файлы заново.",
+                   "The previous update was interrupted — installing all files again.")
         if not isinstance(current_sha, str) or len(current_sha) != 40 or any(c not in "0123456789abcdef" for c in current_sha):
             current_sha = ""
         report(f"Commit instalat: {current_sha[:12] if current_sha else 'necunoscut'}",
@@ -1076,16 +1247,21 @@ def perform_update() -> int:
 
             report(f"Aplic {len(files)} fișiere...", f"Применяю файлов: {len(files)}…", f"Applying {len(files)} files…")
             ui_detail(f"Aplic {len(files)} fișiere", f"Применяю файлов: {len(files)}", f"Applying {len(files)} files")
+            packages = snapshot_packages()
+            # A durable mark: if the PC loses power between two files, the next start says so and the
+            # next update re-applies everything instead of trusting the old state (audit #29).
+            write_pending(latest_sha)
             with file_transaction(files):
                 ui_step("apply", "done")
                 # Direct dependencies are rechecked against the index, even when
                 # already installed. Stay within requirements and Python markers.
                 if not run_step("libs", upgrade_dependencies):
                     ui_step("libs", "fail")
+                    restored = restore_packages(packages)
                     raise RuntimeError(
-                        "Actualizarea bibliotecilor a eșuat. Se încearcă restaurarea codului anterior; "
-                        "pip poate să fi modificat parțial mediul .venv. "
-                        "Rulează install_windows.bat pentru repararea bibliotecilor."
+                        "Actualizarea bibliotecilor a eșuat. Codul anterior se restaurează; "
+                        + ("bibliotecile au revenit la versiunile anterioare." if restored else
+                           "bibliotecile nu au putut reveni singure — rulează install_windows.bat.")
                     )
 
                 # Optional parts: failures warn but never undo the code update.
@@ -1093,7 +1269,8 @@ def perform_update() -> int:
                 run_step("ocr", ensure_ocr)
                 run_step("translator", ensure_offline_translator)
 
-                write_update_state(latest_sha)
+                write_update_state(latest_sha, files)
+            clear_pending()
             report("Actualizare instalată cu succes.", "Обновление установлено.", "Update installed.")
             run_step("cleanup", lambda: (cleanup_development_files(), cleanup_legacy_backups(),
                                          cleanup_retired_fish_local()) and True)
@@ -1113,9 +1290,16 @@ def perform_update() -> int:
             report("Datele personale au fost păstrate. Verifică mesajele de restaurare de mai sus.",
                    "Личные данные сохранены. Смотрите сообщения о восстановлении выше.",
                    "Personal data was kept. See the restore messages above.")
-            ui_finish(False, f"{e}\nFișierele anterioare au fost restaurate, datele tale sunt neatinse.",
-                      f"{e}\nПрежние файлы восстановлены, ваши данные не тронуты.",
-                      f"{e}\nThe previous files were restored; your data is untouched.")
+            if "Restaurare incompletă" in str(e):
+                # Say what is true: the old files are NOT all back (audit #30).
+                ui_finish(False, f"{e}\nRestaurarea NU este completă. Nu porni Jarvis; rulează din nou Update.bat.",
+                          f"{e}\nВосстановление НЕ завершено. Не запускайте Jarvis; запустите Update.bat ещё раз.",
+                          f"{e}\nThe restore is NOT complete. Do not start Jarvis; run Update.bat again.")
+            else:
+                clear_pending()
+                ui_finish(False, f"{e}\nFișierele anterioare au fost restaurate, datele tale sunt neatinse.",
+                          f"{e}\nПрежние файлы восстановлены, ваши данные не тронуты.",
+                          f"{e}\nThe previous files were restored; your data is untouched.")
             return 1
 
 

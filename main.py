@@ -1,6 +1,7 @@
 import re
 import sys, os, json, html
 import queue
+import shutil
 import threading
 import hashlib
 from pathlib import Path
@@ -88,11 +89,31 @@ def _command_match_options(config):
             if sensitivity != 100 or paraphrases else {})
 
 
+CONFIG_PROBLEM = ""  # set when config.json had to be put aside (shown once in the chat)
+
+
 def load_config():
-    try:
-        return json.loads(CONFIG.read_text(encoding="utf-8"))
-    except Exception:
+    """Settings as a dict. A broken file or a non-object root (a list, null, a number) made the window
+    crash on cfg.get or silently fall back to defaults and later overwrite a recoverable file
+    (audit #11): it is copied aside first and the user is told where."""
+    global CONFIG_PROBLEM
+    if not CONFIG.exists():
         return {}
+    try:
+        data = json.loads(CONFIG.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            return data
+        reason = f"type {type(data).__name__}"
+    except (OSError, ValueError, UnicodeDecodeError) as exc:
+        reason = type(exc).__name__
+    import datetime as _datetime
+    backup = CONFIG.with_name(f"config.broken-{_datetime.datetime.now():%Y%m%d-%H%M%S}.json")
+    try:
+        shutil.copy2(CONFIG, backup)
+        CONFIG_PROBLEM = f"{reason}; copy: {backup.name}"
+    except OSError:
+        CONFIG_PROBLEM = reason
+    return {}
 
 def save_config(cfg):
     """Write preferences atomically, so an interrupted shutdown won't erase them."""
@@ -247,6 +268,7 @@ class MainWindow(QMainWindow):
     discord_mic_visual_ready = Signal(str, str)
     discord_headphones_ready = Signal(str, str)
     discord_audio_offline_ready = Signal(str, str, str)  # text, kind, answer ("" = state not readable)
+    ocr_text_ready = Signal(str, str)  # recognised text, error
     discord_call_ready = Signal(str, str)
     discord_quick_ready = Signal(str, str, str)
     steam_profile_ready = Signal(str, str)
@@ -290,6 +312,7 @@ class MainWindow(QMainWindow):
         self.discord_review_ready.connect(self._on_discord_review_ready)
         self.discord_mic_visual_ready.connect(self._on_discord_mic_visual_ready)
         self.discord_audio_offline_ready.connect(self._on_discord_audio_offline_ready)
+        self.ocr_text_ready.connect(self._on_ocr_text_ready)
         self.discord_headphones_ready.connect(self._on_discord_headphones_ready)
         self.discord_call_ready.connect(self._on_discord_call_ready)
         self.discord_quick_ready.connect(self._on_discord_quick_ready)
@@ -701,6 +724,7 @@ class MainWindow(QMainWindow):
         self.extensions_runtime = ExtensionsRuntime(self, self)
         self.extensions_runtime.notice.connect(
             lambda message: self.append_message("Jarvis", message, "#a5b9dc"))
+        self.extensions_runtime.chat_reply.connect(self._on_extension_chat_reply)
         self.extensions_page = ExtensionsPage(state, self.extensions_runtime)
         self.extensions_page.state_changed.connect(self._save_extensions)
         self.extensions_page.title_changed.connect(lambda _title: self._update_extensions_header())
@@ -709,6 +733,11 @@ class MainWindow(QMainWindow):
         self.pages.addWidget(self.extensions_page)
         self.extensions_runtime.apply(state)
         QTimer.singleShot(800, self._refresh_extension_errors)
+        if CONFIG_PROBLEM:
+            # audit #11: say that the settings file was unreadable and where its copy is.
+            QTimer.singleShot(1200, lambda: self.append_message(
+                "Jarvis", tr("config.json был повреждён — настройки сброшены, копия сохранена: ") + CONFIG_PROBLEM,
+                "#a5b9dc"))
 
     def _save_extensions(self, state):
         """Persist only the extensions key; unrelated settings drafts stay untouched."""
@@ -1295,13 +1324,32 @@ class MainWindow(QMainWindow):
         key_field = self.settings_panel.api_key_entry
         new_key = (key_field.text().strip() if allow_api_key
                    else self.settings_panel.api_key_ready_for_save())
+        # 0.4.2r (audit #32): keys and config.json are saved together. A key that cannot be stored stops
+        # everything (no settings written, fields kept); if config.json then fails, the keys go back to
+        # their previous values, so a new key is never left paired with the old choices.
+        stored = []  # (provider, previous key or None)
+
+        def undo_keys():
+            for provider_name, previous in reversed(stored):
+                try:
+                    if previous:
+                        store_api_key(previous, provider_name)
+                    else:
+                        from luxai.secure_keys import clear_api_key
+                        clear_api_key(provider_name)
+                except Exception:
+                    pass
+
         if new_key:
             try:
                 provider = self.settings_panel.online_provider.currentData()
+                previous = get_api_key(provider)
                 store_api_key(new_key, provider)
+                stored.append((provider, previous))
                 if get_api_key(provider) != new_key:
                     raise OSError("API key could not be read back")
-            except (ValueError, OSError, RuntimeError) as exc:
+            except (ValueError, OSError, RuntimeError):
+                undo_keys()
                 # Never clear the text: the user must be able to retry.
                 self.mic_status.setText("Ошибка сохранения ключа API. Проверьте права Windows.")
                 self.settings_panel.key_status.setText(
@@ -1311,31 +1359,37 @@ class MainWindow(QMainWindow):
                 self.cfg = old_configuration
                 self._update_cloud_indicator()
                 return False
-            key_field.clear()
-            self.settings_panel.refresh_key_status()
         fish_key = self.settings_panel.fish_key_ready_for_save()
         if fish_key:
             try:
+                previous = get_api_key("fish")
                 store_api_key(fish_key, "fish")
+                stored.append(("fish", previous))
                 if get_api_key("fish") != fish_key:
                     raise OSError("Fish Audio key could not be read back")
             except (ValueError, OSError, RuntimeError):
+                undo_keys()
                 self.cfg = old_configuration
                 self.settings_panel.fish_key_save_failed()
                 self.mic_status.setText(tr("Не удалось сохранить ключ Fish Audio. Поле не очищено; повторите сохранение."))
                 self._update_cloud_indicator()
                 return False
-            self.settings_panel.fish_api_key.clear()
-            self.settings_panel.refresh_fish_key_status()
         try:
             save_config(self.cfg)
         except OSError:
+            undo_keys()
             self.cfg = old_configuration
-            message = tr("Ошибка сохранения config.json.")
+            message = tr("Ошибка сохранения config.json.")  # the keys were put back by undo_keys()
             self.mic_status.setText(message)
             self.append_message("Jarvis", message, "#a5b9dc")
             self._update_cloud_indicator()
             return False
+        if new_key:
+            key_field.clear()
+            self.settings_panel.refresh_key_status()
+        if fish_key:
+            self.settings_panel.fish_api_key.clear()
+            self.settings_panel.refresh_fish_key_status()
         if self._cloud_signature() != old_signature:
             self._cloud_verified_signature = None
             self._cloud_probe_failed = False
@@ -2384,7 +2438,14 @@ class MainWindow(QMainWindow):
         # Timers and alarms (extension). Saved commands with the same phrase win.
         runtime = getattr(self, "extensions_runtime", None)
         if runtime is not None and not self._saved_command_matches(text):
-            reply = runtime.handle_text_request(text)
+            try:
+                reply = runtime.handle_text_request(text)
+            except Exception as exc:  # one broken extension must not stop the command queue (audit #33)
+                reply = tr("Расширение не смогло выполнить запрос: ") + f"{type(exc).__name__}"
+            from luxai.extensions_runtime import AsyncReply
+            if isinstance(reply, AsyncReply):
+                self.mic_status.setText(tr("Перевожу…"))  # the answer comes through chat_reply
+                return
             if reply:
                 # A translation is spoken in its own language (an English one with the English voice).
                 taken = getattr(runtime, "take_reply_language", None)
@@ -3255,6 +3316,15 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self._resolved_command(text, self._error_message(exc))
 
+    def _on_extension_chat_reply(self, reply, language):
+        """An extension's answer that was computed in the background (chat translation)."""
+        if self._closed:
+            return
+        self.append_message("Jarvis", reply, "#a5b9dc")
+        self.mic_status.setText(reply.split("\n")[0][:120])
+        if self.cfg.get("tts_enabled", True):
+            self._queue_speech(reply, language or reply_language(self.cfg, reply))
+
     def _execute_registered(self, text, saved, *, confirmed=False):
         if saved.get("ask_before_run") and not confirmed and not self.confirm_action(
                 tr("Запустить команду:") + " " + saved["title"], force=True):
@@ -3391,17 +3461,7 @@ class MainWindow(QMainWindow):
                 )
                 self._finish_visual_macro()
                 return
-            approval = (
-                f"Открыть именно Discord, сделать снимок, найти пользователя "
-                f"«{username}», "
-                "сделать второй снимок и кратко пересказать его?\n\n"
-                "Два снимка будут сохранены локально в Pictures/LuxAI. "
-                "До ТРЁХ изображений Discord (поиск, проверка чата и анализ "
-                "второго снимка) будут переданы выбранному облачному AI. "
-                "Они могут содержать личные переписки. Продолжить? "
-                "Никакие сообщения отправляться не будут."
-            )
-            if not self._allow_cloud_screenshots():
+            if not self._allow_cloud_screenshots():  # the consent question for cloud screenshots
                 ctx["messages"].append("Отправка снимков в AI отменена.")
                 self._finish_visual_macro()
                 return
@@ -3438,17 +3498,6 @@ class MainWindow(QMainWindow):
                 )
                 self._finish_visual_macro()
                 return
-            approval = (
-                f"Подготовить сообщение для Discord @{username} по теме «{topic}»?\n\n"
-                "Jarvis получит статью из Wikipedia, откроет установленный "
-                "Discord и передаст ДО ПЯТИ снимков окна вашему AI-провайдеру "
-                "(видимые личные сообщения, при необходимости результаты "
-                "поиска, заголовок чата и финальная проверка перед отправкой). "
-                "Если имя на экране отличается от произнесённого, "
-                "Jarvis отдельно спросит, правильный ли это человек. "
-                "Скриншоты могут содержать личные сообщения. "
-                "Перед отправкой текста будет ещё одно подтверждение."
-            )
             if not self._allow_cloud_screenshots():
                 ctx["messages"].append("Согласие на отправку скриншотов не получено.")
                 self._finish_visual_macro()
@@ -3481,12 +3530,6 @@ class MainWindow(QMainWindow):
                 return
             # A screenshot is not sent to the cloud without user consent,
             # even when the voice shortcut was previously saved.
-            warning = (
-                "⚠ Отправить снимок выбранного окна внешнему AI-сервису "
-                f"и нажать на «{label}» {clicks} раз(а)?\n"
-                "Снимок может содержать личную информацию. "
-                "Если не согласны, выберите Нет."
-            )
             if not self._allow_cloud_screenshots():
                 ctx["messages"].append("Отправка снимка отменена пользователем.")
                 self._finish_visual_macro()
@@ -4791,6 +4834,17 @@ class MainWindow(QMainWindow):
     def _queue_speech(self, text, language):
         if self._closed:
             return
+        from luxai.translation import split_chunks
+        pieces = split_chunks(str(text or ""), limit=600, first_limit=240)
+        if len(pieces) > 1:
+            # The voice engine reads at most 700 characters per call: the rest of a long answer was
+            # silently dropped (audit #31). Every piece shares this generation, so «stop» stops all.
+            for piece in pieces:
+                self._queue_speech_piece(piece, language)
+            return
+        self._queue_speech_piece(text, language)
+
+    def _queue_speech_piece(self, text, language):
         item = (text, language, self._speech_generation)
         if self._speech_queue.qsize() or voice_output_playing.is_set():
             # Something is already speaking: prepare this piece meanwhile.
@@ -4898,9 +4952,26 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, tr("Снимок экрана"), str(e))
 
     def ocr_action(self):
+        """Screen OCR on a worker thread: capture and Tesseract (up to 45 s, or an install) never
+        freeze the window (audit #41); the result is shown when ready."""
+        tesseract = self.cfg.get("tesseract_path", "")
+
+        def work():
+            try:
+                text = read_screen_text(capture_screen(), tesseract)
+                error = ""
+            except Exception as exc:
+                text, error = "", str(exc) or type(exc).__name__
+            if not self._closed:
+                self.ocr_text_ready.emit(text, error)
+
+        threading.Thread(target=work, daemon=True, name="JarvisOCRAction").start()
+
+    def _on_ocr_text_ready(self, text, error):
+        if error:
+            QMessageBox.warning(self, "OCR", tr("Распознавание текста недоступно или завершилось ошибкой:") + "\n" + error)
+            return
         try:
-            path = capture_screen()
-            text = read_screen_text(path, self.cfg.get("tesseract_path", ""))
             dialog = QMessageBox(self)
             dialog.setWindowTitle(tr("Текст на экране"))
             dialog.setTextFormat(Qt.TextFormat.PlainText)
@@ -4910,7 +4981,7 @@ class MainWindow(QMainWindow):
             if text:
                 self.append_message("OCR", text[:10000], "#a5b9dc")
         except Exception as e:
-            QMessageBox.warning(self, "OCR", tr("Распознавание текста недоступно или завершилось ошибкой:") + "\n" + str(e))
+            QMessageBox.warning(self, "OCR", str(e))
 
     def closeEvent(self, event):
         # Auto-save has a short debounce while typing. Flush before both a

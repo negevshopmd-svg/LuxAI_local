@@ -212,7 +212,7 @@ def synthesize(text: str, key: str, voice_id: str = DEFAULT_FISH_VOICE, *,
         code = _http_error_code(error.code)
         error.close()
         raise FishTTSError(code) from None
-    except (TimeoutError,):
+    except TimeoutError:
         raise FishTTSError("timeout") from None
     except urllib.error.URLError as error:
         code = "timeout" if isinstance(error.reason, TimeoutError) else "network"

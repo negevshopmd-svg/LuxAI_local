@@ -7,7 +7,6 @@ downloaded and no brand artwork is shipped.
 """
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from PySide6.QtCore import QFileInfo, QRectF, QSize, Qt

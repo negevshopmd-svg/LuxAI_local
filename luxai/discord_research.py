@@ -8,12 +8,8 @@ explicit user decision before pressing Enter. It never claims delivery.
 from __future__ import annotations
 
 from dataclasses import dataclass
-import ctypes
-from ctypes import wintypes
 import json
-import os
 import re
-import sys
 import time
 import urllib.parse
 import urllib.request

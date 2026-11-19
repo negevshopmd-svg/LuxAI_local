@@ -7,6 +7,8 @@ with MP3, AAC, FLAC, Opus, H.264 and GIF encoders, so nothing is downloaded.
 """
 from __future__ import annotations
 
+import os
+
 from fractions import Fraction
 from pathlib import Path
 
@@ -29,13 +31,24 @@ def kind_of(path) -> str:
     return ""
 
 
+def _reserve(path: Path) -> bool:
+    """Create the file exclusively: two conversions can never pick the same name (audit #21)."""
+    try:
+        handle = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        return False
+    os.close(handle)
+    return True
+
+
 def unique_path(path: Path) -> Path:
+    """A free name, already reserved on disk (an empty file the converter then writes)."""
     path = Path(path)
-    if not path.exists():
+    if _reserve(path):
         return path
     for index in range(1, 1000):
         candidate = path.with_name(f"{path.stem} ({index}){path.suffix}")
-        if not candidate.exists():
+        if _reserve(candidate):
             return candidate
     raise OSError("Слишком много файлов с одинаковым именем.")
 
@@ -80,8 +93,15 @@ def save_image(image, target: Path, quality: int = 85):
     elif fmt == "webp":
         image.save(target, "WEBP", quality=int(quality), method=6)
     elif fmt == "ico":
-        sizes = [(s, s) for s in (16, 24, 32, 48, 64, 128, 256) if s <= max(image.size)] or [(16, 16)]
-        image.save(target, "ICO", sizes=sizes)
+        # Icons are square: centre the picture on a transparent square first (a 100×12 PNG failed, audit #20).
+        from PIL import Image
+        side = max(16, min(256, max(image.size)))
+        picture = image.convert("RGBA")
+        picture.thumbnail((side, side))
+        square = Image.new("RGBA", (side, side), (0, 0, 0, 0))
+        square.paste(picture, ((side - picture.width) // 2, (side - picture.height) // 2))
+        sizes = [(s, s) for s in (16, 24, 32, 48, 64, 128, 256) if s <= side]
+        square.save(target, "ICO", sizes=sizes)
     elif fmt == "bmp":
         _flatten(image).save(target, "BMP")
     elif fmt == "pdf":
@@ -276,26 +296,71 @@ def video_convert(source, *, mode="mp4", out_dir=None, progress=None) -> Path:
                     aout.layout = "stereo"
                     aout.bit_rate = 96_000 if mode == "compress" else 160_000
                     resampler = av.AudioResampler(format="fltp", layout="stereo", rate=48000)
+                # Keep the source's own times (variable frame rate, pauses, the offset between the
+                # video and the sound): rewriting every pts put four frames at 0.00 s (audit #2).
+                vout.codec_context.time_base = vin.time_base or Fraction(1, 1000)
+                video_base = vout.codec_context.time_base
+                start = float(inp.start_time or 0) / av.time_base
+                last_pts = None
+                audio_next = None
                 streams = [vin] + ([ain] if ain is not None else [])
                 for frame in inp.decode(*streams):
                     if isinstance(frame, av.VideoFrame):
                         _progress_from(inp, vin, frame, progress)
                         image = frame.reformat(width=width, height=height, format="yuv420p")
-                        image.pts = None
+                        seconds = (frame.time if frame.time is not None else 0.0) - start
+                        pts = max(0, int(round(seconds / float(video_base))))
+                        if last_pts is not None and pts <= last_pts:
+                            pts = last_pts + 1  # the encoder needs strictly growing times
+                        last_pts = pts
+                        image.pts = pts
+                        image.time_base = video_base
                         for packet in vout.encode(image):
                             out.mux(packet)
                     elif aout is not None:
+                        if audio_next is None:
+                            offset = (frame.time if frame.time is not None else start) - start
+                            audio_next = max(0, int(round(offset * 48000)))
                         frame.pts = None
                         for resampled in resampler.resample(frame):
+                            resampled.pts = audio_next
+                            resampled.time_base = Fraction(1, 48000)
+                            audio_next += resampled.samples
                             for packet in aout.encode(resampled):
                                 out.mux(packet)
                 for stream in [vout] + ([aout] if aout is not None else []):
                     for packet in stream.encode(None):
                         out.mux(packet)
+            expected = _media_seconds(source)
+            _check_duration(target, expected)
         except Exception:
             target.unlink(missing_ok=True)
             raise
     return target
+
+
+def _media_seconds(path) -> float:
+    import av
+    try:
+        with av.open(str(path)) as media:
+            if media.duration:
+                return float(media.duration) / av.time_base
+            longest = 0.0
+            for stream in media.streams:
+                if stream.duration and stream.time_base:
+                    longest = max(longest, float(stream.duration * stream.time_base))
+            return longest
+    except Exception:
+        return 0.0
+
+
+def _check_duration(target, expected: float) -> None:
+    """A file that exists is not yet a success: its length must match the source."""
+    if expected < 0.3:
+        return
+    actual = _media_seconds(target)
+    if actual < expected * 0.6 or actual > expected * 1.6 + 1:
+        raise ValueError(f"Длительность результата {actual:.2f} с не совпадает с исходной {expected:.2f} с.")
 
 
 GIF_MAX_SECONDS = 20

@@ -395,7 +395,14 @@ class VoiceManager:
                 with stream_class(samplerate=fish_tts.SAMPLE_RATE, channels=1, dtype="int16"):
                     pass
         except Exception as exc:
-            self._log(f"Fish audio warm-up skipped ({type(exc).__name__}).")
+            try:
+                import sounddevice as _sd
+                device = _sd.query_devices(kind="output").get("name", "?")
+                version = getattr(_sd, "__version__", "?")
+            except Exception:
+                device, version = "?", "?"
+            self._log(f"Fish audio warm-up skipped at output-stream open ({type(exc).__name__}: {str(exc)[:160]}; "
+                      f"sounddevice {version}; output device {str(device)[:80]}).")
         return fish_tts.warm_up_connection()
 
     def prefetch(self, text: str, language: str | None = None) -> None:
@@ -637,7 +644,6 @@ class _PCMStreamPlayer:
 
     def finish(self) -> bool:
         """Play what is left, wait for the device to drain, then close."""
-        global _active_stream
         try:
             if self._aborted.is_set() or _was_cancelled(self.cancel_token):
                 return False

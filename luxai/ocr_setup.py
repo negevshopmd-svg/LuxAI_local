@@ -55,6 +55,45 @@ _LANG_CAP_BYTES = 20 * 1024 * 1024
 _LOCK = threading.Lock()
 
 
+from contextlib import contextmanager
+
+
+@contextmanager
+def _process_lock():
+    """threading.Lock guards one process only; the app, install_windows and Update.bat may install at the
+    same moment (audit #27). An OS file lock (released by Windows if a process dies) covers them all;
+    the state is checked again after it is taken."""
+    OCR_ROOT.mkdir(parents=True, exist_ok=True)
+    path = OCR_ROOT / ".install.lock"
+    with path.open("a+b") as handle:
+        if sys.platform == "win32":
+            import msvcrt
+            import time as _time
+            if not path.stat().st_size:
+                handle.write(b"\0")
+                handle.flush()
+            handle.seek(0)
+            deadline = _time.monotonic() + 600
+            while True:
+                try:
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                    break
+                except OSError:
+                    if _time.monotonic() > deadline:
+                        raise OCRInstallError("Другая установка OCR не закончилась за 10 минут.") from None
+                    _time.sleep(0.5)
+            try:
+                yield
+            finally:
+                handle.seek(0)
+                try:
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                except OSError:
+                    pass
+        else:
+            yield
+
+
 class OCRInstallError(RuntimeError):
     """OCR download/install/verification failed; app remains usable."""
 
@@ -287,7 +326,7 @@ def ensure_tesseract(configured_path: str = "", *, allow_download=True) -> tuple
     Called by Update.bat/install_windows.bat as well as the OCR worker
     on first use. Installation is process-locked and repeat-safe.
     """
-    with _LOCK:
+    with _LOCK, _process_lock():
         binary = find_tesseract(configured_path)
         if binary and language_data_ready():
             ok, _ = verify_tesseract(binary)

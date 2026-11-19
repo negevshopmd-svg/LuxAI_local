@@ -1,5 +1,12 @@
-LUXAI LOCAL 0.4.2q — ACTUALIZARE 2026-11-19
+LUXAI LOCAL 0.4.2r — ACTUALIZARE 2026-11-19
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.2r: Reparate constatările raportului de audit din 19 noiembrie: clipboardul nu mai
+provoacă erori native, dictarea nu mai scrie în altă fereastră, conversia video păstrează
+timpii, alarmele nu se mai pierd, mementourile păstrează mesajul, traducerea păstrează
+punctuația și nu mai blochează fereastra, Telegram nu se mai blochează, un singur Jarvis
+per folder, actualizarea închide Jarvis sigur, verifică updaterul după hash-ul GitHub,
+readuce bibliotecile la eșec și spune adevărul despre restaurare.
 
 0.4.2q: Microfonul Discord merge fără cloud și în Discord-ul în rusă: butonul se numește
 „Заглушить”, căștile „Откл. звук” — Jarvis le citește și le apasă direct.

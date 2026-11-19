@@ -53,13 +53,26 @@ class RuntimeTests(unittest.TestCase):
         host.online_planner = None
         self.runtime = ExtensionsRuntime(host)
 
+    def _answer(self, phrase, method="handle_text_request"):
+        """Since 0.4.2r the translation runs on a worker and answers through chat_reply (audit #26)."""
+        from PySide6.QtWidgets import QApplication
+        from luxai.extensions_runtime import AsyncReply
+        replies = []
+        self.runtime.chat_reply.connect(lambda text, language: replies.append((text, language)))
+        first = getattr(self.runtime, method)(phrase)
+        self.assertIsInstance(first, AsyncReply)  # the window is not blocked
+        import time as _time
+        end = _time.time() + 5
+        while not replies and _time.time() < end:
+            QApplication.processEvents()
+            _time.sleep(0.01)
+        return replies[0]
+
     def test_translation_reply_and_voice(self):
         with mock.patch.object(ot, "installed", return_value=True), \
                 mock.patch("luxai.translation.translate_offline", return_value="I love cats") as offline:
-            self.assertEqual(self.runtime.handle_text_request("переведи на английский: Я люблю кошек"), "I love cats")
+            self.assertEqual(self._answer("переведи на английский: Я люблю кошек"), ("I love cats", "en"))
         offline.assert_called_once_with("Я люблю кошек", "en", "ru")
-        self.assertEqual(self.runtime.take_reply_language(), "en")
-        self.assertIsNone(self.runtime.take_reply_language())  # only once
 
     def test_pc_commands_are_left_alone(self):
         with mock.patch("luxai.translation.translate_offline") as offline:
@@ -70,7 +83,7 @@ class RuntimeTests(unittest.TestCase):
     def test_foreign_text_without_language_goes_to_jarvis_language(self):
         with mock.patch.object(ot, "installed", return_value=True), \
                 mock.patch("luxai.translation.translate_offline", return_value="Привет") as offline:
-            self.assertEqual(self.runtime.handle_translate_request("переведи hello, how are you?"), "Привет")
+            self.assertEqual(self._answer("переведи hello, how are you?", "handle_translate_request")[0], "Привет")
         self.assertEqual(offline.call_args[0][1], "ru")
 
     def test_asks_for_text_and_waits_for_download(self):

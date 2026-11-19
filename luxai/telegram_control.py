@@ -18,7 +18,6 @@ import json
 import queue
 import re
 import threading
-import time
 import urllib.error
 import urllib.request
 
@@ -156,6 +155,10 @@ def call(token, method, params=None, timeout=15, opener=None):
             raise TelegramError(f"HTTP {error.code}") from None
     except (urllib.error.URLError, TimeoutError, OSError) as error:
         raise TelegramError(f"Нет связи с Telegram ({type(error).__name__}).") from None
+    except (ValueError, UnicodeDecodeError):
+        raise TelegramError("Telegram ответил не в формате JSON.") from None
+    if not isinstance(payload, dict):
+        raise TelegramError("Неожиданный ответ Telegram.")  # audit #23: a list / null / number root
     if not payload.get("ok"):
         description = str(payload.get("description") or "unknown error")[:200]
         raise TelegramError(description.replace(token, "***"))
@@ -180,6 +183,7 @@ class TelegramBot:
         self._stop = threading.Event()
         self.me: dict = {}
         self._threads = []
+        self.undelivered = 0  # replies that could not be sent (queue full or Telegram error)
 
     def start(self):
         for target, name in ((self._poll, "JarvisTelegramPoll"), (self._send_loop, "JarvisTelegramSend")):
@@ -187,21 +191,44 @@ class TelegramBot:
             thread.start()
             self._threads.append(thread)
 
-    def stop(self):
+    def stop(self, wait: float = 0.0):
+        """Every way out (user, error, crash) ends BOTH threads (audit #22)."""
         self._stop.set()
-        try:
-            self.outbox.put_nowait(None)
-        except queue.Full:
-            pass
+        while True:  # make room for the wake-up item even when the queue is full
+            try:
+                self.outbox.put_nowait(None)
+                break
+            except queue.Full:
+                try:
+                    self.outbox.get_nowait()
+                except queue.Empty:
+                    pass
+        if wait:
+            for thread in self._threads:
+                if thread is not threading.current_thread():
+                    thread.join(wait)
 
     @property
     def running(self):
-        return not self._stop.is_set() and any(thread.is_alive() for thread in self._threads)
+        """True only while the POLLER lives — a lone send thread is not a running bot (audit #23)."""
+        poll = self._threads[0] if self._threads else None
+        return not self._stop.is_set() and poll is not None and poll.is_alive()
 
-    def send(self, method, params):
+    def send(self, method, params) -> bool:
         try:
             self.outbox.put_nowait((method, params))
+            return True
         except queue.Full:
+            self._undelivered(method, "queue full")
+            return False
+
+    def _undelivered(self, method, reason):
+        # Never silent (audit #24): the status line shows it, and the command is not resent automatically,
+        # because the action itself was already done.
+        self.undelivered += 1
+        try:
+            self.on_status("undelivered", {"message": f"{method}: {reason}"[:200], "count": self.undelivered})
+        except Exception:
             pass
 
     def _send_loop(self):
@@ -210,12 +237,32 @@ class TelegramBot:
             if item is None:
                 break
             method, params = item
-            try:
-                self.call(self.token, method, params, timeout=15)
-            except TelegramError:
-                pass
+            for attempt in (1, 2):
+                try:
+                    self.call(self.token, method, params, timeout=15)
+                    break
+                except TelegramError as error:
+                    # Only a lost connection is retried once; a refused message is reported, not repeated.
+                    if attempt == 1 and "связи" in str(error) and not self._stop.wait(2):
+                        continue
+                    self._undelivered(method, str(error))
+                    break
+                except Exception as error:
+                    self._undelivered(method, type(error).__name__)
+                    break
 
     def _poll(self):
+        try:
+            self._poll_loop()
+        except Exception as error:  # anything unexpected still ends in a known state
+            try:
+                self.on_status("error", {"message": f"{type(error).__name__}: {str(error)[:160]}"})
+            except Exception:
+                pass
+        finally:
+            self.stop()  # the send thread never stays behind (audit #22)
+
+    def _poll_loop(self):
         backoff = 2
         try:
             self.me = self.call(self.token, "getMe", timeout=15) or {}
@@ -225,7 +272,6 @@ class TelegramBot:
             offset = (pending[-1]["update_id"] + 1) if pending else 0
         except TelegramError as error:
             self.on_status("error", {"message": str(error)})
-            self._stop.set()
             return
         self.on_status("connected", {"name": self.me.get("first_name", ""), "username": self.me.get("username", "")})
         while not self._stop.is_set():
@@ -246,8 +292,15 @@ class TelegramBot:
                 self._stop.wait(backoff)
                 backoff = min(60, backoff * 2)
                 continue
+            if not isinstance(updates, list):
+                updates = []
             for update in updates:
-                offset = max(offset, int(update.get("update_id", 0)) + 1)
+                if not isinstance(update, dict):
+                    continue
+                try:
+                    offset = max(offset, int(update.get("update_id", 0)) + 1)
+                except (TypeError, ValueError):
+                    continue
                 if not self._stop.is_set():
                     self.on_update(update)
         self.on_status("stopped", {})

@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
     QHeaderView, QApplication,
 )
 from luxai.command_registry import CommandRegistry, checked_command
-from luxai.ui_i18n import tr, get_ui_language, translate_widgets
+from luxai.ui_i18n import tr, get_ui_language
 from luxai.icons import icon, refresh_icons, set_button_icon, set_item_app_icon, set_item_icon
 
 

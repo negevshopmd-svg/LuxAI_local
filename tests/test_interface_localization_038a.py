@@ -188,6 +188,12 @@ class InterfaceLocalization038aTests(unittest.TestCase):
                       mock.patch.object(main, "read_screen_text", return_value=observed),
                       mock.patch.object(main, "QMessageBox", factory)):
                     window.ocr_action()
+                    # 0.4.2r (audit #41): OCR runs on a worker; the dialog follows through a signal.
+                    import time as _time
+                    end = _time.time() + 5
+                    while not ocr_dialog.setWindowTitle.called and _time.time() < end:
+                        QApplication.processEvents()
+                        _time.sleep(0.01)
                 ocr_dialog.setWindowTitle.assert_called_once_with(screen_text)
                 ocr_dialog.setText.assert_called_once_with(observed)
                 self.assertEqual(window.history[-1], ("OCR", observed))

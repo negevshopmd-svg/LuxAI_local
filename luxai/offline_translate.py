@@ -90,7 +90,7 @@ MAX_PIECE = 400  # characters per model call; longer text is split at sentences
 
 _lock = threading.Lock()
 _loaded: "OfflineTranslator | None" = None
-_failed = False
+_failed: tuple | None = None   # signature (size, mtime) of the model that failed to load
 _downloading = False
 
 
@@ -197,26 +197,62 @@ class OfflineTranslator:
                 ids = [self.tokenizer.token_to_id(token) for token in tokens]
                 value = self.tokenizer.decode([i for i in ids if i is not None], skip_special_tokens=True).strip()
                 out[index] = re.sub(r"^[-–—]\s+", "", value)  # subtitle dialogue dash
-        joined = re.sub(r"\s+([.,!?;:…])", r"", " ".join(piece for piece in out if piece))
+        joined = re.sub(r"\s+([.,!?;:…])", lambda match: match.group(1), " ".join(piece for piece in out if piece))
         if target == "ro":  # the model writes the old cedilla letters (ş ţ)
             joined = joined.translate(_RO_COMMA)
         return joined
 
 
+def _signature(directory: Path | None = None) -> tuple | None:
+    try:
+        stat = (model_dir(directory) / "model.bin").stat()
+        return stat.st_size, stat.st_mtime_ns
+    except OSError:
+        return None
+
+
 def get(directory: Path | None = None) -> "OfflineTranslator | None":
-    """The shared translator, loaded once (≈1 s); None when it is not installed or broken."""
+    """The shared translator, loaded once (≈1 s); None when it is not installed or broken.
+
+    A model that failed to load is tried again only after its files changed
+    (a repair); a damaged model is checked and repaired in the background.
+    """
     global _loaded, _failed
     if _loaded is not None:
         return _loaded
-    if _failed or not installed(directory):
+    if not installed(directory):
+        return None
+    signature = _signature(directory)
+    if _failed is not None and _failed == signature:
         return None
     with _lock:
-        if _loaded is None and not _failed:
+        if _loaded is None:
             try:
                 _loaded = OfflineTranslator(directory)
+                _failed = None
             except Exception:
-                _failed = True
+                _failed = signature
+                broken = True
+            else:
+                broken = False
+    if _loaded is None and broken:
+        repair_in_background(directory)
     return _loaded
+
+
+def repair_in_background(directory: Path | None = None) -> None:
+    """A model that does not load: verify the files; damaged ones are deleted and downloaded again."""
+    def work():
+        if not verified(directory):
+            for name in SHA256:
+                try:
+                    (model_dir(directory) / name).unlink(missing_ok=True)
+                except OSError:
+                    pass
+            download_in_background(directory)
+
+    if not os.environ.get("LUXAI_NO_DOWNLOADS"):
+        threading.Thread(target=work, daemon=True, name="JarvisTranslatorRepair").start()
 
 
 def ensure_downloaded(directory: Path | None = None) -> bool:
