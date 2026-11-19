@@ -1,4 +1,7 @@
-LUXAI LOCAL (JARVIS) 0.4.2o — UPDATE 2026-11-19
+LUXAI LOCAL (JARVIS) 0.4.2p — UPDATE 2026-11-19
+
+0.4.2p: Discord buttons (microphone, headphones) are searched more patiently; when they
+are not found, Jarvis writes what it sees to logs\discord_buttons.txt (local only).
 
 0.4.2o: Commands look like Luxify: real program icons (Chrome, Telegram, Word,
 Discord, Steam) and a separate «Manage Discord» group — 35 commands Jarvis runs by

@@ -1,4 +1,7 @@
-LUXAI LOCAL (JARVIS) 0.4.2o — ОБНОВЛЕНИЕ 2026-11-19
+LUXAI LOCAL (JARVIS) 0.4.2p — ОБНОВЛЕНИЕ 2026-11-19
+
+0.4.2p: Кнопки Discord (микрофон, наушники) ищутся терпеливее; если не найдены,
+Jarvis пишет локально в logs\discord_buttons.txt, что он видит, чтобы это исправить.
 
 0.4.2o: Команды как в Luxify: настоящие значки программ (Chrome, Telegram, Word,
 Discord, Steam), отдельная группа «Управление Discord» — 35 команд, которые Jarvis

@@ -52,7 +52,32 @@ def _classify(name: str) -> str | None:
     return None
 
 
-def read_buttons(hwnd: int, attempts: int = 3) -> dict:
+def _diagnose(root, uia, automation, found, window) -> None:
+    """When the buttons are not found: write what UI Automation sees to logs/discord_buttons.txt (local only)."""
+    try:
+        from pathlib import Path
+        everything = root.FindAll(uia.TreeScope_Descendants, automation.CreateTrueCondition())
+        lines = [time.strftime("%Y-%m-%d %H:%M:%S"),
+                 f"window {window.left},{window.top},{window.right},{window.bottom}; "
+                 f"all elements {everything.Length}; buttons {found.Length if found is not None else 0}"]
+        for index in range(min(found.Length if found is not None else 0, 120)):
+            element = found.GetElement(index)
+            rect = element.CurrentBoundingRectangle
+            toggle = ""
+            try:
+                pattern = element.GetCurrentPattern(uia.UIA_TogglePatternId)
+                toggle = " toggle" if pattern else ""
+            except Exception:
+                pass
+            lines.append(f"  {(element.CurrentName or '')[:60]!r} at {rect.left},{rect.top}{toggle}")
+        folder = Path(__file__).resolve().parents[1] / "logs"
+        folder.mkdir(exist_ok=True)
+        (folder / "discord_buttons.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    except Exception:
+        pass
+
+
+def read_buttons(hwnd: int, attempts: int = 6) -> dict:
     """{"mic": (element, state), "deaf": (element, state)}; state True = muted/deafened, None = unknown."""
     automation, uia = _automation()
     root = automation.ElementFromHandle(hwnd)
@@ -63,7 +88,8 @@ def read_buttons(hwnd: int, attempts: int = 3) -> dict:
         found = root.FindAll(uia.TreeScope_Descendants, condition)
         if found.Length > 3:
             break
-        time.sleep(0.6)  # Chromium builds its accessibility tree after the first question
+        # Chromium builds its accessibility tree only after the first question: give it time.
+        time.sleep(0.5)
     best: dict = {}
     for index in range(found.Length if found is not None else 0):
         element = found.GetElement(index)
@@ -86,6 +112,8 @@ def read_buttons(hwnd: int, attempts: int = 3) -> dict:
             state = bool(_OFFERS_ON.search(name))
         if kind not in best or rect.bottom > best[kind][2]:
             best[kind] = (element, state, rect.bottom, name)
+    if attempts > 1 and len(best) < 2:
+        _diagnose(root, uia, automation, found, window)
     return {kind: (value[0], value[1]) for kind, value in best.items()}
 
 

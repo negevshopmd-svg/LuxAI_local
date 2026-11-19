@@ -1,5 +1,8 @@
-LUXAI LOCAL 0.4.2o — ACTUALIZARE 2026-11-19
+LUXAI LOCAL 0.4.2p — ACTUALIZARE 2026-11-19
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.2p: Butoanele Discord (microfon, căști) sunt căutate mai răbdător; dacă nu se găsesc,
+Jarvis scrie local în logs\discord_buttons.txt ce vede, ca să putem repara.
 
 0.4.2o: Comenzile arată ca în Luxify: iconițele reale ale programelor (Chrome,
 Telegram, Word, Discord, Steam) și grupul separat „Control Discord” — 35 de comenzi

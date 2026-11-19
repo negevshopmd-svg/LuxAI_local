@@ -1,3 +1,7 @@
+## 0.4.2p — Discord button diagnostics (2026-11-19)
+
+- The first live try of «выключи микрофон в дискорде» fell back to the screenshot path: UI Automation found no Discord mic/deafen buttons. `read_buttons` now waits up to ~3 s for Chromium to build its accessibility tree, and when the buttons are still missing it writes what it sees (element count, button names and positions, toggle support) to `logs/discord_buttons.txt` — local only — so the search can be fitted to the real Discord.
+
 ## 0.4.2o — Command library like Luxify, Discord without the cloud (2026-11-19)
 
 - Command library: groups show the real icon of the installed program (from its .exe through the Windows shell: Chrome, Telegram, Word, Discord, Steam…) on a rounded tile, the Windows group four blue panes, a missing program a simple glyph in its colour (`luxai/app_icons.py`; icons follow the theme through `ICON_APP_ROLE` / `ICON_PAD_ROLE` in `luxai/icons.py`). Counts are right-aligned with correct plurals («1 команда», «3 команды», «20 команд», «20 de comenzi»).
