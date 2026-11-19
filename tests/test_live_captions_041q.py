@@ -7,7 +7,7 @@ from unittest import mock
 
 import numpy as np
 from PySide6.QtCore import QCoreApplication, QEvent
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QPushButton
 
 from luxai import extensions_catalog as catalog
 from luxai import live_captions as lc
@@ -344,6 +344,8 @@ class PageTests(unittest.TestCase):
         self.assertEqual(items, ["Весь звук компьютера", "Только программа: Discord", "Только программа: steam"])
         view.source_combo.setCurrentIndex(1)
         self.assertEqual(view.collect()["source"], "Discord.exe")
+        refresh = [button for button in view.findChildren(QPushButton) if button.toolTip().startswith("Обновить список программ")]
+        self.assertEqual([button.objectName() for button in refresh], ["ExtIconButton"])  # never a black square
         self.assertIn("Перевод выключен", view.tr_label.text())
         with mock.patch("luxai.offline_translate.installed", return_value=False):
             view.fields["translate"].setChecked(True)

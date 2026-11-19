@@ -1,3 +1,7 @@
+## 0.4.2m — Refresh button without a black background (2026-11-19)
+
+- Live captions → «Что слушать»: the refresh button next to the program list was a bare QToolButton that Windows drew with a black square. It now has the same transparent rounded look as the section reset button (grey icon, accent-tinted hover).
+
 ## 0.4.2l — Setup window for Update.bat and install_windows.bat (2026-11-19)
 
 - Update.bat and install_windows.bat now open a Jarvis window (`scripts/setup_ui.ps1`, built-in WPF — works before Python exists) and hide the console. Ideas taken from known installers: the Visual Studio Installer step list with ticks and per-step time, Steam's live internet-speed chart with speed / downloaded figures, Discord's compact borderless branded window with a soft accent glow, Windows 11 Fluent rounded corners, shadow and thin rounded progress bar.

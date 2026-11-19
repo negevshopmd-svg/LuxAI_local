@@ -1,4 +1,6 @@
-LUXAI LOCAL 0.4.2l — ACTUALIZARE 2026-11-19
+LUXAI LOCAL 0.4.2m — ACTUALIZARE 2026-11-19
+
+0.4.2m: Butonul de reîmprospătare de la „Ce ascult” (subtitrări) nu mai are fundal negru.
 
 0.4.2l: Update.bat și install_windows.bat au o fereastră frumoasă în stilul lui
 Jarvis: ce se face acum, cât timp a rămas, viteza internetului, cât s-a descărcat.
