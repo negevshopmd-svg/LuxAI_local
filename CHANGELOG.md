@@ -1,3 +1,7 @@
+## 0.4.2s — Update.bat bootstrap fixed (2026-11-19)
+
+- In 0.4.2r the new `for /f` line started a quoted interpreter path (".venv\Scripts\python.exe"); cmd.exe strips the outer quotes of such a command and printed «The system cannot find the path specified», so Update.bat stopped before downloading. `call` in front keeps the quotes. Checked on the real installation: verified download, update, lock and temporary file removed; a second Update.bat gets «BUSY», a lock left by a crash is ignored. An installation that already has the 0.4.2r Update.bat repairs itself by running `.venv\Scripts\python.exe Update.py` once.
+
 ## 0.4.2r — Audit report of 2026-11-19 fixed (2026-11-19)
 
 Numbers refer to the findings of «LuxAI_Local - Raport audit 2026-11-19.md». Tests: `tests/test_audit_fixes_042r.py` plus updated older tests.

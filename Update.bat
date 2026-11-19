@@ -34,7 +34,8 @@ if not exist "scripts\fetch_updater.py" goto legacy_download
 
 rem 0.4.2r: one exact commit through the GitHub API, git hash checked, compiled,
 rem unique file name, and a lock so a second Update.bat cannot touch this one.
-for /f "usebackq delims=" %%L in (`%LUXAI_PYTHON% -I "scripts\fetch_updater.py"`) do set "BOOT=%%L"
+rem CALL keeps cmd.exe from stripping the quotes of a quoted interpreter path.
+for /f "usebackq delims=" %%L in (`call %LUXAI_PYTHON% -I "scripts\fetch_updater.py"`) do set "BOOT=%%L"
 if "%BOOT%"=="BUSY" (
     echo O alta actualizare LuxAI ruleaza deja. Asteapta sa termine.
     pause

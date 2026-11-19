@@ -1,4 +1,8 @@
-LUXAI LOCAL (JARVIS) 0.4.2r — UPDATE 2026-11-19
+LUXAI LOCAL (JARVIS) 0.4.2s — UPDATE 2026-11-19
+
+0.4.2s: Update.bat of 0.4.2r did not start the verified download («The system cannot find
+the path specified»). If you have it, run once in the Jarvis folder:
+.venv\Scripts\python.exe Update.py
 
 0.4.2r: Fixed the findings of the 19 November audit: the clipboard no longer causes native
 errors, dictation never types into another window, video conversion keeps frame times,

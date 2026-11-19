@@ -1,5 +1,9 @@
-LUXAI LOCAL 0.4.2r — ACTUALIZARE 2026-11-19
+LUXAI LOCAL 0.4.2s — ACTUALIZARE 2026-11-19
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.2s: Update.bat din 0.4.2r nu pornea descărcarea verificată („The system cannot find
+the path specified”). Dacă îl ai, rulează o dată în folderul Jarvis:
+.venv\Scripts\python.exe Update.py
 
 0.4.2r: Reparate constatările raportului de audit din 19 noiembrie: clipboardul nu mai
 provoacă erori native, dictarea nu mai scrie în altă fereastră, conversia video păstrează

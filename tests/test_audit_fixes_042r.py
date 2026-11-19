@@ -257,6 +257,7 @@ class UpdateTests(unittest.TestCase):
         updater = (ROOT / "Update.bat").read_text(encoding="ascii")
         self.assertIn("fetch_updater.py", updater)
         self.assertIn(".luxai_bootstrap.lock", updater)
+        self.assertIn('(`call %LUXAI_PYTHON% -I "scripts\\fetch_updater.py"`)', updater)  # 0.4.2s
 
 
 class LaunchTests(unittest.TestCase):
