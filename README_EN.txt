@@ -1,4 +1,7 @@
-LUXAI LOCAL (JARVIS) 0.4.2p — UPDATE 2026-11-19
+LUXAI LOCAL (JARVIS) 0.4.2q — UPDATE 2026-11-19
+
+0.4.2q: The Discord microphone works without the cloud in Russian Discord too: the button is
+«Заглушить», the headphones «Откл. звук»; Jarvis reads and presses them directly.
 
 0.4.2p: Discord buttons (microphone, headphones) are searched more patiently; when they
 are not found, Jarvis writes what it sees to logs\discord_buttons.txt (local only).

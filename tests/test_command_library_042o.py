@@ -78,6 +78,11 @@ class AudioTests(unittest.TestCase):
         self.assertEqual(discord_audio._classify("Откл. микрофон"), "mic")
         self.assertEqual(discord_audio._classify("Откл. звук"), "deaf")
         self.assertIsNone(discord_audio._classify("User Settings"))
+        # The real names of the user's Russian Discord account bar (logs/discord_buttons.txt, 0.4.2q).
+        self.assertEqual(discord_audio._classify("Заглушить"), "mic")
+        self.assertEqual(discord_audio._classify("Откл. звук"), "deaf")
+        self.assertIsNone(discord_audio._classify("Настройки ввода"))
+        self.assertIsNone(discord_audio._classify("Настройки пользователя"))
 
 
 class LibraryViewTests(unittest.TestCase):

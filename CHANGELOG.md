@@ -1,3 +1,7 @@
+## 0.4.2q — Discord mic found in Russian Discord (2026-11-19)
+
+- The diagnostics log of 0.4.2p showed the real account-bar names in the user's Russian Discord: the microphone switch is «Заглушить» and the headphones switch «Откл. звук», both UI Automation toggles. `_MIC` now also matches «заглуш» (and Romanian «amuț»), and among buttons of the same kind a real toggle switch wins over a plain button, then the lowest one (the account bar, not the call panel). The diagnostics log was deleted after reading.
+
 ## 0.4.2p — Discord button diagnostics (2026-11-19)
 
 - The first live try of «выключи микрофон в дискорде» fell back to the screenshot path: UI Automation found no Discord mic/deafen buttons. `read_buttons` now waits up to ~3 s for Chromium to build its accessibility tree, and when the buttons are still missing it writes what it sees (element count, button names and positions, toggle support) to `logs/discord_buttons.txt` — local only — so the search can be fitted to the real Discord.

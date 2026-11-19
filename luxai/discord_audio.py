@@ -19,7 +19,8 @@ import time
 
 KEYS = {"mic": ("ctrl", "shift", "m"), "deaf": ("ctrl", "shift", "d")}
 # Button names in Discord's English / Russian / Romanian clients.
-_MIC = re.compile(r"(?:\bmute\b|\bunmute\b|микрофон|microfon)", re.I)
+# Russian Discord calls the mic switch «Заглушить» / «Включить микрофон»; deafen is «Откл. звук» (seen live, 0.4.2q).
+_MIC = re.compile(r"(?:\bmute\b|\bunmute\b|микрофон|заглуш|microfon|amu[țt])", re.I)
 _DEAF = re.compile(r"(?:deafen|звук|наушник|asurz|c[ăa][șs]ti|sunet)", re.I)
 # A label that offers to turn something ON means it is currently OFF.
 _OFFERS_ON = re.compile(r"^(?:un|вкл|включ|activ|reactiv|porn)", re.I)
@@ -50,6 +51,13 @@ def _classify(name: str) -> str | None:
     if _MIC.search(name):
         return "mic"
     return None
+
+
+def _has_toggle(element, uia) -> bool:
+    try:
+        return bool(element.GetCurrentPattern(uia.UIA_TogglePatternId))
+    except Exception:
+        return False
 
 
 def _diagnose(root, uia, automation, found, window) -> None:
@@ -110,8 +118,10 @@ def read_buttons(hwnd: int, attempts: int = 6) -> dict:
             state = None
         if state is None and name:
             state = bool(_OFFERS_ON.search(name))
-        if kind not in best or rect.bottom > best[kind][2]:
-            best[kind] = (element, state, rect.bottom, name)
+        switch = state is not None and _has_toggle(element, uia)
+        rank = (switch, rect.bottom)  # a real on/off switch first, then the lowest one (the account bar)
+        if kind not in best or rank > best[kind][2]:
+            best[kind] = (element, state, rank, name)
     if attempts > 1 and len(best) < 2:
         _diagnose(root, uia, automation, found, window)
     return {kind: (value[0], value[1]) for kind, value in best.items()}

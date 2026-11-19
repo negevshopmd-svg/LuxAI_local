@@ -1,5 +1,8 @@
-LUXAI LOCAL 0.4.2p — ACTUALIZARE 2026-11-19
+LUXAI LOCAL 0.4.2q — ACTUALIZARE 2026-11-19
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.2q: Microfonul Discord merge fără cloud și în Discord-ul în rusă: butonul se numește
+„Заглушить”, căștile „Откл. звук” — Jarvis le citește și le apasă direct.
 
 0.4.2p: Butoanele Discord (microfon, căști) sunt căutate mai răbdător; dacă nu se găsesc,
 Jarvis scrie local în logs\discord_buttons.txt ce vede, ca să putem repara.
