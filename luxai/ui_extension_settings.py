@@ -126,11 +126,12 @@ W = {
                         "Reîmprospătează lista programelor cu sunet"),
     "tr_off": L("Перевод выключен: субтитры на языке оригинала.", "Translation is off: captions in the original language.",
                 "Traducerea e oprită: subtitrări în limba originală."),
-    "tr_on": L("Перевод через облачный ИИ Jarvis ({provider}).", "Translated by Jarvis's cloud AI ({provider}).",
-               "Traducere prin AI-ul cloud al lui Jarvis ({provider})."),
-    "tr_missing": L("Для перевода нужен облачный ИИ — добавьте API-ключ в настройках Jarvis.",
-                    "Translation needs the cloud AI — add an API key in Jarvis settings.",
-                    "Traducerea are nevoie de AI cloud — adaugă o cheie API în setările Jarvis."),
+    "tr_on": L("Переводит офлайн-переводчик на этом ПК — ≈0,5 с на фразу, без интернета.",
+               "The offline translator on this PC — ≈0.5 s a phrase, no internet.",
+               "Traduce traducătorul offline de pe acest PC — ≈0,5 s pe frază, fără internet."),
+    "tr_missing": L("Переводчик скачивается (≈640 МБ, один раз). Пока он не готов, показывается оригинал.",
+                    "The translator is downloading (≈640 MB, once). Until it is ready, the original is shown.",
+                    "Traducătorul se descarcă (≈640 MB, o singură dată). Până e gata, se arată originalul."),
     "position": L("Положение", "Position", "Poziție"),
     "position_hint": L("Плашку можно перетащить за ручку слева — место запомнится.",
                        "Drag the bar by the handle on the left — the place is remembered.",
@@ -147,12 +148,16 @@ W = {
     "clip_wipe_ask": L("Удалить всю историю, вместе с закреплёнными записями? Это нельзя отменить.",
                        "Delete the whole history, pinned items included? This cannot be undone.",
                        "Ștergi tot istoricul, inclusiv elementele fixate? Nu se poate anula."),
-    "ai_ready": L("Работает через облачный ИИ Jarvis ({provider}). Текст уходит в нейросеть только когда вы выбрали действие.",
-                  "Works through Jarvis's cloud AI ({provider}). Text goes to the AI only when you pick an action.",
-                  "Funcționează prin AI-ul cloud al lui Jarvis ({provider}). Textul ajunge la AI doar când alegi o acțiune."),
-    "ai_missing": L("Нужен облачный ИИ: добавьте API-ключ в настройках Jarvis — тогда появятся «Перевести», «Исправить ошибки» и «Кратко».",
-                    "Needs the cloud AI: add an API key in Jarvis settings to get “Translate”, “Fix mistakes” and “Shorten”.",
-                    "E nevoie de AI cloud: adaugă o cheie API în setările Jarvis pentru „Tradu”, „Corectează” și „Pe scurt”."),
+    "ai_ready": L("«Перевести» работает на этом ПК, без интернета. «Исправить ошибки» и «Кратко» — через облачный ИИ Jarvis "
+                  "({provider}); текст уходит туда только когда вы выбрали действие.",
+                  "“Translate” runs on this PC, offline. “Fix mistakes” and “Shorten” use Jarvis's cloud AI ({provider}); "
+                  "text goes there only when you pick the action.",
+                  "„Tradu” merge pe acest PC, fără internet. „Corectează” și „Pe scurt” folosesc AI-ul cloud al lui Jarvis "
+                  "({provider}); textul ajunge acolo doar când alegi acțiunea."),
+    "ai_missing": L("«Перевести» работает на этом ПК, без интернета. Для «Исправить ошибки» и «Кратко» добавьте API-ключ "
+                    "в настройках Jarvis.",
+                    "“Translate” runs on this PC, offline. For “Fix mistakes” and “Shorten”, add an API key in Jarvis settings.",
+                    "„Tradu” merge pe acest PC, fără internet. Pentru „Corectează” și „Pe scurt”, adaugă o cheie API în setările Jarvis."),
     "today_sub": L("Только за сегодня — истории на месяцы нет.", "Today only — no history kept for months.",
                    "Doar pentru azi — nu se păstrează istoric pe luni."),
     "today_stats": L("Перерывов сделано: {done} · пропущено: {skipped}", "Breaks done: {done} · skipped: {skipped}",
@@ -1549,17 +1554,12 @@ class PluginSettingsView(QWidget):
     def _render_translate_status(self, draft):
         if not hasattr(self, "tr_label"):
             return
-        planner = getattr(getattr(self.runtime, "host", None), "online_planner", None)
+        from luxai import offline_translate
         if not draft.get("translate"):
             self.tr_label.setText(w("tr_off", self.language))
             self.tr_dot.set_color("#7c8696")
-        elif planner is not None and planner.enabled():
-            provider = ""
-            try:
-                provider = str(planner._provider() or "").capitalize()
-            except Exception:
-                pass
-            self.tr_label.setText(w("tr_on", self.language).format(provider=provider or "AI"))
+        elif offline_translate.installed():
+            self.tr_label.setText(w("tr_on", self.language))
             self.tr_dot.set_color("#32b87a")
         else:
             self.tr_label.setText(w("tr_missing", self.language))

@@ -178,11 +178,11 @@ PLUGINS: tuple[Plugin, ...] = (
                         "„Telegram: 3 mesaje noi — Mama, Tata”.")),
          Setting("translate", "bool", L("Переводить на язык Jarvis", "Translate into Jarvis' language", "Tradu în limba lui Jarvis"), True,
                  hint=L("Уведомление на другом языке сначала переводится, название программы остаётся как есть. "
-                        "Переводит облачный AI из настроек Jarvis (только текст уведомления), без него — локальная модель.",
+                        "Переводит офлайн-переводчик на этом ПК — текст никуда не уходит.",
                         "A notification in another language is translated first; the app name stays as is. "
-                        "The cloud AI from Jarvis settings translates (only the notification text); without it, the local model.",
+                        "The offline translator on this PC does it — the text goes nowhere.",
                         "O notificare în altă limbă e tradusă întâi; numele aplicației rămâne. "
-                        "Traduce AI-ul cloud din setările Jarvis (doar textul notificării); fără el, modelul local.")),
+                        "Traduce traducătorul offline de pe acest PC — textul nu pleacă nicăieri.")),
          Setting("quiet_enabled", "bool", L("Тихие часы", "Quiet hours", "Ore de liniște"), False,
                  hint=L("В это время не читать. Пропущенное — по «что пришло».", "Don't read during these hours. Missed ones — via “what came in”.",
                         "Nu citi în aceste ore. Cele ratate — prin „ce a venit”.")),
@@ -215,11 +215,11 @@ PLUGINS: tuple[Plugin, ...] = (
          Setting("second_press_stops", "bool", L("Повторное нажатие останавливает чтение", "Second press stops reading", "A doua apăsare oprește citirea"), True),
          Setting("translate", "bool", L("Переводить на язык Jarvis", "Translate into Jarvis' language", "Tradu în limba lui Jarvis"), True,
                  hint=L("Текст на другом языке сначала переводится, и Jarvis сразу читает перевод — по частям, без ожидания всего текста. "
-                        "Переводит облачный AI из настроек Jarvis, без него — локальная модель (медленнее).",
+                        "Переводит офлайн-переводчик на этом ПК — быстро и без интернета.",
                         "Text in another language is translated first and Jarvis reads the translation right away — piece by piece. "
-                        "The cloud AI from Jarvis settings translates; without it the local model does (slower).",
+                        "The offline translator on this PC does it — fast and without internet.",
                         "Textul în altă limbă e tradus întâi și Jarvis citește imediat traducerea — pe bucăți. "
-                        "Traduce AI-ul cloud din setările Jarvis; fără el, modelul local (mai lent).")),
+                        "Traduce traducătorul offline de pe acest PC — rapid și fără internet.")),
          Setting("translate_to", "choice", L("Язык чтения", "Reading language", "Limba citirii"), "auto",
                  options=(("auto", L("Как у Jarvis", "Same as Jarvis", "Ca la Jarvis")),
                           ("ru", L("Русский", "Russian", "Rusă")), ("ro", L("Румынский", "Romanian", "Română")),
@@ -822,8 +822,9 @@ SECTIONS = {
                   "Ce limbă se vorbește și ce ascult."),
                 ("language", "quality", "@source")),
         Section("translate", "globe", L("Перевод", "Translation", "Traducere"),
-                L("Законченные фразы переводятся нейросетью на ваш язык.", "Finished phrases are translated by AI into your language.",
-                  "Frazele terminate sunt traduse de AI în limba ta."),
+                L("Законченные фразы переводятся на ваш язык прямо на этом ПК.",
+                  "Finished phrases are translated into your language right on this PC.",
+                  "Frazele terminate sunt traduse în limba ta chiar pe acest PC."),
                 ("translate", "translate_to", "show_original", "@tr_status")),
         Section("look", "sliders-horizontal", L("Вид", "Look", "Aspect"),
                 L("Размер текста, прозрачность плашки, сколько строк видно.", "Text size, bar transparency, how many lines show.",
@@ -971,14 +972,14 @@ BASIC_NOTE = {
                            "marchează „nu pentru istoric” nu se rețin. Nici lipirile temporare ale lui Jarvis. Istoricul rămâne "
                            "doar pe acest PC, criptat."),
     "notification_reader": L("Уведомления — ваша переписка. Jarvis держит в памяти только последние 20, ничего не пишет на диск "
-                             "и в журналы. В нейросеть уходит только текст уведомления на другом языке — для перевода, и только "
-                             "если перевод включён. Пока компьютер заблокирован, ничего не читается.",
+                             "и в журналы. Перевод делается на этом ПК — текст уведомлений никуда не уходит. Пока компьютер "
+                             "заблокирован, ничего не читается.",
                              "Notifications are your messages. Jarvis keeps only the last 20 in memory and writes nothing to disk "
-                             "or logs. Only the text of a notification in another language goes to AI — for translation, and only "
-                             "when translation is on. Nothing is read while the PC is locked.",
+                             "or logs. Translation happens on this PC — notification text goes nowhere. Nothing is read while "
+                             "the PC is locked.",
                              "Notificările sunt mesajele tale. Jarvis păstrează doar ultimele 20 în memorie și nu scrie nimic pe "
-                             "disc sau în jurnale. La AI ajunge doar textul unei notificări în altă limbă — pentru traducere, și "
-                             "doar dacă traducerea e pornită. Cât PC-ul e blocat, nu se citește nimic."),
+                             "disc sau în jurnale. Traducerea se face pe acest PC — textul notificărilor nu pleacă nicăieri. Cât "
+                             "PC-ul e blocat, nu se citește nimic."),
     "converter": L("Картинки — силами Pillow, звук и видео — встроенным FFmpeg (PyAV). Ничего докачивать не нужно; "
                    "OGG сохраняется с кодеком Opus.",
                    "Images via Pillow, audio and video via the built-in FFmpeg (PyAV). Nothing to download; "
@@ -1016,12 +1017,12 @@ SECTION_NOTES = {
                                   "gets into the captions.",
                                   "Sunetul e recunoscut pe acest PC și nu e trimis sau salvat nicăieri. Vocea lui Jarvis "
                                   "nu ajunge în subtitrări."),
-    ("live_captions", "translate"): L("В нейросеть уходит только текст законченной фразы — для перевода и только когда перевод "
-                                      "включён. Сами субтитры работают без интернета.",
-                                      "Only the text of a finished phrase goes to AI — for translation, and only when it is on. "
-                                      "The captions themselves work offline.",
-                                      "La AI ajunge doar textul unei fraze terminate — pentru traducere și doar când e pornită. "
-                                      "Subtitrările merg și fără internet."),
+    ("live_captions", "translate"): L("И распознавание, и перевод работают на этом ПК, без интернета — ни звук, ни текст "
+                                      "никуда не уходят.",
+                                      "Both recognition and translation run on this PC, offline — neither sound nor text goes "
+                                      "anywhere.",
+                                      "Și recunoașterea, și traducerea merg pe acest PC, fără internet — nici sunetul, nici "
+                                      "textul nu pleacă nicăieri."),
     ("clipboard_history", "exclude"): L("Менеджеры паролей обычно сами помечают пароль «не для истории» — такие копирования не "
                                         "запоминаются ни из какой программы. Список ниже — на всякий случай.",
                                         "Password managers usually mark a password “not for history” themselves — such copies are "

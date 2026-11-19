@@ -1,4 +1,4 @@
-"""0.4.2i: offline NLLB translator first, the online model as fallback."""
+"""0.4.2i/0.4.2j: the offline NLLB translator is Jarvis' only translator."""
 import os
 import sys
 import time
@@ -58,53 +58,82 @@ class FallbackTests(unittest.TestCase):
 
 
 class CaptionQueueTests(unittest.TestCase):
-    def _runtime(self, planner):
+    def _runtime(self):
         from PySide6.QtWidgets import QApplication
         QApplication.instance() or QApplication([])
         from luxai.extensions_runtime import ExtensionsRuntime
         host = mock.Mock()
         host.cfg = {}
-        host.online_planner = planner
+        host.online_planner = None
         return ExtensionsRuntime(host)
 
-    def _wait(self, runtime, results):
+    def _wait(self, results):
         from PySide6.QtWidgets import QApplication
         end = time.time() + 5
         while not results and time.time() < end:
             QApplication.processEvents()
             time.sleep(0.01)
 
-    def test_offline_is_used_before_the_online_model(self):
-        planner = mock.Mock()
-        runtime = self._runtime(planner)
+    def test_offline_translator_with_spoken_language(self):
+        runtime = self._runtime()
         results = []
         runtime._cap_translated.connect(lambda o, t: results.append(t))
         with mock.patch("luxai.translation.translate_offline", return_value="Привет") as offline:
-            runtime._queue_caption_translation(planner, "Hello there", "ru", "en")
-            self._wait(runtime, results)
+            runtime._queue_caption_translation("Hello there", "ru", "en")
+            self._wait(results)
         self.assertEqual(results, ["Привет"])
         offline.assert_called_once_with("Hello there", "ru", "en")
-        planner.translate_text.assert_not_called()
 
-    def test_online_model_is_the_fallback(self):
-        planner = mock.Mock()
-        planner.translate_text.return_value = "Привет!"
-        runtime = self._runtime(planner)
+    def test_failure_shows_the_original(self):
+        runtime = self._runtime()
         results = []
-        runtime._cap_translated.connect(lambda o, t: results.append(t))
+        runtime._cap_translated.connect(lambda o, t: results.append((o, t)))
         with mock.patch("luxai.translation.translate_offline", return_value=None):
-            runtime._queue_caption_translation(planner, "Hello there", "ru", "en")
-            self._wait(runtime, results)
-        self.assertEqual(results, ["Привет!"])
+            runtime._queue_caption_translation("Hello", "ro", "en")
+            self._wait(results)
+        self.assertEqual(results, [("Hello", "")])
 
-    def test_works_without_online_planner(self):
-        runtime = self._runtime(None)
-        results = []
-        runtime._cap_translated.connect(lambda o, t: results.append(t))
-        with mock.patch("luxai.translation.translate_offline", return_value="Salut"):
-            runtime._queue_caption_translation(None, "Hello", "ro", "en")
-            self._wait(runtime, results)
-        self.assertEqual(results, ["Salut"])
+
+class NoCloudTests(unittest.TestCase):
+    def test_cloud_translation_is_gone(self):
+        from luxai.online_agent import OnlinePlanner
+        self.assertFalse(hasattr(OnlinePlanner, "translate_text"))
+        self.assertFalse(hasattr(translation, "translate_locally"))
+        source = (ROOT / "luxai" / "extensions_runtime.py").read_text(encoding="utf-8")
+        self.assertNotIn("translate_text(", source)
+
+    def test_source_languages(self):
+        self.assertEqual(ot.source_language("Hello, how are you doing today?"), "en")
+        self.assertEqual(ot.source_language("Bună ziua, ce mai faci astăzi?"), "ro")
+        self.assertEqual(ot.source_language("Привет, как у тебя дела?"), "ru")
+        self.assertEqual(ot.source_language("Привіт, як у тебе справи? Що нового?"), "uk")
+        self.assertEqual(ot.source_language("Der Mond ist aufgegangen und die Sterne sind nicht da."), "de")
+        self.assertEqual(ot.source_language("Je ne sais pas ce que tu veux dire avec ça."), "fr")
+        self.assertEqual(ot.source_language("¿Dónde está el baño? No lo sé, pero es para todos."), "es")
+        self.assertFalse(ot.supports("de", "de"))
+        self.assertFalse(ot.supports("en", "de"))  # targets are ru/en/ro only
+
+    def test_one_word_phrases_use_the_dictionary(self):
+        self.assertEqual(ot._short_answer("Да.", "en"), "Yes.")
+        self.assertEqual(ot._short_answer("- Thanks!", "ru"), "Спасибо!")
+        self.assertEqual(ot._short_answer("Nein?", "ro"), "Nu?")
+        self.assertEqual(ot._short_answer("Thank you.", "ro"), "Mulțumesc.")
+        self.assertIsNone(ot._short_answer("You.", "ru"))  # a Whisper filler, not «thank you»
+        self.assertIsNone(ot._short_answer("Да, я приду.", "en"))
+
+    def test_short_pieces_skip_the_model(self):
+        fake = mock.Mock()
+        translator = ot.OfflineTranslator.__new__(ot.OfflineTranslator)
+        translator.translator = fake
+        translator._run = __import__("threading").Lock()
+        self.assertEqual(translator.translate("Да. Нет!", "ru", "en"), "Yes. No!")
+        fake.translate_batch.assert_not_called()
+
+    def test_missing_model_starts_the_download(self):
+        with mock.patch.object(ot, "get", return_value=None), \
+                mock.patch.object(ot, "download_in_background") as download:
+            self.assertIsNone(ot.translate("Hello there.", "en", "ru"))
+        download.assert_called_once()
 
 
 @unittest.skipUnless(ot.installed(), "the NLLB model is not downloaded here")

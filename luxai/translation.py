@@ -11,8 +11,6 @@ from __future__ import annotations
 
 import re
 
-LANGUAGE_NAMES = {"ru": "Russian", "en": "English", "ro": "Romanian"}
-
 _EN = set("""the a an and or of to in on for with is are was were be been it this that these those you your we
 our they their he she his her i my me not no yes but if then than as at by from have has had do does did will
 would can could should about there what which who when where how all any more most other some such only own
@@ -48,7 +46,9 @@ def text_language(text: str) -> str:
 
 
 def needs_translation(text: str, target: str) -> bool:
-    source = text_language(text)
+    """True for text in another language — Ukrainian, German, Spanish… included."""
+    from luxai.offline_translate import source_language
+    source = source_language(text)
     return bool(source) and source != target
 
 
@@ -89,32 +89,13 @@ def _split(text: str, limit: int) -> list[str]:
     return chunks
 
 
-def strip_thinking(text: str) -> str:
-    """Local reasoning models may wrap thoughts in <think>…</think>."""
-    value = re.sub(r"<think>.*?</think>", "", str(text or ""), flags=re.S | re.I)
-    return value.replace("<think>", "").strip()
-
-
-def translate_locally(text: str, target: str, model_path: str) -> str | None:
-    """Fallback without cloud: one isolated GGUF request (slower)."""
-    from luxai.gguf_backend import IsolatedGGUF
-    name = LANGUAGE_NAMES.get(target, "Russian")
-    reply = IsolatedGGUF(model_path).create_chat_completion(
-        messages=[{"role": "system", "content": f"Translate the user's text into {name}. Output only the translation. /no_think"},
-                  {"role": "user", "content": text}],
-        max_tokens=min(1200, max(64, len(text))), temperature=0.1)
-    choice = (reply.get("choices") or [{}])[0]
-    content = (choice.get("message") or {}).get("content") or choice.get("text") or ""
-    result = strip_thinking(content)
-    return result or None
-
-
 def translate_offline(text: str, target: str, source: str = "") -> str | None:
-    """The offline NLLB translator (0.4.2i), ≈0.5 s per sentence; None = not possible here.
+    """Jarvis' only translator: offline NLLB on this PC, ≈0.5 s per sentence.
 
     ``source`` is the known spoken language (captions); otherwise it is guessed
-    from the text. Callers fall back to the online / local model on None.
+    from the text. None = not possible (model still downloading, same language):
+    callers then use the original text.
     """
     from luxai import offline_translate
-    source = source if source in offline_translate.CODES else text_language(text)
+    source = source if source in offline_translate.CODES else offline_translate.source_language(text)
     return offline_translate.translate(text, source, target)

@@ -1,4 +1,4 @@
-"""0.4.1h Read aloud and notifications speak foreign text in Jarvis' language."""
+"""0.4.1h Read aloud and notifications speak foreign text in Jarvis' language (offline translator since 0.4.2j)."""
 from pathlib import Path
 import tempfile
 import unittest
@@ -28,25 +28,25 @@ class DetectionTests(unittest.TestCase):
         self.assertTrue(all(len(chunk) <= 600 for chunk in chunks))
         self.assertGreater(len(chunks), 3)
         self.assertEqual(translation.split_chunks("   "), [])
-        self.assertEqual(translation.strip_thinking("<think>\nhmm</think>\nДа"), "Да")
 
 
 class _Planner:
+    """Stands in for the offline translator (``translation.translate_offline``)."""
     def __init__(self, result=lambda text, target: f"[{target}] {text}"):
         self.result = result
         self.calls = []
 
-    def translate_text(self, text, target):
+    def translate(self, text, target, source=""):
         self.calls.append((text, target))
         return self.result(text, target)
 
 
 class _Host:
-    def __init__(self, planner=None):
+    def __init__(self):
         self.cfg = {"ui_language": "ru", "language": "ru", "tts_enabled": True, "local_llm_fallback_enabled": False}
         self.tray_icon = None
         self.spoken = []
-        self.online_planner = planner
+        self.online_planner = None  # translation never needs the cloud
 
     def _queue_speech(self, text, language):
         self.spoken.append((text, language))
@@ -61,7 +61,11 @@ class RuntimeTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     def make(self, planner=None, **extensions):
-        engine = runtime.ExtensionsRuntime(_Host(planner))
+        translator = planner or _Planner()
+        patcher = mock.patch("luxai.translation.translate_offline", side_effect=translator.translate)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        engine = runtime.ExtensionsRuntime(_Host())
         engine.apply(catalog.normalize_state(extensions))
 
         def dispose():

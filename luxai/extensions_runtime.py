@@ -897,7 +897,7 @@ class ExtensionsRuntime(QObject):
         self._start_caption_audio()
         if self.settings("live_captions").get("translate"):
             from luxai import offline_translate
-            offline_translate.download_in_background()  # once, ≈640 MB; online until then
+            offline_translate.download_in_background()  # once, ≈640 MB; the original until then
             if offline_translate.installed():  # load it now so the first phrase is not late
                 threading.Thread(target=offline_translate.get, daemon=True, name="JarvisTranslatorLoad").start()
         self.captions_changed.emit(True)
@@ -1011,12 +1011,9 @@ class ExtensionsRuntime(QObject):
         if self._captions_bar is None:
             return
         settings = self.settings("live_captions")
-        planner = getattr(self.host, "online_planner", None)
-        if planner is not None and not planner.enabled():
-            planner = None
         from luxai import offline_translate
-        if not settings.get("translate") or (planner is None and not offline_translate.installed()):
-            self._captions_bar.add_final(text)
+        if not settings.get("translate") or not offline_translate.installed():
+            self._captions_bar.add_final(text)  # the translator is still downloading
             return
         from luxai.response_language import reply_language
         from luxai.translation import text_language
@@ -1030,15 +1027,13 @@ class ExtensionsRuntime(QObject):
 
         engine = self._captions_engine
         source = (getattr(engine, "detected", None) or self._caption_language() or "") if engine else ""
-        self._queue_caption_translation(planner, text, target, source)
+        self._queue_caption_translation(text, target, source)
 
-    CAPTION_TRANSLATE_TIMEOUT = 6.0   # a late translation is useless on a live bar
+    def _queue_caption_translation(self, text: str, target: str, source: str = ""):
+        """One translation at a time, newest first; a failed one shows the original.
 
-    def _queue_caption_translation(self, planner, text: str, target: str, source: str = ""):
-        """One translation at a time, newest first; a slow or failed one shows the original.
-
-        Firing a request per phrase in parallel overloads the provider (each then
-        takes 8-60 s); a «…» must never stay on the bar for good.
+        The offline translator takes ≈0.5 s a phrase; when speech comes faster,
+        older waiting phrases show their original so the bar never lags behind.
         """
         import queue as _queue
         if getattr(self, "_cap_translate_queue", None) is None:
@@ -1054,26 +1049,18 @@ class ExtensionsRuntime(QObject):
                         stale = self._cap_translate_queue.get()
                         if stale is None:
                             return
-                        self._cap_translated.emit(item[1], "")
+                        self._cap_translated.emit(item[0], "")
                         item = stale
-                    worker_planner, original, language, spoken = item
+                    original, language, spoken = item
                     from luxai.translation import translate_offline
-                    try:  # offline first: ≈0.5 s, while the online model takes 8-15 s
+                    try:
                         translated = translate_offline(original, language, spoken)
                     except Exception:
                         translated = None
-                    if not translated and worker_planner is not None:
-                        try:
-                            translated = worker_planner.translate_text(original, language,
-                                                                       timeout=self.CAPTION_TRANSLATE_TIMEOUT)
-                        except TypeError:  # an older planner without the timeout argument
-                            translated = worker_planner.translate_text(original, language)
-                        except Exception:
-                            translated = None
                     self._cap_translated.emit(original, translated or "")  # "" = show the original
 
             threading.Thread(target=worker, daemon=True, name="JarvisCaptionTranslate").start()
-        self._cap_translate_queue.put((planner, text, target, source))
+        self._cap_translate_queue.put((text, target, source))
 
     def _on_cap_translated(self, original: str, translated: str):
         if self._captions_bar is not None:
@@ -1899,22 +1886,12 @@ class ExtensionsRuntime(QObject):
     def _translate_notification(self, value: str, *, wait: bool = False):
         prefix, body = self._split_app(value)
         target = self.reading_target()
-        cfg = dict(getattr(self.host, "cfg", {}) or {})
-        planner = getattr(self.host, "online_planner", None)
 
         def work():
             translated = None
             try:
                 from luxai.translation import translate_offline
                 translated = translate_offline(body, target)
-                if translated is None and planner is not None and hasattr(planner, "translate_text"):
-                    translated = planner.translate_text(body, target)
-                if translated is None and cfg.get("local_llm_fallback_enabled", True):
-                    from luxai.local_models import resolve_model_path
-                    from luxai.translation import translate_locally
-                    model = resolve_model_path(cfg.get("llm_model_path", ""))
-                    if model is not None:
-                        translated = translate_locally(body, target, str(model))
             except Exception:
                 translated = None
             self._notif_ready.emit(prefix + translated if translated else value)
@@ -2794,6 +2771,9 @@ class ExtensionsRuntime(QObject):
         planner = getattr(self.host, "online_planner", None)
         if item is None or item["kind"] != "text":
             return
+        if mode == "translate":
+            self._clip_translate(item["text"])
+            return
         if planner is None or not planner.enabled():
             self.notice.emit(_tr3("Для этого нужен облачный ИИ — подключите ключ в настройках Jarvis.",
                                   "This needs the cloud AI — add a key in Jarvis settings.",
@@ -2805,27 +2785,47 @@ class ExtensionsRuntime(QObject):
         def work():
             result = None
             try:
-                if mode == "translate":
-                    from luxai.translation import text_language
-                    from luxai.response_language import reply_language
-                    target = reply_language(getattr(self.host, "cfg", {}) or {})
-                    if text_language(value) == target:
-                        target = "en" if target != "en" else "ru"
-                    from luxai.translation import translate_offline
-                    result = translate_offline(value, target) or planner.translate_text(value, target)
-                else:
-                    result = planner.transform_text(value, mode)
+                result = planner.transform_text(value, mode)
             except Exception:
                 result = None
             self._clip_ai_ready.emit(mode, result or "")
 
         threading.Thread(target=work, daemon=True, name="JarvisClipboardAI").start()
 
+    def _clip_translate(self, value: str):
+        """«Перевести» in the clipboard history: the offline translator, no key needed."""
+        from luxai import offline_translate
+        from luxai.response_language import reply_language
+        from luxai.offline_translate import source_language
+        from luxai.translation import translate_offline
+        target = reply_language(getattr(self.host, "cfg", {}) or {})
+        if source_language(value) == target:
+            target = "en" if target != "en" else "ru"
+        if not offline_translate.installed():
+            offline_translate.download_in_background()
+            self.notice.emit(_tr3("Переводчик ещё скачивается (≈640 МБ) — попробуйте через пару минут.",
+                                  "The translator is still downloading (≈640 MB) — try again in a few minutes.",
+                                  "Traducătorul încă se descarcă (≈640 MB) — încearcă peste câteva minute.", self.language))
+            return
+
+        def work():
+            try:
+                result = translate_offline(value, target)
+            except Exception:
+                result = None
+            self._clip_ai_ready.emit("translate", result or "")
+
+        threading.Thread(target=work, daemon=True, name="JarvisClipboardTranslate").start()
+
     def _on_clip_ai_ready(self, mode: str, result: str):
         from luxai import clipboard_store as store
         if not result:
-            self.notice.emit(_tr3("Нейросеть не ответила. Попробуйте ещё раз.", "The AI did not answer. Try again.",
-                                  "AI nu a răspuns. Încearcă din nou.", self.language))
+            if mode == "translate":
+                self.notice.emit(_tr3("Не получилось перевести этот текст.", "Could not translate this text.",
+                                      "Textul nu a putut fi tradus.", self.language))
+            else:
+                self.notice.emit(_tr3("Нейросеть не ответила. Попробуйте ещё раз.", "The AI did not answer. Try again.",
+                                      "AI nu a răspuns. Încearcă din nou.", self.language))
             return
         self.clip_history.add_text(result, app="Jarvis AI")
         self._clip_changed()
@@ -2895,22 +2895,11 @@ class ExtensionsRuntime(QObject):
         self._reading_generation += 1
         generation = self._reading_generation
         self._reading = True
-        cfg = dict(getattr(self.host, "cfg", {}) or {})
-        planner = getattr(self.host, "online_planner", None)
-
         def translate_piece(piece):
-            result = translation.translate_offline(piece, target)
-            if result is None and planner is not None and hasattr(planner, "translate_text"):
-                result = planner.translate_text(piece, target)
-            if result is None:
-                from luxai.local_models import resolve_model_path
-                model = resolve_model_path(cfg.get("llm_model_path", "")) if cfg.get("local_llm_fallback_enabled", True) else None
-                if model is not None:
-                    try:
-                        result = translation.translate_locally(piece, target, str(model))
-                    except Exception:
-                        result = None
-            return result
+            try:
+                return translation.translate_offline(piece, target)
+            except Exception:
+                return None
 
         def work():
             failed = False

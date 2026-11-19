@@ -161,31 +161,34 @@ class RuntimeTests(unittest.TestCase):
     def test_final_phrase_is_translated_into_program_language(self):
         self.runtime.state["live_captions"]["enabled"] = True
         self.runtime.state["live_captions"]["settings"]["translate"] = True
-        self.host.online_planner.translate_text.return_value = "Привет всем"
-        with mock.patch.object(self.runtime, "_start_caption_audio"):
+        with mock.patch.object(self.runtime, "_start_caption_audio"), \
+                mock.patch("luxai.offline_translate.installed", return_value=True), \
+                mock.patch("luxai.offline_translate.get", return_value=None), \
+                mock.patch("luxai.translation.translate_offline", return_value="Привет всем") as offline:
             self.runtime.show_captions()
-        self.runtime._on_cap_final("Hello everyone")
-        import time
-        end = time.time() + 5  # the translation worker answers through a Qt signal
-        while time.time() < end and self.runtime._captions_bar.lines[-1][1] != "Привет всем":
-            QApplication.processEvents()
-            time.sleep(0.01)
-        self.host.online_planner.translate_text.assert_called_once_with(
-            "Hello everyone", "ru", timeout=self.runtime.CAPTION_TRANSLATE_TIMEOUT)
+            self.runtime._on_cap_final("Hello everyone")
+            import time
+            end = time.time() + 5  # the translation worker answers through a Qt signal
+            while time.time() < end and self.runtime._captions_bar.lines[-1][1] != "Привет всем":
+                QApplication.processEvents()
+                time.sleep(0.01)
+        self.assertEqual(offline.call_args[0][:2], ("Hello everyone", "ru"))
         self.assertEqual(self.runtime._captions_bar.lines[-1], ("Hello everyone", "Привет всем"))
 
     def test_failed_translation_shows_the_original_not_dots_forever(self):
         self.runtime.state["live_captions"]["enabled"] = True
         self.runtime.state["live_captions"]["settings"]["translate"] = True
-        self.host.online_planner.translate_text.return_value = None  # provider too slow / failed
-        with mock.patch.object(self.runtime, "_start_caption_audio"):
+        with mock.patch.object(self.runtime, "_start_caption_audio"), \
+                mock.patch("luxai.offline_translate.installed", return_value=True), \
+                mock.patch("luxai.offline_translate.get", return_value=None), \
+                mock.patch("luxai.translation.translate_offline", return_value=None):
             self.runtime.show_captions()
-        self.runtime._on_cap_final("Hello everyone")
-        import time
-        end = time.time() + 5
-        while time.time() < end and self.runtime._captions_bar.lines[-1][1] == lc.PENDING:
-            QApplication.processEvents()
-            time.sleep(0.01)
+            self.runtime._on_cap_final("Hello everyone")
+            import time
+            end = time.time() + 5
+            while time.time() < end and self.runtime._captions_bar.lines[-1][1] == lc.PENDING:
+                QApplication.processEvents()
+                time.sleep(0.01)
         self.assertEqual(self.runtime._captions_bar.lines[-1], ("Hello everyone", ""))
         self.assertIn("Hello everyone", self.runtime._captions_bar.text.text())
 
@@ -215,18 +218,29 @@ class RuntimeTests(unittest.TestCase):
 
 
 class QualityTests(unittest.TestCase):
-    def test_language_is_detected_once_and_kept(self):
+    def test_language_is_voted_then_kept(self):
         engine = lc.CaptionEngine(lambda: None, None, lambda _: None, lambda _: None)
         model = mock.Mock()
-        model.detect_language.return_value = ("en", 0.97, [])
-        self.assertEqual(engine._spoken_language(model, tone(2.0)), "en")
-        self.assertEqual(engine._spoken_language(model, tone(2.0)), "en")
-        self.assertEqual(model.detect_language.call_count, 1)  # not on every pass (it doubles the time)
+        model.detect_language.return_value = ("en", 0.97, [("en", 0.97), ("de", 0.01)])
+        for _ in range(4):
+            self.assertEqual(engine._spoken_language(model, tone(2.0)), "en")
+        self.assertEqual(model.detect_language.call_count, 2)  # sure after two checks, then not on every pass
         engine._speech_since_detect = lc.REDETECT_SECONDS
-        model.detect_language.return_value = ("ro", 0.9, [])
-        self.assertEqual(engine._spoken_language(model, tone(2.0)), "ro")  # re-checked after ~30 s
+        model.detect_language.return_value = ("ro", 0.9, [("ro", 0.9), ("it", 0.05)])
+        engine._spoken_language(model, tone(2.0))  # re-checked after ~30 s: not sure any more…
+        self.assertEqual(engine._spoken_language(model, tone(2.0)), "ro")  # …so the next pass switches
         fixed = lc.CaptionEngine(lambda: None, "ru", lambda _: None, lambda _: None)
         self.assertEqual(fixed._spoken_language(model, tone(2.0)), "ru")
+
+    def test_one_wrong_first_guess_does_not_lock(self):
+        engine = lc.CaptionEngine(lambda: None, None, lambda _: None, lambda _: None)
+        model = mock.Mock()
+        model.detect_language.return_value = ("ru", 0.45, [("ru", 0.45), ("ro", 0.40)])  # music intro
+        engine._spoken_language(model, tone(2.0))
+        model.detect_language.return_value = ("ro", 0.95, [("ro", 0.95), ("ru", 0.02)])
+        engine._spoken_language(model, tone(2.0))
+        self.assertEqual(engine._spoken_language(model, tone(2.0)), "ro")
+        self.assertEqual(model.detect_language.call_count, 3)
 
     def test_untrustworthy_segments_are_dropped(self):
         good = mock.Mock(no_speech_prob=0.05, avg_logprob=-0.3, compression_ratio=1.4)
@@ -331,8 +345,12 @@ class PageTests(unittest.TestCase):
         view.source_combo.setCurrentIndex(1)
         self.assertEqual(view.collect()["source"], "Discord.exe")
         self.assertIn("Перевод выключен", view.tr_label.text())
-        view.fields["translate"].setChecked(True)
-        self.assertIn("нужен облачный ИИ", view.tr_label.text())
+        with mock.patch("luxai.offline_translate.installed", return_value=False):
+            view.fields["translate"].setChecked(True)
+        self.assertIn("Переводчик скачивается", view.tr_label.text())
+        with mock.patch("luxai.offline_translate.installed", return_value=True):
+            view._render_translate_status(view.collect())
+        self.assertIn("офлайн-переводчик", view.tr_label.text())
         self.assertTrue(view.rows["translate_to"].isEnabled())
         view.detach()
 

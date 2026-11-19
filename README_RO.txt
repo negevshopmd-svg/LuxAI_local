@@ -1,4 +1,8 @@
-LUXAI LOCAL 0.4.2i — ACTUALIZARE 2026-11-19
+LUXAI LOCAL 0.4.2j — ACTUALIZARE 2026-11-19
+
+0.4.2j: Toată traducerea merge doar offline, pe acest PC (subtitrări, citire cu voce,
+notificări, „Tradu” din clipboard) — traducerea prin cloud a fost scoasă. Înțelege
+și ucraineană, germană, franceză, spaniolă, italiană, portugheză, poloneză.
 
 0.4.2i: Traducător offline (NLLB, ~640 MB în models\): subtitrările, citirea cu
 voce și notificările se traduc în ~0,5 s pe frază, fără internet; Gemini rămâne

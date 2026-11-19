@@ -1,3 +1,11 @@
+## 0.4.2j — Only the offline translator (2026-11-19)
+
+- Every translation now runs on this PC with the offline translator: live captions, read aloud, notifications and «Перевести» in the clipboard history (which no longer needs an API key). The cloud translation (`OnlinePlanner.translate_text`) and the slow GGUF translation (`translate_locally`, `strip_thinking`) are removed, with their tests; texts in the settings now say that nothing is sent anywhere for translation.
+- Source languages: Russian, Ukrainian, English, Romanian, German, French, Spanish, Italian, Portuguese, Polish (new word/letter detector; Ukrainian is no longer read as Russian, Spanish no longer as French). Targets: ru/en/ro.
+- One-word phrases («Да.», «Thanks!», «Nein?») come from a small dictionary — NLLB turned «Да.» into «Da, da. Ce?»; the output length is capped and subtitle dashes are removed.
+- Live captions: the spoken language is voted over several checks until sure (a Romanian video was once locked as Russian for 30 s by one check on its intro), then re-checked every ~30 s.
+- Checked with the real model on every path (read aloud, notifications, clipboard: 7 source languages × 3 targets, ≈0.5 s each) and live on YouTube: English → Romanian, Romanian → English, Russian → English.
+
 ## 0.4.2i — Offline translator (2026-11-19)
 
 - New offline translator: NLLB-200 distilled 600M (CTranslate2 int8, ≈640 MB in `models/nllb-200-600M-ct2-int8`, kept by Update.bat, downloaded once in the background the first time caption translation is used). Measured on caption phrases: ≈0.3–0.8 s per phrase, while Gemini took 8–15 s today and returned nothing for about half of them; quality is nearly the same.

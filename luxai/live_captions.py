@@ -143,6 +143,8 @@ class CaptionEngine:
         self.language = language          # None = detect the spoken language
         self.detected = None              # sticky detected language
         self._speech_since_detect = 0.0
+        self._votes: dict[str, float] = {}  # language -> summed probability of the recent checks
+        self._confident = False
         self._prompt = ""                 # end of the previous phrase: context for the next one
         self._last_final = ""
         self.on_partial = on_partial
@@ -168,23 +170,35 @@ class CaptionEngine:
         self._stop.set()
 
     def _spoken_language(self, model, audio):
-        """The language to decode with: fixed, or detected once and re-checked every ~30 s.
+        """The language to decode with: fixed, or voted over several checks, then re-checked every ~30 s.
 
-        Detecting on every pass would double the time; forcing a wrong language
-        (an English video read as Russian) makes Whisper invent text.
+        One check on a short or noisy piece can be wrong (a Romanian video once
+        locked as Russian for 30 s), so checks repeat on every pass until the
+        summed probabilities clearly agree; after that only every ~30 s.
         """
         if self.language:
             return self.language
-        due = self.detected is None or self._speech_since_detect >= REDETECT_SECONDS
+        due = not self._confident or self._speech_since_detect >= REDETECT_SECONDS
         if due and len(audio) >= SAMPLE_RATE * 1.5 and hasattr(model, "detect_language"):
             try:
-                language, probability, _ = model.detect_language(audio)
-                if probability >= 0.55 or self.detected is None:
-                    self.detected = language
+                language, probability, ranked = model.detect_language(audio)
+                self._vote(language, probability, ranked)
                 self._speech_since_detect = 0.0
             except Exception:
                 pass
         return self.detected
+
+    def _vote(self, language: str, probability: float, ranked) -> None:
+        if self._confident:  # a re-check: older votes count half
+            self._votes = {code: value * 0.5 for code, value in self._votes.items()}
+        candidates = list(ranked or [])[:3] or [(language, probability)]
+        for code, value in candidates:
+            self._votes[code] = self._votes.get(code, 0.0) + float(value)
+        ordered = sorted(self._votes.items(), key=lambda item: item[1], reverse=True)
+        top, score = ordered[0]
+        second = ordered[1][1] if len(ordered) > 1 else 0.0
+        self.detected = top
+        self._confident = score >= 1.5 and score - second >= 0.8
 
     def _transcribe(self, model, audio, final: bool = False) -> str:
         from luxai.dictation import voiced_seconds
