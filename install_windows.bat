@@ -29,7 +29,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\install_wi
 set "RESULT=%ERRORLEVEL%"
 echo.
 
-rem The setup window showed everything (and the console was hidden): no «pause».
+rem The setup window showed everything (and the console was hidden): no pause.
 if exist "%~dp0logs\.setup_ui" (
     del /q "%~dp0logs\.setup_ui" >nul 2>nul
     exit /b %RESULT%

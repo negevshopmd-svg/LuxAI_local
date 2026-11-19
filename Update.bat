@@ -64,7 +64,7 @@ rem The current updater filters development sources and safely trims old bundled
     %LUXAI_PYTHON% Update.py.new
     if errorlevel 1 (
         del /q "Update.py.new" >nul 2>nul
-        rem The window already shows the error and its details: no hidden «pause».
+        rem The window already shows the error and its details: no hidden pause.
         if exist ".luxai_update_ui" (
             del /q ".luxai_update_ui" >nul 2>nul
             exit /b 1

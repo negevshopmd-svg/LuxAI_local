@@ -120,5 +120,33 @@ class ScriptTests(unittest.TestCase):
         self.assertIn("luxai.offline_translate", setup)
 
 
+class BatchFileTests(unittest.TestCase):
+    """0.4.2m: «»  in a LF-only Update.bat made cmd.exe cut commands («echo» → «ho»)."""
+
+    def test_batch_files_are_plain_ascii(self):
+        import subprocess as sp
+        names = sp.run(["git", "ls-files", "*.bat", "*.cmd"], cwd=ROOT, capture_output=True, text=True).stdout.split()
+        self.assertIn("Update.bat", names)
+        for name in names:
+            data = (ROOT / name).read_bytes()
+            self.assertTrue(all(byte < 128 for byte in data), name)
+
+    def test_git_keeps_crlf_for_batch_files(self):
+        attributes = (ROOT / ".gitattributes").read_text(encoding="utf-8")
+        self.assertIn("*.bat text eol=crlf", attributes)
+
+    def test_updater_writes_batch_files_with_crlf(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source = Path(temp) / "src.bat"
+            source.write_bytes(b"@echo off\necho hi\r\nexit /b 0\n")
+            target = Path(temp) / "out" / "Update.bat"
+            updater._atomic_copy(source, target)
+            self.assertEqual(target.read_bytes(), b"@echo off\r\necho hi\r\nexit /b 0\r\n")
+            other = Path(temp) / "x.py"
+            other.write_bytes(b"a\nb\n")
+            updater._atomic_copy(other, Path(temp) / "out" / "x.py")
+            self.assertEqual((Path(temp) / "out" / "x.py").read_bytes(), b"a\nb\n")  # only batch files change
+
+
 if __name__ == "__main__":
     unittest.main()

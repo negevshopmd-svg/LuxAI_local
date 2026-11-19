@@ -1,3 +1,8 @@
+## 0.4.2n — Update.bat works again (2026-11-19)
+
+- 0.4.2l put «» quotes into comments of Update.bat and install_windows.bat. GitHub archives store batch files with LF line ends, and cmd.exe (with chcp 65001) misreads a LF-only batch file that has multi-byte characters: commands were cut («echo» → «ho», «if exist» → «exist») and the update did not run. Fixed three ways: the batch files are plain ASCII again, `.gitattributes` keeps them CRLF, and Update.py now always writes .bat/.cmd files with CRLF. Tests check all three.
+- If Update.bat of 0.4.2l fails on another PC, run `.venv\Scripts\python.exe Update.py` in the Jarvis folder once — it installs the fixed files.
+
 ## 0.4.2m — Refresh button without a black background (2026-11-19)
 
 - Live captions → «Что слушать»: the refresh button next to the program list was a bare QToolButton that Windows drew with a black square. It now has the same transparent rounded look as the section reset button (grey icon, accent-tinted hover).

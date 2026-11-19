@@ -294,7 +294,13 @@ def _atomic_copy(source: Path, destination: Path) -> None:
     os.close(fd)
     temporary = Path(name)
     try:
-        shutil.copy2(source, temporary)
+        if destination.suffix.lower() in (".bat", ".cmd"):
+            # cmd.exe misreads LF-only batch files (GitHub archives keep LF): «echo» became «ho».
+            data = source.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+            temporary.write_bytes(data)
+            shutil.copystat(source, temporary)
+        else:
+            shutil.copy2(source, temporary)
         os.replace(temporary, destination)
     finally:
         temporary.unlink(missing_ok=True)

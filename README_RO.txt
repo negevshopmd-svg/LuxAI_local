@@ -1,4 +1,8 @@
-LUXAI LOCAL 0.4.2m — ACTUALIZARE 2026-11-19
+LUXAI LOCAL 0.4.2n — ACTUALIZARE 2026-11-19
+
+0.4.2n: Update.bat merge din nou (în 0.4.2l consola Windows tăia comenzile).
+Dacă Update.bat dă erori „'ho' is not recognized”, rulează o dată în folderul Jarvis:
+.venv\Scripts\python.exe Update.py
 
 0.4.2m: Butonul de reîmprospătare de la „Ce ascult” (subtitrări) nu mai are fundal negru.
 
