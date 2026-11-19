@@ -78,16 +78,28 @@ def _console(show: bool) -> None:
 
 
 def _setup_ui_script() -> Path | None:
+    """The window script: the CURRENT one from GitHub first, the installed copy only as a fallback.
+
+    An older installed window loaded the fonts straight from luxai/assets/fonts and kept them open,
+    so the update could not replace Onest.ttf (WinError 5). It must never run from the folder the
+    update rewrites.
+    """
+    try:
+        target = Path(tempfile.gettempdir()) / f"luxai_setup_ui_{os.getpid()}.ps1"
+        download(f"https://raw.githubusercontent.com/{OWNER}/{REPO}/{BRANCH}/scripts/setup_ui.ps1", target)
+        if target.stat().st_size > 1000 and target.read_bytes().startswith(b"\xef\xbb\xbf"):
+            return target
+    except Exception:
+        pass
     local = ROOT / "scripts" / "setup_ui.ps1"
     if local.is_file():
-        return local
-    # First run of an older installation: the window comes with this update.
-    try:
-        target = Path(tempfile.gettempdir()) / "luxai_setup_ui.ps1"
-        download(f"https://raw.githubusercontent.com/{OWNER}/{REPO}/{BRANCH}/scripts/setup_ui.ps1", target)
-        return target if target.stat().st_size > 1000 else None
-    except Exception:
-        return None
+        copy = Path(tempfile.gettempdir()) / f"luxai_setup_ui_{os.getpid()}.ps1"
+        try:
+            shutil.copy2(local, copy)
+            return copy
+        except OSError:
+            return local
+    return None
 
 
 def start_ui(mode: str = "update") -> bool:
@@ -303,9 +315,23 @@ def _atomic_copy(source: Path, destination: Path) -> None:
             shutil.copystat(source, temporary)
         else:
             shutil.copy2(source, temporary)
-        os.replace(temporary, destination)
+        _replace_with_retry(temporary, destination)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def _replace_with_retry(temporary: Path, destination: Path, attempts: int = 12) -> None:
+    """A file held open for a moment (antivirus scan, a closing program, a font in use) is retried
+    for about 6 s before the update gives up and restores the previous files."""
+    import time
+    for attempt in range(attempts):
+        try:
+            os.replace(temporary, destination)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(0.5)
 
 
 def _is_link(path: Path) -> bool:

@@ -120,6 +120,34 @@ class ScriptTests(unittest.TestCase):
         self.assertIn("luxai.offline_translate", setup)
 
 
+class FontLockTests(unittest.TestCase):
+    """0.4.2t: the window kept luxai/assets/fonts/Onest.ttf open and the update failed with WinError 5."""
+
+    def test_window_uses_a_temporary_copy_of_the_fonts(self):
+        source = (ROOT / "scripts" / "setup_ui.ps1").read_text(encoding="utf-8-sig")
+        self.assertIn("luxai_setup_fonts_", source)
+        self.assertIn("Copy-Item -LiteralPath $path", source)
+
+    def test_updater_never_runs_the_window_from_its_own_folder(self):
+        with mock.patch.object(updater, "download", side_effect=OSError("offline")):
+            script = updater._setup_ui_script()
+        self.assertIsNotNone(script)
+        self.assertNotEqual(Path(script).resolve().parent, (ROOT / "scripts").resolve())
+        Path(script).unlink(missing_ok=True)
+
+    def test_a_briefly_locked_file_is_retried(self):
+        calls = []
+
+        def replace(source, target):
+            calls.append(1)
+            if len(calls) < 3:
+                raise PermissionError(5, "Access is denied")
+
+        with mock.patch.object(updater.os, "replace", side_effect=replace), mock.patch("time.sleep"):
+            updater._replace_with_retry(Path("a"), Path("b"))
+        self.assertEqual(len(calls), 3)
+
+
 class BatchFileTests(unittest.TestCase):
     """0.4.2m: «»  in a LF-only Update.bat made cmd.exe cut commands («echo» → «ho»)."""
 

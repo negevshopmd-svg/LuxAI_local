@@ -73,10 +73,22 @@ $P.good = '#32b87a'; $P.warn = '#e0a43a'; $P.bad = '#e5484d'
 
 # Fonts of the app (Fuzzy Bubbles + Pangolin for Cyrillic, or Onest), with Segoe UI behind.
 $fontDirs = @((Join-Path $Root 'assets\fonts'), (Join-Path $Root 'luxai\assets\fonts'))
+# WPF keeps a font file open while it is shown, so the update could not replace luxai\assets\fonts\Onest.ttf
+# («Access is denied»). Each font is copied to a private temporary folder and used from there.
+$fontCache = Join-Path ([IO.Path]::GetTempPath()) ("luxai_setup_fonts_" + $PID)
 function Get-FontUri([string]$File, [string]$Family) {
     foreach ($dir in $fontDirs) {
         $path = Join-Path $dir $File
-        if (Test-Path -LiteralPath $path) { return ((New-Object Uri ($dir.TrimEnd('\') + '\')).AbsoluteUri + '#' + $Family) }
+        if (Test-Path -LiteralPath $path) {
+            try {
+                $own = Join-Path $fontCache ([IO.Path]::GetFileNameWithoutExtension($File))
+                New-Item -ItemType Directory -Path $own -Force | Out-Null
+                Copy-Item -LiteralPath $path -Destination (Join-Path $own $File) -Force
+                return ((New-Object Uri ($own.TrimEnd('\') + '\')).AbsoluteUri + '#' + $Family)
+            } catch {
+                return $null  # no copy, no project font: the window falls back to Segoe UI
+            }
+        }
     }
     return $null
 }

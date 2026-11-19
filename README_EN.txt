@@ -1,4 +1,7 @@
-LUXAI LOCAL (JARVIS) 0.4.2s — UPDATE 2026-11-19
+LUXAI LOCAL (JARVIS) 0.4.2t — UPDATE 2026-11-19
+
+0.4.2t: The update no longer fails with «Access is denied … Onest.ttf»: the update window
+kept the app's font open. It now uses a temporary copy.
 
 0.4.2s: Update.bat of 0.4.2r did not start the verified download («The system cannot find
 the path specified»). If you have it, run once in the Jarvis folder:

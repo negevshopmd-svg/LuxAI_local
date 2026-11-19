@@ -1,5 +1,8 @@
-LUXAI LOCAL 0.4.2s — ACTUALIZARE 2026-11-19
+LUXAI LOCAL 0.4.2t — ACTUALIZARE 2026-11-19
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.2t: Actualizarea nu mai eșuează cu „Access is denied … Onest.ttf”: fereastra de
+actualizare ținea deschis fontul aplicației. Acum folosește o copie temporară.
 
 0.4.2s: Update.bat din 0.4.2r nu pornea descărcarea verificată („The system cannot find
 the path specified”). Dacă îl ai, rulează o dată în folderul Jarvis:

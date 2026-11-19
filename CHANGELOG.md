@@ -1,3 +1,8 @@
+## 0.4.2t — Update no longer fails on Onest.ttf (2026-11-19)
+
+- A friend's update failed with «[WinError 5] Access is denied … luxai\\assets\\fonts\\Onest.ttf» and was rolled back. Cause: the setup window (WPF) used the fonts straight from luxai/assets/fonts, and WPF keeps a font file open while it is shown — only when that font is actually drawn, so it hit users with the default Onest font, not those with Fuzzy Bubbles. Reproduced: with the old window `os.replace` on Onest.ttf gives WinError 5; with the new one it succeeds.
+- The window copies each font it needs into a private temporary folder. Update.py runs the CURRENT window from GitHub (a copy of the installed one only as a fallback, never from the folder it rewrites). A file held open for a moment is retried for about 6 s before the update restores the previous files.
+
 ## 0.4.2s — Update.bat bootstrap fixed (2026-11-19)
 
 - In 0.4.2r the new `for /f` line started a quoted interpreter path (".venv\Scripts\python.exe"); cmd.exe strips the outer quotes of such a command and printed «The system cannot find the path specified», so Update.bat stopped before downloading. `call` in front keeps the quotes. Checked on the real installation: verified download, update, lock and temporary file removed; a second Update.bat gets «BUSY», a lock left by a crash is ignored. An installation that already has the 0.4.2r Update.bat repairs itself by running `.venv\Scripts\python.exe Update.py` once.
