@@ -2384,10 +2384,14 @@ class MainWindow(QMainWindow):
         if runtime is not None and not self._saved_command_matches(text):
             reply = runtime.handle_text_request(text)
             if reply:
+                # A translation is spoken in its own language (an English one with the English voice).
+                taken = getattr(runtime, "take_reply_language", None)
+                taken = taken() if callable(taken) else None
+                spoken_language = taken if isinstance(taken, str) and taken else reply_language(self.cfg, text)
                 self.append_message("Jarvis", reply, "#a5b9dc")
                 self.mic_status.setText(reply.split("\n")[0])
                 if self.cfg.get("tts_enabled", True):
-                    self._queue_speech(reply, reply_language(self.cfg, text))
+                    self._queue_speech(reply, spoken_language)
                 return
         self.apply_settings()
         # "You missed, try again" is meaningful feedback about the LAST

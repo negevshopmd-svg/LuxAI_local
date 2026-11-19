@@ -800,6 +800,23 @@ def perform_update() -> int:
                             "reincearca si automat din aplicatie."
                         )
 
+                # The offline translator (captions, read aloud, notifications,
+                # chat): a pinned, hash-checked model in models/, which the
+                # updater preserves. Downloaded once; failure is not fatal —
+                # the app retries in the background on first use.
+                if (ROOT / ".venv" / "Scripts" / "python.exe").is_file():
+                    venv_python = ROOT / ".venv" / "Scripts" / "python.exe"
+                    try:
+                        translator = subprocess.run(
+                            [str(venv_python), "-m", "luxai.offline_translate"],
+                            cwd=str(ROOT), check=False, timeout=1800,
+                        )
+                        if translator.returncode != 0:
+                            report("AVERTISMENT: traducatorul offline nu s-a descarcat acum; "
+                                   "Jarvis il descarca singur la prima traducere.")
+                    except (subprocess.TimeoutExpired, OSError) as exc:
+                        report(f"Traducator offline: eroare la descarcare: {exc}")
+
                 write_update_state(latest_sha)
             report("Actualizare instalată cu succes.")
             cleanup_development_files()

@@ -1,4 +1,8 @@
-LUXAI LOCAL 0.4.2j — ACTUALIZARE 2026-11-19
+LUXAI LOCAL 0.4.2k — ACTUALIZARE 2026-11-19
+
+0.4.2k: Update.bat instalează singur traducătorul offline. În chat (și cu vocea):
+„tradu în engleză: …”, „переведи на румынский: …”, „cum se spune … în rusă” —
+traduce traducătorul offline în ~0,4 s, fără internet.
 
 0.4.2j: Toată traducerea merge doar offline, pe acest PC (subtitrări, citire cu voce,
 notificări, „Tradu” din clipboard) — traducerea prin cloud a fost scoasă. Înțelege

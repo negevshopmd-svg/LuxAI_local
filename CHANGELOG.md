@@ -1,3 +1,10 @@
+## 0.4.2k — Translator installed by Update.bat, translation in the chat (2026-11-19)
+
+- Update.bat now installs the offline translator itself (`python -m luxai.offline_translate`, ≈640 MB once, into the preserved `models/`). The download is pinned to one commit of the model repository and `model.bin` / `tokenizer.json` are checked by SHA-256; a damaged file is deleted, never loaded. If it fails (no internet), the update still succeeds and Jarvis downloads it on first use.
+- Chat and voice: «переведи на английский: …», «переведи … на румынский», «как будет по-английски кошка», «translate to Romanian: …», «tradu în rusă: …», «cum se spune … în engleză» are answered by the offline translator in ≈0.4 s, without internet, and spoken with the voice of the translation's language. Without a named language a foreign text goes into Jarvis' language (Jarvis' own language into English). Also German, French, Spanish, Italian, Portuguese, Polish and Ukrainian as targets.
+- Phrases like «переведи компьютер в спящий режим» or «переведи деньги маме» stay commands: without a named language the text must be in another language than the request word.
+- No stray space before punctuation in translations.
+
 ## 0.4.2j — Only the offline translator (2026-11-19)
 
 - Every translation now runs on this PC with the offline translator: live captions, read aloud, notifications and «Перевести» in the clipboard history (which no longer needs an API key). The cloud translation (`OnlinePlanner.translate_text`) and the slow GGUF translation (`translate_locally`, `strip_thinking`) are removed, with their tests; texts in the settings now say that nothing is sent anywhere for translation.

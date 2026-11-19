@@ -111,7 +111,8 @@ class NoCloudTests(unittest.TestCase):
         self.assertEqual(ot.source_language("Je ne sais pas ce que tu veux dire avec ça."), "fr")
         self.assertEqual(ot.source_language("¿Dónde está el baño? No lo sé, pero es para todos."), "es")
         self.assertFalse(ot.supports("de", "de"))
-        self.assertFalse(ot.supports("en", "de"))  # targets are ru/en/ro only
+        self.assertTrue(ot.supports("en", "de"))  # the chat may ask for German
+        self.assertFalse(ot.supports("en", "ja"))
 
     def test_one_word_phrases_use_the_dictionary(self):
         self.assertEqual(ot._short_answer("Да.", "en"), "Yes.")

@@ -1986,7 +1986,52 @@ class ExtensionsRuntime(QObject):
         """Typed or spoken requests handled by extensions (notifications, timers)."""
         return (self.handle_notification_request(text) or self.handle_timer_request(text)
                 or self.handle_clipboard_request(text) or self.handle_captions_request(text)
-                or self.handle_avatar_request(text))
+                or self.handle_avatar_request(text) or self.handle_translate_request(text))
+
+    def handle_translate_request(self, text: str) -> str | None:
+        """«Переведи …» / «Tradu …» / «Translate …» in the chat: the offline translator answers (≈0.5 s).
+
+        Without a named language the text must be in another language than the
+        request word — «переведи компьютер в спящий режим» stays a PC command.
+        """
+        from luxai import chat_translate, offline_translate
+        from luxai.response_language import reply_language
+        from luxai.translation import translate_offline
+        parsed = chat_translate.parse_request(text)
+        if parsed is None:
+            return None
+        value, named, verb_language = parsed
+        source = offline_translate.source_language(value) if value else ""
+        if not named and (not value or not source or source == verb_language):
+            return None
+        if not value:
+            return _tr3("Что перевести? Например: «переведи на английский: доброе утро».",
+                        "What should I translate? For example: “translate to Romanian: good morning”.",
+                        "Ce să traduc? De exemplu: „tradu în engleză: bună dimineața”.", self.language)
+        jarvis = reply_language(getattr(self.host, "cfg", {}) or {})
+        target = chat_translate.choose_target(value, named, jarvis)
+        if source == target:
+            return value
+        if not offline_translate.installed():
+            offline_translate.download_in_background()
+            return _tr3("Переводчик ещё скачивается (≈640 МБ, один раз) — попробуйте через пару минут.",
+                        "The translator is still downloading (≈640 MB, once) — try again in a few minutes.",
+                        "Traducătorul încă se descarcă (≈640 MB, o singură dată) — încearcă peste câteva minute.",
+                        self.language)
+        try:
+            result = translate_offline(value, target, source)
+        except Exception:
+            result = None
+        if not result:
+            return _tr3("Не получилось перевести этот текст.", "Could not translate this text.",
+                        "Textul nu a putut fi tradus.", self.language)
+        self._reply_language = target if target in ("ru", "en", "ro") else None
+        return result
+
+    def take_reply_language(self) -> str | None:
+        """The language of the last reply when it differs from Jarvis' (a translation), once."""
+        language, self._reply_language = getattr(self, "_reply_language", None), None
+        return language
 
     # -- converter circle --
     def _cw(self, key, **values):

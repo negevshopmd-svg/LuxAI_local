@@ -3,7 +3,7 @@
 The only translator of Jarvis (0.4.2j): ≈0.3-0.8 s per sentence on the CPU,
 nothing leaves the PC. The model folder lives in ``models/`` next to the app
 (kept by Update.bat) and is downloaded once, in the background, on first use.
-Targets are ru/en/ro; sources also cover the common European languages.
+Ten languages both ways (ru uk en ro de fr es it pt pl); captions and reading translate into ru/en/ro.
 
 Model: facebook/nllb-200-distilled-600M (CC-BY-NC 4.0, non-commercial use),
 converted by JustFrederik/nllb-200-distilled-600M-ct2-int8.
@@ -19,9 +19,14 @@ from .local_models import MODELS_DIR
 REPO = "JustFrederik/nllb-200-distilled-600M-ct2-int8"
 FOLDER = "nllb-200-600M-ct2-int8"
 FILES = ["config.json", "model.bin", "shared_vocabulary.txt", "tokenizer.json", "special_tokens_map.json"]
+REVISION = "302d78f00e6fdb50a1064059df7c392b735e9d05"  # pinned commit: a changed repo is never picked up
+SHA256 = {  # Git LFS hashes of that commit
+    "model.bin": "ed1beaf75134de7505315a5223162f56acff397eff6b50638a500d3936fe707b",
+    "tokenizer.json": "e316b82de11d0f951f370943b3c438311629547285129b0b81dadabd01bca665",
+}
 CODES = {"en": "eng_Latn", "ro": "ron_Latn", "ru": "rus_Cyrl", "uk": "ukr_Cyrl", "de": "deu_Latn",
          "fr": "fra_Latn", "es": "spa_Latn", "it": "ita_Latn", "pt": "por_Latn", "pl": "pol_Latn"}
-TARGETS = ("ru", "en", "ro")
+TARGETS = tuple(CODES)  # captions / reading use ru/en/ro; the chat may ask for any of these
 _WORDS = {
     "en": set("""the a an and or of to in on for with is are was were be been it this that you your we our they
 their he she his her i my me not no yes but if then than as at by from have has had do does did will would can
@@ -76,7 +81,7 @@ def _short_answer(piece: str, target: str) -> str | None:
     match = re.fullmatch(r"\s*[-–—]?\s*(.*?)\s*([.!?…]*)\s*", piece)
     core = (match.group(1) if match else piece).casefold().strip(" ,")
     meaning = _SHORT_LOOKUP.get(core)
-    if meaning is None:
+    if meaning is None or target not in ("en", "ro", "ru"):
         return None
     word = _SHORT[meaning][{"en": 0, "ro": 1, "ru": 2}[target]]
     return word + (match.group(2) if match else "")
@@ -191,7 +196,7 @@ class OfflineTranslator:
                 ids = [self.tokenizer.token_to_id(token) for token in tokens]
                 value = self.tokenizer.decode([i for i in ids if i is not None], skip_special_tokens=True).strip()
                 out[index] = re.sub(r"^[-–—]\s+", "", value)  # subtitle dialogue dash
-        joined = " ".join(piece for piece in out if piece)
+        joined = re.sub(r"\s+([.,!?;:…])", r"", " ".join(piece for piece in out if piece))
         if target == "ro":  # the model writes the old cedilla letters (ş ţ)
             joined = joined.translate(_RO_COMMA)
         return joined
@@ -224,12 +229,50 @@ def ensure_downloaded(directory: Path | None = None) -> bool:
         _downloading = True
     try:
         from huggingface_hub import snapshot_download
-        snapshot_download(REPO, local_dir=str(model_dir(directory)), allow_patterns=FILES)
+        folder = model_dir(directory)
+        snapshot_download(REPO, revision=REVISION, local_dir=str(folder), allow_patterns=FILES)
+        if not verified(directory):
+            for name in SHA256:  # a damaged or swapped file is never loaded
+                (folder / name).unlink(missing_ok=True)
+            return False
     except Exception:
         return False
     finally:
         _downloading = False
     return installed(directory)
+
+
+def verified(directory: Path | None = None) -> bool:
+    import hashlib
+    folder = model_dir(directory)
+    for name, expected in SHA256.items():
+        digest = hashlib.sha256()
+        try:
+            with (folder / name).open("rb") as file:
+                for block in iter(lambda: file.read(1 << 20), b""):
+                    digest.update(block)
+        except OSError:
+            return False
+        if digest.hexdigest() != expected:
+            return False
+    return True
+
+
+def main() -> int:
+    """``python -m luxai.offline_translate`` — run by Update.bat: install the translator once."""
+    if installed():
+        print("Traducator offline: deja instalat.")
+        return 0
+    print("Descarc traducatorul offline (NLLB, ~640 MB, o singura data)...", flush=True)
+    if ensure_downloaded():
+        print("Traducator offline: instalat.")
+        return 0
+    print("Traducator offline: descarcarea a esuat (internet?). Se reincearca automat din aplicatie.")
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
 
 
 def download_in_background(directory: Path | None = None):
