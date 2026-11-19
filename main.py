@@ -1,5 +1,5 @@
 import re
-import sys, os, json, html
+import sys, json, html
 import queue
 import shutil
 import threading
@@ -9,8 +9,8 @@ from PySide6.QtCore import QEvent, QPoint, Qt, QThread, Signal, QTimer, Slot
 from PySide6.QtGui import QFont, QAction
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QCheckBox, QLineEdit, QTextEdit, QFileDialog, QMessageBox,
-    QComboBox, QStackedWidget, QFrame, QSlider, QSizePolicy, QSystemTrayIcon, QMenu, QScrollArea
+    QPushButton, QTextEdit, QFileDialog, QMessageBox,
+    QStackedWidget, QFrame, QSizePolicy, QSystemTrayIcon, QMenu, QScrollArea
 )
 
 from luxai.agent import LocalAgent
@@ -53,7 +53,7 @@ from luxai.visual_click import (
     capture_window, find_visual_target, click_visual_target, parse_click_target,
 )
 from luxai.intent_routing import is_operational_request, routine_reply, suspicious_completion_reply
-from luxai.ocr_setup import ensure_tesseract, find_tesseract, language_data_ready
+from luxai.ocr_setup import ensure_tesseract
 from luxai.websites import website_plan
 from luxai.voice_files import parse_open_user_file
 from luxai.voice_shortcuts import keyboard_action_plan, command_capabilities_reply
@@ -72,7 +72,7 @@ from luxai.weather_service import is_weather_question, get_weather_report
 from luxai.voice_desktop import (
     is_dictation_start, is_dictation_stop, dictation_text,
     wants_screen_read, wants_discord_mic_mute, wants_discord_mic_visual_click,
-    read_screen_locally, toggle_discord_microphone,
+    read_screen_locally,
 )
 from luxai.desktop_actions import _type_unicode_windows
 from luxai.win32 import get_user32
@@ -117,12 +117,8 @@ def load_config():
 
 def save_config(cfg):
     """Write preferences atomically, so an interrupted shutdown won't erase them."""
-    target = CONFIG.with_name(CONFIG.name + ".tmp")
-    try:
-        target.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
-        os.replace(target, CONFIG)
-    finally:
-        target.unlink(missing_ok=True)
+    from luxai.atomic_io import atomic_write_text
+    atomic_write_text(CONFIG, json.dumps(cfg, ensure_ascii=False, indent=2))  # unique temp name (audit #12)
 
 
 def _api_connection_signature(settings, key):
@@ -2707,7 +2703,6 @@ class MainWindow(QMainWindow):
             )
             return
         from ctypes import wintypes
-        import ctypes
         target = _foreground_hwnd()
         try:
             _valid_external_window(target)
@@ -2855,7 +2850,6 @@ class MainWindow(QMainWindow):
         self.mic_status.setText("Сканирую видимые кнопки Windows UI Automation…")
         try:
             from ctypes import wintypes
-            import ctypes
             get_user32().SetForegroundWindow(wintypes.HWND(hwnd))
         except (AttributeError, OSError):
             pass
@@ -2977,344 +2971,388 @@ class MainWindow(QMainWindow):
         self._processing = True
         self.mic_status.setText({"ru": "Обрабатываю запрос…", "ro": "Procesez cererea…", "en": "Processing the request…"}[reply_language(self.cfg, text)])
         try:
-            direct_entry = current.pop("saved_entry", None)
-            if direct_entry is None and current.get("saved_entries"):
-                direct_entry = current["saved_entries"].pop(0)
-            if direct_entry is not None:
-                triggered_id = current.pop("triggered_id", "")
-                if triggered_id:
-                    latest = next((item for item in self.command_registry.entries()
-                                   if item["id"] == triggered_id), None)
-                    if (not latest or not latest.get("enabled")
-                            or checked_command(latest, builtin=bool(latest.get("builtin"))) != direct_entry):
-                        self._resolved_command(text, tr("Команда изменилась или отключена до запуска."))
-                        return
-                if current.get("remote_confirmed"):
-                    # Already confirmed with buttons in Telegram (PC Control).
-                    self._execute_registered(text, direct_entry, confirmed=True)
-                else:
-                    self._execute_registered(text, direct_entry)
+            # 0.4.2u (audit #44): the same rules in the same order, as five named stages. They are called
+            # through the class so lightweight window stand-ins (tests, remote callers) keep working.
+            route = MainWindow
+            if route._route_queued_item(self, current, text):
                 return
-            attachments = current.pop("attachments", None)
-            if attachments is not None:
-                self._start_attachment_chat(text, attachments,
-                    config=current.pop("attachment_config", None),
-                    allow_cloud=current.pop("attachments_allow_cloud", None))
+            ctx = {}
+            if route._route_prepare(self, current, text, ctx):
                 return
-            resume = current.pop("adaptive_resume", None)
-            if resume:
-                self._start_adaptive_task(text, runtime=resume["runtime"], task_id=resume["task_id"], clarification=resume["clarification"])
-                return
-            clarified_message = current.pop("discord_message_details", None)
-            if clarified_message:
-                if clarified_message.get("cancelled"):
-                    self._resolved_command(text, {"ru": "Сообщение не отправлено.", "en": "Message not sent.", "ro": "Mesajul nu a fost trimis."}[reply_language(self.cfg, text)])
-                elif clarified_message["missing"]:
-                    self._ask_discord_message_details(text, clarified_message)
-                else:
-                    from luxai.macro_planner import validate_generated_macro
-                    plan = validate_generated_macro({"steps": [{"action": "discord_send_text", "target": clarified_message["recipient"] + "||" + clarified_message["message"]}]}, text)
-                    if plan is None:
-                        raise ValueError("Discord message details could not be validated")
-                    self._run_saved_steps(text, plan["steps"])
-                return
-            prefix = self.cfg.get("wake_prefix", "Jarvis")
-            if self.command_registry.disabled_match(text, prefix, **_command_match_options(self.cfg)):
-                self._current_route = "выключенная команда"
-                self._resolved_command(text, tr("Эта команда отключена в библиотеке команд."))
-                return
-
-            saved = self.command_registry.match(text, prefix, **_command_match_options(self.cfg))
-            from luxai.macro_planner import is_discord_message_request, discord_message_details
-            from luxai.visual_reasoner import is_visual_goal
-            feedback = self._command_queue[0].get("visual_feedback", "")
-            if is_visual_goal(text):
-                import time
-                self._last_visual_goal = text
-                self._last_visual_goal_at = time.monotonic()
-            recovery_app = self._command_queue[0].get("window_recovery_app", "")
-            if recovery_app == "discord":
-                # This is a request to reveal the GUI, not to replay the
-                # previous Discord message or unsafe keyboard actions.
-                from luxai.windows_apps import launch_installed_app
-                ok, result = launch_installed_app("discord")
-                self._current_route = "Discord: проверка видимого окна"
-                self._resolved_command(text, result)
-                return
-            # An explicitly edited preset is the user's saved command. Its
-            # reviewed actions must take effect even when the old preset also
-            # matches a native app/game shortcut. Untouched presets retain
-            # the existing dedicated observation and input routes.
-            if saved is not None and saved.get("customized"):
-                self._execute_registered(text, saved)
-                return
-            protected_workflow = bool(is_discord_message_request(text) or detect_research_dm_request(text)
-                                      or detect_discord_screen_review(text) or looks_like_discord_screen_review(text))
-            # Fast Discord: one-look status check and Discord's own shortcuts.
-            # A user's own saved command with the same words still wins.
-            if not protected_workflow and (saved is None or saved.get("builtin", False) or saved.get("learned", False)):
-                from luxai.discord_shortcuts import detect_discord_shortcut, detect_discord_status_request
-                if detect_discord_status_request(text):
-                    self._start_discord_quick(text, "status")
+            for stage in (route._route_discord_and_native, route._route_local_and_saved,
+                          route._route_services_and_cloud):
+                if stage(self, text, ctx):
                     return
-                shortcut = detect_discord_shortcut(text)
-                if shortcut is not None:
-                    self._start_discord_quick(text, shortcut)
-                    return
-            # The current account-bar audio state and the own Steam
-            # nickname have dedicated observe/verify tools. Keep the ENTIRE
-            # compound request before cloud and saved short-action routing.
-            from luxai.task_intents import steam_self_nickname_request
-            from luxai.discord_headphones_visual import discord_headphones_mode
-            from luxai.discord_call_visual import detect_discord_call_request
-            # Calling an explicitly named user is a single compound goal:
-            # verified DM -> phone in header -> exactly one click -> call UI.
-            if not protected_workflow:
-                call_target = detect_discord_call_request(text)
-                if call_target is not None:
-                    self._start_discord_call_visual(text, call_target)
-                    return
-            if not protected_workflow and steam_self_nickname_request(text):
-                self._start_steam_profile_lookup(text)
-                return
-            if not protected_workflow and discord_headphones_mode(text):
-                self._start_discord_headphones_visual(text)
-                return
-            message = discord_message_details(text)
-            manual_saved = saved is not None and not saved.get("builtin", False) and not saved.get("learned", False)
-            if message and not manual_saved and not (detect_research_dm_request(text) or detect_discord_screen_review(text) or looks_like_discord_screen_review(text)):
-                if message["cancelled"]:
-                    self._resolved_command(text, {"ru": "Сообщение не отправлено.", "en": "Message not sent.", "ro": "Mesajul nu a fost trimis."}[reply_language(self.cfg, text)])
-                    return
-                if message["missing"]:
-                    self._ask_discord_message_details(text, message)
-                    return
-            if not manual_saved and not protected_workflow:
-                from luxai.steam_games import local_game_request
-                from luxai.task_intents import system_volume_request
-                native_plan = local_game_request(text) or system_volume_request(text)
-                if native_plan is not None:
-                    self._start_native_plan(text, native_plan)
-                    return
-            if feedback and not protected_workflow:
-                from luxai.task_intents import steam_self_nickname_request
-                if steam_self_nickname_request(text):
-                    self._start_steam_profile_lookup(text)
-                    return
-                # A correction like "you missed the mic, further right" must
-                # keep the dedicated Discord microphone workflow. The generic
-                # visual planner cannot verify microphone toggle state, and
-                # never receives this authority merely from a retry phrase.
-                # Re-inspect a FRESH account-bar crop; never shift a stale x/y.
-                if wants_discord_mic_visual_click(text):
-                    self._start_discord_mic_visual(text)
-                else:
-                    self._start_visual_reasoner(text, feedback=feedback)
-                return
-
-
-            # Real text highlighting lives in the active application's
-            # selection, not in a screenshot. Copy it before model routing.
-            selected_mode = None if is_discord_message_request(text) else selected_text_intent(text)
-            if selected_mode is not None:
-                self._start_selection_request(text, selected_mode)
-                return
-
-            # Previously, local screen inspection matched "найди ... экран"
-            # inside compound tasks before opening Discord or another app.
-            # Saved exact commands take priority, then the ENTIRE chained
-            # request goes to the validated macro planner.
-            # Native Discord intents take priority over older saved macros.
-            # Preserve longstanding local Discord microphone controls.
-            # Generic macros also match words like "нажми на кнопку" and
-            # must not preempt a known, deterministic local operation.
-            if not protected_workflow and wants_discord_mic_visual_click(text):
-                self._start_discord_mic_visual(text)
-                return
-            if not protected_workflow and wants_discord_mic_mute(text):
-                # Reads the real button first (0.4.2o): no blind toggle, no question.
-                self._start_discord_audio_offline(text, "mic")
-                return
-            # Native keyboard and mouse commands always use local Windows
-            # tools, never the cloud task planner. No approval prompt for
-            # explicitly spoken, allowlisted input; still require a separate
-            # external window to be active.
-            local_steps = parse_action_sequence(text)
-            local_keyboard = keyboard_action_plan(text)
-            if not protected_workflow and (local_steps is not None or local_keyboard is not None):
-                self._run_direct_input(text, local_steps if local_steps is not None else [local_keyboard])
-                return
-            from luxai.task_intents import (
-                direct_app_request, screenshot_request, system_request,
-                direct_action_request, steam_self_nickname_request,
-            )
-            # The goal explicitly requests the signed-in Steam nickname.
-            # A screenshot is an implicit observation step, not a separate
-            # command the user must dictate. Never degrade to plain open_app.
-            if not protected_workflow and steam_self_nickname_request(text):
-                self._start_steam_profile_lookup(text)
-                return
-            saved_priority = saved is not None and not saved.get("learned", False)
-            # Named local files and websites are deterministic actions too.
-            # Keep them ahead of the generic "open app" and visual heuristics.
-            local_plan = None if saved_priority or protected_workflow else (website_plan(text) or parse_open_user_file(text))
-            if local_plan is not None:
-                answer = self.agent.execute_plan(text, local_plan, confirm_callback=self.confirm_action)
-                self._current_route = "браузер HTTPS" if local_plan["action"] == "open_site" else "локальные файлы Windows"
-                self._resolved_command(text, answer or "Не удалось выполнить локальное открытие.")
-                return
-            if not saved_priority and not protected_workflow and (direct_app_request(text) or screenshot_request(text) or system_request(text) or direct_action_request(text)):
-                self._start_adaptive_task(text)
-                return
-            # Auto-learned one-shot "open app" shortcuts must not shadow a
-            # richer visual user goal that also requested actual UI work.
-            # Manually created custom commands continue to take precedence.
-            if saved is not None and not (
-                ((is_visual_goal(text) or is_discord_message_request(text)) and saved.get("learned", False))
-                or (protected_workflow and not manual_saved)
-            ):
-                self._execute_registered(text, saved)
-                return
-            # A spoken request to click a named Discord user uses the
-            # existing exact-contact/header-verified workflow, never a
-            # generic mouse guess or an unrelated planner response.
-            from luxai.discord_navigation import detect_discord_open_dm
-            known_contact = detect_discord_open_dm(text)
-            if known_contact and not protected_workflow:
-                if not self.online_planner.enabled():
-                    self._resolved_command(text, "Для поиска пользователя Discord нужен AI с изображениями.")
-                    return
-                self.mic_status.setText("Проверяю пользователя Discord…")
-                threading.Thread(
-                    target=self._direct_macro_worker, args=(text,),
-                    kwargs={"generation": self._command_generation},
-                    daemon=True, name="JarvisDiscordVerifiedContact",
-                ).start()
-                return
-            # Novel visual goals are solved by repeated real observations,
-            # not by a one-shot macro which cannot see whether a click worked.
-            # Dedicated Discord message/contact and sourced-research tools
-            # retain their stronger safeguards, including send confirmation.
-            # DMs and other external-effect instructions must use the
-            # atomic/confirmed tools, not general screenshot mouse clicks.
-            discord_message = is_discord_message_request(text)
-            if is_visual_goal(text) and not (
-                discord_message
-                or detect_research_dm_request(text)
-                or detect_discord_screen_review(text)
-                or looks_like_discord_screen_review(text)
-            ):
-                from luxai.discord_navigation import detect_discord_open_dm
-                from luxai.research_notepad import detect_research_notepad
-                if not detect_discord_open_dm(text) and not detect_research_notepad(text):
-                    self._start_visual_reasoner(text)
-                    return
-            if needs_live_macro_planning(text):
-                from luxai.research_notepad import detect_research_notepad
-                if not protected_workflow and not detect_research_notepad(text):
-                    self._start_adaptive_task(text)
-                    return
-                if not self.online_planner.enabled():
-                    self._current_route = "сложные голосовые команды"
-                    self._resolved_command(
-                        text,
-                        "Команда из нескольких шагов не выполнена. "
-                        "Для анализа снимков и поиска элементов включите "
-                        "онлайн AI с поддержкой изображений и проверьте API-ключ."
-                    )
-                    return
-                self.mic_status.setText("AI планирует всю последовательность действий…")
-                threading.Thread(
-                    target=self._direct_macro_worker, args=(text,),
-                    kwargs={"generation": self._command_generation},
-                    daemon=True, name="JarvisLiveMacroPlanner",
-                ).start()
-                return
-
-            # Live weather and local screen OCR use dedicated, verifiable
-            # services. They work even if Gemini is quota-blocked (HTTP 429).
-            if re.search(
-                r"(?i)(?:размер|разрешени|resolution|rezoluți|rezoluti)"
-                r".{0,22}(?:экран|диспле|screen|monitor|ecran)",
-                text,
-            ):
-                from luxai.desktop_actions import execute_desktop_step
-                try:
-                    info = execute_desktop_step({"action": "display_info"})
-                except (OSError, RuntimeError, ValueError) as exc:
-                    info = "Не удалось определить экран: " + str(exc)[:140]
-                self._current_route = "локальная конфигурация дисплея"
-                self._resolved_command(text, info)
-                return
-            if is_weather_question(text):
-                self.mic_status.setText("Получаю актуальный прогноз Open-Meteo…")
-                threading.Thread(
-                    target=self._direct_task_worker, args=(text, "weather"),
-                    daemon=True, name="JarvisWeather",
-                ).start()
-                return
-            if wants_screen_read(text):
-                self.mic_status.setText("Читаю снимок экрана локально…")
-                threading.Thread(
-                    target=self._direct_task_worker, args=(text, "screen"),
-                    daemon=True, name="JarvisScreenOCR",
-                ).start()
-                return
-            choice = button_choice(text)
-            if choice:
-                import time
-                snapshot = getattr(self, "_screen_snapshot", None)
-                if snapshot is None or time.monotonic() - snapshot.captured > 90:
-                    self._pending_screen_click = choice
-                    self._start_screen_inspection(text)
-                else:
-                    self._current_route = "Windows UI Automation"
-                    self._resolved_command(text, self._click_screen_choice(choice))
-                return
-            if is_screen_inspection_request(text):
-                self._start_screen_inspection(text)
-                return
-            # Native input was routed before adaptive/cloud planning above.
-            capabilities = command_capabilities_reply(text)
-            if capabilities is not None:
-                self._current_route = "каталог действий"
-                self._resolved_command(text, capabilities)
-                return
-
-            quick = routine_reply(text, reply_language(self.cfg, text))
-            if quick is not None:
-                self.agent.remember(text, quick)
-                self._current_route = "быстрый ответ"
-                self._resolved_command(text, quick)
-                return
-
-            from luxai.task_intents import needs_adaptive_task
-            if needs_adaptive_task(text):
-                self._start_adaptive_task(text)
-                return
-
-            if self.online_planner.enabled():
-                provider = self.cfg.get("online_provider", "gemini")
-                label = PROVIDERS.get(provider, {}).get("label", provider)
-                self.mic_status.setText(
-                    f"Шаг 1/2: онлайн-планировщик {label} анализирует запрос…"
-                )
-                history = tuple(dict(msg) for msg in self.agent.history[-4:])
-                threading.Thread(
-                    target=self._online_thread, args=(text, history),
-                    kwargs={"generation": self._command_generation},
-                    daemon=True, name="JarvisCloudFirst",
-                ).start()
-                return
-
-            # No API key / offline: only safe deterministic actions are allowed
-            # to report execution. Local GGUF never acts as a CMD terminal.
-            self._safe_local_fallback(
-                text, "Gemini не подключён или отсутствует API-ключ",
-                saved=saved,
-            )
         except Exception as exc:
             self._resolved_command(text, self._error_message(exc))
+
+    def _route_queued_item(self, current, text):
+        """Stage 1: an item that already knows what to run (saved entry, attachments, resumed task, Discord details)."""
+        direct_entry = current.pop("saved_entry", None)
+        if direct_entry is None and current.get("saved_entries"):
+            direct_entry = current["saved_entries"].pop(0)
+        if direct_entry is not None:
+            triggered_id = current.pop("triggered_id", "")
+            if triggered_id:
+                latest = next((item for item in self.command_registry.entries()
+                               if item["id"] == triggered_id), None)
+                if (not latest or not latest.get("enabled")
+                        or checked_command(latest, builtin=bool(latest.get("builtin"))) != direct_entry):
+                    self._resolved_command(text, tr("Команда изменилась или отключена до запуска."))
+                    return True
+            if current.get("remote_confirmed"):
+                # Already confirmed with buttons in Telegram (PC Control).
+                self._execute_registered(text, direct_entry, confirmed=True)
+            else:
+                self._execute_registered(text, direct_entry)
+            return True
+        attachments = current.pop("attachments", None)
+        if attachments is not None:
+            self._start_attachment_chat(text, attachments,
+                config=current.pop("attachment_config", None),
+                allow_cloud=current.pop("attachments_allow_cloud", None))
+            return True
+        resume = current.pop("adaptive_resume", None)
+        if resume:
+            self._start_adaptive_task(text, runtime=resume["runtime"], task_id=resume["task_id"], clarification=resume["clarification"])
+            return True
+        clarified_message = current.pop("discord_message_details", None)
+        if clarified_message:
+            if clarified_message.get("cancelled"):
+                self._resolved_command(text, {"ru": "Сообщение не отправлено.", "en": "Message not sent.", "ro": "Mesajul nu a fost trimis."}[reply_language(self.cfg, text)])
+            elif clarified_message["missing"]:
+                self._ask_discord_message_details(text, clarified_message)
+            else:
+                from luxai.macro_planner import validate_generated_macro
+                plan = validate_generated_macro({"steps": [{"action": "discord_send_text", "target": clarified_message["recipient"] + "||" + clarified_message["message"]}]}, text)
+                if plan is None:
+                    raise ValueError("Discord message details could not be validated")
+                self._run_saved_steps(text, plan["steps"])
+            return True
+        return False
+
+    def _route_prepare(self, current, text, ctx):
+        """Stage 2: disabled / customized saved commands, visual feedback, Discord window recovery."""
+        prefix = self.cfg.get("wake_prefix", "Jarvis")
+        if self.command_registry.disabled_match(text, prefix, **_command_match_options(self.cfg)):
+            self._current_route = "выключенная команда"
+            self._resolved_command(text, tr("Эта команда отключена в библиотеке команд."))
+            return True
+
+        saved = self.command_registry.match(text, prefix, **_command_match_options(self.cfg))
+        from luxai.macro_planner import is_discord_message_request
+        from luxai.visual_reasoner import is_visual_goal
+        feedback = self._command_queue[0].get("visual_feedback", "")
+        if is_visual_goal(text):
+            import time
+            self._last_visual_goal = text
+            self._last_visual_goal_at = time.monotonic()
+        recovery_app = self._command_queue[0].get("window_recovery_app", "")
+        if recovery_app == "discord":
+            # This is a request to reveal the GUI, not to replay the
+            # previous Discord message or unsafe keyboard actions.
+            from luxai.windows_apps import launch_installed_app
+            ok, result = launch_installed_app("discord")
+            self._current_route = "Discord: проверка видимого окна"
+            self._resolved_command(text, result)
+            return True
+        # An explicitly edited preset is the user's saved command. Its
+        # reviewed actions must take effect even when the old preset also
+        # matches a native app/game shortcut. Untouched presets retain
+        # the existing dedicated observation and input routes.
+        if saved is not None and saved.get("customized"):
+            self._execute_registered(text, saved)
+            return True
+        protected_workflow = bool(is_discord_message_request(text) or detect_research_dm_request(text)
+                                  or detect_discord_screen_review(text) or looks_like_discord_screen_review(text))
+        ctx.update(saved=saved, feedback=feedback, protected_workflow=protected_workflow,
+                   manual_saved=saved is not None and not saved.get("builtin", False)
+                   and not saved.get("learned", False))
+        return False
+
+    def _route_discord_and_native(self, text, ctx):
+        """Stage 3: Discord shortcuts, calls, Steam nickname, headphones, messages, games and volume, retries."""
+        from luxai.macro_planner import is_discord_message_request, discord_message_details  # noqa: F401
+        from luxai.visual_reasoner import is_visual_goal  # noqa: F401
+        saved, feedback = ctx["saved"], ctx["feedback"]
+        protected_workflow, manual_saved = ctx["protected_workflow"], ctx["manual_saved"]
+        # Fast Discord: one-look status check and Discord's own shortcuts.
+        # A user's own saved command with the same words still wins.
+        if not protected_workflow and (saved is None or saved.get("builtin", False) or saved.get("learned", False)):
+            from luxai.discord_shortcuts import detect_discord_shortcut, detect_discord_status_request
+            if detect_discord_status_request(text):
+                self._start_discord_quick(text, "status")
+                return True
+            shortcut = detect_discord_shortcut(text)
+            if shortcut is not None:
+                self._start_discord_quick(text, shortcut)
+                return True
+        # The current account-bar audio state and the own Steam
+        # nickname have dedicated observe/verify tools. Keep the ENTIRE
+        # compound request before cloud and saved short-action routing.
+        from luxai.task_intents import steam_self_nickname_request
+        from luxai.discord_headphones_visual import discord_headphones_mode
+        from luxai.discord_call_visual import detect_discord_call_request
+        # Calling an explicitly named user is a single compound goal:
+        # verified DM -> phone in header -> exactly one click -> call UI.
+        if not protected_workflow:
+            call_target = detect_discord_call_request(text)
+            if call_target is not None:
+                self._start_discord_call_visual(text, call_target)
+                return True
+        if not protected_workflow and steam_self_nickname_request(text):
+            self._start_steam_profile_lookup(text)
+            return True
+        if not protected_workflow and discord_headphones_mode(text):
+            self._start_discord_headphones_visual(text)
+            return True
+        message = discord_message_details(text)
+        manual_saved = saved is not None and not saved.get("builtin", False) and not saved.get("learned", False)
+        if message and not manual_saved and not (detect_research_dm_request(text) or detect_discord_screen_review(text) or looks_like_discord_screen_review(text)):
+            if message["cancelled"]:
+                self._resolved_command(text, {"ru": "Сообщение не отправлено.", "en": "Message not sent.", "ro": "Mesajul nu a fost trimis."}[reply_language(self.cfg, text)])
+                return True
+            if message["missing"]:
+                self._ask_discord_message_details(text, message)
+                return True
+        if not manual_saved and not protected_workflow:
+            from luxai.steam_games import local_game_request
+            from luxai.task_intents import system_volume_request
+            native_plan = local_game_request(text) or system_volume_request(text)
+            if native_plan is not None:
+                self._start_native_plan(text, native_plan)
+                return True
+        if feedback and not protected_workflow:
+            from luxai.task_intents import steam_self_nickname_request
+            if steam_self_nickname_request(text):
+                self._start_steam_profile_lookup(text)
+                return True
+            # A correction like "you missed the mic, further right" must
+            # keep the dedicated Discord microphone workflow. The generic
+            # visual planner cannot verify microphone toggle state, and
+            # never receives this authority merely from a retry phrase.
+            # Re-inspect a FRESH account-bar crop; never shift a stale x/y.
+            if wants_discord_mic_visual_click(text):
+                self._start_discord_mic_visual(text)
+            else:
+                self._start_visual_reasoner(text, feedback=feedback)
+            return True
+        return False
+
+    def _route_local_and_saved(self, text, ctx):
+        """Stage 4: selection, Discord mic, direct input, websites/files, saved commands, visual and live planning."""
+        from luxai.macro_planner import is_discord_message_request, discord_message_details  # noqa: F401
+        from luxai.visual_reasoner import is_visual_goal  # noqa: F401
+        saved = ctx["saved"]
+        protected_workflow = ctx["protected_workflow"]
+        manual_saved = ctx["manual_saved"]
+        # Real text highlighting lives in the active application's
+        # selection, not in a screenshot. Copy it before model routing.
+        selected_mode = None if is_discord_message_request(text) else selected_text_intent(text)
+        if selected_mode is not None:
+            self._start_selection_request(text, selected_mode)
+            return True
+
+        # Previously, local screen inspection matched "найди ... экран"
+        # inside compound tasks before opening Discord or another app.
+        # Saved exact commands take priority, then the ENTIRE chained
+        # request goes to the validated macro planner.
+        # Native Discord intents take priority over older saved macros.
+        # Preserve longstanding local Discord microphone controls.
+        # Generic macros also match words like "нажми на кнопку" and
+        # must not preempt a known, deterministic local operation.
+        if not protected_workflow and wants_discord_mic_visual_click(text):
+            self._start_discord_mic_visual(text)
+            return True
+        if not protected_workflow and wants_discord_mic_mute(text):
+            # Reads the real button first (0.4.2o): no blind toggle, no question.
+            self._start_discord_audio_offline(text, "mic")
+            return True
+        # Native keyboard and mouse commands always use local Windows
+        # tools, never the cloud task planner. No approval prompt for
+        # explicitly spoken, allowlisted input; still require a separate
+        # external window to be active.
+        local_steps = parse_action_sequence(text)
+        local_keyboard = keyboard_action_plan(text)
+        if not protected_workflow and (local_steps is not None or local_keyboard is not None):
+            self._run_direct_input(text, local_steps if local_steps is not None else [local_keyboard])
+            return True
+        from luxai.task_intents import (
+            direct_app_request, screenshot_request, system_request,
+            direct_action_request, steam_self_nickname_request,
+        )
+        # The goal explicitly requests the signed-in Steam nickname.
+        # A screenshot is an implicit observation step, not a separate
+        # command the user must dictate. Never degrade to plain open_app.
+        if not protected_workflow and steam_self_nickname_request(text):
+            self._start_steam_profile_lookup(text)
+            return True
+        saved_priority = saved is not None and not saved.get("learned", False)
+        # Named local files and websites are deterministic actions too.
+        # Keep them ahead of the generic "open app" and visual heuristics.
+        local_plan = None if saved_priority or protected_workflow else (website_plan(text) or parse_open_user_file(text))
+        if local_plan is not None:
+            answer = self.agent.execute_plan(text, local_plan, confirm_callback=self.confirm_action)
+            self._current_route = "браузер HTTPS" if local_plan["action"] == "open_site" else "локальные файлы Windows"
+            self._resolved_command(text, answer or "Не удалось выполнить локальное открытие.")
+            return True
+        if not saved_priority and not protected_workflow and (direct_app_request(text) or screenshot_request(text) or system_request(text) or direct_action_request(text)):
+            self._start_adaptive_task(text)
+            return True
+        # Auto-learned one-shot "open app" shortcuts must not shadow a
+        # richer visual user goal that also requested actual UI work.
+        # Manually created custom commands continue to take precedence.
+        if saved is not None and not (
+            ((is_visual_goal(text) or is_discord_message_request(text)) and saved.get("learned", False))
+            or (protected_workflow and not manual_saved)
+        ):
+            self._execute_registered(text, saved)
+            return True
+        # A spoken request to click a named Discord user uses the
+        # existing exact-contact/header-verified workflow, never a
+        # generic mouse guess or an unrelated planner response.
+        from luxai.discord_navigation import detect_discord_open_dm
+        known_contact = detect_discord_open_dm(text)
+        if known_contact and not protected_workflow:
+            if not self.online_planner.enabled():
+                self._resolved_command(text, "Для поиска пользователя Discord нужен AI с изображениями.")
+                return True
+            self.mic_status.setText("Проверяю пользователя Discord…")
+            threading.Thread(
+                target=self._direct_macro_worker, args=(text,),
+                kwargs={"generation": self._command_generation},
+                daemon=True, name="JarvisDiscordVerifiedContact",
+            ).start()
+            return True
+        # Novel visual goals are solved by repeated real observations,
+        # not by a one-shot macro which cannot see whether a click worked.
+        # Dedicated Discord message/contact and sourced-research tools
+        # retain their stronger safeguards, including send confirmation.
+        # DMs and other external-effect instructions must use the
+        # atomic/confirmed tools, not general screenshot mouse clicks.
+        discord_message = is_discord_message_request(text)
+        if is_visual_goal(text) and not (
+            discord_message
+            or detect_research_dm_request(text)
+            or detect_discord_screen_review(text)
+            or looks_like_discord_screen_review(text)
+        ):
+            from luxai.discord_navigation import detect_discord_open_dm
+            from luxai.research_notepad import detect_research_notepad
+            if not detect_discord_open_dm(text) and not detect_research_notepad(text):
+                self._start_visual_reasoner(text)
+                return True
+        if needs_live_macro_planning(text):
+            from luxai.research_notepad import detect_research_notepad
+            if not protected_workflow and not detect_research_notepad(text):
+                self._start_adaptive_task(text)
+                return True
+            if not self.online_planner.enabled():
+                self._current_route = "сложные голосовые команды"
+                self._resolved_command(
+                    text,
+                    "Команда из нескольких шагов не выполнена. "
+                    "Для анализа снимков и поиска элементов включите "
+                    "онлайн AI с поддержкой изображений и проверьте API-ключ."
+                )
+                return True
+            self.mic_status.setText("AI планирует всю последовательность действий…")
+            threading.Thread(
+                target=self._direct_macro_worker, args=(text,),
+                kwargs={"generation": self._command_generation},
+                daemon=True, name="JarvisLiveMacroPlanner",
+            ).start()
+            return True
+        return False
+
+    def _route_services_and_cloud(self, text, ctx):
+        """Stage 5: display, weather, screen reading, buttons, capabilities, quick replies, adaptive and cloud."""
+        from luxai.macro_planner import is_discord_message_request, discord_message_details  # noqa: F401
+        from luxai.visual_reasoner import is_visual_goal  # noqa: F401
+        saved = ctx["saved"]
+        # Live weather and local screen OCR use dedicated, verifiable
+        # services. They work even if Gemini is quota-blocked (HTTP 429).
+        if re.search(
+            r"(?i)(?:размер|разрешени|resolution|rezoluți|rezoluti)"
+            r".{0,22}(?:экран|диспле|screen|monitor|ecran)",
+            text,
+        ):
+            from luxai.desktop_actions import execute_desktop_step
+            try:
+                info = execute_desktop_step({"action": "display_info"})
+            except (OSError, RuntimeError, ValueError) as exc:
+                info = "Не удалось определить экран: " + str(exc)[:140]
+            self._current_route = "локальная конфигурация дисплея"
+            self._resolved_command(text, info)
+            return True
+        if is_weather_question(text):
+            self.mic_status.setText("Получаю актуальный прогноз Open-Meteo…")
+            threading.Thread(
+                target=self._direct_task_worker, args=(text, "weather"),
+                daemon=True, name="JarvisWeather",
+            ).start()
+            return True
+        if wants_screen_read(text):
+            self.mic_status.setText("Читаю снимок экрана локально…")
+            threading.Thread(
+                target=self._direct_task_worker, args=(text, "screen"),
+                daemon=True, name="JarvisScreenOCR",
+            ).start()
+            return True
+        choice = button_choice(text)
+        if choice:
+            import time
+            snapshot = getattr(self, "_screen_snapshot", None)
+            if snapshot is None or time.monotonic() - snapshot.captured > 90:
+                self._pending_screen_click = choice
+                self._start_screen_inspection(text)
+            else:
+                self._current_route = "Windows UI Automation"
+                self._resolved_command(text, self._click_screen_choice(choice))
+            return True
+        if is_screen_inspection_request(text):
+            self._start_screen_inspection(text)
+            return True
+        # Native input was routed before adaptive/cloud planning above.
+        capabilities = command_capabilities_reply(text)
+        if capabilities is not None:
+            self._current_route = "каталог действий"
+            self._resolved_command(text, capabilities)
+            return True
+
+        quick = routine_reply(text, reply_language(self.cfg, text))
+        if quick is not None:
+            self.agent.remember(text, quick)
+            self._current_route = "быстрый ответ"
+            self._resolved_command(text, quick)
+            return True
+
+        from luxai.task_intents import needs_adaptive_task
+        if needs_adaptive_task(text):
+            self._start_adaptive_task(text)
+            return True
+
+        if self.online_planner.enabled():
+            provider = self.cfg.get("online_provider", "gemini")
+            label = PROVIDERS.get(provider, {}).get("label", provider)
+            self.mic_status.setText(
+                f"Шаг 1/2: онлайн-планировщик {label} анализирует запрос…"
+            )
+            history = tuple(dict(msg) for msg in self.agent.history[-4:])
+            threading.Thread(
+                target=self._online_thread, args=(text, history),
+                kwargs={"generation": self._command_generation},
+                daemon=True, name="JarvisCloudFirst",
+            ).start()
+            return True
+
+        # No API key / offline: only safe deterministic actions are allowed
+        # to report execution. Local GGUF never acts as a CMD terminal.
+        self._safe_local_fallback(
+            text, "Gemini не подключён или отсутствует API-ключ",
+            saved=saved,
+        )
+        return False
 
     def _on_extension_chat_reply(self, reply, language):
         """An extension's answer that was computed in the background (chat translation)."""
@@ -3406,6 +3444,18 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(milliseconds, lambda: self._next_macro_step()
                           if getattr(self, "_macro_context", None) is context else None)
 
+    def _macro_cloud_ready(self, ctx, no_ai_message, refused_message):
+        """A visual macro step needs an image-capable AI and the screenshot consent (audit #44: shared check)."""
+        if not self.online_planner.enabled():
+            ctx["messages"].append(no_ai_message)
+            self._finish_visual_macro()
+            return False
+        if not self._allow_cloud_screenshots():  # the consent question for cloud screenshots
+            ctx["messages"].append(refused_message)
+            self._finish_visual_macro()
+            return False
+        return True
+
     def _next_macro_step(self):
         if self._closed or not self._processing:
             return
@@ -3436,15 +3486,8 @@ class MainWindow(QMainWindow):
             return
         if step["action"] == "discord_open_dm":
             username = step["target"]
-            if not self.online_planner.enabled():
-                ctx["messages"].append(
-                    "Для поиска контакта Discord нужен AI с поддержкой изображений."
-                )
-                self._finish_visual_macro()
-                return
-            if not self._allow_cloud_screenshots():
-                ctx["messages"].append("Передача снимков для поиска Discord отменена.")
-                self._finish_visual_macro()
+            if not MainWindow._macro_cloud_ready(self, ctx, "Для поиска контакта Discord нужен AI с поддержкой изображений.",
+                                                "Передача снимков для поиска Discord отменена."):
                 return
             self.mic_status.setText(f"Проверяю Discord и открываю чат {username}…")
             threading.Thread(
@@ -3455,15 +3498,8 @@ class MainWindow(QMainWindow):
             return
         if step["action"] == "discord_screen_review":
             username = step["target"]
-            if not self.online_planner.enabled():
-                ctx["messages"].append(
-                    "Нужен AI с поддержкой изображений для поиска в Discord."
-                )
-                self._finish_visual_macro()
-                return
-            if not self._allow_cloud_screenshots():  # the consent question for cloud screenshots
-                ctx["messages"].append("Отправка снимков в AI отменена.")
-                self._finish_visual_macro()
+            if not MainWindow._macro_cloud_ready(self, ctx, "Нужен AI с поддержкой изображений для поиска в Discord.",
+                                                "Отправка снимков в AI отменена."):
                 return
             self.mic_status.setText(f"Открываю Discord и ищу @{username}…")
             threading.Thread(
@@ -3473,15 +3509,8 @@ class MainWindow(QMainWindow):
             ).start()
             return
         if step["action"] == "discord_send_text":
-            if not self.online_planner.enabled():
-                ctx["messages"].append(
-                    "Для поиска и проверки Discord нужен AI с поддержкой изображений."
-                )
-                self._finish_visual_macro()
-                return
-            if not self._allow_cloud_screenshots():
-                ctx["messages"].append("Передача снимков отменена.")
-                self._finish_visual_macro()
+            if not MainWindow._macro_cloud_ready(self, ctx, "Для поиска и проверки Discord нужен AI с поддержкой изображений.",
+                                                "Передача снимков отменена."):
                 return
             self.mic_status.setText("Discord: проверяю пользователя и готовлю черновик…")
             threading.Thread(
@@ -3492,15 +3521,8 @@ class MainWindow(QMainWindow):
             return
         if step["action"] == "discord_research_dm":
             topic, username = step["target"].rsplit("||", 1)
-            if not self.online_planner.enabled():
-                ctx["messages"].append(
-                    "Включите AI с поддержкой анализа изображений для поиска Discord."
-                )
-                self._finish_visual_macro()
-                return
-            if not self._allow_cloud_screenshots():
-                ctx["messages"].append("Согласие на отправку скриншотов не получено.")
-                self._finish_visual_macro()
+            if not MainWindow._macro_cloud_ready(self, ctx, "Включите AI с поддержкой анализа изображений для поиска Discord.",
+                                                "Согласие на отправку скриншотов не получено."):
                 return
             self.mic_status.setText(f"Ищу информацию и чат Discord @{username}…")
             threading.Thread(
@@ -3537,7 +3559,6 @@ class MainWindow(QMainWindow):
             self._last_external_hwnd = hwnd
             self.mic_status.setText(f"AI анализирует окно для «{label}»…")
             try:
-                import ctypes
                 get_user32().SetForegroundWindow(hwnd)
             except (AttributeError, OSError):
                 pass
@@ -3570,7 +3591,6 @@ class MainWindow(QMainWindow):
                 self._finish_visual_macro()
                 return
             try:
-                import ctypes
                 get_user32().SetForegroundWindow(hwnd)
             except (AttributeError, OSError):
                 pass

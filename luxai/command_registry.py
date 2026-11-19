@@ -40,7 +40,7 @@ def discord_targets() -> frozenset:
     return frozenset(TARGETS) | frozenset(BY_ID)
 
 
-from luxai.default_commands import BUILTINS, _built_in
+from luxai.default_commands import BUILTINS
 
 
 def normalize_phrase(text):
@@ -360,9 +360,8 @@ class CommandRegistry:
             "collections": self.groups.get("collections", []),
             "agent_groups": self.agent_groups,
         }
-        temporary = self.path.with_suffix(".tmp")
-        temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        temporary.replace(self.path)
+        from luxai.atomic_io import atomic_write_text
+        atomic_write_text(self.path, json.dumps(data, ensure_ascii=False, indent=2))  # audit #12
 
     def _change(self, update):
         """Commit related library changes together; failed saves keep the UI honest."""

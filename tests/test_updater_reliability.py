@@ -67,7 +67,13 @@ class UpdaterReliabilityTests(unittest.TestCase):
             updater, "download", side_effect=download,
         ), mock.patch.object(updater, "validate_staged_requirements"), mock.patch.object(
             updater, "upgrade_dependencies", return_value=dependencies,
-        ) as packages, mock.patch.object(updater, "ensure_local_ai_backend", return_value=True):
+        ) as packages, mock.patch.object(updater, "ensure_local_ai_backend", return_value=True), \
+                mock.patch.object(updater, "verify_release", return_value=""), \
+                mock.patch.object(updater, "snapshot_packages", return_value=""), \
+                mock.patch.object(updater, "ensure_ocr", return_value=True), \
+                mock.patch.object(updater, "ensure_offline_translator", return_value=True):
+            # These archives are built by the test and unsigned; signing has its own tests
+            # (tests/test_audit_fixes_042r.py SignedReleaseTests).
             result = updater.perform_update()
         return result, packages
 

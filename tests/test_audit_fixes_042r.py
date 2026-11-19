@@ -260,6 +260,111 @@ class UpdateTests(unittest.TestCase):
         self.assertIn('(`call %LUXAI_PYTHON% -I "scripts\\fetch_updater.py"`)', updater)  # 0.4.2s
 
 
+class SignedReleaseTests(unittest.TestCase):
+    """0.4.2u (audit #8): an update is applied only when every file matches a manifest signed with the release key."""
+
+    def setUp(self):
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import release_signature
+        self.rs = release_signature
+        self.secret = bytes(range(32))
+        self.public = release_signature.public_key(self.secret).hex()
+
+    def signed_tree(self, folder, files):
+        for name, data in files.items():
+            path = Path(folder, name)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+        manifest = json.dumps({"format": 1, "version": "9.9.9",
+                               "files": {name: self.rs.file_digest(name, data) for name, data in files.items()}}).encode()
+        Path(folder, self.rs.MANIFEST).write_bytes(manifest)
+        Path(folder, self.rs.SIGNATURE).write_text(self.rs.sign(self.secret, manifest).hex())
+
+    def test_rfc8032_vector(self):
+        secret = bytes.fromhex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60")
+        self.assertEqual(self.rs.public_key(secret).hex(),
+                         "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")
+        self.assertTrue(self.rs.verify(self.rs.public_key(secret), b"", self.rs.sign(secret, b"")))
+
+    def test_updater_and_module_share_key_and_algorithm(self):
+        import Update
+        self.assertEqual(Update.RELEASE_PUBLIC_KEY, self.rs.PUBLIC_KEY_HEX)
+        signature = self.rs.sign(self.secret, b"x")
+        self.assertTrue(Update._sig_verify(bytes.fromhex(self.public), b"x", signature))
+
+    def test_signed_archive_is_accepted_and_any_change_refused(self):
+        import Update
+        files = {"main.py": b"print(1)\n", "luxai/a.py": b"x = 1\n", "Update.bat": b"@echo off\r\necho hi\r\n"}
+        with tempfile.TemporaryDirectory() as folder, mock.patch.object(Update, "RELEASE_PUBLIC_KEY", self.public):
+            self.signed_tree(folder, files)
+            self.assertEqual(Update.verify_release(Path(folder)), "9.9.9")
+            Path(folder, "luxai", "a.py").write_bytes(b"x = 2\n")          # changed file
+            with self.assertRaises(RuntimeError):
+                Update.verify_release(Path(folder))
+        with tempfile.TemporaryDirectory() as folder, mock.patch.object(Update, "RELEASE_PUBLIC_KEY", self.public):
+            self.signed_tree(folder, files)
+            Path(folder, "extra.py").write_bytes(b"evil")                 # added file
+            with self.assertRaises(RuntimeError):
+                Update.verify_release(Path(folder))
+        with tempfile.TemporaryDirectory() as folder:
+            self.signed_tree(folder, files)                               # signed with ANOTHER key
+            with self.assertRaises(RuntimeError):
+                Update.verify_release(Path(folder))
+
+    def test_older_release_is_refused(self):
+        import Update
+        self.assertTrue(Update._older_version("0.4.2a", "0.4.2u"))
+        self.assertFalse(Update._older_version("0.4.2v", "0.4.2u"))
+
+
+class ResumeJournalTests(unittest.TestCase):
+    """0.4.2u (audit #29): an update stopped between two files is finished at the next start."""
+
+    def test_interrupted_moves_are_finished(self):
+        import Update
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            with mock.patch.object(Update, "ROOT", root), mock.patch.object(Update, "_report_console"):
+                sources = Path(folder, "src")
+                for name, data in {"a.py": b"new a", "pkg/b.py": b"new b"}.items():
+                    (sources / name).parent.mkdir(parents=True, exist_ok=True)
+                    (sources / name).write_bytes(data)
+                (root / "a.py").write_bytes(b"old a")
+                staging = Update._stage_files([(sources / "a.py", Path("a.py")), (sources / "pkg/b.py", Path("pkg/b.py"))])
+                Update._replace_with_retry(staging / "a.py", root / "a.py")   # power cut after the first file
+                self.assertEqual(Update.resume_interrupted_update(), 1)
+                self.assertEqual((root / "a.py").read_bytes(), b"new a")
+                self.assertEqual((root / "pkg" / "b.py").read_bytes(), b"new b")
+                self.assertFalse((root / ".luxai_update_journal.json").exists())
+                self.assertFalse(staging.exists())
+
+
+class DependencyPolicyTests(unittest.TestCase):
+    """0.4.2u (audit #7): libraries change only when requirements.txt changes."""
+
+    def test_unchanged_requirements_only_check(self):
+        import Update
+        calls = []
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / ".venv" / "Scripts").mkdir(parents=True)
+            (root / ".venv" / "Scripts" / "python.exe").write_bytes(b"")
+            (root / "requirements.txt").write_text("numpy>=1\n")
+            with mock.patch.object(Update, "ROOT", root), mock.patch.object(Update, "STATE_FILE", root / "state.json"), \
+                    mock.patch.object(Update, "_report_console"), \
+                    mock.patch.object(Update, "run_streamed",
+                                      side_effect=lambda command, timeout: calls.append(command) or mock.Mock(returncode=0)):
+                (root / "state.json").write_text(json.dumps({"requirements": Update.requirements_fingerprint()}))
+                self.assertTrue(Update.upgrade_dependencies())
+                self.assertFalse(any("install" in command for command in calls))   # nothing installed
+                calls.clear()
+                (root / "requirements.txt").write_text("numpy>=1\nrequests>=2\n")
+                self.assertTrue(Update.upgrade_dependencies())
+                install = [command for command in calls if "install" in command]
+                self.assertEqual(len(install), 1)
+                self.assertNotIn("--upgrade", install[0])                          # never «everything newest»
+
+
 class LaunchTests(unittest.TestCase):
     @unittest.skipUnless(sys.platform == "win32", "Windows mutex")
     def test_one_jarvis_per_folder(self):

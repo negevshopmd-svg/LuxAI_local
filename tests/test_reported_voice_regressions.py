@@ -110,7 +110,7 @@ class RealSpeechRegressionTests(unittest.TestCase):
                 with (
                     mock.patch.object(window, "_start_discord_mic_visual") as visual,
                     mock.patch.object(window, "_execute_registered") as registered,
-                    mock.patch.object(main, "toggle_discord_microphone") as shortcut,
+                    mock.patch("luxai.voice_desktop.toggle_discord_microphone") as shortcut,
                 ):
                     window.run_command(MUTE)
                 visual.assert_called_once_with(MUTE)

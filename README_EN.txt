@@ -1,4 +1,8 @@
-LUXAI LOCAL (JARVIS) 0.4.2t — UPDATE 2026-11-19
+LUXAI LOCAL (JARVIS) 0.4.2u — UPDATE 2026-11-19
+
+0.4.2u: install_windows.bat works again («The property 'Count' cannot be found»).
+Updates are digitally signed, finish by themselves after an interruption, and libraries
+change only when the project's requirements change.
 
 0.4.2t: The update no longer fails with «Access is denied … Onest.ttf»: the update window
 kept the app's font open. It now uses a temporary copy.

@@ -1,3 +1,12 @@
+## 0.4.2u — Installer fix, signed releases, resume journal, controlled libraries (2026-11-19)
+
+- install_windows.ps1: a function returning one or no process is not a list under Set-StrictMode, so `.Count` stopped every install since 0.4.2r («The property 'Count' cannot be found»); call sites use @(). The launch check no longer treats a warning on stderr as a broken environment.
+- #8 Signed releases: Ed25519 (RFC 8032, pure Python, checked against the RFC vectors). `release_manifest.json` (SHA-256 of every file) + `release_manifest.sig`, signed with a key kept only on the maintainer's PC (tests/sign_release.py). fetch_updater.py and Update.py verify the signature, every file of the archive and refuse older versions.
+- #29 Resume journal: new files are staged on the same disk, a journal is written, then files are moved; an interrupted update is finished at the next start or update.
+- #7 Libraries change only when requirements.txt changes (fingerprint in the state), only missing packages are installed, never «upgrade everything»; the exact old versions are restored on failure.
+- #12 One atomic writer (`luxai/atomic_io.py`) with unique temporary names for config.json, commands, triggers, experience and keys.
+- #44 Split: validate_step (table of checkers, identical on 4617 cases), execute_desktop_step (handler tables), _dispatch_command (five stages), _next_macro_step, validate_generated_macro, execute_plan; all unused imports removed. Still above complexity 40: `listen` (microphone loop) and `run_task` (agent loop).
+
 ## 0.4.2t — Update no longer fails on Onest.ttf (2026-11-19)
 
 - A friend's update failed with «[WinError 5] Access is denied … luxai\\assets\\fonts\\Onest.ttf» and was rolled back. Cause: the setup window (WPF) used the fonts straight from luxai/assets/fonts, and WPF keeps a font file open while it is shown — only when that font is actually drawn, so it hit users with the default Onest font, not those with Fuzzy Bubbles. Reproduced: with the old window `os.replace` on Onest.ttf gives WinError 5; with the new one it succeeds.

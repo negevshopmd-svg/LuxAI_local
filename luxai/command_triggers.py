@@ -185,9 +185,8 @@ class CommandTriggerEngine:
         if self.state_path:
             try:
                 self.state_path.parent.mkdir(parents=True, exist_ok=True)
-                temporary = self.state_path.with_suffix(".tmp")
-                temporary.write_text(json.dumps(self._fired, indent=2), encoding="utf-8")
-                temporary.replace(self.state_path)
+                from luxai.atomic_io import atomic_write_text
+                atomic_write_text(self.state_path, json.dumps(self._fired, indent=2))
             except OSError as exc:
                 self.last_error = f"Schedule state: {type(exc).__name__}"
 

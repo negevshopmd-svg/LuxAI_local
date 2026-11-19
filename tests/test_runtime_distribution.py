@@ -34,6 +34,9 @@ class RuntimeDistributionTests(unittest.TestCase):
         self.root.mkdir()
         stack = ExitStack()
         self.addCleanup(stack.close)
+        # These archives are built by the test and unsigned; signing has its own tests (0.4.2u).
+        import Update
+        stack.enter_context(mock.patch.object(Update, "verify_release", return_value=""))
         stack.enter_context(mock.patch.multiple(
             updater, ROOT=self.root, BACKUP_ROOT=self.root / "backups",
             STATE_FILE=self.root / ".luxai_update_state.json",

@@ -1001,7 +1001,6 @@ class SettingsPanel(QWidget):
             "Выключите для максимальной скорости: быстрые команды работают и без неё.",
             self.local_llm_fallback,
         )
-        from luxai.local_models import available_models, resolve_model_path, format_model
         self.model_select = QComboBox()
         self.model_select.setObjectName("LocalGGUFCombo")
         self.model_select.setMinimumWidth(320)

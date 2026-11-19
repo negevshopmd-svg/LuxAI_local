@@ -13,9 +13,10 @@ import numpy as np
 import sounddevice as sd
 
 from .audio_devices import resolve_microphone_device
-from .voices import speak, playback_active, barge_in_ready
+from .voices import playback_active, barge_in_ready
+from .voices import speak  # noqa: F401 - re-exported: main.py imports speak from luxai.voice
 from .voice_rules import (
-    recognition_options, ROMANIAN_PROMPT, speech_pause_seconds,
+    recognition_options, speech_pause_seconds,
     is_hallucinated_outro, is_repetitive_transcript, is_stop_speech_command,
 )
 

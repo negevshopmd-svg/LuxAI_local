@@ -79,10 +79,10 @@ function Stop-RunningJarvis {
     if (Test-AdminTaskIsOurs) {
         try { & schtasks.exe /End /TN 'LuxAI Jarvis (admin)' *> $null } catch { }
     }
-    $found = Get-JarvisProcesses
+    $found = @(Get-JarvisProcesses)
     foreach ($process in $found) { Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue }
-    for ($i = 0; $i -lt 30 -and (Get-JarvisProcesses).Count; $i++) { Start-Sleep -Milliseconds 500 }
-    $left = Get-JarvisProcesses
+    for ($i = 0; $i -lt 30 -and @(Get-JarvisProcesses).Count; $i++) { Start-Sleep -Milliseconds 500 }
+    $left = @(Get-JarvisProcesses)
     if ($left.Count) {
         throw "Jarvis is still running (PID $(($left | ForEach-Object ProcessId) -join ', ')). Close it from the tray and run install_windows.bat again."
     }
@@ -317,8 +317,17 @@ if ($CheckVenv) {
         exit 1
     }
     # A valid Python without the app's libraries is not ready to start Jarvis (audit #34).
-    & $script:VenvPython -I -c "import PySide6.QtWidgets, numpy" 2>$null | Out-Null
-    if ($LASTEXITCODE -ne 0) { exit 1 }
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $script:VenvPython -I -c "import PySide6.QtWidgets, numpy" *> $null
+        $importCode = $LASTEXITCODE
+    } catch {
+        $importCode = 1
+    } finally {
+        $ErrorActionPreference = $previousPreference
+    }
+    if ($importCode -ne 0) { exit 1 }
     exit 0
 }
 

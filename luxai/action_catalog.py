@@ -167,6 +167,207 @@ def validate_website(value: str) -> str:
     return value.strip()
 
 
+# ---- step validation (0.4.2u, audit #44: one small checker per action instead of a 61-branch function) ----
+# Every checker gets (target, raw step) and returns (canonical target, location or None).
+
+def _plain_text(target, limit, message, *, forbid=lambda ch: ord(ch) < 32):
+    if not isinstance(target, str) or not target.strip() or len(target) > limit or any(forbid(ch) for ch in target):
+        raise ValueError(message)
+    return target.strip()
+
+
+def _int_in(target, low, high, type_message, range_message, *, allow_zero=True):
+    try:
+        value = int(target)
+    except (TypeError, ValueError):
+        raise ValueError(type_message) from None
+    if not low <= value <= high or (not allow_zero and value == 0):
+        raise ValueError(range_message)
+    return str(value)
+
+
+def _v_discord_send_text(target, raw):
+    from luxai.discord_research import validate_discord_text_target
+    person, body = validate_discord_text_target(target)
+    return person + "||" + body, None
+
+
+def _v_research_notepad(target, raw):
+    from luxai.research_notepad import validate_research_topic
+    return validate_research_topic(target), None
+
+
+def _v_discord_review_user(target, raw):
+    from luxai.discord_screen_review import validate_discord_review_user
+    return validate_discord_review_user(target), None
+
+
+def _v_open_app(target, raw):
+    from luxai.command_registry import APP_TARGETS  # lazy, avoids import loop
+    if target not in APP_TARGETS:
+        raise ValueError("Выберите приложение из списка")
+    return target, None
+
+
+def _v_launch_game(target, raw):
+    from luxai.steam_games import GAMES
+    if target not in GAMES:
+        raise ValueError("Выберите игру Steam из списка")
+    return target, None
+
+
+def _v_create(target, raw):
+    from luxai.file_actions import safe_name
+    return safe_name(str(target or ""), is_folder=raw.get("action") == "create_folder"), raw.get("location", "desktop")
+
+
+def _v_open_user_file(target, raw):
+    # Explicit basename only. The actual file must be resolved only
+    # when the command runs, so user-created shortcuts survive renames.
+    value = str(target or "").strip().strip("'\"«»“”")
+    if (not 1 <= len(value) <= 180 or value in (".", "..") or ".." in value
+            or any(ord(c) < 32 or c in '\\/:*?"<>|' for c in value)):
+        raise ValueError("Укажите только имя файла без пути, например Отчёт.docx")
+    return value, raw.get("location", "desktop")
+
+
+def _v_list_files(target, raw):
+    return "", raw.get("location", "desktop")
+
+
+def _v_search_web(target, raw):
+    return _plain_text(target, 150, "Введите поисковый запрос (до 150 символов)"), None
+
+
+def _v_text(target, raw):
+    return _plain_text(target, 350, "Введите текст длиной до 350 символов", forbid=lambda ch: ord(ch) in (0, 127)), None
+
+
+def _v_shell(target, raw):
+    # Only a user-created macro may carry these steps; cloud schemas reject
+    # them. Execution also shows the FULL command for approval every time.
+    if not isinstance(target, str) or not 1 <= len(target.strip()) <= 500:
+        raise ValueError("Введите команду длиной до 500 символов")
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in target):
+        raise ValueError("Только одна строка команды без управляющих символов")
+    return target.strip(), None
+
+
+def _v_local_file(target, raw):
+    from pathlib import Path
+    action = raw.get("action")
+    if not isinstance(target, str) or len(target) > 350 or not Path(target).is_absolute():
+        raise ValueError("Выберите локальный аудиофайл через «Обзор»")
+    if action != "run_file" and Path(target).suffix.casefold() != (".mp3" if action == "play_mp3" else ".wav"):
+        raise ValueError("Неверный формат звукового файла")
+    if not Path(target).is_file():
+        raise ValueError("Звуковой файл не найден")
+    return str(Path(target).resolve()), None
+
+
+def _v_voice(target, raw):
+    if not isinstance(target, str) or not 1 <= len(target.strip()) <= 350:
+        raise ValueError("Введите текст озвучки (до 350 символов)")
+    return target.strip(), None
+
+
+def _v_app_volume(target, raw):
+    from luxai.command_registry import APP_TARGETS
+    match = re.fullmatch(r"([a-z]+):(100|[0-9]{1,2})", str(target))
+    if not match or match.group(1) not in APP_TARGETS:
+        raise ValueError("Выберите приложение и громкость от 0 до 100%")
+    return f"{match.group(1)}:{int(match.group(2))}", None
+
+
+def _v_hold(target, raw):
+    return _int_in(target, 1, 5, "Длительность удержания должна быть от 1 до 5 секунд",
+                   "Удержание ограничено 5 секундами"), None
+
+
+def _v_wait_minutes(target, raw):
+    return _int_in(target, 1, 10, "Пауза должна быть от 1 до 10 минут", "Пауза должна быть от 1 до 10 минут"), None
+
+
+def _v_wait_seconds(target, raw):
+    return _int_in(target, 1, 30, "Пауза должна быть числом от 1 до 30", "Пауза должна быть от 1 до 30 секунд"), None
+
+
+def _v_scroll(target, raw):
+    return _int_in(target, -10, 10, "Введите величину прокрутки от -10 до 10",
+                   "Прокрутка должна быть от -10 до 10 (не 0)", allow_zero=False), None
+
+
+def _v_first_result(target, raw):
+    if not isinstance(target, str) or not 1 <= len(target.strip()) <= 150:
+        raise ValueError("Введите поисковую фразу")
+    if any(ord(ch) < 32 for ch in target):
+        raise ValueError("Неверный поисковый запрос")
+    return target.strip(), None
+
+
+def _v_key_sequence(target, raw):
+    if not isinstance(target, str):
+        raise ValueError("Укажите последовательность из 2–24 английских букв или цифр")
+    value = target.strip().casefold()
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in value):
+        raise ValueError("Управляющие символы запрещены")
+    keys = list(value) if re.fullmatch(r"[a-z0-9]{2,24}", value) else \
+        [item.strip() for item in re.split(r"[,\s]+", value) if item.strip()]
+    if not 2 <= len(keys) <= 24 or any(not re.fullmatch(r"[a-z0-9]", key) for key in keys):
+        raise ValueError("Допустимы только 2–24 последовательных букв или цифр")
+    return ",".join(keys), None
+
+
+def _v_press_key(target, raw):
+    if target not in SINGLE_KEYS:
+        raise ValueError("Неизвестная клавиша")
+    return target, None
+
+
+def _v_hotkey(target, raw):
+    if target not in HOTKEYS:
+        raise ValueError("Выберите разрешённое сочетание клавиш")
+    return target, None
+
+
+def _v_research_dm(target, raw):
+    from luxai.discord_research import validate_research_dm_target
+    topic, username = validate_research_dm_target(target)
+    return topic + "||" + username, None
+
+
+def _v_visual_click(target, raw):
+    from luxai.visual_click import parse_click_target
+    label, count = parse_click_target(target)
+    return label + "||" + str(count), None
+
+
+def _v_mouse_move(target, raw):
+    if not isinstance(target, str) or not re.fullmatch(r"\d{1,5},\s*\d{1,5}", target):
+        raise ValueError("Координаты должны быть в формате X,Y")
+    x, y = (int(part.strip()) for part in target.split(","))
+    if x > 16000 or y > 16000:
+        raise ValueError("Координаты выходят за допустимые пределы")
+    return f"{x},{y}", None
+
+
+_VALIDATORS = {
+    "discord_send_text": _v_discord_send_text, "research_notepad_facts": _v_research_notepad,
+    "discord_screen_review": _v_discord_review_user, "discord_open_dm": _v_discord_review_user,
+    "open_app": _v_open_app, "launch_game": _v_launch_game,
+    "create_file": _v_create, "create_folder": _v_create, "open_user_file": _v_open_user_file,
+    "list_files": _v_list_files, "open_website": lambda target, raw: (validate_website(target), None),
+    "search_web": _v_search_web, "type_text": _v_text, "speak_text": _v_text,
+    "run_cmd": _v_shell, "run_powershell": _v_shell,
+    "play_mp3": _v_local_file, "play_wav": _v_local_file, "run_file": _v_local_file,
+    "voice_female": _v_voice, "voice_male": _v_voice, "app_volume": _v_app_volume,
+    "mouse_hold": _v_hold, "mouse_right_hold": _v_hold, "wait_minutes": _v_wait_minutes,
+    "wait_seconds": _v_wait_seconds, "mouse_scroll": _v_scroll, "open_first_result": _v_first_result,
+    "key_sequence": _v_key_sequence, "press_key": _v_press_key, "hotkey": _v_hotkey,
+    "discord_research_dm": _v_research_dm, "visual_click": _v_visual_click, "mouse_move": _v_mouse_move,
+}
+
+
 def validate_step(raw):
     """Validate and canonicalize one user-selected action, with no side effects."""
     if not isinstance(raw, dict):
@@ -174,160 +375,15 @@ def validate_step(raw):
     action = raw.get("action")
     if action not in CATALOG or not CATALOG[action]["available"]:
         raise ValueError("Это действие недоступно")
+    from luxai.file_actions import ALLOWED_LOCATIONS
     result = {"action": action, "target": "", "location": "desktop"}
-    target = raw.get("target", "")
-    from luxai.file_actions import ALLOWED_LOCATIONS, safe_name
-    from luxai.steam_games import GAMES
-    from luxai.command_registry import APP_TARGETS  # lazy, avoids import loop
-    if action == "discord_send_text":
-        from luxai.discord_research import validate_discord_text_target
-        person, body = validate_discord_text_target(target)
-        result["target"] = person + "||" + body
-    elif action == "research_notepad_facts":
-        from luxai.research_notepad import validate_research_topic
-        result["target"] = validate_research_topic(target)
-    elif action in ("discord_screen_review", "discord_open_dm"):
-        from luxai.discord_screen_review import validate_discord_review_user
-        result["target"] = validate_discord_review_user(target)
-    elif action == "open_app":
-        if target not in APP_TARGETS:
-            raise ValueError("Выберите приложение из списка")
+    checker = _VALIDATORS.get(action)
+    if checker is not None:
+        target, location = checker(raw.get("target", ""), raw)
         result["target"] = target
-    elif action == "launch_game":
-        if target not in GAMES:
-            raise ValueError("Выберите игру Steam из списка")
-        result["target"] = target
-    elif action in ("create_file", "create_folder"):
-        result["target"] = safe_name(str(target or ""), is_folder=action == "create_folder")
-        result["location"] = raw.get("location", "desktop")
-    elif action == "open_user_file":
-        # Explicit basename only. The actual file must be resolved only
-        # when the command runs, so user-created shortcuts survive renames.
-        value = str(target or "").strip().strip("'\"«»“”")
-        if (
-            not 1 <= len(value) <= 180 or value in (".", "..")
-            or ".." in value
-            or any(ord(c) < 32 or c in '\\/:*?"<>|' for c in value)
-        ):
-            raise ValueError("Укажите только имя файла без пути, например Отчёт.docx")
-        result["target"] = value
-        result["location"] = raw.get("location", "desktop")
-    elif action == "list_files":
-        result["location"] = raw.get("location", "desktop")
-    elif action == "open_website":
-        result["target"] = validate_website(target)
-    elif action == "search_web":
-        if not isinstance(target, str) or not target.strip() or len(target) > 150 or any(ord(ch) < 32 for ch in target):
-            raise ValueError("Введите поисковый запрос (до 150 символов)")
-        result["target"] = target.strip()
-    elif action in ("type_text", "speak_text"):
-        if not isinstance(target, str) or not target.strip() or len(target) > 350 or any(ord(ch) in (0, 127) for ch in target):
-            raise ValueError("Введите текст длиной до 350 символов")
-        result["target"] = target.strip()
-    elif action in ("run_cmd", "run_powershell"):
-        # Only a user-created macro may carry these steps; cloud schemas reject
-        # them. Execution also shows the FULL command for approval every time.
-        if not isinstance(target, str) or not 1 <= len(target.strip()) <= 500:
-            raise ValueError("Введите команду длиной до 500 символов")
-        if any(ord(ch) < 32 or ord(ch) == 127 for ch in target):
-            raise ValueError("Только одна строка команды без управляющих символов")
-        result["target"] = target.strip()
-    elif action in ("play_mp3", "play_wav", "run_file"):
-        from pathlib import Path
-        if not isinstance(target, str) or len(target) > 350 or not Path(target).is_absolute():
-            raise ValueError("Выберите локальный аудиофайл через «Обзор»")
-        if action != "run_file" and Path(target).suffix.casefold() != (".mp3" if action == "play_mp3" else ".wav"):
-            raise ValueError("Неверный формат звукового файла")
-        if not Path(target).is_file():
-            raise ValueError("Звуковой файл не найден")
-        result["target"] = str(Path(target).resolve())
-    elif action in ("voice_female", "voice_male"):
-        if not isinstance(target, str) or not 1 <= len(target.strip()) <= 350:
-            raise ValueError("Введите текст озвучки (до 350 символов)")
-        result["target"] = target.strip()
-    elif action == "app_volume":
-        from luxai.command_registry import APP_TARGETS
-        match = re.fullmatch(r"([a-z]+):(100|[0-9]{1,2})", str(target))
-        if not match or match.group(1) not in APP_TARGETS:
-            raise ValueError("Выберите приложение и громкость от 0 до 100%")
-        result["target"] = f"{match.group(1)}:{int(match.group(2))}"
-    elif action in ("mouse_hold", "mouse_right_hold"):
-        try:
-            duration = int(target)
-        except (TypeError, ValueError):
-            raise ValueError("Длительность удержания должна быть от 1 до 5 секунд") from None
-        if not 1 <= duration <= 5:
-            raise ValueError("Удержание ограничено 5 секундами")
-        result["target"] = str(duration)
-    elif action == "wait_minutes":
-        try:
-            minutes = int(target)
-        except (TypeError, ValueError):
-            raise ValueError("Пауза должна быть от 1 до 10 минут") from None
-        if not 1 <= minutes <= 10:
-            raise ValueError("Пауза должна быть от 1 до 10 минут")
-        result["target"] = str(minutes)
-    elif action == "open_first_result":
-        if not isinstance(target, str) or not 1 <= len(target.strip()) <= 150:
-            raise ValueError("Введите поисковую фразу")
-        if any(ord(ch) < 32 for ch in target):
-            raise ValueError("Неверный поисковый запрос")
-        result["target"] = target.strip()
-    elif action == "key_sequence":
-        if not isinstance(target, str):
-            raise ValueError("Укажите последовательность из 2–24 английских букв или цифр")
-        raw = target.strip().casefold()
-        if any(ord(ch) < 32 or ord(ch) == 127 for ch in raw):
-            raise ValueError("Управляющие символы запрещены")
-        if re.fullmatch(r"[a-z0-9]{2,24}", raw):
-            keys = list(raw)
-        else:
-            keys = [item.strip() for item in re.split(r"[,\s]+", raw) if item.strip()]
-        if not 2 <= len(keys) <= 24 or any(not re.fullmatch(r"[a-z0-9]", key) for key in keys):
-            raise ValueError("Допустимы только 2–24 последовательных букв или цифр")
-        result["target"] = ",".join(keys)
-    elif action == "press_key":
-        if target not in SINGLE_KEYS:
-            raise ValueError("Неизвестная клавиша")
-        result["target"] = target
-    elif action == "hotkey":
-        if target not in HOTKEYS:
-            raise ValueError("Выберите разрешённое сочетание клавиш")
-        result["target"] = target
-    elif action == "wait_seconds":
-        try:
-            seconds = int(target)
-        except (TypeError, ValueError):
-            raise ValueError("Пауза должна быть числом от 1 до 30") from None
-        if not 1 <= seconds <= 30:
-            raise ValueError("Пауза должна быть от 1 до 30 секунд")
-        result["target"] = str(seconds)
-    elif action == "mouse_scroll":
-        try:
-            clicks = int(target)
-        except (TypeError, ValueError):
-            raise ValueError("Введите величину прокрутки от -10 до 10") from None
-        if not -10 <= clicks <= 10 or clicks == 0:
-            raise ValueError("Прокрутка должна быть от -10 до 10 (не 0)")
-        result["target"] = str(clicks)
-    elif action == "discord_research_dm":
-        from luxai.discord_research import validate_research_dm_target
-        topic, username = validate_research_dm_target(target)
-        result["target"] = topic + "||" + username
-    elif action == "visual_click":
-        from luxai.visual_click import parse_click_target
-        label, count = parse_click_target(target)
-        result["target"] = label + "||" + str(count)
-    elif action == "mouse_move":
-        if not isinstance(target, str) or not re.fullmatch(r"\d{1,5},\s*\d{1,5}", target):
-            raise ValueError("Координаты должны быть в формате X,Y")
-        x, y = (int(part.strip()) for part in target.split(","))
-        if x > 16000 or y > 16000:
-            raise ValueError("Координаты выходят за допустимые пределы")
-        result["target"] = f"{x},{y}"
-    elif action in NO_TARGET:
-        pass
-    else:
+        if location is not None:
+            result["location"] = location
+    elif action not in NO_TARGET:
         raise ValueError("Действие не реализовано")
     if result["location"] not in ALLOWED_LOCATIONS:
         raise ValueError("Выберите Desktop, Documents или Downloads")

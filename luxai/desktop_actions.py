@@ -234,6 +234,166 @@ def _female_sapi(text: str):
     )
 
 
+# ---- executing one saved action (0.4.2u, audit #44: a table of small handlers, not a 52-branch function) ----
+
+def _windows_only(message: str) -> None:
+    if sys.platform != "win32":
+        raise OSError(message)
+
+
+def _do_close_window(action, target):
+    _windows_only("Closing Windows app windows is Windows-only")
+    from luxai.screen_interact import _valid_external_window, _foreground_hwnd
+    hwnd = _foreground_hwnd()
+    _valid_external_window(hwnd)
+    import pyautogui
+    pyautogui.hotkey("alt", "f4")
+    return "Запрошено закрытие активного окна."
+
+
+def _do_display_info(action, target):
+    from luxai.visual_click import desktop_geometry
+    info = desktop_geometry()
+    return f"Экран: {info['width']}×{info['height']}, виртуальное начало ({info['left']},{info['top']})."
+
+
+def _do_open_recycle_bin(action, target):
+    _windows_only("Windows Recycle Bin required")
+    subprocess.Popen(["explorer.exe", "shell:RecycleBinFolder"], shell=False, stdin=subprocess.DEVNULL,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    return "Открыл корзину Windows."
+
+
+def _do_empty_recycle_bin(action, target):
+    _windows_only("Windows Recycle Bin required")
+    # Native Windows confirmation is still displayed (flags=0).
+    # The caller must also ask the user explicitly before execution.
+    result = ctypes.windll.shell32.SHEmptyRecycleBinW(None, None, 0)
+    if result != 0:
+        raise OSError(f"Windows cancelled or refused emptying Recycle Bin ({result}).")
+    return "Корзина Windows очищена после подтверждения."
+
+
+def _do_visual_click(action, target):
+    raise RuntimeError("Visual click requires live screenshot analysis and permission in Jarvis UI")
+
+
+def _do_open_website(action, target):
+    if not webbrowser.open(target, new=2):
+        raise OSError("Не удалось открыть сайт")
+    return "Открыл сайт."
+
+
+def _do_search(action, target):
+    params = {"q": target}
+    if action == "open_first_result":
+        params["btnI"] = "I"
+    if not webbrowser.open("https://www.google.com/search?" + urllib.parse.urlencode(params), new=2):
+        raise OSError("Не удалось открыть поисковик")
+    return "Открываю первый результат через поиск Google." if action == "open_first_result" else "Открыл результаты поиска."
+
+
+def _do_run_file(action, target):
+    _windows_only("Открытие пользовательских файлов доступно только на Windows")
+    os.startfile(target)
+    return "Запускаю выбранный файл."
+
+
+def _do_speak(action, target):
+    return {"speak_text": target, "speak_ready": "Вас понял, сэр.", "speak_done": "Всё готово, сэр."}[action]
+
+
+def _do_voice_female(action, target):
+    _female_sapi(target)
+    return "Запущена женская системная озвучка."
+
+
+def _do_play(action, target):
+    _windows_only("Воспроизведение файлов доступно только на Windows")
+    if not Path(target).is_file():
+        raise FileNotFoundError("Аудиофайл отсутствует")
+    if action == "play_wav":
+        import winsound
+        winsound.PlaySound(target, winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_NODEFAULT)
+    else:
+        _play_mci_mp3(target)
+    return "Воспроизвожу аудиофайл."
+
+
+def _do_monitor(action, target):
+    _monitor_power(on=action == "monitor_on")
+    return "Команда управления монитором отправлена Windows."
+
+
+def _do_sleep(action, target):
+    _windows_only("Спящий режим поддерживается только на Windows")
+    if not ctypes.windll.powrprof.SetSuspendState(False, False, False):
+        raise OSError("Windows не разрешила спящий режим")
+    return "Компьютер переведён в спящий режим."
+
+
+def _do_lock(action, target):
+    _windows_only("Блокировка экрана доступна только на Windows")
+    if not ctypes.windll.user32.LockWorkStation():
+        raise OSError("Не удалось заблокировать экран")
+    return "Экран заблокирован."
+
+
+def _do_app_volume(action, target):
+    _windows_only("Громкость приложения поддерживается только на Windows")
+    _app_volume(target)
+    return "Громкость приложения изменена."
+
+
+_GENERAL_ACTIONS = {
+    "close_window": _do_close_window, "display_info": _do_display_info,
+    "open_recycle_bin": _do_open_recycle_bin, "empty_recycle_bin": _do_empty_recycle_bin,
+    "visual_click": _do_visual_click, "noop": lambda action, target: "",
+    "open_website": _do_open_website, "search_web": _do_search, "open_first_result": _do_search,
+    "run_cmd": lambda action, target: _launch_user_script(action, target),
+    "run_powershell": lambda action, target: _launch_user_script(action, target),
+    "run_file": _do_run_file, "speak_text": _do_speak, "speak_ready": _do_speak, "speak_done": _do_speak,
+    "voice_male": lambda action, target: target,  # Jarvis's normal response TTS reads this at macro completion.
+    "voice_female": _do_voice_female, "play_mp3": _do_play, "play_wav": _do_play,
+    "monitor_on": _do_monitor, "monitor_off": _do_monitor, "sleep_pc": _do_sleep, "lock_screen": _do_lock,
+    "app_volume": _do_app_volume,
+}
+
+
+def _gui_mouse_move(gui, target):
+    x, y = (int(part) for part in target.split(","))
+    if not gui.onScreen(x, y):
+        raise ValueError("Координаты за пределами экрана")
+    gui.moveTo(x, y, duration=0.15)
+    return "Курсор перемещён."
+
+
+def _gui_hold(gui, target, button):
+    _mouse_hold(button, int(target))
+    return "Кнопка мыши временно удерживается."
+
+
+_KEYBOARD_MOUSE_ACTIONS = {
+    "hotkey": lambda gui, target: (gui.hotkey(*HOTKEYS[target], interval=0.07), f"Нажато: {target.upper()}.")[1],
+    # Validated characters only; no shell, scripts or arbitrary shortcuts.
+    "key_sequence": lambda gui, target: (gui.press(target.split(","), interval=0.08), "Клавиши нажаты по очереди.")[1],
+    "press_key": lambda gui, target: (gui.press(target), f"Нажата клавиша {target.upper()}.")[1],
+    "press_enter": lambda gui, target: (gui.press("enter"), "Нажат Enter.")[1],
+    "save_document": lambda gui, target: (gui.hotkey("ctrl", "s", interval=0.08), "Нажато Ctrl+S.")[1],
+    "mouse_right_click": lambda gui, target: (gui.click(button="right"), "Правый клик выполнен.")[1],
+    "mouse_click": lambda gui, target: (gui.click(), "Левый клик выполнен.")[1],
+    "mouse_double_click": lambda gui, target: (gui.doubleClick(interval=0.14), "Двойной клик выполнен.")[1],
+    "mouse_middle_click": lambda gui, target: (gui.click(button="middle"), "Клик колёсиком выполнен.")[1],
+    "mouse_scroll": lambda gui, target: (gui.scroll(int(target)), "Прокрутка выполнена.")[1],
+    "mouse_move": _gui_mouse_move,
+    "mouse_hold": lambda gui, target: _gui_hold(gui, target, "left"),
+    "mouse_right_hold": lambda gui, target: _gui_hold(gui, target, "right"),
+    "volume_up": lambda gui, target: (gui.press("volumeup", presses=2, interval=0.05), "Громкость увеличена.")[1],
+    "volume_down": lambda gui, target: (gui.press("volumedown", presses=2, interval=0.05), "Громкость уменьшена.")[1],
+}
+
+
 def execute_desktop_step(raw: dict) -> str:
     """Execute one saved, validated local action after confirmation.
 
@@ -242,169 +402,18 @@ def execute_desktop_step(raw: dict) -> str:
     """
     step = validate_step(raw)
     action, target = step["action"], step["target"]
-
-    if action == "close_window":
-        if sys.platform != "win32":
-            raise OSError("Closing Windows app windows is Windows-only")
-        from luxai.screen_interact import _valid_external_window, _foreground_hwnd
-        hwnd = _foreground_hwnd()
-        _valid_external_window(hwnd)
-        import pyautogui
-        pyautogui.hotkey("alt", "f4")
-        return "Запрошено закрытие активного окна."
-    if action == "display_info":
-        from luxai.visual_click import desktop_geometry
-        info = desktop_geometry()
-        return (
-            f"Экран: {info['width']}×{info['height']}, "
-            f"виртуальное начало ({info['left']},{info['top']})."
-        )
-    if action == "open_recycle_bin":
-        if sys.platform != "win32":
-            raise OSError("Windows Recycle Bin required")
-        subprocess.Popen(
-            ["explorer.exe", "shell:RecycleBinFolder"],
-            shell=False, stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-        return "Открыл корзину Windows."
-    if action == "empty_recycle_bin":
-        if sys.platform != "win32":
-            raise OSError("Windows Recycle Bin required")
-        # Native Windows confirmation is still displayed (flags=0).
-        # The caller must also ask the user explicitly before execution.
-        result = ctypes.windll.shell32.SHEmptyRecycleBinW(None, None, 0)
-        if result != 0:
-            raise OSError(f"Windows cancelled or refused emptying Recycle Bin ({result}).")
-        return "Корзина Windows очищена после подтверждения."
-    if action == "visual_click":
-        raise RuntimeError("Visual click requires live screenshot analysis and permission in Jarvis UI")
-    if action == "noop":
-        return ""
-    if action == "open_website":
-        if not webbrowser.open(target, new=2):
-            raise OSError("Не удалось открыть сайт")
-        return "Открыл сайт."
-    if action in {"search_web", "open_first_result"}:
-        params = {"q": target}
-        if action == "open_first_result":
-            params["btnI"] = "I"
-        url = "https://www.google.com/search?" + urllib.parse.urlencode(params)
-        if not webbrowser.open(url, new=2):
-            raise OSError("Не удалось открыть поисковик")
-        return (
-            "Открываю первый результат через поиск Google."
-            if action == "open_first_result" else
-            "Открыл результаты поиска."
-        )
-    if action in {"run_cmd", "run_powershell"}:
-        return _launch_user_script(action, target)
-    if action == "run_file":
-        if sys.platform != "win32":
-            raise OSError("Открытие пользовательских файлов доступно только на Windows")
-        os.startfile(target)
-        return "Запускаю выбранный файл."
-    if action in {"speak_text", "speak_ready", "speak_done"}:
-        return {
-            "speak_text": target,
-            "speak_ready": "Вас понял, сэр.",
-            "speak_done": "Всё готово, сэр.",
-        }[action]
-    if action == "voice_male":
-        return target  # Jarvis's normal response TTS reads this at macro completion.
-    if action == "voice_female":
-        _female_sapi(target)
-        return "Запущена женская системная озвучка."
-    if action in {"play_mp3", "play_wav"}:
-        if sys.platform != "win32":
-            raise OSError("Воспроизведение файлов доступно только на Windows")
-        if not Path(target).is_file():
-            raise FileNotFoundError("Аудиофайл отсутствует")
-        if action == "play_wav":
-            import winsound
-            winsound.PlaySound(
-                target,
-                winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_NODEFAULT,
-            )
-        else:
-            _play_mci_mp3(target)
-        return "Воспроизвожу аудиофайл."
-    if action in {"monitor_on", "monitor_off"}:
-        _monitor_power(on=action == "monitor_on")
-        return "Команда управления монитором отправлена Windows."
-    if action == "sleep_pc":
-        if sys.platform != "win32":
-            raise OSError("Спящий режим поддерживается только на Windows")
-        if not ctypes.windll.powrprof.SetSuspendState(False, False, False):
-            raise OSError("Windows не разрешила спящий режим")
-        return "Компьютер переведён в спящий режим."
-    if action == "lock_screen":
-        if sys.platform != "win32":
-            raise OSError("Блокировка экрана доступна только на Windows")
-        if not ctypes.windll.user32.LockWorkStation():
-            raise OSError("Не удалось заблокировать экран")
-        return "Экран заблокирован."
-    if action == "app_volume":
-        if sys.platform != "win32":
-            raise OSError("Громкость приложения поддерживается только на Windows")
-        _app_volume(target)
-        return "Громкость приложения изменена."
-
+    handler = _GENERAL_ACTIONS.get(action)
+    if handler is not None:
+        return handler(action, target)
     if sys.platform != "win32":
         raise OSError("Это действие поддерживается только на Windows")
-
     if action == "type_text":
         _type_unicode_windows(target)
         return "Текст введён."
-
+    gui_handler = _KEYBOARD_MOUSE_ACTIONS.get(action)
+    if gui_handler is None:
+        raise ValueError("Действие не поддерживается исполнителем")
     import pyautogui as gui
     gui.FAILSAFE = True
     gui.PAUSE = 0.06
-    if action == "hotkey":
-        gui.hotkey(*HOTKEYS[target], interval=0.07)
-        return f"Нажато: {target.upper()}."
-    if action == "key_sequence":
-        # Validated characters only; no shell, scripts or arbitrary shortcuts.
-        gui.press(target.split(","), interval=0.08)
-        return "Клавиши нажаты по очереди."
-    if action == "press_key":
-        gui.press(target)
-        return f"Нажата клавиша {target.upper()}."
-    if action == "press_enter":
-        gui.press("enter")
-        return "Нажат Enter."
-    if action == "save_document":
-        gui.hotkey("ctrl", "s", interval=0.08)
-        return "Нажато Ctrl+S."
-    if action == "mouse_right_click":
-        gui.click(button="right")
-        return "Правый клик выполнен."
-    if action == "mouse_click":
-        gui.click()
-        return "Левый клик выполнен."
-    if action == "mouse_double_click":
-        gui.doubleClick(interval=0.14)
-        return "Двойной клик выполнен."
-    if action == "mouse_middle_click":
-        gui.click(button="middle")
-        return "Клик колёсиком выполнен."
-    if action == "mouse_scroll":
-        gui.scroll(int(target))
-        return "Прокрутка выполнена."
-    if action == "mouse_move":
-        x, y = (int(part) for part in target.split(","))
-        if not gui.onScreen(x, y):
-            raise ValueError("Координаты за пределами экрана")
-        gui.moveTo(x, y, duration=0.15)
-        return "Курсор перемещён."
-    if action in ("mouse_hold", "mouse_right_hold"):
-        _mouse_hold("right" if action == "mouse_right_hold" else "left", int(target))
-        return "Кнопка мыши временно удерживается."
-    if action == "volume_up":
-        gui.press("volumeup", presses=2, interval=0.05)
-        return "Громкость увеличена."
-    if action == "volume_down":
-        gui.press("volumedown", presses=2, interval=0.05)
-        return "Громкость уменьшена."
-    raise ValueError("Действие не поддерживается исполнителем")
+    return gui_handler(gui, target)

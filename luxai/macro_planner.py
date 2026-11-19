@@ -396,6 +396,33 @@ def needs_live_macro_planning(text: str) -> bool:
     )))
 
 
+def _send_text_matches(target, description, is_discord_message, requested_dm, message_details) -> bool:
+    """A planned Discord send must repeat the dictated recipient and message exactly (audit #44: own function)."""
+    if not is_discord_message or requested_dm is not None:
+        return False
+    from luxai.discord_research import validate_discord_text_target
+    try:
+        who, msg = validate_discord_text_target(target)
+    except ValueError:
+        return False
+    # Both the recipient *as dictated*, and the content must be
+    # supported by the original voice text. No AI-invented recipient
+    # and no paraphrased or injected message.
+    source = description.casefold()
+    if who.casefold() not in source or msg.casefold() not in source:
+        return False
+    # A substring of a nickname or a literal message is not the same
+    # user instruction. Complete local parses bind the entire fields;
+    # other cloud proposals still require standalone source wording.
+    if not re.search(r"(?<!\w)" + re.escape(who.casefold()) + r"(?!\w)", source):
+        return False
+    if message_details and not message_details["missing"]:
+        if (who.casefold() != message_details["recipient"].casefold()
+                or msg.casefold() != message_details["message"].casefold()):
+            return False
+    return True
+
+
 def validate_generated_macro(proposal: object, description: str = "") -> dict | None:
     """Reject unsafe/incomplete cloud proposals before preview or persistence."""
     if not isinstance(proposal, dict):
@@ -472,28 +499,9 @@ def validate_generated_macro(proposal: object, description: str = "") -> dict | 
                 valid["target"].casefold() != requested_review.casefold()
             ):
                 return None
-        if valid["action"] == "discord_send_text":
-            if not is_discord_message or requested_dm is not None:
-                return None
-            from luxai.discord_research import validate_discord_text_target
-            try:
-                who, msg = validate_discord_text_target(valid["target"])
-            except ValueError:
-                return None
-            # Both the recipient *as dictated*, and the content must be
-            # supported by the original voice text. No AI-invented recipient
-            # and no paraphrased or injected message.
-            source = description.casefold()
-            if who.casefold() not in source or msg.casefold() not in source:
-                return None
-            # A substring of a nickname or a literal message is not the same
-            # user instruction. Complete local parses bind the entire fields;
-            # other cloud proposals still require standalone source wording.
-            if not re.search(r"(?<!\w)" + re.escape(who.casefold()) + r"(?!\w)", source):
-                return None
-            if message_details and not message_details["missing"]:
-                if who.casefold() != message_details["recipient"].casefold() or msg.casefold() != message_details["message"].casefold():
-                    return None
+        if valid["action"] == "discord_send_text" and not _send_text_matches(
+                valid["target"], description, is_discord_message, requested_dm, message_details):
+            return None
         if valid["action"] == "discord_research_dm":
             if requested_dm is None:
                 # A cloud model cannot invent a recipient from a vague task.

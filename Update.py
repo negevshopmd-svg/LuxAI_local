@@ -220,6 +220,160 @@ def download(url: str, target: Path) -> None:
         ui_emit(t="bytes", done=total, total=size or total)
 
 
+# ---- signed releases (0.4.2u, audit #8) -----------------------------------------
+# A copy of the verifier in scripts/release_signature.py (tests check both agree): the archive is checked
+# with the key built into THIS file, never with code taken from the archive being checked.
+RELEASE_PUBLIC_KEY = "3e8a92f065399c640b507a1bf5488a91230c9582ed3595f226210c91b62237fb"
+RELEASE_MANIFEST = "release_manifest.json"
+RELEASE_SIGNATURE = "release_manifest.sig"
+_CRLF_SUFFIXES = (".bat", ".cmd")
+
+_P = 2 ** 255 - 19
+_Q = 2 ** 252 + 27742317777372353535851937790883648493
+
+
+def _inv(x: int) -> int:
+    return pow(x, _P - 2, _P)
+
+
+_D = -121665 * _inv(121666) % _P
+_SQRT_M1 = pow(2, (_P - 1) // 4, _P)
+
+
+def _add(a, b):
+    A = (a[1] - a[0]) * (b[1] - b[0]) % _P
+    B = (a[1] + a[0]) * (b[1] + b[0]) % _P
+    C = 2 * a[3] * b[3] * _D % _P
+    D = 2 * a[2] * b[2] % _P
+    E, F, G, H = B - A, D - C, D + C, B + A
+    return (E * F % _P, G * H % _P, F * G % _P, E * H % _P)
+
+
+def _mul(s: int, point):
+    result = (0, 1, 1, 0)
+    while s > 0:
+        if s & 1:
+            result = _add(result, point)
+        point = _add(point, point)
+        s >>= 1
+    return result
+
+
+def _equal(a, b) -> bool:
+    return (a[0] * b[2] - b[0] * a[2]) % _P == 0 and (a[1] * b[2] - b[1] * a[2]) % _P == 0
+
+
+def _recover_x(y: int, sign: int):
+    if y >= _P:
+        return None
+    x2 = (y * y - 1) * _inv(_D * y * y + 1) % _P
+    if x2 == 0:
+        return None if sign else 0
+    x = pow(x2, (_P + 3) // 8, _P)
+    if (x * x - x2) % _P:
+        x = x * _SQRT_M1 % _P
+    if (x * x - x2) % _P:
+        return None
+    if (x & 1) != sign:
+        x = _P - x
+    return x
+
+
+_GY = 4 * _inv(5) % _P
+_GX = _recover_x(_GY, 0)
+_G = (_GX, _GY, 1, _GX * _GY % _P)
+
+
+def _compress(point) -> bytes:
+    z = _inv(point[2])
+    x, y = point[0] * z % _P, point[1] * z % _P
+    return (y | ((x & 1) << 255)).to_bytes(32, "little")
+
+
+def _decompress(data: bytes):
+    if len(data) != 32:
+        return None
+    y = int.from_bytes(data, "little")
+    sign = y >> 255
+    y &= (1 << 255) - 1
+    x = _recover_x(y, sign)
+    return None if x is None else (x, y, 1, x * y % _P)
+
+
+def _hash_int(data: bytes) -> int:
+    return int.from_bytes(hashlib.sha512(data).digest(), "little") % _Q
+
+
+def _expand(secret: bytes):
+    digest = hashlib.sha512(secret).digest()
+    a = int.from_bytes(digest[:32], "little")
+    a &= (1 << 254) - 8
+    a |= 1 << 254
+    return a, digest[32:]
+
+
+def _sig_public_key(secret: bytes) -> bytes:
+    a, _prefix = _expand(secret)
+    return _compress(_mul(a, _G))
+
+
+def _sig_sign(secret: bytes, message: bytes) -> bytes:
+    a, prefix = _expand(secret)
+    public = _compress(_mul(a, _G))
+    r = _hash_int(prefix + message)
+    encoded_r = _compress(_mul(r, _G))
+    s = (r + _hash_int(encoded_r + public + message) * a) % _Q
+    return encoded_r + s.to_bytes(32, "little")
+
+
+def _sig_verify(public: bytes, message: bytes, signature: bytes) -> bool:
+    if len(public) != 32 or len(signature) != 64:
+        return False
+    point_a = _decompress(public)
+    point_r = _decompress(signature[:32])
+    if point_a is None or point_r is None:
+        return False
+    s = int.from_bytes(signature[32:], "little")
+    if s >= _Q:
+        return False
+    h = _hash_int(signature[:32] + public + message)
+    return _equal(_mul(s, _G), _add(point_r, _mul(h, point_a)))
+
+
+def _sig_file_digest(name: str, data: bytes) -> str:
+    """SHA-256 as GitHub's archive has the file; batch files are compared with LF line ends."""
+    if name.lower().endswith(_CRLF_SUFFIXES):
+        data = data.replace(b"\r\n", b"\n")
+    return hashlib.sha256(data).hexdigest()
+
+
+
+def verify_release(source: Path) -> str:
+    """Every file of the downloaded archive must be exactly the signed one; returns the signed version."""
+    try:
+        manifest = (source / RELEASE_MANIFEST).read_bytes()
+        signature = bytes.fromhex((source / RELEASE_SIGNATURE).read_text(encoding="ascii").strip())
+    except (OSError, ValueError) as exc:
+        raise RuntimeError("Actualizarea nu este semnată de LuxAI. Nu instalez nimic.") from exc
+    if not _sig_verify(bytes.fromhex(RELEASE_PUBLIC_KEY), manifest, signature):
+        raise RuntimeError("Semnătura actualizării nu corespunde cheii LuxAI. Nu instalez nimic.")
+    data = json.loads(manifest.decode("utf-8"))
+    expected = data.get("files") if isinstance(data, dict) else None
+    if not isinstance(expected, dict):
+        raise RuntimeError("Manifestul actualizării are o formă neașteptată.")
+    actual = {}
+    for path in source.rglob("*"):
+        if path.is_file():
+            rel = path.relative_to(source).as_posix()
+            if rel not in (RELEASE_MANIFEST, RELEASE_SIGNATURE):
+                actual[rel] = _sig_file_digest(rel, path.read_bytes())
+    changed = sorted(name for name in set(actual) | set(expected) if actual.get(name) != expected.get(name))
+    if changed:
+        raise RuntimeError("Fișiere care nu corespund semnăturii: " + ", ".join(changed[:5])
+                           + (" …" if len(changed) > 5 else ""))
+    return str(data.get("version", ""))
+
+
 def is_preserved(rel: Path) -> bool:
     # Windows paths are case insensitive. A differently-cased ZIP entry must
     # never overwrite the user's settings, environment or model files.
@@ -540,10 +694,16 @@ def file_transaction(files: list[tuple[Path, Path]], backup: Path | None = None)
         backup.mkdir(parents=True, exist_ok=True)
         applied = []
         try:
-            for src, rel, dest in destinations:
-                _atomic_copy(src, dest)
+            # 0.4.2u (audit #29): stage every new file next to the installation, write a durable
+            # journal, then MOVE the staged files into place (each move is atomic and instant). If the PC
+            # stops in between, resume_interrupted_update() finishes the moves at the next start.
+            staging = _stage_files([(src, rel) for src, rel, _dest in destinations])
+            for _src, rel, dest in destinations:
+                dest.parent.mkdir(parents=True, exist_ok=True)  # a new folder in this version
+                _replace_with_retry(staging / rel, dest)
                 applied.append((rel, dest))
             yield
+            _finish_journal()
         except BaseException as failure:
             errors = []
             for rel, dest in reversed(applied):
@@ -576,6 +736,7 @@ def file_transaction(files: list[tuple[Path, Path]], backup: Path | None = None)
                 report("; ".join(errors))
                 raise RuntimeError(f"Restaurare incompletă; fișierele originale sunt în {backup}") from failure
             report("Fișierele programului au fost restaurate la versiunea anterioară.")
+            _finish_journal()
             raise
     finally:
         if not retain:
@@ -586,6 +747,79 @@ def file_transaction(files: list[tuple[Path, Path]], backup: Path | None = None)
 
 
 PENDING_FILE = ROOT / ".luxai_update_pending.json"
+
+
+def _journal_file() -> Path:
+    return ROOT / ".luxai_update_journal.json"
+
+
+def _staging_root() -> Path:
+    return ROOT / ".luxai_data" / "update-staging"  # same disk as the installation: moves are atomic
+
+
+def _fsync_write(path: Path, data: bytes) -> None:
+    temporary = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    with open(temporary, "wb") as stream:
+        stream.write(data)
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.replace(temporary, path)
+
+
+def _stage_files(files) -> Path:
+    """Copy the new files into one staging folder on the same disk, then record the journal."""
+    import uuid
+    staging = _staging_root() / uuid.uuid4().hex[:12]
+    for src, rel in files:
+        target = staging / rel
+        _atomic_copy(src, target)  # also turns .bat/.cmd into CRLF
+    _fsync_write(_journal_file(), json.dumps({"staging": staging.name,
+                                           "files": [Path(rel).as_posix() for _src, rel in files]}).encode("utf-8"))
+    return staging
+
+
+def _finish_journal() -> None:
+    try:
+        journal = json.loads(_journal_file().read_text(encoding="utf-8"))
+        name = str(journal.get("staging", ""))
+    except (OSError, ValueError, AttributeError):
+        name = ""
+    _journal_file().unlink(missing_ok=True)
+    if name and "/" not in name and "\\" not in name and name not in (".", ".."):
+        shutil.rmtree(_staging_root() / name, ignore_errors=True)
+
+
+def resume_interrupted_update() -> int:
+    """Finish the file moves of an update the PC did not finish (power cut, forced close)."""
+    if not _journal_file().exists():
+        return 0
+    try:
+        journal = json.loads(_journal_file().read_text(encoding="utf-8"))
+        name = str(journal["staging"])
+        files = [str(item) for item in journal["files"]]
+    except (OSError, ValueError, KeyError, TypeError):
+        _journal_file().unlink(missing_ok=True)
+        return 0
+    if "/" in name or "\\" in name or name in ("", ".", ".."):
+        _journal_file().unlink(missing_ok=True)
+        return 0
+    staging = _staging_root() / name
+    moved = 0
+    for rel in files:
+        path = PurePosixPath(rel)
+        if path.is_absolute() or ".." in path.parts:
+            continue
+        staged = staging.joinpath(*path.parts)
+        if staged.is_file():
+            target = ROOT.joinpath(*path.parts)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            _replace_with_retry(staged, target)
+            moved += 1
+    _finish_journal()
+    if moved:
+        report(f"Am terminat o actualizare întreruptă ({moved} fișiere).",
+               f"Завершил прерванное обновление (файлов: {moved}).", f"Finished an interrupted update ({moved} files).")
+    return moved
 
 
 def write_pending(latest_sha: str) -> None:
@@ -618,7 +852,7 @@ def write_update_state(latest_sha: str, files=None) -> None:
     fd, name = tempfile.mkstemp(prefix=".luxai-state-", dir=ROOT)
     os.close(fd)
     temporary = Path(name)
-    state = {"commit": latest_sha, "branch": BRANCH}
+    state = {"commit": latest_sha, "branch": BRANCH, "requirements": requirements_fingerprint()}
     if files is not None:
         state["files"] = _installed_hashes(files)
         previous = {}
@@ -768,11 +1002,44 @@ def restore_packages(snapshot: str) -> bool:
         Path(name).unlink(missing_ok=True)
 
 
-def upgrade_dependencies() -> bool:
-    """Upgrade direct requirements in the existing venv to the latest compatible releases.
+def requirements_fingerprint() -> str:
+    """SHA-256 of requirements.txt as installed by the last successful library step."""
+    try:
+        data = (ROOT / "requirements.txt").read_bytes().replace(b"\r\n", b"\n")
+    except OSError:
+        return ""
+    return hashlib.sha256(data).hexdigest()
 
-    Do not touch globally installed Python packages. If a network update fails,
-    the operator gets an actionable message rather than a false success.
+
+def record_requirements() -> None:
+    """Remember which requirements.txt the environment now satisfies (the up-to-date path)."""
+    try:
+        state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+        if not isinstance(state, dict):
+            return
+        state["requirements"] = requirements_fingerprint()
+        _fsync_write(STATE_FILE, json.dumps(state, indent=2).encode("utf-8"))
+    except (OSError, ValueError):
+        pass
+
+
+def _installed_requirements() -> str:
+    try:
+        state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    value = state.get("requirements", "") if isinstance(state, dict) else ""
+    return value if isinstance(value, str) else ""
+
+
+def upgrade_dependencies() -> bool:
+    """Controlled libraries (audit #7): the environment changes only when the PROJECT's requirements change.
+
+    Same requirements as last time → nothing is installed or upgraded (no drift between updates), only
+    checked. Changed requirements → only what is missing or no longer satisfied is installed, never
+    «everything to the newest». Either way the result must pass pip check and import Jarvis; the
+    caller restores the exact previous versions (pip freeze) when it does not.
+    Never touches globally installed Python packages.
     """
     windows_python = ROOT / ".venv" / "Scripts" / "python.exe"
     unix_python = ROOT / ".venv" / "bin" / "python"
@@ -781,26 +1048,35 @@ def upgrade_dependencies() -> bool:
     if not python.is_file() or not requirements.is_file():
         report("Dependențe: mediul .venv lipsește. Rulează install_windows.bat.")
         return False
-    report("Verific ultimele versiuni compatibile ale bibliotecilor LuxAI...")
-    commands = [
-        [str(python), "-m", "pip", "install", "--disable-pip-version-check",
-         "--upgrade", "pip"],
-        [str(python), "-m", "pip", "install", "--disable-pip-version-check",
-         "--upgrade", "--upgrade-strategy", "only-if-needed", "--prefer-binary",
-         "--retries", "2", "--timeout", "30", "-r", str(requirements)],
+    unchanged = bool(_installed_requirements()) and _installed_requirements() == requirements_fingerprint()
+    check = [
         [str(python), "-m", "pip", "check"],
         [str(python), "-c", "import main; from luxai.voice import VoiceListener; print('LuxAI imports OK')"],
     ]
+    if unchanged:
+        report("Cerințele bibliotecilor nu s-au schimbat — verific doar mediul.",
+               "Требования к библиотекам не изменились — только проверяю окружение.",
+               "Library requirements did not change — only checking the environment.")
+        commands = check
+    else:
+        report("Cerințele bibliotecilor s-au schimbat — instalez doar ce lipsește.",
+               "Требования к библиотекам изменились — ставлю только недостающее.",
+               "Library requirements changed — installing only what is missing.")
+        commands = [
+            [str(python), "-m", "pip", "install", "--disable-pip-version-check", "--prefer-binary",
+             "--retries", "2", "--timeout", "30", "-r", str(requirements)],
+        ] + check
     for command in commands:
         try:
             result = run_streamed(command, timeout=480)
             if result.returncode != 0:
-                report("Dependențe: actualizarea/verificarea a eșuat. Rulează install_windows.bat.")
+                report("Dependențe: instalarea/verificarea a eșuat.",
+                       "Библиотеки: установка/проверка не удалась.", "Libraries: install/check failed.")
                 return False
         except (OSError, subprocess.TimeoutExpired) as exc:
             report(f"Dependențe: verificarea a eșuat ({type(exc).__name__}).")
             return False
-    report("Bibliotecile LuxAI sunt actualizate la ultimele versiuni compatibile.")
+    report("Bibliotecile LuxAI sunt verificate.", "Библиотеки LuxAI проверены.", "LuxAI libraries are checked.")
     return True
 
 
@@ -1023,6 +1299,17 @@ def _remote_version(sha: str) -> str:
         return ""
 
 
+def _older_version(candidate: str, installed: str) -> bool:
+    def key(value):
+        match = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)(?:\.?([a-z]+))?", str(value).strip(), re.I)
+        if not match:
+            return None
+        suffix = (match.group(4) or "").lower()
+        return int(match.group(1)), int(match.group(2)), int(match.group(3)), (len(suffix), suffix)
+    new, old = key(candidate), key(installed)
+    return bool(new and old and new < old)
+
+
 def _local_version() -> str:
     try:
         return (ROOT / "version.txt").read_text(encoding="utf-8").strip()[:32]
@@ -1163,6 +1450,10 @@ def cleanup_retired_fish_local() -> bool:
 
 
 def perform_update() -> int:
+    try:
+        resume_interrupted_update()  # a half-applied update is finished first (audit #29)
+    except OSError as exc:
+        report(f"Nu am putut termina actualizarea întreruptă: {exc}")
     translator_weight = 5 if (ROOT / "models" / "nllb-200-600M-ct2-int8" / "model.bin").is_file() else 70
     plan = [("check", 2), ("download", 8), ("apply", 3), ("libs", 25), ("gguf", 8), ("ocr", 4),
             ("translator", translator_weight), ("cleanup", 2)]
@@ -1208,7 +1499,11 @@ def perform_update() -> int:
                    "Lux AI is up to date. Checking the installed libraries…")
             ui_step("download", "skip")
             ui_step("apply", "skip")
-            if not run_step("libs", upgrade_dependencies):
+            packages = snapshot_packages()
+            if run_step("libs", upgrade_dependencies):
+                record_requirements()
+            else:
+                restore_packages(packages)  # the environment goes back exactly as it was (audit #7)
                 ui_finish(False, "Bibliotecile nu s-au putut verifica. Rulează install_windows.bat.",
                           "Не удалось проверить библиотеки. Запустите install_windows.bat.",
                           "The libraries could not be checked. Run install_windows.bat.")
@@ -1256,6 +1551,9 @@ def perform_update() -> int:
             if len(roots) != 1:
                 raise RuntimeError("Structura arhivei GitHub nu este cea așteptată.")
             source = roots[0]
+            signed_version = verify_release(source)  # nothing is applied from an unsigned or changed archive
+            if _older_version(signed_version, _local_version()):
+                raise RuntimeError(f"Refuz o versiune mai veche ({signed_version}) decât cea instalată.")
             validate_staged_source(source)
             # Validate requirements from the downloaded copy, BEFORE backup
             # and BEFORE replacing anything in the user's installation.
@@ -1346,6 +1644,8 @@ if __name__ == "__main__":
         if sys.argv[1:] == ["--clean-installation"]:
             cleanup_development_files()
             raise SystemExit(0)
+        if sys.argv[1:] == ["--resume"]:
+            raise SystemExit(0 if resume_interrupted_update() >= 0 else 1)
         if sys.argv[1:] == ["--remove-fish-local"]:
             raise SystemExit(0 if cleanup_retired_fish_local() else 1)
         raise SystemExit(main())

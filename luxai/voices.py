@@ -73,7 +73,6 @@ def stop_speaking() -> None:
 
 
 from luxai.voice_presets import (
-    DEFAULT_RUSSIAN, DEFAULT_ROMANIAN, DEFAULT_ENGLISH,
     PIPER_REPOSITORY, VOICE_PRESETS,
 )
 MAX_VOICE_DOWNLOAD_BYTES = 80_000_000

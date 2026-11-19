@@ -18,3 +18,5 @@ voices/*.onnx
 voices/*.onnx.json
 .luxai_update_state.json
 .luxai_update_ui
+.luxai_update_journal.json
+.luxai_bootstrap.lock

@@ -1,5 +1,9 @@
-LUXAI LOCAL 0.4.2t — ACTUALIZARE 2026-11-19
+LUXAI LOCAL 0.4.2u — ACTUALIZARE 2026-11-19
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.2u: install_windows.bat merge din nou (eroarea „The property 'Count' cannot be found”).
+Actualizările sunt semnate digital, se reiau singure după o întrerupere, iar bibliotecile
+se schimbă doar când se schimbă cerințele proiectului.
 
 0.4.2t: Actualizarea nu mai eșuează cu „Access is denied … Onest.ttf”: fereastra de
 actualizare ținea deschis fontul aplicației. Acum folosește o copie temporară.

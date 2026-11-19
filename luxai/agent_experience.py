@@ -43,8 +43,7 @@ def remember(text: str, choice) -> None:
         while len(data) > MAX_ENTRIES:
             data.pop(next(iter(data)))
         path.parent.mkdir(parents=True, exist_ok=True)
-        temp = path.with_suffix(".tmp")
-        temp.write_text(json.dumps(data), encoding="utf-8")
-        temp.replace(path)
+        from luxai.atomic_io import atomic_write_text
+        atomic_write_text(path, json.dumps(data))
     except (OSError, ValueError, TypeError):
         pass

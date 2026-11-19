@@ -264,7 +264,7 @@ class DiscordMicPriorityUITests(unittest.TestCase):
         with (
             mock.patch.object(window, "_start_discord_mic_visual") as visual,
             mock.patch.object(window, "_execute_registered") as learned,
-            mock.patch.object(main, "toggle_discord_microphone") as keyboard,
+            mock.patch("luxai.voice_desktop.toggle_discord_microphone") as keyboard,
             mock.patch.object(main.threading, "Thread") as thread,
         ):
             window.run_command(phrase)
@@ -310,7 +310,7 @@ class DiscordMicPriorityUITests(unittest.TestCase):
         window = self.make_window()
         with (
             mock.patch.object(window, "_start_discord_mic_visual") as visual,
-            mock.patch.object(main, "toggle_discord_microphone") as keyboard,
+            mock.patch("luxai.voice_desktop.toggle_discord_microphone") as keyboard,
             mock.patch.object(window, "_execute_registered") as learned,
             mock.patch("main.threading.Thread") as thread,
         ):

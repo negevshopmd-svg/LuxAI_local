@@ -23,7 +23,7 @@ from luxai.file_actions import safe_name, ALLOWED_LOCATIONS
 from luxai.windows_apps import normalized_name
 from luxai.websites import normalize_public_website
 from luxai.steam_games import GAMES
-from luxai.response_language import reply_language, language_instruction, LANGUAGE_NAMES
+from luxai.response_language import reply_language, language_instruction
 from luxai.macro_planner import MACRO_SYSTEM, validate_generated_macro
 from luxai.model_json import parse_model_json
 

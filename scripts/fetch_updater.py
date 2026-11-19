@@ -84,16 +84,61 @@ def git_blob_sha(data: bytes) -> str:
     return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
 
 
+def _content(commit: str, path: str) -> bytes:
+    meta = _get(f"{API}/contents/{path}?ref={commit}")
+    if meta.get("encoding") != "base64" or not isinstance(meta.get("content"), str):
+        raise ValueError(f"{path}: unexpected file answer")
+    data = base64.b64decode(meta["content"])
+    if git_blob_sha(data) != meta.get("sha"):
+        raise ValueError(f"{path} does not match the hash GitHub reports for this commit")
+    return data
+
+
+def _signing_module():
+    """scripts/release_signature.py next to this file (``-I`` keeps the script folder off sys.path)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("luxai_release_signature",
+                                                  Path(__file__).with_name("release_signature.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _version_key(value: str):
+    import re as _re
+    match = _re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)(?:\.?([a-z]+))?", value.strip(), _re.I)
+    if not match:
+        return None
+    suffix = (match.group(4) or "").lower()
+    return int(match.group(1)), int(match.group(2)), int(match.group(3)), (len(suffix), suffix)
+
+
+def _installed_version() -> str:
+    try:
+        return (ROOT / "version.txt").read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def _older(candidate: str, installed: str) -> bool:
+    new, old = _version_key(candidate), _version_key(installed)
+    return bool(new and old and new < old)
+
+
 def fetch() -> Path:
     commit = _get(f"{API}/commits/{BRANCH}").get("sha", "")
     if not (isinstance(commit, str) and len(commit) == 40 and all(c in "0123456789abcdef" for c in commit)):
         raise ValueError("GitHub did not return a valid commit")
-    meta = _get(f"{API}/contents/Update.py?ref={commit}")
-    if meta.get("encoding") != "base64" or not isinstance(meta.get("content"), str):
-        raise ValueError("unexpected file answer")
-    data = base64.b64decode(meta["content"])
-    if git_blob_sha(data) != meta.get("sha"):
-        raise ValueError("Update.py does not match the hash GitHub reports for this commit")
+    data = _content(commit, "Update.py")
+    # 0.4.2u (audit #8): the release must be signed with the LuxAI release key, and Update.py must be
+    # exactly the signed file. A compromised repository cannot produce this signature.
+    signing = _signing_module()
+    manifest = signing.check_manifest(_content(commit, signing.MANIFEST),
+                                      _content(commit, signing.SIGNATURE).decode("ascii", "replace"))
+    if manifest["files"].get("Update.py") != signing.file_digest("Update.py", data):
+        raise ValueError("Update.py is not the signed one")
+    if _older(str(manifest.get("version", "")), _installed_version()):
+        raise ValueError(f"refusing an older release ({manifest.get('version')})")
     compile(data, "Update.py", "exec")
     target = ROOT / f"Update.{uuid.uuid4().hex[:10]}.new.py"
     target.write_bytes(data)

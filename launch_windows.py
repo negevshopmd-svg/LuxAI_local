@@ -141,6 +141,15 @@ def main() -> int:
         if not single_instance():
             _message("running")
             return 0
+        if (ROOT / ".luxai_update_journal.json").exists():
+            # An update stopped between two files (audit #29): finish its moves before any code loads.
+            try:
+                import subprocess
+                subprocess.run([sys.executable.replace("pythonw.exe", "python.exe").replace("Jarvis.exe", "python.exe"),
+                                str(ROOT / "Update.py"), "--resume"], cwd=str(ROOT), timeout=120,
+                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), check=False)
+            except Exception:
+                pass
         if (ROOT / ".luxai_update_pending.json").exists():
             _message("pending", 0x30)  # interrupted update (audit #29): say it, then start anyway
         enable_native_crash_log()

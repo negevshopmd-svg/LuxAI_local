@@ -145,7 +145,8 @@ def store_api_key(key: str, provider: str = "openai") -> None:
     encrypted = _win_crypt(key.encode("utf-8"), encrypt=True)
     SECRET_DIR.mkdir(parents=True, exist_ok=True)
     target = _secret_file(provider)
-    staging = target.with_name(target.name + ".tmp")
+    import uuid as _uuid
+    staging = target.with_name(f"{target.name}.{os.getpid()}.{_uuid.uuid4().hex[:6]}.tmp")  # audit #12
     try:
         staging.write_bytes(encrypted)
         actual = _win_crypt(staging.read_bytes(), encrypt=False).decode("utf-8")

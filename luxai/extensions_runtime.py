@@ -3161,7 +3161,6 @@ class ExtensionsRuntime(QObject):
         def give_up():
             # No copy at all (some Electron apps ignore a synthetic Ctrl+C):
             # read the selection through Windows UI Automation instead.
-            from luxai.selection import restore_clipboard
             if saved is not None and clipboard_sequence() == before:
                 pass  # nothing changed, nothing to restore
             text_found = selected_text_by_automation(hwnd)

@@ -16,14 +16,19 @@ class WindowsInstallPolicyTests(unittest.TestCase):
 
     def test_upgrade_already_installed_packages_without_crossing_requirements(self):
         root = Path(__file__).resolve().parents[1]
-        setup = (root / "scripts" / "install_windows.ps1").read_text(encoding="utf-8")
+        setup = (root / "scripts" / "install_windows.ps1").read_text(encoding="utf-8-sig")
         updater = (root / "Update.py").read_text(encoding="utf-8")
-        for source in (setup, updater):
-            for flag in ("--upgrade", "--upgrade-strategy", "only-if-needed", "pip", "check"):
-                self.assertIn(flag, source)
-            self.assertIn("requirements", source)
+        # A fresh install / repair brings the newest compatible versions.
+        for flag in ("--upgrade", "--upgrade-strategy", "only-if-needed", "pip", "check", "requirements"):
+            self.assertIn(flag, setup)
+        # 0.4.2u (audit #7): an update never upgrades «everything»; it installs only what changed
+        # requirements need, checks the result and can put the exact old versions back.
+        self.assertIn("requirements_fingerprint()", updater)
+        self.assertIn('"pip", "check"', updater)
+        self.assertNotIn('"--upgrade", "--upgrade-strategy"', updater)
+        self.assertIn("def restore_packages(", updater)
         self.assertIn("if current_sha == latest_sha:", updater)
-        self.assertIn('if not run_step("libs", upgrade_dependencies):', updater)
+        self.assertIn('run_step("libs", upgrade_dependencies)', updater)
         self.assertIn("def upgrade_dependencies()", updater)
 
     def test_wheels_can_be_upgraded_when_already_installed(self):

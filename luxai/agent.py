@@ -449,6 +449,88 @@ class LocalAgent:
             self.remember(text, response)
         return response
 
+    _DESKTOP_FEATURES = frozenset({
+        "noop", "open_website", "type_text", "hotkey", "press_key", "press_enter",
+        "save_document", "mouse_double_click", "mouse_click", "mouse_right_click", "mouse_scroll",
+        "mouse_middle_click", "mouse_hold", "mouse_right_hold",
+        "mouse_move", "key_sequence", "speak_text", "speak_ready", "speak_done",
+        "voice_male", "voice_female", "play_mp3", "play_wav",
+        "volume_up", "volume_down", "app_volume", "lock_screen",
+        "monitor_on", "monitor_off", "sleep_pc",
+        "run_cmd", "run_powershell", "run_file", "open_first_result",
+    })
+
+    def _execute_desktop_feature(self, text, plan, action, confirm_callback):
+        """One allowlisted desktop action, with approval for the risky ones (audit #44: own method)."""
+        try:
+            validated = validate_step(plan)
+        except (TypeError, ValueError):
+            return "Некорректные параметры действия."
+        # Routine keystrokes, websites and editing do not need approval.
+        mandatory_approval = action in {
+            "lock_screen", "monitor_off", "sleep_pc",
+            "run_cmd", "run_powershell", "run_file",
+        }
+        title = CATALOG[action]["title"]
+        full_command = action in {"run_cmd", "run_powershell"}
+        detail = validated["target"] if full_command else validated["target"][:160]
+        if mandatory_approval and not confirm_callback(
+            "⚠ Подтвердите действие: " + title +
+            (f"\n\n{detail}" if detail else "") +
+            ("\n\nКоманда может изменять файлы и систему. "
+             "Выполняется с вашими правами, без администратора."
+             if full_command else "")
+        ):
+            return self._say("Действие отменено.", "Acțiune anulată.", "Action cancelled.", text)
+        try:
+            answer = execute_desktop_step(validated)
+            self.last_execution_success = True
+            if answer:
+                self.remember(text, answer)
+            return answer
+        except Exception as exc:
+            return self._say(
+                f"Не удалось выполнить «{title}»: {exc}",
+                f"Nu am putut executa «{title}»: {exc}",
+                f"Could not execute «{title}»: {exc}", text,
+            )
+
+    def _volume_answer(self, action, target, text):
+        """Set or read the Windows volume and say what is true now (audit #44: own method)."""
+        answer = None
+        if action == "set_system_volume":
+            try:
+                if not isinstance(target, str) or not target.isdecimal():
+                    return self._say("Укажите громкость числом от 0 до 100%.",
+                                     "Indică volumul printr-un număr de la 0 la 100%.",
+                                     "Specify volume as a number from 0 to 100%.", text)
+                level = int(target)
+                if not 0 <= level <= 100:
+                    return self._say("Громкость должна быть от 0 до 100%.",
+                                     "Volumul trebuie să fie între 0 și 100%.",
+                                     "Volume must be between 0 and 100%.", text)
+                actual = windows_volume(level)
+                self.last_execution_success = True
+                answer = self._say(f"Проверено: громкость Windows сейчас {actual}%.",
+                                   f"Verificat: volumul Windows este acum {actual}%.",
+                                   f"Verified: Windows volume is now {actual}%.", text)
+            except (OSError, ValueError, ImportError) as exc:
+                answer = self._say(f"Громкость Windows НЕ изменена: {exc}",
+                                   f"Volumul Windows NU a fost schimbat: {exc}",
+                                   f"Windows volume was NOT changed: {exc}", text)
+        else:  # get_system_volume
+            try:
+                actual = windows_volume()
+                self.last_execution_success = True
+                answer = self._say(f"Громкость Windows сейчас {actual}%.",
+                                   f"Volumul Windows este acum {actual}%.",
+                                   f"Windows volume is now {actual}%.", text)
+            except (OSError, ImportError) as exc:
+                answer = self._say(f"Не удалось прочитать громкость Windows: {exc}",
+                                   f"Nu am putut citi volumul Windows: {exc}",
+                                   f"Could not read Windows volume: {exc}", text)
+        return answer
+
     def execute_plan(self, text, plan, confirm_callback=lambda _: False):
         """Execute only local allowlisted actions from a validated online plan."""
         self.last_execution_success = False
@@ -471,85 +553,15 @@ class LocalAgent:
             if result:
                 self.remember(text, result)
             return result
-        desktop_features = {
-            "noop", "open_website", "type_text", "hotkey", "press_key", "press_enter",
-            "save_document", "mouse_double_click", "mouse_click", "mouse_right_click", "mouse_scroll",
-            "mouse_middle_click", "mouse_hold", "mouse_right_hold",
-            "mouse_move", "key_sequence", "speak_text", "speak_ready", "speak_done",
-            "voice_male", "voice_female", "play_mp3", "play_wav",
-            "volume_up", "volume_down", "app_volume", "lock_screen",
-            "monitor_on", "monitor_off", "sleep_pc",
-            "run_cmd", "run_powershell", "run_file", "open_first_result",
-        }
-        if action in desktop_features:
-            try:
-                validated = validate_step(plan)
-            except (TypeError, ValueError):
-                return "Некорректные параметры действия."
-            # Routine keystrokes, websites and editing do not need approval.
-            mandatory_approval = action in {
-                "lock_screen", "monitor_off", "sleep_pc",
-                "run_cmd", "run_powershell", "run_file",
-            }
-            title = CATALOG[action]["title"]
-            full_command = action in {"run_cmd", "run_powershell"}
-            detail = validated["target"] if full_command else validated["target"][:160]
-            if mandatory_approval and not confirm_callback(
-                "⚠ Подтвердите действие: " + title +
-                (f"\n\n{detail}" if detail else "") +
-                ("\n\nКоманда может изменять файлы и систему. "
-                 "Выполняется с вашими правами, без администратора."
-                 if full_command else "")
-            ):
-                return self._say("Действие отменено.", "Acțiune anulată.", "Action cancelled.", text)
-            try:
-                answer = execute_desktop_step(validated)
-                self.last_execution_success = True
-                if answer:
-                    self.remember(text, answer)
-                return answer
-            except Exception as exc:
-                return self._say(
-                    f"Не удалось выполнить «{title}»: {exc}",
-                    f"Nu am putut executa «{title}»: {exc}",
-                    f"Could not execute «{title}»: {exc}", text,
-                )
+        if action in self._DESKTOP_FEATURES:
+            return self._execute_desktop_feature(text, plan, action, confirm_callback)
         if action == "open_site":
             if not isinstance(target, str):
                 return "Неверный адрес сайта."
             success, answer = open_website(target)
             self.last_execution_success = bool(success)
-        elif action == "set_system_volume":
-            try:
-                if not isinstance(target, str) or not target.isdecimal():
-                    return self._say("Укажите громкость числом от 0 до 100%.",
-                                     "Indică volumul printr-un număr de la 0 la 100%.",
-                                     "Specify volume as a number from 0 to 100%.", text)
-                level = int(target)
-                if not 0 <= level <= 100:
-                    return self._say("Громкость должна быть от 0 до 100%.",
-                                     "Volumul trebuie să fie între 0 și 100%.",
-                                     "Volume must be between 0 and 100%.", text)
-                actual = windows_volume(level)
-                self.last_execution_success = True
-                answer = self._say(f"Проверено: громкость Windows сейчас {actual}%.",
-                                   f"Verificat: volumul Windows este acum {actual}%.",
-                                   f"Verified: Windows volume is now {actual}%.", text)
-            except (OSError, ValueError, ImportError) as exc:
-                answer = self._say(f"Громкость Windows НЕ изменена: {exc}",
-                                   f"Volumul Windows NU a fost schimbat: {exc}",
-                                   f"Windows volume was NOT changed: {exc}", text)
-        elif action == "get_system_volume":
-            try:
-                actual = windows_volume()
-                self.last_execution_success = True
-                answer = self._say(f"Громкость Windows сейчас {actual}%.",
-                                   f"Volumul Windows este acum {actual}%.",
-                                   f"Windows volume is now {actual}%.", text)
-            except (OSError, ImportError) as exc:
-                answer = self._say(f"Не удалось прочитать громкость Windows: {exc}",
-                                   f"Nu am putut citi volumul Windows: {exc}",
-                                   f"Could not read Windows volume: {exc}", text)
+        elif action in ("set_system_volume", "get_system_volume"):
+            answer = self._volume_answer(action, target, text)
         elif action == "close_app":
             if not isinstance(target, str):
                 return "Неверное имя приложения."
