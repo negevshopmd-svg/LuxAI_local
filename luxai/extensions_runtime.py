@@ -638,6 +638,7 @@ class ExtensionsRuntime(QObject):
     _cap_corrected = Signal(str, str)  # hybrid: draft line, precise text
     _film_report = Signal(object)  # a player report from the Chrome extension (film captions in advance)
     _film_error = Signal(str)
+    _cap_notice = Signal(str)  # «system» (fell back to all PC sound) / «recovered»
     _extension_hello = Signal(object)  # the browser extension says it is installed
     _cap_error = Signal(str)
     _clip_ai_ready = Signal(str, str)  # mode, result ("" = failed)
@@ -706,6 +707,7 @@ class ExtensionsRuntime(QObject):
         self._cap_corrected.connect(self._on_cap_corrected)
         self._film_report.connect(self._on_film_report)
         self._film_error.connect(self._on_film_error)
+        self._cap_notice.connect(self._on_cap_notice)
         self._extension_hello.connect(self._on_extension_hello)
         self._extension_dialog = None
         self._extension_offered = False  # asked once per session at most
@@ -1109,7 +1111,8 @@ class ExtensionsRuntime(QObject):
                 chunk = _np.zeros_like(chunk)
             engine.feed(chunk)
 
-        capture = LoopbackCapture(feed, app_pid=pid, on_error=self._cap_error.emit)
+        capture = LoopbackCapture(feed, app_pid=pid, on_error=self._cap_error.emit, app_name=source,
+                                  on_notice=self._cap_notice.emit)
         self._captions_engine = engine.start()
         self._captions_capture = capture.start()
 
@@ -1459,6 +1462,19 @@ class ExtensionsRuntime(QObject):
     def _on_cap_translated(self, original: str, translated: str):
         if self._captions_bar is not None:
             self._captions_bar.set_translation(original, translated)
+
+    def _on_cap_notice(self, kind: str):
+        """The capture reopened by itself after a Windows audio error (it keeps going)."""
+        bar = self._captions_bar
+        if bar is None:
+            return
+        if kind == "system":
+            bar.placeholder = _tr3("Звук программы недоступен — слушаю весь звук компьютера.",
+                                   "The program's sound is unavailable — listening to all PC sound.",
+                                   "Sunetul programului nu e disponibil — ascult tot sunetul PC-ului.", self.language)
+        else:
+            bar.placeholder = self._captions_words("listening")
+        bar.render()
 
     def _on_cap_error(self, error: str):
         if self._captions_bar is not None:

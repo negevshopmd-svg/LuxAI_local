@@ -1,4 +1,9 @@
-LUXAI LOCAL (JARVIS) 0.4.3 — UPDATE 2026-11-21
+LUXAI LOCAL (JARVIS) 0.4.3a — UPDATE 2026-11-21
+
+0.4.3a: Captions no longer stop on «COMError … Catastrophic failure» (a momentary Windows audio
+error, e.g. when Chrome restarts its audio part). The capture restarts by itself, finds the
+program again after a restart, and falls back to all PC sound if it cannot. Details go to
+logs\captions_error.log.
 
 0.4.3: When captions start, Jarvis asks whether to install the Chrome extension (Yes / Later /
 Don't ask again). «Yes» opens a guide: Chrome opens, the chrome://extensions address and the

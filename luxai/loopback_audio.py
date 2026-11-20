@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import ctypes
 import os
+from pathlib import Path
 import sys
 import threading
 import time
@@ -154,10 +155,17 @@ def _activate_system_loopback():
 class LoopbackCapture:
     """Background thread calling ``on_audio(float32 16 kHz mono chunk)``."""
 
-    def __init__(self, on_audio, *, app_pid: int = 0, exclude_pid: int = 0, on_error=None):
+    RETRY_SECONDS = 1.5
+    APP_FAILURES_BEFORE_SYSTEM = 3   # then «all PC sound» is used instead of the one program
+    FAILURES_BEFORE_REPORT = 3       # only a capture that keeps failing is shown on the bar
+
+    def __init__(self, on_audio, *, app_pid: int = 0, exclude_pid: int = 0, on_error=None, app_name: str = "",
+                 on_notice=None):
         self.on_audio = on_audio
         self.on_error = on_error
+        self.on_notice = on_notice      # a soft message (e.g. «switched to all PC sound»)
         self.app_pid = app_pid
+        self.app_name = app_name        # to find the program again after it restarted (a new pid)
         self.exclude_pid = exclude_pid or os.getpid()
         self.mode = ""
         self._stop = threading.Event()
@@ -196,7 +204,40 @@ class LoopbackCapture:
         return client, False
 
     def _run(self):
+        """Capture until stopped. Windows audio can fail at any time (0x8000FFFF «catastrophic failure»
+        when a program restarts its audio process, AUDCLNT_E_DEVICE_INVALIDATED when the speakers change):
+        the capture is reopened instead of stopping the captions for good."""
         ctypes.oledll.ole32.CoInitializeEx(None, 0)  # MTA: the activation callback is agile
+        failures = 0
+        try:
+            while not self._stop.is_set():
+                started = time.monotonic()
+                try:
+                    self._capture_once()
+                    return  # stopped normally
+                except Exception as error:
+                    self.started.set()
+                    self._had_error = True
+                    _log_capture_error(error, self.mode or ("app" if self.app_pid else "system"))
+                    failures = 1 if time.monotonic() - started > 30 else failures + 1  # long runs reset the count
+                    if self.app_pid and failures >= self.APP_FAILURES_BEFORE_SYSTEM:
+                        self.app_pid = 0  # the one program keeps failing: listen to all PC sound
+                        failures = 0
+                        if self.on_notice is not None:
+                            self.on_notice("system")
+                    elif failures >= self.FAILURES_BEFORE_REPORT and self.on_error is not None:
+                        self.on_error(f"{type(error).__name__}: {error}")
+                    if self._stop.wait(self.RETRY_SECONDS):
+                        return
+                    if self.app_pid and self.app_name:
+                        self.app_pid = app_pid(self.app_name) or self.app_pid  # restarted → new pid
+        finally:
+            try:
+                ctypes.oledll.ole32.CoUninitialize()
+            except OSError:
+                pass
+
+    def _capture_once(self):
         event = None
         client = None
         try:
@@ -210,6 +251,10 @@ class LoopbackCapture:
             capture = ctypes.cast(pointer, POINTER(IAudioCaptureClient))
             client.Start()
             self.started.set()
+            if getattr(self, "_had_error", False):
+                self._had_error = False
+                if self.on_notice is not None:
+                    self.on_notice("recovered")  # the error on the bar can go away
             silence_until = time.monotonic()
             while not self._stop.is_set():
                 if event:
@@ -237,18 +282,26 @@ class LoopbackCapture:
                     self.on_audio(np.zeros(int(SAMPLE_RATE * 0.1), dtype=np.float32))
                     silence_until = time.monotonic() + 0.1
             client.Stop()
-        except Exception as error:
-            self.started.set()
-            if self.on_error is not None:
-                self.on_error(f"{type(error).__name__}: {error}")
         finally:
             if event:
                 ctypes.windll.kernel32.CloseHandle(event)
             client = None
-            try:
-                ctypes.oledll.ole32.CoUninitialize()
-            except OSError:
-                pass
+
+
+def _log_capture_error(error, mode: str) -> None:
+    """logs/captions_error.log: what failed, for diagnosis (never audio or text)."""
+    import traceback
+    try:
+        folder = Path(__file__).resolve().parents[1] / "logs"
+        folder.mkdir(exist_ok=True)
+        path = folder / "captions_error.log"
+        if path.is_file() and path.stat().st_size > 256 * 1024:
+            path.unlink()
+        with path.open("a", encoding="utf-8") as stream:
+            stream.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} capture ({mode}): {type(error).__name__}: {error}\n")
+            stream.write("".join(traceback.format_exception(type(error), error, error.__traceback__)[-3:]))
+    except OSError:
+        pass
 
 
 # Windows parts that have windows but never play sound worth captioning.

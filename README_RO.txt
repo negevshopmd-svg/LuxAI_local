@@ -1,5 +1,10 @@
-LUXAI LOCAL 0.4.3 — ACTUALIZARE 2026-11-21
+LUXAI LOCAL 0.4.3a — ACTUALIZARE 2026-11-21
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.3a: Subtitrările nu se mai opresc la eroarea „COMError … Разрушительный сбой”
+(o eroare de moment a sunetului Windows, de ex. când Chrome își repornește partea audio).
+Captura se reia singură, regăsește programul după repornire, iar dacă nu merge trece pe tot
+sunetul PC-ului. Detaliile se scriu în logs\captions_error.log.
 
 0.4.3: Când pornești subtitrările, Jarvis întreabă dacă vrei extensia pentru Chrome (Da / Mai
 târziu / Nu mai întreba). La „Da” se deschide un ghid: Chrome se deschide, adresa

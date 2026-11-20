@@ -1,3 +1,15 @@
+## 0.4.3a — Captions survive Windows audio errors (2026-11-21)
+
+- Reported: the caption bar showed `COMError: (-2147418113, 'Разрушительный сбой', …)` (0x8000FFFF,
+  E_UNEXPECTED) and the captions stopped for good — any exception ended the capture thread.
+  The same capture (process loopback of chrome.exe and system loopback) works when started again, so it was
+  a momentary failure of Windows audio (a program restarting its audio process, a device change).
+- `LoopbackCapture` now reopens the capture after an error (1.5 s), finds the program again by name (a
+  restarted Chrome has a new pid), falls back to all PC sound after 3 failures of one program, shows an error
+  only when capturing keeps failing, and clears it when the capture works again. Each failure is written to
+  `logs/captions_error.log` (error and the last stack lines; never audio or text).
+- Not reproduced on purpose: the exact Windows condition that raised 0x8000FFFF.
+
 ## 0.4.3 — Browser extension: offered, guided, detected (2026-11-21)
 
 - When captions are shown and the extension was never seen, Jarvis asks once per session (Yes / Later /
