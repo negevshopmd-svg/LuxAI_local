@@ -43,18 +43,51 @@ def trustworthy(segment) -> bool:
 
 # quality setting -> faster-whisper model ("precise" = the voice-command model)
 QUALITY_MODELS = {"fast": "tiny", "balanced": "small"}
+# «hybrid» (0.4.2y): a fast DRAFT model writes the line (and its translation) at once; a precise model
+# reads the finished phrase again in the background and corrects that line when it is done.
+# Measured on a Ryzen 7 5800X (CPU int8, FLEURS, 5 s phrases): one pass of base ≈0.4 s, small ≈1.2 s,
+# medium ≈3.7 s, large-v3-turbo ≈4.4 s, large-v3 ≈6.1 s — Whisper always encodes a 30 s window, so
+# the cost per pass is nearly fixed. Only the draft must keep up with speech; the correction is
+# best effort (a phrase still waiting is skipped when a newer one is finished).
+# Word error rate on those phrases: en base 14 %, small 16 % (whole sentences 6 %), turbo 16 %;
+# ru small 23 %, turbo 20 % (whole sentences 11 % vs 4 %); ro small 39 %, turbo 27 % (34 % vs 11 %).
+
+
+def hybrid_draft_model(language) -> str:
+    """base is fast and fine for English; Russian/Romanian need at least small (base/tiny garble them)."""
+    return "base" if language == "en" else "small"
+
+
+def hybrid_precise_model(language) -> str:
+    """English: small corrects within ~1-2 s, while the line is still on screen. Russian/Romanian (and
+    «auto»): large-v3-turbo — much better there, its corrections simply arrive a few seconds later."""
+    return "small" if language == "en" else "large-v3-turbo"
 _models: dict = {}
 _models_lock = threading.Lock()
 
 
-def caption_model(name: str):
-    """A captions-only model, loaded once (int8 on the CPU)."""
+def caption_model(name: str, threads: int = 0):
+    """A captions-only model, loaded once per (name, threads) (int8 on the CPU)."""
+    threads = threads or max(2, min(8, (os.cpu_count() or 4) // 2))
     with _models_lock:
-        if name not in _models:
+        if (name, threads) not in _models:
             from faster_whisper import WhisperModel
-            _models[name] = WhisperModel(name, device="cpu", compute_type="int8",
-                                         cpu_threads=max(2, min(8, (os.cpu_count() or 4) // 2)), num_workers=1)
-        return _models[name]
+            _models[(name, threads)] = WhisperModel(name, device="cpu", compute_type="int8",
+                                                    cpu_threads=threads, num_workers=1)
+        return _models[(name, threads)]
+
+
+def level_up(audio: np.ndarray) -> np.ndarray:
+    """Quiet audio (peak under 0.1) is amplified up to 16x, as Whisper and the voice checks expect."""
+    peak = float(np.max(np.abs(audio))) if len(audio) else 0.0
+    if 0.0 < peak < 0.1:
+        return (audio * min(16.0, 0.1 / peak)).astype(np.float32)
+    return audio
+
+
+def _words(text: str) -> list[str]:
+    import re
+    return re.findall(r"\w+", text.casefold())
 
 
 def frame_rms(audio: np.ndarray) -> np.ndarray:
@@ -70,6 +103,7 @@ class PhraseSegmenter:
 
     def __init__(self, threshold: float = 0.008):
         self.threshold = threshold
+        self._level = 0.0  # slowly decaying loudest frame: quiet sources lower the speech gate
         self.buffer = np.zeros(0, dtype=np.float32)
         self.heard_speech = False
         self.quiet_frames = 0
@@ -83,7 +117,8 @@ class PhraseSegmenter:
             return
         chunk, self._pending = self._pending[:usable], self._pending[usable:]
         for value in frame_rms(chunk):
-            if value >= self.threshold:
+            self._level = max(float(value), self._level * 0.998)  # ~halves in 10 s
+            if value >= self.active_threshold:
                 self.heard_speech = True
                 self.quiet_frames = 0
             else:
@@ -93,6 +128,12 @@ class PhraseSegmenter:
         else:
             # Keep a little lead-in so the first word is not cut.
             self.buffer = np.concatenate([self.buffer, chunk])[-int(SAMPLE_RATE * 0.3):]
+
+    @property
+    def active_threshold(self) -> float:
+        """The speech gate. A quiet video (low app volume, quiet recording) never reached the fixed 0.008
+        and whole sentences were lost; the gate follows the source down to 0.0015 (1/5 of its loudness)."""
+        return min(self.threshold, max(0.0015, self._level * 0.2))
 
     @property
     def seconds(self) -> float:
@@ -125,10 +166,10 @@ class PhraseSegmenter:
             return audio
         audio, self.buffer = self.buffer[:until], self.buffer[until:]
         rms = frame_rms(self.buffer)
-        self.heard_speech = bool(len(rms) and (rms >= self.threshold).any())
+        self.heard_speech = bool(len(rms) and (rms >= self.active_threshold).any())
         quiet = 0
         for value in rms[::-1]:
-            if value >= self.threshold:
+            if value >= self.active_threshold:
                 break
             quiet += 1
         self.quiet_frames = quiet
@@ -138,8 +179,15 @@ class PhraseSegmenter:
 class CaptionEngine:
     """Recognition thread. Callbacks run on that thread — re-emit them as Qt signals."""
 
-    def __init__(self, model_provider, language, on_partial, on_final, on_error=None):
+    def __init__(self, model_provider, language, on_partial, on_final, on_error=None,
+                 precise_provider=None, on_correct=None):
         self.model_provider = model_provider
+        # Hybrid mode: ``model_provider`` is the fast draft model; every finished line is read again by
+        # ``precise_provider`` on its own thread and ``on_correct(draft, precise)`` replaces it.
+        self.precise_provider = precise_provider
+        self.on_correct = on_correct
+        self._corrector = None
+        self._precise = None
         self.language = language          # None = detect the spoken language
         self.detected = None              # sticky detected language
         self._speech_since_detect = 0.0
@@ -168,6 +216,8 @@ class CaptionEngine:
 
     def stop(self):
         self._stop.set()
+        if self._corrector is not None:
+            self._corrector.close()
 
     def _spoken_language(self, model, audio):
         """The language to decode with: fixed, or voted over several checks, then re-checked every ~30 s.
@@ -203,11 +253,11 @@ class CaptionEngine:
     def _transcribe(self, model, audio, final: bool = False) -> str:
         from luxai.dictation import voiced_seconds
         from luxai.voice_rules import is_hallucinated_outro, is_repetitive_transcript
-        if len(audio) < SAMPLE_RATE * 0.3 or voiced_seconds(audio) < 0.2:
+        if len(audio) < SAMPLE_RATE * 0.3:
             return ""
-        peak = float(np.max(np.abs(audio)))
-        if 0.0 < peak < 0.1:
-            audio = (audio * min(16.0, 0.1 / peak)).astype(np.float32)
+        audio = level_up(audio)  # BEFORE the voice check: a quiet source was judged silent
+        if voiced_seconds(audio) < 0.2:
+            return ""
         language = self._spoken_language(model, audio)
         segments, _info = model.transcribe(
             audio, language=language, beam_size=1, best_of=1, temperature=0.0,
@@ -235,7 +285,7 @@ class CaptionEngine:
         if finished:
             # The last partial already read (almost) this audio: no second pass.
             extra = frame_rms(audio[self._partial_len:]) if self._partial_len <= len(audio) else None
-            only_quiet_added = extra is not None and (not len(extra) or float(extra.max()) < self.segmenter.threshold)
+            only_quiet_added = extra is not None and (not len(extra) or float(extra.max()) < self.segmenter.active_threshold)
             if self._partial_text and self._partial_len <= len(audio) and (
                     only_quiet_added or len(audio) - self._partial_len <= SAMPLE_RATE * MIN_PARTIAL_GROWTH):
                 text = self._partial_text
@@ -245,9 +295,17 @@ class CaptionEngine:
             self._speech_since_detect += len(audio) / SAMPLE_RATE
             self.on_partial("")
             if text and text.casefold() != self._last_final.casefold():  # no doubled lines
+                prompt = self._prompt
                 self._last_final = text
                 self._prompt = text[-160:]
                 self.on_final(text)
+                self._correct_later(audio, text, prompt)
+            elif not text and self.precise_provider is not None:
+                from luxai.dictation import voiced_seconds
+                if voiced_seconds(level_up(audio)) >= 0.5:
+                    # The draft model dropped a phrase that has speech: the precise model may still read
+                    # it (a lost half-sentence in the probe), then it is added as a new line.
+                    self._correct_later(audio, "", self._prompt)
             return True
         if speaking and len(audio) >= SAMPLE_RATE * 0.5 \
                 and len(audio) - self._partial_len >= SAMPLE_RATE * MIN_PARTIAL_GROWTH:
@@ -258,6 +316,47 @@ class CaptionEngine:
                 self.on_partial(text)
             return True
         return False
+
+    def _correct_later(self, audio, draft: str, prompt: str) -> None:
+        """Hybrid: read the finished phrase again with the precise model, on its own thread."""
+        if self.precise_provider is None or self.on_correct is None:
+            return
+        if self._corrector is None:
+            from luxai.background import LatestWorker
+            self._corrector = LatestWorker("JarvisCaptionsPrecise")
+        language = self.language or self.detected
+
+        def work():
+            if self._stop.is_set():
+                return
+            try:
+                if self._precise is None:
+                    self._precise = self.precise_provider()
+                text = self._transcribe_with(self._precise, audio, language, prompt)
+            except Exception as error:
+                if self.on_error is not None:
+                    self.on_error(f"{type(error).__name__}: {error}")
+                return
+            if text and not self._stop.is_set() and _words(text) != _words(draft):
+                self.on_correct(draft, text)
+
+        # A phrase still waiting is replaced by the newer one: its draft line simply stays.
+        self._corrector.submit(work)
+
+    def _transcribe_with(self, model, audio, language, prompt: str) -> str:
+        """The precise pass: same filters as ``_transcribe``, a fixed language, no detection."""
+        from luxai.voice_rules import is_hallucinated_outro, is_repetitive_transcript
+        audio = level_up(audio)
+        segments, _info = model.transcribe(
+            audio, language=language, beam_size=1, best_of=1, temperature=0.0,
+            vad_filter=True, vad_parameters={"min_silence_duration_ms": 300, "speech_pad_ms": 200},
+            condition_on_previous_text=False, without_timestamps=True,
+            no_speech_threshold=0.6, log_prob_threshold=-1.0, compression_ratio_threshold=2.4,
+            initial_prompt=prompt or None)
+        text = " ".join(segment.text.strip() for segment in segments if trustworthy(segment)).strip()
+        if is_hallucinated_outro(text) or is_repetitive_transcript(text) or lone_filler(text):
+            return ""
+        return text
 
     def _run(self):
         model = None
@@ -329,6 +428,8 @@ class CaptionBar(QWidget):
         self.show_original = True
         self.lines: list[tuple[str, str]] = []   # (original, translation)
         self.partial = ""
+        self.partial_translation = ""  # hybrid: the translation of the draft line
+        self.retranslating: set[str] = set()  # corrected lines whose new translation is on its way
         self.placeholder = ""
         row = QHBoxLayout(self)
         row.setContentsMargins(6, 8, 6, 8)
@@ -383,22 +484,47 @@ class CaptionBar(QWidget):
         self.lines = self.lines[-KEEP_FINAL:]
         self.render()
 
+    def correct_line(self, draft: str, precise: str, pending: bool = False) -> bool:
+        """Hybrid: the precise text replaces its draft line (the translation follows when ``pending``)."""
+        for index in range(len(self.lines) - 1, -1, -1):
+            if self.lines[index][0] == draft:
+                old = self.lines[index][1]
+                if pending and old not in ("", PENDING):
+                    # The draft's translation stays visible until the new one arrives (no flicker).
+                    self.retranslating.add(precise)
+                    self.lines[index] = (precise, old)
+                else:
+                    self.lines[index] = (precise, PENDING if pending else "")
+                self.render()
+                return True
+        return False  # the line already scrolled away
+
     def set_translation(self, original: str, translation: str):
         """``translation`` "" = it failed or came too late: the original is shown instead."""
         for index in range(len(self.lines) - 1, -1, -1):
-            if self.lines[index][0] == original and self.lines[index][1] in ("", PENDING):
+            if self.lines[index][0] != original:
+                continue
+            if original in self.retranslating:
+                self.retranslating.discard(original)
+                if translation:  # a failed re-translation keeps the draft's translation
+                    self.lines[index] = (original, translation)
+                break
+            if self.lines[index][1] in ("", PENDING):
                 self.lines[index] = (original, translation)
                 break
         self.render()
 
-    def set_partial(self, text: str):
+    def set_partial(self, text: str, translation: str = ""):
+        """The growing draft line; ``translation`` its draft translation (hybrid mode)."""
+        if translation:  # the previous draft translation stays until a newer one arrives
+            self.partial_translation = translation
         self.partial = text
         self.render()
 
     def visible_lines(self) -> list[tuple[str, str]]:
         shown = list(self.lines)
-        if self.partial:
-            shown.append((self.partial, ""))
+        if self.partial or self.partial_translation:
+            shown.append((self.partial, self.partial_translation))
         return shown[-self.max_lines:]
 
     def render(self):

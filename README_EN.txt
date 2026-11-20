@@ -1,4 +1,10 @@
-LUXAI LOCAL (JARVIS) 0.4.2x — UPDATE 2026-11-20
+LUXAI LOCAL (JARVIS) 0.4.2y — UPDATE 2026-11-21
+
+0.4.2y: Live captions have a new «Hybrid» mode (the default): the text and its translation
+appear ~1-2 seconds after the words, while the person is still talking, then a precise model
+corrects the line. Before, the translation came only at the end of a phrase (up to ~6 s).
+Quiet speech (a video with low volume) is no longer lost. Settings → Recognition model now
+also offers Whisper Large-v3.
 
 0.4.2x: The documentation on GitHub is cleaned up: old, outdated guides were removed and
 README.md and PROJECT_HANDOFF.md were rewritten for the current version. The program itself is unchanged.

@@ -91,7 +91,7 @@ class EngineTests(unittest.TestCase):
     def test_speed_setting_picks_a_fast_model(self):
         self.assertEqual(lc.QUALITY_MODELS, {"fast": "tiny", "balanced": "small"})
         plugin = catalog.PLUGIN_BY_ID["live_captions"]
-        self.assertEqual(catalog.default_settings(plugin)["quality"], "balanced")
+        self.assertEqual(catalog.default_settings(plugin)["quality"], "hybrid")  # 0.4.2y
 
     def test_silence_never_reaches_whisper(self):
         engine = lc.CaptionEngine(lambda: object(), "ru", lambda _: None, lambda _: None)

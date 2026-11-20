@@ -1,5 +1,10 @@
-LUXAI LOCAL 0.4.2x — ACTUALIZARE 2026-11-20
+LUXAI LOCAL 0.4.2y — ACTUALIZARE 2026-11-21
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.2y: Subtitrările live au modul nou „Hibrid” (implicit): textul și traducerea apar în
+~1–2 secunde în timp ce omul vorbește, apoi un model precis corectează rândul. Înainte
+traducerea apărea abia la finalul frazei (până la ~6 s). Vorbirea încetă (video cu volum mic)
+nu se mai pierde. În Setări → Modelul de recunoaștere există acum și Whisper Large-v3.
 
 0.4.2x: Documentația de pe GitHub e curățată: ghidurile vechi și neactuale au fost șterse,
 README.md și PROJECT_HANDOFF.md sunt rescrise pentru versiunea de acum. Programul nu s-a schimbat.

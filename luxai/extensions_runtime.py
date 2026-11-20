@@ -634,6 +634,8 @@ class ExtensionsRuntime(QObject):
     _cap_partial = Signal(str)
     _cap_final = Signal(str)
     _cap_translated = Signal(str, str)
+    _cap_partial_translated = Signal(str, str, int)  # draft text, its translation, phrase number
+    _cap_corrected = Signal(str, str)  # hybrid: draft line, precise text
     _cap_error = Signal(str)
     _clip_ai_ready = Signal(str, str)  # mode, result ("" = failed)
     _clip_image_ready = Signal(bytes, bytes, int, int, str)  # png, thumb, width, height, app
@@ -697,6 +699,9 @@ class ExtensionsRuntime(QObject):
         self._avatar_timer.setInterval(100)
         self._avatar_timer.timeout.connect(self._tick_avatar)
         self._cap_partial.connect(self._on_cap_partial)
+        self._cap_partial_translated.connect(self._on_cap_partial_translated)
+        self._cap_corrected.connect(self._on_cap_corrected)
+        self._cap_phrase = 0  # increases with every finished phrase: late draft translations are dropped
         self._cap_final.connect(self._on_cap_final)
         self._cap_translated.connect(self._on_cap_translated)
         self._cap_error.connect(self._on_cap_error)
@@ -890,7 +895,27 @@ class ExtensionsRuntime(QObject):
         settings = self.settings("live_captions")
         return (settings.get("language"), settings.get("source"), settings.get("quality"))
 
+    def _migrate_caption_quality(self):
+        """0.4.2y: «Fast and accurate» was the saved default for everyone; it becomes «Hybrid» once.
+        A choice the user makes afterwards is never changed again."""
+        cfg = getattr(self.host, "cfg", None)
+        if not isinstance(cfg, dict):
+            return
+        meta = cfg.setdefault("extensions_meta", {})
+        if meta.get("captions_hybrid_migrated"):
+            return
+        if getattr(self.host, "extensions_page", None) is None:
+            return  # the page saves the change; without it, try again at the next start
+        # Marked in memory: it is written with the next save of the settings (no config write at start-up
+        # unless the setting really changes), so a «balanced» chosen later is kept.
+        meta["captions_hybrid_migrated"] = True
+        if self.settings("live_captions").get("quality") == "balanced" and hasattr(self.host, "update_extension_setting"):
+            self.host.update_extension_setting("live_captions", "quality", "hybrid")
+
     def _apply_captions(self):
+        if not getattr(self, "_caption_quality_checked", False):
+            self._caption_quality_checked = True
+            QTimer.singleShot(0, self._migrate_caption_quality)
         if not self.enabled("live_captions"):
             if self.captions_visible:
                 self.hide_captions()
@@ -1013,17 +1038,28 @@ class ExtensionsRuntime(QObject):
         cfg = dict(getattr(self.host, "cfg", {}) or {})
         provider = getattr(self.host, "dictation_model", None)
 
-        quality = settings.get("quality", "balanced")
+        quality = settings.get("quality", "hybrid")
+
+        language = self._caption_language()
 
         def model():
-            from luxai.live_captions import QUALITY_MODELS, caption_model
+            from luxai.live_captions import QUALITY_MODELS, caption_model, hybrid_draft_model
+            if quality == "hybrid":
+                return caption_model(hybrid_draft_model(language), threads=6)
             if quality in QUALITY_MODELS:
                 return caption_model(QUALITY_MODELS[quality])
             loaded = provider() if callable(provider) else None
             return loaded or dictation.load_model(cfg.get("whisper_model_path") or cfg.get("whisper_model") or "small")
 
-        engine = CaptionEngine(model, self._caption_language(), self._cap_partial.emit, self._cap_final.emit,
-                               on_error=self._cap_error.emit)
+        def precise():
+            from luxai.live_captions import caption_model, hybrid_precise_model
+            return caption_model(hybrid_precise_model(language), threads=8)
+
+        hybrid = quality == "hybrid"
+        engine = CaptionEngine(model, language, self._cap_partial.emit, self._cap_final.emit,
+                               on_error=self._cap_error.emit, precise_provider=precise if hybrid else None,
+                               on_correct=self._cap_corrected.emit if hybrid else None)
+        self._cap_phrase += 1
         source = str(settings.get("source") or "")
         pid = app_pid(source) if source else 0
         if self._captions_bar is not None:
@@ -1058,12 +1094,88 @@ class ExtensionsRuntime(QObject):
             engine.stop()
 
     def _on_cap_partial(self, text: str):
-        if self._captions_bar is not None:
-            # «Only the translation»: the growing original is not shown.
-            self._captions_bar.set_partial("" if self._captions_translate_only() else text)
+        if self._captions_bar is None:
+            return
+        # «Only the translation»: the growing original is not shown.
+        self._captions_bar.set_partial("" if self._captions_translate_only() else text)
+        if text and self.settings("live_captions").get("quality", "hybrid") == "hybrid":
+            self._translate_caption_draft(text)
+
+    def _caption_target(self) -> str | None:
+        """The translation language when captions are translated, else None."""
+        settings = self.settings("live_captions")
+        from luxai import offline_translate
+        if not settings.get("translate") or not offline_translate.installed():
+            return None
+        target = settings.get("translate_to", "app")
+        if target not in ("ru", "en", "ro"):
+            from luxai.response_language import reply_language
+            target = reply_language(getattr(self.host, "cfg", {}) or {})
+        return target
+
+    def _translate_caption_draft(self, text: str):
+        """Hybrid: the growing draft is translated too, so the translation appears ~1 s after the words.
+
+        One worker, only the NEWEST draft waits (older ones are skipped); a draft translation that
+        comes back after its phrase was finished is ignored (the final translation replaces it).
+        """
+        target = self._caption_target()
+        if target is None:
+            return
+        from luxai.translation import text_language
+        if text_language(text) == target:
+            return
+        engine = self._captions_engine
+        source = (getattr(engine, "detected", None) or self._caption_language() or "") if engine else ""
+        phrase = self._cap_phrase
+        if getattr(self, "_cap_draft_worker", None) is None:
+            from luxai.background import LatestWorker
+            self._cap_draft_worker = LatestWorker("JarvisCaptionDraftTranslate")
+
+        def work():
+            if phrase != self._cap_phrase:
+                return  # the phrase finished while this draft waited
+            from luxai.translation import translate_offline
+            try:
+                translated = translate_offline(text, target, source)
+            except Exception:
+                translated = None
+            if translated:
+                self._cap_partial_translated.emit(text, translated, phrase)
+
+        self._cap_draft_worker.submit(work)
+
+    def _on_cap_corrected(self, draft: str, precise: str):
+        """Hybrid: the precise model finished a line — replace the draft and translate it again."""
+        bar = self._captions_bar
+        if bar is None:
+            return
+        if not draft:  # a phrase only the precise model could read: a new line
+            self._on_cap_final(precise)
+            return
+        target = self._caption_target()
+        from luxai.translation import text_language
+        translate = target is not None and text_language(precise) != target
+        if bar.correct_line(draft, precise, pending=translate) and translate:
+            engine = self._captions_engine
+            source = (getattr(engine, "detected", None) or self._caption_language() or "") if engine else ""
+            self._queue_caption_translation(precise, target, source)
+
+    def _on_cap_partial_translated(self, text: str, translated: str, phrase: int):
+        if phrase == self._cap_phrase:
+            self._cap_last_draft = (text, translated)  # a final line with the same text reuses it
+        if self._captions_bar is None or phrase != self._cap_phrase:
+            return
+        self._captions_bar.set_partial("" if self._captions_translate_only() else text, translated)
 
     def _on_cap_final(self, text: str):
+        self._cap_phrase += 1  # a draft translation still on its way is dropped
+        last_draft, self._cap_last_draft = getattr(self, "_cap_last_draft", ("", "")), ("", "")
         if self._captions_bar is None:
+            return
+        self._captions_bar.partial_translation = ""  # the final line replaces the draft
+        if last_draft[0] == text and last_draft[1]:
+            self._captions_bar.add_final(text, last_draft[1])  # already translated as a draft: no wait
             return
         settings = self.settings("live_captions")
         from luxai import offline_translate

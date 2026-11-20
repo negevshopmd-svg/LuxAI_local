@@ -414,7 +414,8 @@ class SettingsPanel(QWidget):
         self.whisper_model = self._combo(
             [("Small — standard (about 500 MB)", "small"),
              ("Medium — more accurate Romanian (about 1.5 GB, slower)", "medium"),
-             ("Large-v3-turbo — advanced (requires a powerful PC)", "large-v3-turbo")],
+             ("Large-v3-turbo — advanced (requires a powerful PC)", "large-v3-turbo"),
+             ("Large-v3 — most accurate (about 3 GB, the slowest)", "large-v3")],
             self.cfg.get("whisper_model", "small"),
         )
         self._row(panel, "Модель распознавания",

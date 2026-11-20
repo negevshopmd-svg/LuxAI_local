@@ -1,3 +1,28 @@
+## 0.4.2y — Hybrid live captions, Whisper large-v3 option (2026-11-21)
+
+Cause of the ~6 s delay: the translation started only when a phrase ended (pause or the 5 s cut), and
+each Whisper pass on the CPU has a nearly fixed cost because Whisper always encodes a 30 s window.
+Measured on the user's Ryzen 7 5800X (CTranslate2 int8, no CUDA — the Radeon GPU cannot be used),
+FLEURS dev, 25 sentences per language, whole sentences (WER %, real-time factor):
+tiny en 12.2 / ru 34.5 / ro 97.6 (0.03); small 6.0 / 10.6 / 34.2 (0.14-0.28); medium 4.4 / 5.9 / 26.8 (0.45-0.61);
+large-v3-turbo 4.4 / 4.0 / 11.4 (0.50-0.61). On 5 s caption-like pieces (12 sentences): one pass costs
+base 0.4 s, small 1.2 s, turbo 4.4 s, large-v3 6.1 s (WER en 11.4 / ru 18.1 / ro 29.9 vs turbo 15.6 / 20.1 / 27.5)
+— large-v3 cannot keep up with live speech on this CPU; `chunk_length` does not reduce the cost.
+Nemotron Labs Unified ASR 0.6B (ru/ro/en supported) needs NeMo/PyTorch; its sherpa-onnx support
+(k2-fsa/sherpa-onnx PR #4141) is not merged and no ONNX package is published, so it was not added.
+
+- Live captions «Hybrid» (new default; a saved «Fast and accurate» is switched once): a fast draft model
+  (base for English, small for Russian/Romanian) writes the line while the person speaks, and the draft is
+  translated too (one worker, newest draft only, stale results dropped by phrase number). Each finished line
+  is read again by a precise model on its own thread (small for English — correction in ~1.2-1.7 s;
+  large-v3-turbo for Russian/Romanian — a few seconds later) and replaced, keeping the old translation
+  until the new one arrives. A phrase the draft model dropped is recovered by the precise model.
+  Real-time probe (English → Russian, real FLEURS speech through the runtime): first Russian text at 2.36 s
+  from the start of the audio, the line growing with the speech.
+- Quiet sources: the speech gate follows the source level (down to 0.0015 RMS) and quiet audio is amplified
+  before the voice check — a quiet sentence that was lost completely is now captioned.
+- Settings → Recognition model: Whisper Large-v3 added (small, medium and large-v3-turbo kept).
+
 ## 0.4.2x — Documentation cleanup (2026-11-20)
 
 - Removed outdated developer documents: `COMMANDS.md`, `ONLINE_AI.md`, `VOICE_TOOLS.md` (0.3.x era),

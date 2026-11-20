@@ -73,7 +73,8 @@ key is built into `Update.py` and `scripts/release_signature.py`. `.bat/.cmd` ar
 - **Extensions (plugins page):** `extensions_catalog.py` (22 plugins, settings schema),
   `extensions_runtime.py` (behaviour of the 15 working ones), UI `ui_extensions.py`, `ui_extension_settings.py`.
   Working: smart dictation (`dictation.py`), notification reader (`notifications.py`), read aloud
-  (`translation.py`), live captions (`live_captions.py`, `loopback_audio.py`), clipboard history
+  (`translation.py`), live captions (`live_captions.py`, `loopback_audio.py`; «Hybrid»: fast draft + translation,
+  precise correction on its own thread), clipboard history
   (`clipboard_store.py`, `clipboard_native.py`, `ui_clipboard.py`), quick inserts, visual avatar
   (`avatar.py`), breaks, PC Control via Telegram bot (`telegram_control.py`), media keys, timers and
   alarms (`timers.py`), converter (`converter.py`, `ui_convert_circle.py`), screenshots, downloads cleanup.
