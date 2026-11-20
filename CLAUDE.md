@@ -59,6 +59,18 @@ Most bugs came from testing only the happy path with mocks. Before calling a cha
 - Fix the cause and look at the whole place, not just the reported line (half-fixes reappeared as «Parțial»).
 - No function above complexity 40.
 
+## Graphify (code graph of this repository)
+The user connected Graphify (MCP tools `mcp__…__graphify_*`, repository `negevshopmd-svg/LuxAI_local`, indexed
+from GitHub `main` — push first, then the index follows). Use it before editing instead of wide greps:
+- `graphify_impact` (`include_risk=true`) on the symbol you change → callers/callees and hotspot files;
+- `graphify_callers`, `graphify_tests_for` → who breaks and which tests to run;
+- `graphify_file_neighbors` → what a file imports and who imports it; `query_graph` for «where does X happen?».
+Check `freshness.commit` in the answer: it describes the indexed commit, not the working tree.
+Visual module map (130 modules, zones, imports, tests): https://claude.ai/artifact/YCQ7u1eEcAmt3h5xxmjMQx
+Most imported (change carefully): `fast_intents` (22 modules), `icons` (19), `secure_keys` (18), `api_providers` (17),
+`visual_click` (15); biggest files: `main.py` (5.3k lines), `luxai/extensions_runtime.py` (4.0k),
+`luxai/ui_extension_settings.py` (2.0k), `Update.py` (1.8k).
+
 ## Where things are (short)
 - Start: `run_windows.bat` → `launch_windows.py` (single-instance mutex, refuses during an update,
   finishes an interrupted update via `Update.py --resume` under the updater lock) → `main.py`.
