@@ -1,5 +1,8 @@
-LUXAI LOCAL 0.4.2w — ACTUALIZARE 2026-11-20
+LUXAI LOCAL 0.4.2x — ACTUALIZARE 2026-11-20
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.2x: Documentația de pe GitHub e curățată: ghidurile vechi și neactuale au fost șterse,
+README.md și PROJECT_HANDOFF.md sunt rescrise pentru versiunea de acum. Programul nu s-a schimbat.
 
 0.4.2w: Corecturile celui de-al doilea audit (50 de puncte). Lipirea din istoricul clipboard
 nu mai poate ajunge în altă fereastră; răspunsurile vocale lungi se citesc de la început;
@@ -386,7 +389,7 @@ modificate parțial nu pot fi restaurate automat; rulează install_windows.bat
 dacă mesajul de eroare cere repararea mediului.
 
 Ghidul complet și istoricul versiunilor sunt pe GitHub:
-https://github.com/negevshopmd-svg/LuxAI_local/blob/main/README_RO.md
+https://github.com/negevshopmd-svg/LuxAI_local/blob/main/README.md
 https://github.com/negevshopmd-svg/LuxAI_local/blob/main/CHANGELOG.md
 Nu publica chei sau date personale.
 

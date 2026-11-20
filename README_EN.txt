@@ -1,4 +1,7 @@
-LUXAI LOCAL (JARVIS) 0.4.2w — UPDATE 2026-11-20
+LUXAI LOCAL (JARVIS) 0.4.2x — UPDATE 2026-11-20
+
+0.4.2x: The documentation on GitHub is cleaned up: old, outdated guides were removed and
+README.md and PROJECT_HANDOFF.md were rewritten for the current version. The program itself is unchanged.
 
 0.4.2w: Fixes from the second audit (50 points). Pasting from the clipboard history can no
 longer land in another window; long spoken answers are read from the start;

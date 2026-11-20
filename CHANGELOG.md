@@ -1,3 +1,16 @@
+## 0.4.2x — Documentation cleanup (2026-11-20)
+
+- Removed outdated developer documents: `COMMANDS.md`, `ONLINE_AI.md`, `VOICE_TOOLS.md` (0.3.x era),
+  `README_RO.md` (stopped at 0.3.9g; the user guide is `README_RO.txt`), `voices/README.md` (Italian, the
+  folder is created by the app) and `manifest.example.json` (the 0.1 updater example). Old copies are
+  still removed from user PCs by the updater's development-file rules.
+- `README.md` rewritten for the current version (install, update, features, privacy).
+- `PROJECT_HANDOFF.md` rewritten: folder layout, the signed update chain, module map, threading rules,
+  data locations, tests and known limits.
+- New `CLAUDE.md`: working rules, the full release workflow and the lessons of both audits.
+- Kept: `CHANGELOG.md` and the asset `README.md` files (font and icon licences/sources).
+- No program code changed.
+
 ## 0.4.2w — Second audit report (2026-11-20)
 
 P1

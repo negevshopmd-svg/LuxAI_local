@@ -1,306 +1,38 @@
-# LuxAI_local
-
-## 0.3.9g: Luxify-inspired settings and new listening controls (2026-11-04)
-
-Settings now use compact rows, segmented controls and rounded switches inspired by the supplied Luxify screenshots. In **Voice input**, choose continuous listening or hold a configured key while speaking on Windows, edit the phrases for prefix mode, quiet mode and microphone shutdown, and adjust conservative saved-command recognition tolerance. Optional paraphrases recognize supported local wording variations without a cloud request.
-
-Use the stop-chain phrase to cancel remaining queued actions. **Interface** offers the bundled **Onest** font, including Russian and Romanian characters. The voice-output reset asks for confirmation and restores only that section's preferences. **Updates** shows the installed version, checks GitHub and opens the existing Windows updater when an update is available. If enabled, automatic checking runs once per session when Settings first opens. Choosing installation closes Jarvis before starting the updater.
-
-Close Jarvis, run `Update.bat`, then `run_windows.bat`. Existing settings, models, keys and personal commands are preserved.
-
-## 0.3.9.e: optional Fish Audio Jarvis voice (2026-10-30)
-
-In **Settings → Speech synthesis**, select **Fish Audio**, add your Fish API key and use the preset Russian **ДЖАРВИС** voice. Paste another Fish voice link or ID to change it, then use the voice preview. Create a free account and key at [Fish Audio API keys](https://fish.audio/app/api-keys/). The key is stored with Windows DPAPI, separately from chat AI credentials; it is never included in `config.json`. `FISH_API_KEY` is also supported.
-
-Fish speech requires internet and sends the text to be spoken to Fish Audio. Requests explicitly select **`s2.1-pro-free`**, currently offered at $0 under fair-use limits, with no switch to a paid model. Website generation quotas and API access are separate. The website preview uses Drama 3, so the free model may sound different. See the official [API pricing](https://docs.fish.audio/developer-guide/models-pricing/pricing-and-rate-limits) and [quick start](https://docs.fish.audio/developer-guide/getting-started/quickstart).
-
-Piper remains the default local voice. Fish makes no startup synthesis requests; preview and normal replies use the existing volume, speed and stop controls. An unavailable Fish voice reports a voice error rather than using a paid service. Close Jarvis, run `Update.bat`, then `run_windows.bat`; existing personal settings, models and command libraries are preserved.
-
-## 0.9.3.d: collection transfer, agent commands and local AI status (2026-10-30)
-
-Command-tree expansion arrows and selected rows now follow the application theme consistently, including Windows hover/selection states. **Export to file** exports the selected command, folder or collection; without a selection it exports the current command tab. Import preserves the collection/folder structure, including empty groups, assigns fresh command IDs and keeps imported commands disabled until you enable them. Existing command export files remain supported.
-
-**Agent commands** is a working separate tab for AI-created and learned commands. Create and review commands with the existing AI/action editor, manage their folders and import/export, or open Jarvis AI from its empty state. Saved command execution still uses the validated local actions and existing confirmations.
-
-**Tools** shows a read-only local AI status. Model selection remains in **Settings**. A model/backend being present is shown as ready, while successful operation is confirmed only by an actual GGUF response; busy/error states follow the real isolated worker. Selecting a model does not trigger a test inference or download.
-
-Close Jarvis, run `Update.bat`, then `run_windows.bat`. Personal files, models, settings and command libraries are preserved. Bundled Markdown and tests remain on GitHub.
-
-## 0.9.3.c: clipboard attachments and editable command library (2026-10-30)
-
-The chat composer uses compact image thumbnails and file cards above the prompt, with an individual remove button, **+** at the bottom left and **Send** at the bottom right. Paste copied files or images with **Ctrl+V**; ordinary text still pastes as text. Pasting only creates local previews: files are shared with the configured cloud provider when you press Send.
-
-Default commands can now be edited, saved, disabled or deleted just like personal commands. Changes persist in the user's command library and survive restarts and updates. The three-dot menu follows the supplied Luxify reference: open, add required/optional phrases, enable/disable, clone, copy, copy as JSON and delete. Folder controls preserve personal commands when removing a folder. Copied/imported command data remains validated and never runs automatically.
-
-Close Jarvis, run `Update.bat`, then `run_windows.bat`. Settings, models and personal files are preserved; bundled Markdown and tests remain on GitHub.
-
-## 0.3.9b: command workspace and composer rebuild (2026-10-29)
-
-The chat input is a compact charcoal, expanding multiline composer: attachments render **above the text**, while a + attachment control and circular send arrow stay on the bottom row. Enter sends, Shift+Enter adds a newline. The Commands page now follows the Luxify screenshot's **right-side** create/file toolbar, with functional JSON import/export, persistent folders/collections, nested default presets, and actions on each command's hover/three-dot/right-click menu. Default commands remain read-only; imported personal commands are validated and start disabled. The editor returns to two columns with Save/Cancel in the right review panel. The recording Stop/Cancel dialog has application modality so it can accept clicks while the original modal editor is minimized. See CHANGELOG for details. Native Windows hooks require a target-machine smoke test.
-
-## 0.3.9a: Luxify-style chat and command workflows (2026-10-28)
-
-The chat composer now places the attachment **+** and send arrow on the bottom row with file previews inside the composer. The cloud-sharing notice appears when files are attached. Built-in commands are stored in `luxai/default_commands.py` and grouped under a separate **Default commands** folder, while user commands stay separate and persistent. The right management panel is more compact. The command editor includes a navigation rail and explicit high-contrast explanations when hovering or clicking the info icons.
-
-User-created and recorded macros no longer have the fixed eight-action limit. When recording begins, Jarvis windows are minimized and a separate always-on-top Stop/Cancel panel remains visible, then the editor is restored. Each action is still allowlist-validated; dangerous actions still require confirmation and model-generated plans retain separate restrictions. Native global-hook behavior and exact visual appearance require verification on the target Windows PC.
-
-
-## 0.3.9: chat attachments and a complete command editor — 2026-10-28
-
-Use **Attach** or drag files into the chat, enter a question and press **Send**. Supported inputs include text, code, CSV, JSON, Markdown, PDF, DOCX and photos. Selection and preview stay local. Sending with cloud AI enabled shares the selected files with that provider; image analysis requires an image-capable model. Local processing uses document text and image OCR, rather than local image vision. Limits: 8 files, 10 MB per file and 20 MB per message.
-
-For requested file changes, Jarvis proposes edits for review. Compare the original, changes and new text before choosing **Apply** or **Save copy**. Text files and compatible DOCX edits with the same paragraph structure can be applied after a stale-file check, with the original backed up in `.luxai_data/file_edits`. PDF changes and structural DOCX changes are exported as a text copy; they do not rewrite the original document. Attached code is read as data, never executed.
-
-The redesigned **Commands** editor groups phrases, optional words, triggers and ordered actions. Add voice phrases, a keyboard shortcut, a schedule or an application/headphone event; record supported Windows actions or ask AI to propose steps, then review them. Recording letters/digits is opt-in and limited to Dota 2, Counter-Strike 2, War Thunder and Undertale. **Test phrase** checks matching without running anything; **Run now** executes the reviewed draft. Ordered actions, whole-command confirmation and chaining preferences are supported. Schedules, events and global shortcuts work only while Jarvis is running. Native Windows recording/hooks still need testing on the target PC.
-
-The sidebar remembers whether it was collapsed. The Screenshot and OCR cards have been removed from **Tools**; their existing commands and automatic OCR setup remain available. Interface labels follow Russian, English or Romanian without translating personal filenames, phrases or document contents.
-
-Close Jarvis, run `Update.bat`, then `run_windows.bat`. Settings, models and personal files are preserved. All bundled `.md` files and tests remain GitHub-only; `README_RO.txt` and required license notices stay installed.
-
-## 0.3.8c: Markdown documentation stays on GitHub
-
-Installation and updates omit all bundled `.md` files, including README files, user guides and release notes. These documents remain available in this GitHub repository; Jarvis does not need them to run. `Update.bat` also removes unchanged Markdown copies shipped by earlier versions. Personal notes, edited documents, settings and models are preserved. Required license notices and `README_RO.txt` remain installed.
-
-Close Jarvis, run `Update.bat`, then `run_windows.bat`.
-
-## 0.3.8b: fluid avatar and cleaner installation
-
-The right-hand avatar moves smoothly and follows the selected theme, accent and background. Its rings react to microphone activity and use a distinct wave during actual voice playback. Hidden pages and the disabled-animation setting stop animation work.
-
-Installation and updates omit tests, CI files and development notes; these remain on GitHub. User instructions stay installed. Updates remove recognized old development copies only when unchanged; edited files, personal files, settings, secrets and models are preserved. Close Jarvis, run `Update.bat`, then `run_windows.bat`.
-
-## 0.3.8a: integrated header and refreshed Interface settings
-
-The window uses one draggable header with resize, minimize, maximize/restore and close controls. The microphone sits to the left above the history cards. The right-hand rings extend to the window edges without a rectangular frame. Sliders have a clean track and knob focus indicator.
-
-Interface settings offer segmented theme/language choices, accent/background swatches, custom color picker/hex field, percentage pills, rounded switches and reset. Controls stack on narrow windows. Chat roles follow the UI language, including existing history: Russian shows **Вы (голос)**. Recognition and reply settings remain separate. Synthesis providers are named **Piper** and **Windows**.
-
-Install/update automatically prepare the local GGUF engine; normal startup silently repairs it if missing/broken, without checking the network for a working engine. Its manual installation button is gone. The engine is separate from the potentially large `.gguf` model file, which you choose to suit your RAM. Close Jarvis, run `Update.bat`, then `run_windows.bat`.
-
-## 0.3.8: multilingual commands, games and interface fixes
-
-Romanian, Russian and English requests now share broader handling of polite formulations, diacritics and spoken command variants. Known Steam games, including War Thunder, launch or close through local tools before generic planning. Closing checks the actual game windows/processes and leaves Steam running; an in-game confirmation or a still-running process is reported as unverified. Regression corpora include 10–15 formulations per tested intent and language, together with negative and compound requests. Speech accuracy still depends on the selected Whisper model, recording and recognition language; interface language remains separate.
-
-The chosen accent now reaches the orb, home switches, branding and controls. Current activity appears temporarily inside chat and clears after completion. Settings show live slider percentages, and the section highlight follows scrolling.
-
-Auto speech recognition uses a trilingual command context and a stronger decoding search. This improved short Romanian commands in local Whisper Small tests with synthesized RO/RU/EN speech, at a small decoding-time cost. Excessive repetitive noise transcriptions are discarded. Recognition of names and mixed-language game titles can still vary; choose Romanian explicitly when that is the language you speak, and try the Medium model if Small misses words.
-
-The previous updater and startup-voice improvements remain included. Successful updates close the updater console without a final keypress. Normal updates keep rollback files only in temporary staging and remove them when finished; recognized legacy updater backups and the old bootstrap copy are cleaned automatically after success, including an already-current installation. Unrelated files and linked folders are preserved. Original files are retained only if automatic rollback itself fails.
-
-The selected Piper voice loads and performs its first silent synthesis on the speech worker at launch, reusing that instance for replies. The interface stays responsive and no greeting or microphone recording starts. A missing voice still needs its initial model download; Windows SAPI retains its existing per-reply process behavior. The installed version appears below the sidebar collapse button in both widths.
-
-Close Jarvis, run `Update.bat`, then `run_windows.bat`. On the first upgrade launched by the old batch file, its already-parsed final pause may still require Enter; subsequent successful runs use the new automatic exit. Failed updates retain a readable error instead of closing immediately.
-
-## 0.3.7f: cloud connection and settings reliability
-
-API checks now use the configured timeout and retry HTTP 502/503/504 once against the same provider. HTTP 503 means the service is temporarily unavailable; it does not prove an API key is invalid. A successful check is tied to the exact key, endpoint and model tested, and a verified Gemini replacement model is saved before reporting success. Temporary model-list failures can still test the explicitly configured Gemini model.
-
-Settings auto-save no longer rebuilds the entire interface for unrelated edits. Microphone selection retains its driver identity after reconnection, and English Discord “unmute/undeafen” commands no longer match their opposite. Close Jarvis, run `Update.bat`, then `run_windows.bat`. A persistent provider outage still requires the service to recover; creating more keys does not fix HTTP 503.
-
-Voice-controlled Jarvis assistant for Windows 10/11 (64-bit).
-
-## 0.3.7e: compact microphone picker (mini-patch)
-
-Settings → Voice input now lists microphones once instead of repeating MME, DirectSound, WASAPI and WDM-KS representations. On Windows, LuxAI prefers the WASAPI input endpoints, falling back to another available recording host API when needed; descriptions use simple names like Discord. Existing selected-device names are matched to the new visible entry when uniquely identifiable. Real device names, host APIs and indices remain intact internally for voice recording, including reconnect handling. A device list refresh does not accidentally trigger settings auto-save. Click **Обновить устройства** or restart Jarvis after `Update.bat` to reload the simplified list.
-
-## 0.3.7d: reliable hands-free Settings persistence (mini-patch)
-
-Settings continue to auto-save without a bottom Save button. Ordinary edits are applied and written to `config.json` after a 550 ms pause, including when you navigate away from Settings or close Jarvis. Draft API secrets are **not** saved because another preference changed while you were still typing: they are committed when editing finishes, or after a successful explicit API key test. Restart Jarvis after running `Update.bat` from this repository's `main`; an already-running older process will continue to display its old controls until restarted. Regression tests: `tests/test_patch_037d_settings_autosave.py`.
-
-## 0.3.7c: automatic Settings save, no Save button (mini-patch)
-
-Settings are now saved to `config.json` **automatically** whenever a real editable control changes: checkboxes, dropdowns, sliders, text and numeric fields. A short 550 ms debounce coalesces typing and slider changes rather than writing on every keystroke. Pending changes are committed when leaving the Settings page or closing/minimizing Jarvis. The old bottom blue **“Сохранить настройки”** button has been removed.
-
-Changes are applied using the existing live `MainWindow.apply_settings` path (appearance, voice, mic, autostart and Home controls). API secrets are saved only when the key field finishes editing or after the existing explicit API test, not per keypress. Settings search and live microphone diagnostics never count as edits. The existing config data and the rest of the application are unchanged.
-
-Install through `Update.bat` after merging to `main`. Regression tests: `tests/test_patch_037c_settings_autosave.py`.
-
-## 0.3.7b: integrated OCR, cleaner Settings (mini-patch)
-
-The redundant "Встроенный Tesseract OCR" setting, external executable picker and OCR installation status row are removed from **Settings → System**. OCR is already integrated and still installs/checks itself automatically at startup or during `Update.bat`, using the bundled Russian and English recognition models. Existing OCR commands, OCR-dependent visual tools, user configuration and automatic recovery are preserved.
-
-Existing optional `tesseract_path` configuration remains compatible but no longer needs a visible text field. Update through `Update.bat` after this patch is merged into main.
-
-## 0.3.7a: Home panel cleanup (mini-patch)
-
-The Home (“Главная”) control panel no longer displays the three extra buttons for microphone testing, viewing on-screen buttons or summarizing selected text. Those tools are **not deleted**: microphone diagnostics remain in Settings; screen inspection and selected-text summary remain accessible through existing voice commands and tools. Prefix mode, quiet mode, avatar animation, always-on-top, volume and microphone meters remain untouched.
-
-Install this minor patch with `Update.bat` once merged to main.
-
-## 0.3.7: first-attempt Discord name matching and reliable control toggles
-
-Discord voice calls now handle a **strict, full-name Cyrillic speech transcription to Latin displayed nickname** (for example Russian ASR "Ханзо" vs the Discord display "Hanzo" or "Khanzo"). This exception is **only for calling**; it never broadens message sending or accepts approximate/fuzzy names. The actual open one-to-one DM header must still be verified before accessing the phone button. Ambiguous and unrelated users remain blocked.
-
-All four custom Qt switches on the home control panel (prefix, quiet mode, avatar animation, always on top) now accept the **first click anywhere on their entire painted 54×28 surface**, including the right-hand knob. This fixes QCheckBox's smaller default indicator-only hit-test. Tests cover the actual mouse event delivery and preservation of config state.
-
-Run `Update.bat` after merging to `main`; see `tests/test_037_discord_alias_home_switch.py`.
-
-## 0.3.6: natural Discord voice calls
-
-Say **“Позвони пользователю Hanzo в Discord”**, **“Sună-l pe Hanzo în Discord”**, or **“Call Hanzo on Discord”**. Jarvis now understands this as one voice-call request: it opens/activates Discord, finds and verifies the individual DM contact, identifies the voice PHONE handset (not the adjacent video-camera button) in the current DM header using a fresh native-resolution zoom, clicks it at most once, and checks the actual ringing/connected call UI before reporting success.
-
-If the DM, button or state cannot be verified, Jarvis stops without blindly retrying or inventing a successful call. Requires a vision-capable cloud AI and the existing screenshot consent. A live call is only initiated when the user explicitly requests it. See `luxai/discord_call_visual.py` and `tests/test_036_discord_call.py`. Upgrading with the existing `Update.bat` works after merging to `main`.
-
-## 0.3.5: verified Discord headphones, Steam intent routing and project handoff
-
-Natural “Выключи наушники в дискорде” uses a dedicated state-aware headphones/deafen action. Jarvis reads the current bottom account bar icon (including the red diagonal slash), clicks at most once if the requested state differs, and checks a fresh screenshot. If the broad screenshot is unclear, a new full-resolution close-up verifies the change instead of triggering a second click.
-
-“Открой Steam и скажи какой у меня там никнейм” is routed as one complete task to the existing consented Steam self-profile reader, ahead of generic desktop planning.
-
-The repository now contains [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md): complete architecture, file map, commands, test/release process and instructions for continuing in another chat. Update with `Update.bat` after this release is merged.
-
-## 0.3.4: Discord mic accuracy and desktop controls
-
-Microphone buttons in customized Discord are localized again using a fresh, enlarged native-resolution crop. The click lands slightly below the icon's detected center, within the same mic button, and the resulting state is checked. Uncertain positions are rejected.
-
-Voice requests for W, Q, allowed hotkeys and mouse actions are routed to Windows input rather than an online planning response. Opening a Discord user's conversation uses verified search and chat-header checks. The adaptive agent can also run input actions that are explicitly part of the user's request.
-
-Local input runs against a foreground external window. Sending screenshots to cloud AI and consequential actions still follow the existing safeguards.
-
-Upgrade normally with `Update.bat`.
-
-## 0.3.3: natural Steam nickname requests
-
-Say **“Можешь зайти в Steam и сказать, какой у меня ник?”** (or **“Can you open Steam and tell me my nickname?”**). Jarvis automatically activates/opens the installed Steam desktop window, obtains the usual screenshot-analysis consent, inspects the signed-in account bar, zooms the identified name at native resolution and checks the answer before reporting it. You no longer have to dictate the intermediate screenshot steps. Friends, chat participants, unrelated profile pages and invisible/background windows are rejected; no Steam account changes or messages are performed. Requires a configured vision-capable online AI and permission to send the window images. The existing `Update.bat` installs this version directly from `main`.
-
-## 0.3.2: sharper screenshots and precise mouse targeting
-
-When an explicitly approved visual action needs a mouse click, Jarvis now uses a clearer screenshot and a second fresh, magnified full-resolution screenshot of the target region. It maps the result back to physical desktop pixels, including multi-monitor layouts with negative coordinates, and checks the target window is unchanged and not covered before clicking. If the two image analyses disagree, it cancels the click rather than guessing; actions still require post-click verification.
-
-To upgrade, close Jarvis, run `Update.bat` and restart with `run_windows.bat`. This updater obtains `main` directly; no GitHub Release or ZIP is required.
-
-## 0.3.1: new icons and natural Discord requests
-
-The interface includes local Lucide SVG icons, a new Jarvis emblem, and icons that adapt to dark/light themes and high-DPI displays. The icon pack works offline; its source revision and ISC license are bundled in `luxai/assets/icons/lucide/`.
-
-Say **“Send Hanzo a Discord message: hello”** or **“А ты можешь написать в дискорде пользователю Hanzo привет”**. Jarvis builds the window/contact/draft/send workflow; missing recipient or message details are clarified without asking you to dictate clicks. It verifies the contact and requests final approval for the actual draft before sending. Hidden Discord/Electron helper windows no longer count as extra visible app windows.
-
-## 0.3.0: adaptive desktop tasks
-
-Jarvis chooses a next tool, observes the actual result, adjusts its next step and verifies the outcome. A request such as **“Open Discord”** uses native Windows application discovery first, without taking a screenshot or requiring a cloud model. Opening is confirmed from a visible foreground window, rather than the existence of `Discord.exe`. **“Take a screenshot”** saves a local image in `Pictures/LuxAI` without an AI key.
-
-For unfamiliar tasks, enable the configured cloud AI. It can plan application actions, request visual inspection, research information and propose local CMD/PowerShell commands. Local execution validates each proposal. By default, `agent_auto_shell: true` authorizes commands for the current task without repeated confirmation, while retaining bounded execution and read-only result checks for changing commands. Set `agent_auto_shell: false` in `config.json` to request approval for each command outside the parsed read-only set. This authorization comes from your configuration, is scoped to the current task and does not bypass Windows permissions or UAC. Existing Discord send confirmation remains in place. Cloud screenshot analysis asks permission once per Jarvis session; local captures need no upload permission.
-
-Explicit requests to shut down, restart, sleep, lock or change the Windows dark/light theme use dedicated local operations. Shutdown/restart has a cancellation delay and does not force applications closed. The native **Night Light** operation opens Windows settings. With visual AI enabled and session screenshot permission, Jarvis can continue through the interface and verify the toggle; opening the page alone never confirms activation. Ambiguous **“night mode”** requests are clarified.
-
-Task checkpoints, answers and verified procedure hints are kept locally in `.luxai_data/agent_memory.json`. A remembered procedure guides the next task and still needs fresh checks; it does not preserve shell approval. Raw commands, screenshots and recordings are not saved as reusable procedure data. Jarvis distinguishes a verified result from an action issued without confirmation, so an uncertain click is not automatically repeated.
-
-Close Jarvis before updating. `Update.bat` downloads `main`; a change available only in a feature branch or pull request reaches the updater after merging. See [CHANGELOG.md](CHANGELOG.md) for the changes.
-
-## 0.2.0: microphone and wireless headset checks
-
-Close Jarvis, run `Update.bat`, and reopen it with `run_windows.bat`. Version 0.2.0 adds an actual capture-status indicator, live microphone level, device refresh, an independent microphone test, and diagnostic export. See [CHANGELOG.md](CHANGELOG.md) for the reliability fixes.
-
-If Jarvis appears enabled but does not hear you:
-
-1. Open **Settings → Voice input** and click **Refresh devices** after connecting your headset. Select its **recording/input endpoint**, commonly named **Headset / Hands-Free**, rather than the stereo playback endpoint. USB wireless headsets can use a different name; choose the endpoint shown as an input in Windows Sound settings.
-2. Click **Test microphone** and speak for four seconds. This measures input without loading Whisper or saving a recording. The meter should move. No sound means checking the headset's Mute switch, Windows input level, and **Settings → Privacy → Microphone → Allow desktop apps to access your microphone** (Windows 10); Windows 11 uses **Privacy & security → Microphone**. Another app may hold the device exclusively.
-3. If the test receives sound, select the correct recognition language (**Română** for Romanian), save settings, and use **Restart microphone**. The status first reports model loading and shows capture as active only after the driver opens. Initial model download/loading can take minutes; the input test can wait for an in-progress model operation to stop.
-4. Increase **Microphone sensitivity** moderately for quiet input. This changes speech detection, not Windows gain. Lower Windows microphone gain if the test reports clipping.
-5. If a failure persists, use **Save diagnostics**. The report lists runtime/dependency versions and device status and retains the last microphone-test result; it excludes API keys, conversations, recordings and personal model paths. Device names can identify your headset. A command-line report is also available: `.venv\Scripts\python.exe -m luxai.diagnostics`; append `--microphone --device INDEX` only to explicitly test an input.
-
-The on/off switch expresses your requested setting; the status and meter show actual capture. A working input test confirms audio capture, not Whisper accuracy. Windows 10/11 wireless drivers, headset firmware and Bluetooth profiles still need checking on the actual PC.
-
-## Install on a new computer
-
-1. Download and extract the full repository ZIP.
-2. Double-click `install_windows.bat`. It detects an installed 64-bit Python **3.11 or newer** (including 3.12, 3.13, 3.14 and stable 3.15). When none is found, it downloads the **official, digitally signed Python 3.11 fallback** from python.org for the current Windows user. It creates `.venv` and installs `requirements.txt`.
-3. After installation reports success, double-click `run_windows.bat`.
-
-An internet connection is required for the initial Python/package downloads and integrated Tesseract OCR. Newer Python versions depend on third-party Windows wheels. The installer chooses the newest *stable* locally available Python, rather than an alpha/beta interpreter, and attempts to install packages and import LuxAI before reporting success. If something fails, it preserves that environment as `.venv.old-*`, retries an older installed Python version, and ultimately offers the official Python 3.11 fallback. Details are logged in `logs/install_windows.log`. On Python 3.14+, the optional WebRTC VAD package is skipped (the microphone uses its built-in RMS fallback). **Python 3.15 is stable as of October 2026**, but LuxAI's speech backend (`faster-whisper` -> `ctranslate2`) currently lacks compatible Windows wheels on 3.15; CI confirms detection and probes dependency availability. The installer will automatically fall back to an older Python (normally 3.14) if 3.15 dependencies are unavailable. **Python 3.16 is an alpha preview** and is not production-ready; it is detected but requires its own third-party wheels before it can run the full application. Python 3.16 is tested on a best-effort, non-blocking CI job, never advertised as fully supported merely because the interpreter starts. OCR is optional, but the Python libraries and successful import check are required.
-
-**Do not copy `.venv` between computers.** It records absolute Python paths. If you already copied it, `install_windows.bat` detects the incompatible environment, renames it to `.venv.old-...` for backup and creates a working environment automatically. `run_windows.bat` offers to repair a missing/broken environment.
-
-If installation fails, send the error message together with `logs/install_windows.log`. Running the installer again is safe; it reuses valid environments and existing installed packages.
-
-Before sharing, leave out `.venv`, `.venv.old-*`, `config.json` with personal paths, `.luxai_secrets`, `.luxai_data`, and any API keys. Do not share private speech models or credentials without permission.
+# LuxAI Local — Jarvis
+
+A voice assistant for **Windows 10/11 (64-bit)** that works mostly on your own PC: speech recognition,
+voices, translation, OCR and an optional local AI model run locally. A cloud AI (your own key for
+Gemini, OpenAI, DeepSeek and others) is optional and only plans unfamiliar commands — every action is
+still checked and executed by Jarvis on Windows.
+
+Interface and replies in **Russian, Romanian and English**.
+
+User guides with the notes of every version (these are installed with the program):
+[Română](README_RO.txt) · [Русский](README_RU.txt) · [English](README_EN.txt) ·
+full history: [CHANGELOG.md](CHANGELOG.md)
+
+## Install
+1. Download this repository as a ZIP (Code → Download ZIP) and unpack it, e.g. on the Desktop.
+2. Run `install_windows.bat` — it creates the program's own Python environment and downloads the
+   speech, OCR and translation models (a setup window shows the progress).
+3. Start Jarvis with `run_windows.bat`.
 
 ## Update
+Run `Update.bat`. It closes Jarvis, downloads the latest version, **checks the signature of every
+file**, and keeps your settings, keys, commands and models. If anything fails, the previous version
+(files and libraries) is put back.
 
-After installation, use `Update.bat` to download new versions from GitHub. The updater preserves user configuration, local models and secrets. On a new PC without Python, use the installer before the updater.
+## What it can do
+- Voice and chat commands, a command library with folders, hotkeys, schedules and events.
+- Opens apps, sites, files and Steam games; controls volume, windows and the keyboard.
+- Discord control without the cloud (microphone, headphones, calls, channels).
+- Extensions: smart dictation, notification reader, read aloud, live captions, clipboard history,
+  quick inserts, visual avatar, breaks, PC Control from your own Telegram bot, media keys,
+  timers and alarms, converter (images, audio, video, GIF), screenshots, downloads cleanup.
+- Offline translator (NLLB-200) for captions, reading aloud, notifications and «translate …» in chat.
 
-## Windows 11 startup troubleshooting
+## Privacy
+API keys and the Telegram token are stored only with Windows DPAPI, never in `config.json` or logs.
+Do not publish keys, logs or personal files.
 
-LuxAI supports 64-bit Windows 10 and 11 with a functional Python 3.11–3.14 environment (later versions can use the installer fallback). It is tested automatically on Windows Server GitHub runners; actual Windows 11 hardware, audio drivers and permissions may differ.
-
-If double-clicking `run_windows.bat` appears to do nothing, run `diagnose_windows.bat` from the same folder. This starts Jarvis with a visible console and preserves errors in `logs/startup_error.log`. If an import, Qt startup, or configuration error prevents launch, a Windows error dialog points to that file. For dependency or virtual environment problems, run `install_windows.bat` and check `logs/install_windows.log`.
-
-On another computer, always extract a fresh ZIP without a copied `.venv`. Avoid sharing the original `config.json`, which can contain machine-specific model paths and personal settings. Never share API keys, secrets, or complete diagnostic logs without checking for private file paths or credentials.
-
-## Interface languages
-
-Open **Settings → Interface → Interface language** and choose **Русский**, **English**, or **Română**. Changes save automatically. Menu labels, settings, home controls, command editor and tool panels switch immediately without restarting the program. The preference is saved as `ui_language` in the local `config.json` and restored on next launch.
-
-Interface language is separate from **Voice input → Recognition language** (the existing `language` setting). Changing interface text does **not** change Whisper transcription, spoken answers, custom command phrases, API keys, or user-entered fields. Free-form agent responses, user-provided command names and third-party error messages remain in their original language.
-
-## Local model and multilingual speech troubleshooting
-
-The built-in keyboard/mouse commands and quick replies work without a local GGUF model. Install/update automatically prepare the native CPU engine in **LuxAI's own .venv**, and normal startup silently repairs a missing/broken engine. Only precompiled wheels are used; no C++ build or separate UI installation step is needed. If a compatible wheel cannot be obtained, ordinary commands/cloud chat remain usable and Settings show the preparation status. The offline GGUF **chat model** remains user-selected. Do not copy a .venv between computers.
-
-Under **Settings → Voice Output**, select **Jarvis reply language**: Automatic (follows voice recognition), Русский, English or Română. This controls response text and Piper speech. Selecting Mihai or Lessac in **Assistant voice** also selects Romanian or English reply language. The interface language and microphone language remain independent; switching interface labels alone does not change the spoken language. Normal greetings (including “Hello, Jarvis”) work without a local LLM or API key. Some legacy macro/tool responses can still contain untranslated Russian text; these should be updated independently rather than inaccurately translated or spoken using a mismatched model.
-
-## Local models, Romanian microphone accuracy, stability
-
-Place GGUF files in `LuxAI_Local/models/` (subfolders are supported). Open **Settings → AI Provider → Models in models folder** and choose a model; use **Refresh model list** after copying files. The selector shows all .gguf files, disables invalid/incomplete entries, and restores a previously selected model if the same unique filename was moved from another PC. Previously selected external model paths are still supported. Saving settings persists this selection.
-
-The model status under the selector reports invalid files and automatic engine-preparation progress. Installing the engine does not make a huge model fit in RAM. **GGUF chat now runs in an isolated CPU subprocess** instead of loading native llama.cpp into the Qt/audio process. This protects the main app from many native GGUF crashes, but the local model is loaded per request and therefore replies may be slower; try a smaller quantized model if RAM is limited.
-
-For better Romanian transcription choose **Settings → Voice input → Recognition language: Română**, recognition model **Medium** (if sufficient RAM/CPU, approximately 1.5 GB initial download), and accuracy **Balanced** or **More accurate**. The Small model requires fewer resources. On supported systems, audio capture now falls back from 16 kHz to the device's own sample rate and resamples to 16 kHz for Whisper. The mic uses Romanian vocabulary hints and a stronger beam on Romanian speech. Actual recognition accuracy still depends on recording quality and microphone position.
-
-Shutdown and microphone restarts now use cooperative cancellation instead of unsafe QThread termination. Native faults are additionally logged under `logs/fatal_error.log` where Python's crash handler can capture them, while `logs/startup_error.log` contains ordinary startup Python exceptions. If unexplained exits continue, run `diagnose_windows.bat` and inspect both logs. Review logs for private paths before sharing.
-
-## Automatic local GGUF engine setup (Windows)
-
-`llama-cpp-python` is the native library that opens local `.gguf` AI models. A model file alone cannot provide local chat. **The updated `install_windows.bat` installs this library automatically**, after the main requirements, using only the official precompiled CPU wheel (no C++ compiler needed). The `Update.bat` updater also checks and repairs the library, **even when it says LuxAI code is already up to date**. The main application remains usable if no compatible wheel is available; look in `logs/local_ai_install.log` for that error.
-
-For an existing installation, close Jarvis, run `Update.bat`, then reopen the app. If the backend still shows missing, run `install_local_ai.bat` to retry with a visible console. The helper installs into `LuxAI_Local/.venv`, not the global Python on the computer. Once the module is verified, select a GGUF under **Settings → AI Provider → Models**. A model can still fail to load when the file is incomplete or RAM is insufficient. Installation alone is not a guarantee that every model runs.
-
-## Python 3.11-3.14 detection and package updates
-
-`install_windows.bat` checks for all installed stable 64-bit Python **3.11, 3.12, 3.13 and 3.14**, shows which are present, and prefers the newest supported one when creating a new `.venv`. An already working `.venv` is normally preserved. If Python is absent, setup can use the signed official Python fallback.
-
-Each installer run rechecks **all direct packages in `requirements.txt`**, including packages already installed, and upgrades to the newest compatible stable releases allowed by their requirements and Python version. It uses `pip check` afterwards to detect package requirement conflicts. `Update.bat` uses the same upgrade policy even when the GitHub source revision is already current. The optional GGUF engine is also checked for a newer compatible prebuilt CPU wheel. These operations change only `LuxAI_Local/.venv`, **not global Python installations**. Internet access is needed to check current package availability.
-
-The newest package release is not always compatible with every Python version or every other library. The installer uses dependency constraints, Python markers, import checks and Windows CI tests rather than blindly forcing the newest number. If a library cannot be updated, inspect `logs/install_windows.log` or `logs/local_ai_install.log`.
-
-## Romanian GGUF Unicode, reliable API keys, and cloud status
-
-Local GGUF messages use **UTF-8 in both directions**, including Windows systems whose default character set cannot encode Romanian `ș`, `ț` or Cyrillic. After updating, say a phrase containing Romanian diacritics to confirm the chat no longer returns `'charmap' codec can't encode character`.
-
-API keys are encrypted using the current Windows account's Data Protection API (DPAPI). New keys are saved in **`%LOCALAPPDATA%\LuxAI_Local\secrets`** instead of the copy of LuxAI on the Desktop, so extracting or updating LuxAI elsewhere does not lose the key. Old readable keys in `.luxai_secrets` are migrated automatically for the same Windows user. When editing finishes or an explicit key test succeeds, LuxAI saves the key and verifies it can be decrypted. If not, it keeps the entered text and reports the error. DPAPI cannot decrypt a key created under another Windows account; each user must save their own key.
-
-Open **Tools / Instrumente / Дополнения** to see Cloud AI status. A **green** indicator means a real authenticated test request has succeeded with the selected provider and model during the current session. Yellow means configured but not yet checked (or disabled); red means a missing key or failed check. Use **Check cloud AI** to run another test. A test may consume a small amount of the provider's quota. Never confuse having a stored key with confirmed live connectivity.
-
-## Complex voice-created commands (0.2.0)
-
-Say **"Создай команду"** or **"Creează o nouă comandă"**, provide a trigger phrase and describe the complete sequence: "open Notepad then wait 2 seconds then press Q W E R D". The wizard first parses supported commands locally; otherwise a configured cloud AI provider proposes a structured multi-action macro. The proposal is never executed while being designed. Jarvis previews the actual steps and saves them only after your explicit confirmation. A saved macro runs locally later, without needing another cloud call.
-
-Macros support up to 8 steps, and the new keyboard-sequence step can press 2–24 English letters or digits individually, with a short gap between presses. Existing keyboard shortcuts, safe mouse actions, delays, apps and browser actions may be combined. The sequence `qwerd` means five key presses, not typing that word into a text field. It can also be edited through **Commands → Actions**.
-
-Cloud macro plans pass a strict local action allowlist and parameter validation. Arbitrary shell commands, bulk deletion, emptying the Recycle Bin, password handling and unsupported instructions cannot be automatically generated. The wizard refuses incomplete/invalid plans instead of silently saving only the first recognizable clause. Advanced cloud interpretation requires an enabled provider and working API key; simple local commands and saved macros run offline.
-
-## Consent-based cloud visual desktop macros
-
-LuxAI can build reusable voice macros and also execute direct spoken multi-step requests involving mouse, keyboard, files, windows and real desktop geometry. The **visual_click** action takes a semantic control name and an explicit 1–10 click count, captures the *foreground external Windows application* after an affirmative screenshot-sharing prompt, sends a downscaled image to the configured vision-capable cloud AI, validates the returned normalized coordinates against the actual captured window, and only then clicks. Nothing is clicked when the provider does not support images, the element cannot be uniquely found or the foreground window changes. DPI/window decorations and fast-changing screens can limit accuracy. A cloud screenshot may include private information; review the approval dialog before sharing. Screenshots are not stored with macro definitions.
-
-For Recycle Bin commands, LuxAI offers native **open_recycle_bin**, explicit **empty_recycle_bin** with a separate irreversible-deletion confirmation and the Windows OS dialog, and **close_window** with confirmation. The AI cannot bypass the approval checks, write arbitrary scripts, read credentials, or auto-delete arbitrary desktop files. A direct complex voice request first previews every proposed step, and a saved macro requires explicit confirmation before it is created. Some cloud providers/models do not support image input, so selecting a vision-capable model such as an appropriate Gemini or OpenAI model is required for visual clicks. Live visual features require Windows, a visible external target window, and internet access.
-
-## Research and send a sourced Discord direct message safely
-
-The dedicated `discord_research_dm` action handles complex speech such as “find information about Adolf Hitler, find Discord user Ronci and send it”. Instead of opening a browser search result and then blindly clicking in whichever application happens to have focus, LuxAI fetches a short **real Wikipedia TextExtracts** summary with a source link, switches to the installed Discord desktop app, invokes its documented **Ctrl+K / @username Quick Switcher**, and locates the matching result and DM editor through live screenshot analysis. It drafts the cited text and **requires separate explicit approval before pressing Enter**. The application never claims it verified delivery.
-
-A screenshot can expose private conversations. User approval is required before sharing up to three screenshots with the selected vision-capable cloud provider. The third is captured after the final send confirmation to verify the current DM header and the entire unsent message again. Sending runs off the UI thread and is cancelled if verification is ambiguous or the target window changed. If search results are ambiguous, user text was misheard, source lookup fails, or the expected DM composer is not visible, no message is sent. A captured chat title is not treated as a password / login screen. Names and article subjects are locally revalidated; other cloud-generated plans are rejected for this intent. Windows, Discord desktop and a working vision-capable AI provider are required. Not every cloud model accepts images. No login credentials or Discord tokens are used.
-
-## Discord visual screenshots and summary via a single voice command
-
-A full chained request to open Discord, take a screenshot, find a named user, take another screenshot and summarize it is now treated as **one ordered multi-step action**, before generic Windows UI button inspection. With explicit consent, LuxAI launches/focuses the verified Discord desktop process, saves a local initial window screenshot, searches for the exact Discord username using Ctrl+K, checks the DM header in a new visual capture, saves the resulting screenshot and summarizes visible content in Russian through the user's chosen vision-capable provider. It **does not send messages**. The two screenshots are saved under `Pictures/LuxAI`.
-
-Consent describes up to three image transmissions (Quick Switcher search, DM header check, final image summary). The first window capture stays local; any ambiguous username/AI match stops the operation. Cloud access is required for visual analysis. If unavailable, a complete multi-step task fails clearly instead of executing a single unrelated screen-inspection or click action. Only Windows and Discord desktop are supported for this particular workflow.
-
-### Whisper variations and Discord multiword display names
-
-Long Russian requests can now retain multiword contact display names (for example, `Старый Бог`) and recognize the specific mishearing `Скопт` as a possible Discord reference only when a full screenshot-and-chat workflow is present. An explicit preview confirms Discord and the complete person name; a different unrecognized application name causes a clear error rather than launching a guessed app or answering as a generic chatbot. Users must authorize visual analysis, and an ambiguous match never triggers blind clicks or sends a message.
-
-### Restore native Discord microphone controls before generic macro planning
-
-Known local commands retain priority over the live macro generator. `Выключи микрофон в Discord` continues to use the existing confirmed Discord Ctrl+Shift+M toggle. `Сделай снимок экрана и нажми на кнопку микрофона в дискорде` now uses a dedicated opt-in visual operation: verify the real Discord process and focused window, save one screenshot under Pictures/LuxAI, ask the selected image-capable cloud AI to locate the unique Discord mic control, then click that control once after revalidating foreground/window and coordinates. A missing/ambiguous target is not clicked. No messages are sent, and a toggle is not claimed to have produced a known mic state.
+For developers: start with [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md) and [CLAUDE.md](CLAUDE.md).
