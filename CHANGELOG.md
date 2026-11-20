@@ -1,3 +1,28 @@
+## 0.4.2z — Film captions in advance (2026-11-21)
+
+- New `browser_extension/` (Manifest V3, Chrome and Edge): `background.js` remembers the media each tab
+  requests (HLS playlists, mp4/webm, also by content type) in `chrome.storage.session`; `content.js` (all
+  frames — players live in iframes) reports the main video's time/paused/rate/duration once a second and on
+  play/pause/seek. It talks only to `http://127.0.0.1:47321/v1/state`.
+- New `luxai/film_captions.py`: `BridgeServer` (127.0.0.1 only, exclusive port, only `chrome-extension://`
+  origins, 64 KB bodies, validated reports), `PlayerClock` (extrapolated position), `CueTimeline` (lines +
+  prepared stretches), `FilmTranscriber`: picks the media whose length matches the page's video (ads skipped),
+  opens it with FFmpeg/PyAV (Referer/Origin/user agent of the page), decodes the audio ahead of the player
+  (10 s first piece, then 30 s), recognises with word timestamps — small while it catches up, then
+  large-v3-turbo up to 10 minutes ahead — redoes a line cut at a piece end, translates every line offline,
+  and follows seeks (prepared stretches are kept).
+- Runtime: while the player's position is prepared, the bar shows those lines at their exact time and the
+  live engine pauses; elsewhere (not prepared yet, protected/refused media, browser silent for 4 s) the live
+  captions continue. Setting «Browser films: captions in advance» (on) and an «Install…» button that opens the
+  extension folder and Chrome's extensions page.
+- Verified end to end with a real browser (Edge, temporary profile — Chrome 156 no longer loads unpacked
+  extensions from the command line), the real extension and the real runtime on a 90 s film of real
+  speech: 9 of 9 lines on the bar matched what was spoken at that moment, translated to Russian; after a seek
+  to 0:55 the prepared line was shown at once. HLS decoding verified separately (local HLS and a public
+  test stream). Not verified: a real film site (players, cookies, CDNs differ) and Chrome itself.
+- DRM-protected media (Netflix, Disney+, Prime Video…) is encrypted and is never touched.
+- Words appear as they are spoken: each line keeps its words' start times (Whisper word timestamps); the bar draws the words not yet spoken invisible, so they keep their place and nothing jumps, and the translation is revealed by the same share of the line at word boundaries. Verified that the hidden part is not drawn and the visible part starts where the full line starts.
+
 ## 0.4.2y — Hybrid live captions, Whisper large-v3 option (2026-11-21)
 
 Cause of the ~6 s delay: the translation started only when a phrase ended (pause or the 5 s cut), and

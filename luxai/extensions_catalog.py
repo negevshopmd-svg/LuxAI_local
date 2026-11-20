@@ -259,6 +259,14 @@ PLUGINS: tuple[Plugin, ...] = (
                           ("precise", L("Как у голосовых команд (медленнее)", "Same as voice commands (slower)",
                                         "Ca la comenzile vocale (mai lent)")))),
          Setting("source", "text", L("Что слушать", "What to listen to", "Ce ascult"), "", max_length=120),
+         Setting("browser_films", "bool", L("Фильмы в браузере: субтитры заранее", "Browser films: captions in advance",
+                                            "Filme în browser: subtitrări din timp"), True,
+                 hint=L("С расширением Jarvis для Chrome: уже загруженная часть фильма распознаётся и переводится "
+                        "заранее, строки появляются точно вовремя. Не работает с защищённым видео (Netflix и т. п.).",
+                        "With the Jarvis extension for Chrome: the part of the film already loaded is recognised and "
+                        "translated in advance, lines appear exactly on time. Does not work with protected video (Netflix etc.).",
+                        "Cu extensia Jarvis pentru Chrome: partea de film deja încărcată e recunoscută și tradusă din timp, "
+                        "rândurile apar exact la timp. Nu merge cu video protejat (Netflix etc.).")),
          Setting("translate", "bool", L("Переводить", "Translate", "Tradu"), False,
                  hint=L("Под субтитрами — перевод законченных фраз.", "Under the captions — the translation of finished phrases.",
                         "Sub subtitrări — traducerea frazelor terminate.")),
@@ -285,7 +293,8 @@ PLUGINS: tuple[Plugin, ...] = (
                         "Optional: a shortcut that shows and hides the captions.",
                         "Opțional: o combinație care arată și ascunde subtitrările."))),
         (("toggle", L("Показать субтитры", "Show captions", "Arată subtitrările")),
-         ("reset_position", L("Вернуть вниз по центру", "Back to bottom centre", "Înapoi jos la centru"))),
+         ("reset_position", L("Вернуть вниз по центру", "Back to bottom centre", "Înapoi jos la centru")),
+         ("browser_extension", L("Расширение для Chrome…", "Chrome extension…", "Extensia pentru Chrome…"))),
     ),
     Plugin(
         "meeting_notes", "voice", "clipboard-list", "#e5484d",
@@ -822,7 +831,7 @@ SECTIONS = {
         Section("sound", "headphones", L("Звук и язык", "Sound and language", "Sunet și limbă"),
                 L("На каком языке говорят и что слушать.", "Which language is spoken and what to listen to.",
                   "Ce limbă se vorbește și ce ascult."),
-                ("language", "quality", "@source")),
+                ("language", "quality", "@source", "browser_films", "@browser_extension")),
         Section("translate", "globe", L("Перевод", "Translation", "Traducere"),
                 L("Законченные фразы переводятся на ваш язык прямо на этом ПК.",
                   "Finished phrases are translated into your language right on this PC.",

@@ -636,6 +636,8 @@ class ExtensionsRuntime(QObject):
     _cap_translated = Signal(str, str)
     _cap_partial_translated = Signal(str, str, int)  # draft text, its translation, phrase number
     _cap_corrected = Signal(str, str)  # hybrid: draft line, precise text
+    _film_report = Signal(object)  # a player report from the Chrome extension (film captions in advance)
+    _film_error = Signal(str)
     _cap_error = Signal(str)
     _clip_ai_ready = Signal(str, str)  # mode, result ("" = failed)
     _clip_image_ready = Signal(bytes, bytes, int, int, str)  # png, thumb, width, height, app
@@ -701,6 +703,15 @@ class ExtensionsRuntime(QObject):
         self._cap_partial.connect(self._on_cap_partial)
         self._cap_partial_translated.connect(self._on_cap_partial_translated)
         self._cap_corrected.connect(self._on_cap_corrected)
+        self._film_report.connect(self._on_film_report)
+        self._film_error.connect(self._on_film_error)
+        self._film_bridge = None
+        self._film = None          # (key, clock, timeline, transcriber) of the film being prepared
+        self._film_active = False  # prepared lines are on the bar now
+        self._film_shown = None
+        self._film_timer = QTimer(self)
+        self._film_timer.setInterval(80)  # words appear in step with the film
+        self._film_timer.timeout.connect(self._film_tick)
         self._cap_phrase = 0  # increases with every finished phrase: late draft translations are dropped
         self._cap_final.connect(self._on_cap_final)
         self._cap_translated.connect(self._on_cap_translated)
@@ -929,6 +940,10 @@ class ExtensionsRuntime(QObject):
             self._configure_bar()
             if self._captions_config != self._captions_settings_key():
                 self._start_caption_audio()  # language or source changed
+            if self.settings("live_captions").get("browser_films", True):
+                self._start_film_bridge()
+            elif self._film_bridge is not None:
+                self._stop_film()
 
     def _configure_bar(self):
         settings = self.settings("live_captions")
@@ -975,6 +990,7 @@ class ExtensionsRuntime(QObject):
         self._captions_bar.show()
         self.captions_visible = True
         self._start_caption_audio()
+        self._start_film_bridge()
         if self.settings("live_captions").get("translate"):
             from luxai import offline_translate
             offline_translate.download_in_background()  # once, ≈640 MB; the original until then
@@ -984,6 +1000,7 @@ class ExtensionsRuntime(QObject):
         return self._captions_words("shown")
 
     def hide_captions(self):
+        self._stop_film()
         self._stop_caption_audio()
         bar, self._captions_bar = self._captions_bar, None
         if bar is not None:
@@ -1085,6 +1102,125 @@ class ExtensionsRuntime(QObject):
         self._captions_engine = engine.start()
         self._captions_capture = capture.start()
 
+    # -- film captions in advance (Chrome extension) --
+    def _start_film_bridge(self):
+        if not self.settings("live_captions").get("browser_films", True) or self._film_bridge is not None:
+            return
+        from luxai.film_captions import BridgeServer
+        bridge = BridgeServer(self._film_report.emit)
+        if bridge.start():
+            self._film_bridge = bridge
+            self._film_timer.start()
+
+    def _stop_film(self):
+        self._film_timer.stop()
+        bridge, self._film_bridge = self._film_bridge, None
+        if bridge is not None:
+            bridge.stop()
+        film, self._film = self._film, None
+        if film is not None:
+            film[3].stop()
+        self._set_film_active(False)
+
+    def _on_film_report(self, report):
+        """A player report (Qt thread). A new film (other tab, page or length) starts its own preparation."""
+        if not self.captions_visible or self._film_bridge is None:
+            return
+        candidates = list(report.get("media") or [])
+        if not candidates:
+            return
+        key = (report["tab"], report["page"], round(report["duration"]))
+        film = self._film
+        if film is None or film[0] != key or film[3].stopped:
+            if film is not None:
+                film[3].stop()
+            from luxai.film_captions import CueTimeline, FilmTranscriber, PlayerClock
+            from luxai.live_captions import caption_model
+            clock, timeline = PlayerClock(), CueTimeline()
+            target = self._caption_target()
+            translate = None
+            if target is not None:
+                def translate(text, source, target=target):
+                    from luxai.translation import text_language, translate_offline
+                    if text_language(text) == target:
+                        return ""
+                    return translate_offline(text, target, source) or ""
+            # The best model: the film is prepared ahead, so there is time for it.
+            transcriber = FilmTranscriber(candidates, report["page"], clock, timeline,
+                                          lambda: caption_model("large-v3-turbo", threads=8),
+                                          language=self._caption_language(), translate=translate,
+                                          on_error=self._film_error.emit, video_duration=report["duration"],
+                                          fast_model_provider=lambda: caption_model("small", threads=6))
+            self._film = (key, clock, timeline, transcriber)
+            clock.update(report["time"], report["paused"], report["rate"], report["duration"])
+            transcriber.start()
+            return
+        film[1].update(report["time"], report["paused"], report["rate"], report["duration"])
+
+    def _on_film_error(self, error: str):
+        # Not usable (protected or refused media): the normal live captions simply continue.
+        import logging
+        logging.getLogger(__name__).info("Film captions: %s", error)
+
+    def _film_tick(self):
+        film = self._film
+        bar = self._captions_bar
+        if film is None or bar is None or not film[1].alive():
+            self._set_film_active(False)
+            return
+        position = film[1].position()
+        if not film[2].is_covered(position):
+            self._set_film_active(False)  # not prepared yet here: the live captions show it
+            return
+        self._set_film_active(True)
+        cues = film[2].lines_at(position, keep=bar.max_lines)
+        # Words appear as they are spoken in the film (the rest of the line waits invisible).
+        reveal = {cue.text: cue.shown(position) for cue in cues}
+        cues = [cue for cue in cues if reveal[cue.text][0] or reveal[cue.text][1]]
+        shown = [(cue.text, cue.translation, reveal[cue.text]) for cue in cues]
+        if shown != self._film_shown:
+            self._film_shown = shown
+            bar.reveal = reveal
+            bar.lines = [(cue.text, cue.translation) for cue in cues]
+            bar.partial = ""
+            bar.partial_translation = ""
+            bar.render()
+
+    def _set_film_active(self, active: bool):
+        engine = self._captions_engine
+        if engine is not None:
+            engine.paused = active  # also a live engine restarted meanwhile (settings changed)
+        if active == self._film_active:
+            return
+        self._film_active = active
+        self._film_shown = None
+        if self._captions_bar is not None:
+            self._captions_bar.reveal = {}
+        bar = self._captions_bar
+        if bar is not None:
+            bar.lines = []
+            bar.partial = ""
+            bar.partial_translation = ""
+            bar.render()
+
+    def open_browser_extension(self):
+        """Open the extension folder and Chrome's extensions page (one-time «Load unpacked»)."""
+        folder = Path(__file__).resolve().parents[1] / "browser_extension"
+        if sys.platform == "win32":
+            os.startfile(str(folder))  # noqa: S606 - our own folder
+            import subprocess
+            try:
+                subprocess.Popen(["cmd", "/c", "start", "", "chrome", "chrome://extensions"],
+                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            except OSError:
+                pass
+        self._notify(_tr3("В Chrome: включите «Режим разработчика», нажмите «Загрузить распакованное» и выберите "
+                          "открывшуюся папку browser_extension. Это нужно один раз.",
+                          "In Chrome: turn on «Developer mode», click «Load unpacked» and choose the browser_extension "
+                          "folder that just opened. This is needed once.",
+                          "În Chrome: pornește „Modul dezvoltator”, apasă „Încarcă extensia neîmpachetată” și alege "
+                          "dosarul browser_extension care s-a deschis. E nevoie o singură dată.", self.language))
+
     def _stop_caption_audio(self):
         capture, self._captions_capture = self._captions_capture, None
         engine, self._captions_engine = self._captions_engine, None
@@ -1094,7 +1230,7 @@ class ExtensionsRuntime(QObject):
             engine.stop()
 
     def _on_cap_partial(self, text: str):
-        if self._captions_bar is None:
+        if self._captions_bar is None or self._film_active:
             return
         # «Only the translation»: the growing original is not shown.
         self._captions_bar.set_partial("" if self._captions_translate_only() else text)
@@ -1148,7 +1284,7 @@ class ExtensionsRuntime(QObject):
     def _on_cap_corrected(self, draft: str, precise: str):
         """Hybrid: the precise model finished a line — replace the draft and translate it again."""
         bar = self._captions_bar
-        if bar is None:
+        if bar is None or self._film_active:
             return
         if not draft:  # a phrase only the precise model could read: a new line
             self._on_cap_final(precise)
@@ -1171,7 +1307,7 @@ class ExtensionsRuntime(QObject):
     def _on_cap_final(self, text: str):
         self._cap_phrase += 1  # a draft translation still on its way is dropped
         last_draft, self._cap_last_draft = getattr(self, "_cap_last_draft", ("", "")), ("", "")
-        if self._captions_bar is None:
+        if self._captions_bar is None or self._film_active:
             return
         self._captions_bar.partial_translation = ""  # the final line replaces the draft
         if last_draft[0] == text and last_draft[1]:
@@ -1464,6 +1600,7 @@ class ExtensionsRuntime(QObject):
             ("live_captions", "toggle"): self.toggle_captions,
             ("visual_avatar", "reset_position"): self.reset_avatar_position,
             ("live_captions", "reset_position"): self.reset_captions_position,
+            ("live_captions", "browser_extension"): self.open_browser_extension,
             ("quick_inserts", "open"): lambda: self.open_snippets(paste=False),
             ("breaks", "test"): lambda: self.remind_break(force=True),
             ("breaks", "try_eyes"): lambda: self.show_break_card("eyes", test=True),

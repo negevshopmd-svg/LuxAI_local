@@ -1,5 +1,12 @@
-LUXAI LOCAL 0.4.2y — ACTUALIZARE 2026-11-21
+LUXAI LOCAL 0.4.2z — ACTUALIZARE 2026-11-21
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.2z: Subtitrări din timp pentru filme în browser. Cu extensia Jarvis pentru Chrome/Edge,
+partea de film deja încărcată e recunoscută și tradusă ÎNAINTE să fie redată, iar fiecare
+cuvânt apare exact când e rostit în film (și după derulare). Instalare, o singură dată: Extensii → Subtitrări
+live → Extensia pentru Chrome → Instalează…, apoi în Chrome pornește „Modul dezvoltator”,
+apasă „Încarcă extensia neîmpachetată” și alege dosarul browser_extension. Nu merge cu
+video protejat (Netflix, Disney+ etc.); acolo rămân subtitrările live obișnuite.
 
 0.4.2y: Subtitrările live au modul nou „Hibrid” (implicit): textul și traducerea apar în
 ~1–2 secunde în timp ce omul vorbește, apoi un model precis corectează rândul. Înainte

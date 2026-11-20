@@ -21,6 +21,7 @@ commands; the local Windows executor still validates and runs every action.
 | `luxai/` | All modules (map below). |
 | `Update.bat`, `Update.py`, `scripts/fetch_updater.py`, `scripts/release_signature.py` | Signed updater. |
 | `install_windows.bat`, `scripts/install_windows.ps1`, `scripts/setup_ui.ps1` | Installer/repair and the WPF setup window shared with the updater. |
+| `browser_extension/` | Chrome/Edge extension (installed on the PC): reports the playing video and its media to Jarvis. |
 | `README_RO.txt` / `README_RU.txt` / `README_EN.txt` | User guide + per-version notes (installed on the PC). |
 | `release_manifest.json` + `.sig` | Ed25519-signed list of every file of the release. |
 | `runtime_cleanup_manifest.json` | Hashes of dev-only files, so old copies are removed from user PCs. |
@@ -74,7 +75,8 @@ key is built into `Update.py` and `scripts/release_signature.py`. `.bat/.cmd` ar
   `extensions_runtime.py` (behaviour of the 15 working ones), UI `ui_extensions.py`, `ui_extension_settings.py`.
   Working: smart dictation (`dictation.py`), notification reader (`notifications.py`), read aloud
   (`translation.py`), live captions (`live_captions.py`, `loopback_audio.py`; «Hybrid»: fast draft + translation,
-  precise correction on its own thread), clipboard history
+  precise correction on its own thread), film captions in advance (`film_captions.py` + the Chrome/Edge
+  extension in `browser_extension/`, local bridge on 127.0.0.1:47321), clipboard history
   (`clipboard_store.py`, `clipboard_native.py`, `ui_clipboard.py`), quick inserts, visual avatar
   (`avatar.py`), breaks, PC Control via Telegram bot (`telegram_control.py`), media keys, timers and
   alarms (`timers.py`), converter (`converter.py`, `ui_convert_circle.py`), screenshots, downloads cleanup.

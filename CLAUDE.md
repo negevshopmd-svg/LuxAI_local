@@ -70,3 +70,8 @@ Most bugs came from testing only the happy path with mocks. Before calling a cha
   `.luxai_data/admin_task.txt`), autostart value `LuxAI_Jarvis_<id>`.
 - Extensions (plugins): catalog `luxai/extensions_catalog.py`, behaviour `luxai/extensions_runtime.py`.
 - Offline translator: `luxai/offline_translate.py` (NLLB-200 600M, CTranslate2 int8, pinned revision).
+- Live captions: `luxai/live_captions.py` («Hybrid»: fast draft + precise correction). Film captions in
+  advance: `luxai/film_captions.py` + `browser_extension/` (Chrome/Edge MV3, bridge 127.0.0.1:47321).
+  Chrome 137+ cannot load unpacked extensions from the command line — test with Edge and a temporary profile.
+- CPU only (the AMD GPU is not usable by CTranslate2); one Whisper pass costs nearly the same for any
+  length (30 s window): base ≈0.4 s, small ≈1.2 s, turbo ≈4.4 s, large-v3 ≈6.1 s on the Ryzen 7 5800X.

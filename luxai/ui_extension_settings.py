@@ -113,6 +113,11 @@ W = {
     "avatar_monitor": L("Монитор {n} — {w}×{h}", "Monitor {n} — {w}×{h}", "Monitor {n} — {w}×{h}"),
     "avatar_primary": L("(основной)", "(primary)", "(principal)"),
     "captions_show": L("Показать субтитры", "Show captions", "Arată subtitrările"),
+    "browser_extension": L("Установить…", "Install…", "Instalează…"),
+    "browser_extension_title": L("Расширение для Chrome", "Chrome extension", "Extensia pentru Chrome"),
+    "browser_extension_hint": L("Один раз: откроется папка и страница расширений Chrome.",
+                                "Once: opens the folder and Chrome's extensions page.",
+                                "O singură dată: se deschid dosarul și pagina de extensii Chrome."),
     "captions_hide": L("Скрыть субтитры", "Hide captions", "Ascunde subtitrările"),
     "captions_live": L("Субтитры на экране.", "Captions are on screen.", "Subtitrările sunt pe ecran."),
     "captions_off": L("Плагин выключен. «Показать субтитры» включит его.", "The plugin is off. “Show captions” turns it on.",
@@ -762,6 +767,9 @@ class PluginSettingsView(QWidget):
                     continue
                 if key == "@position":
                     self._add_position_row(card)
+                    continue
+                if key == "@browser_extension":
+                    self._add_browser_extension_row(card)
                     continue
                 if key == "@position_grid":
                     self._add_avatar_position_row(card)
@@ -1567,6 +1575,14 @@ class PluginSettingsView(QWidget):
         else:
             self.tr_label.setText(w("tr_missing", self.language))
             self.tr_dot.set_color("#e0a43a")
+
+    def _add_browser_extension_row(self, card):
+        button = QPushButton(w("browser_extension", self.language))
+        button.setObjectName("ExtConfigure")
+        set_button_icon(button, "folder-open", size=15)
+        button.setEnabled(self.runtime is not None)
+        button.clicked.connect(lambda: self.runtime.open_browser_extension())
+        card.add_row(_row(w("browser_extension_title", self.language), w("browser_extension_hint", self.language), button))
 
     def _add_position_row(self, card):
         button = QPushButton(w("position_reset", self.language))

@@ -204,6 +204,7 @@ class CaptionEngine:
         self._thread = None
         self._partial_len = 0
         self._partial_text = ""
+        self.paused = False  # film mode: prepared lines are shown, live recognition rests
 
     def feed(self, audio: np.ndarray) -> None:
         with self._lock:
@@ -366,6 +367,12 @@ class CaptionEngine:
                     model = self.model_provider()
                     if model is None:
                         raise RuntimeError("speech model is not loaded")
+                if self.paused:
+                    with self._lock:
+                        self.segmenter = PhraseSegmenter()  # nothing old is read when it resumes
+                    self._partial_len, self._partial_text = 0, ""
+                    self._stop.wait(0.1)
+                    continue
                 if not self.step(model):
                     self._stop.wait(0.05)
             except Exception as error:
@@ -409,6 +416,15 @@ class _Handle(QLabel):
 PENDING = "\u2026pending"
 
 
+def _revealed(text: str, shown) -> str:
+    """HTML: the first ``shown`` characters visible, the rest invisible but holding its place."""
+    import html
+    if shown is None or shown >= len(text):
+        return html.escape(text)
+    return (html.escape(text[:shown]) + "<span style='color:rgba(0,0,0,0);'>"
+            + html.escape(text[shown:]) + "</span>")
+
+
 class CaptionBar(QWidget):
     """Always-on-top strip with the last lines of text. Never takes the focus."""
     closed_by_user = Signal()
@@ -430,6 +446,9 @@ class CaptionBar(QWidget):
         self.partial = ""
         self.partial_translation = ""  # hybrid: the translation of the draft line
         self.retranslating: set[str] = set()  # corrected lines whose new translation is on its way
+        # Film mode: original text -> (characters shown, translation characters shown). The rest of the
+        # line is drawn invisible, so words appear where they belong and nothing jumps.
+        self.reveal: dict[str, tuple[int, int]] = {}
         self.placeholder = ""
         row = QHBoxLayout(self)
         row.setContentsMargins(6, 8, 6, 8)
@@ -539,12 +558,15 @@ class CaptionBar(QWidget):
                 else:
                     blocks.append(f"<div style='margin:0; font-size:{small}px; color:rgba(255,255,255,0.5);'>…</div>")
                     continue
+            cut = self.reveal.get(original)
             if self.show_original or not translation:
-                parts.append(f"<div style='margin:0; font-size:{self.font_size}px; color:white;'>{html.escape(original)}</div>")
+                body = _revealed(original, cut[0] if cut else None)
+                parts.append(f"<div style='margin:0; font-size:{self.font_size}px; color:white;'>{body}</div>")
             if translation:
                 size = small if self.show_original else self.font_size
                 color = "#ffd166" if self.show_original else "white"
-                parts.append(f"<div style='margin:0; font-size:{size}px; color:{color};'>{html.escape(translation)}</div>")
+                body = _revealed(translation, cut[1] if cut else None)
+                parts.append(f"<div style='margin:0; font-size:{size}px; color:{color};'>{body}</div>")
             blocks.append("".join(parts))
         if not blocks and self.placeholder:
             blocks.append(f"<div style='margin:0; font-size:{small}px; color:rgba(255,255,255,0.6);'>{html.escape(self.placeholder)}</div>")

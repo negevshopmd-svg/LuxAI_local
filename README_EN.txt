@@ -1,4 +1,11 @@
-LUXAI LOCAL (JARVIS) 0.4.2y — UPDATE 2026-11-21
+LUXAI LOCAL (JARVIS) 0.4.2z — UPDATE 2026-11-21
+
+0.4.2z: Captions in advance for films in the browser. With the Jarvis extension for Chrome/Edge,
+the part of the film already loaded is recognised and translated BEFORE it plays, and every line
+word appears exactly when it is spoken in the film (also after seeking). Install once: Extensions → Live captions → Chrome
+extension → Install…, then in Chrome turn on «Developer mode», click «Load unpacked» and choose
+the browser_extension folder. Does not work with protected video (Netflix, Disney+ etc.);
+there the normal live captions stay.
 
 0.4.2y: Live captions have a new «Hybrid» mode (the default): the text and its translation
 appear ~1-2 seconds after the words, while the person is still talking, then a precise model
