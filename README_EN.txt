@@ -1,4 +1,9 @@
-LUXAI LOCAL (JARVIS) 0.4.2z — UPDATE 2026-11-21
+LUXAI LOCAL (JARVIS) 0.4.3 — UPDATE 2026-11-21
+
+0.4.3: When captions start, Jarvis asks whether to install the Chrome extension (Yes / Later /
+Don't ask again). «Yes» opens a guide: Chrome opens, the chrome://extensions address and the
+folder path are copied for you, and the window turns green as soon as the extension works.
+Jarvis remembers that the extension is installed.
 
 0.4.2z: Captions in advance for films in the browser. With the Jarvis extension for Chrome/Edge,
 the part of the film already loaded is recognised and translated BEFORE it plays, and every line

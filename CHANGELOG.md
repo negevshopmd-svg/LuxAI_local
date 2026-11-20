@@ -1,3 +1,21 @@
+## 0.4.3 — Browser extension: offered, guided, detected (2026-11-21)
+
+- When captions are shown and the extension was never seen, Jarvis asks once per session (Yes / Later /
+  Don't ask again; only when Chrome or Edge is installed).
+- New `luxai/ui_browser_extension.py`: a guide window. Chrome refuses `chrome://` addresses on its command
+  line (checked with a temporary profile: an empty new tab opened), so Chrome is opened with the address on
+  the clipboard; «Copy the path» puts the folder path there for the «Load unpacked» dialog. The window turns
+  green by itself when the extension says hello.
+- The extension says hello on install and on browser start (`/v1/hello`, version + browser); any report also
+  counts. Jarvis remembers it in `extensions_meta.browser_extension_seen` and stops asking.
+- The local bridge now listens while the captions plugin is on (not only while the bar is shown), so a hello
+  sent when the browser starts is heard; it is closed when the plugin is turned off or Jarvis exits.
+- Chrome Web Store: `tests/build_extension_package.py` builds `dist/jarvis-film-captions-<version>.zip`;
+  listing and privacy answers are in PROJECT_HANDOFF.md. Publishing needs the owner's Google developer account
+  — once published, `STORE_ID` makes the guide a one-click «Add to Chrome». Manifest name: «Jarvis Film Captions».
+- Verified with a real browser (Edge, temporary profile): loading the extension turned the guide green and
+  Jarvis remembered `{"version": "1.0.0", "browser": "edge"}`.
+
 ## 0.4.2z — Film captions in advance (2026-11-21)
 
 - New `browser_extension/` (Manifest V3, Chrome and Edge): `background.js` remembers the media each tab

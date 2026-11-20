@@ -1,5 +1,10 @@
-LUXAI LOCAL 0.4.2z — ACTUALIZARE 2026-11-21
+LUXAI LOCAL 0.4.3 — ACTUALIZARE 2026-11-21
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.3: Când pornești subtitrările, Jarvis întreabă dacă vrei extensia pentru Chrome (Da / Mai
+târziu / Nu mai întreba). La „Da” se deschide un ghid: Chrome se deschide, adresa
+chrome://extensions și calea dosarului se copiază singure, iar fereastra devine verde
+imediat ce extensia funcționează. Jarvis ține minte că extensia e instalată.
 
 0.4.2z: Subtitrări din timp pentru filme în browser. Cu extensia Jarvis pentru Chrome/Edge,
 partea de film deja încărcată e recunoscută și tradusă ÎNAINTE să fie redată, iar fiecare

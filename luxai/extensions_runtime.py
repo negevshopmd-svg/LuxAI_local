@@ -638,6 +638,7 @@ class ExtensionsRuntime(QObject):
     _cap_corrected = Signal(str, str)  # hybrid: draft line, precise text
     _film_report = Signal(object)  # a player report from the Chrome extension (film captions in advance)
     _film_error = Signal(str)
+    _extension_hello = Signal(object)  # the browser extension says it is installed
     _cap_error = Signal(str)
     _clip_ai_ready = Signal(str, str)  # mode, result ("" = failed)
     _clip_image_ready = Signal(bytes, bytes, int, int, str)  # png, thumb, width, height, app
@@ -705,6 +706,9 @@ class ExtensionsRuntime(QObject):
         self._cap_corrected.connect(self._on_cap_corrected)
         self._film_report.connect(self._on_film_report)
         self._film_error.connect(self._on_film_error)
+        self._extension_hello.connect(self._on_extension_hello)
+        self._extension_dialog = None
+        self._extension_offered = False  # asked once per session at most
         self._film_bridge = None
         self._film = None          # (key, clock, timeline, transcriber) of the film being prepared
         self._film_active = False  # prepared lines are on the bar now
@@ -930,7 +934,13 @@ class ExtensionsRuntime(QObject):
         if not self.enabled("live_captions"):
             if self.captions_visible:
                 self.hide_captions()
+            if self._film_bridge is not None:
+                self._stop_film()
             return
+        if self.settings("live_captions").get("browser_films", True):
+            self._start_film_bridge()
+        elif self._film_bridge is not None:
+            self._stop_film()
         if not self._captions_autostart_done:
             self._captions_autostart_done = True
             if self.settings("live_captions").get("show_on_start") and not self.captions_visible:
@@ -991,6 +1001,7 @@ class ExtensionsRuntime(QObject):
         self.captions_visible = True
         self._start_caption_audio()
         self._start_film_bridge()
+        QTimer.singleShot(1500, self._offer_browser_extension)
         if self.settings("live_captions").get("translate"):
             from luxai import offline_translate
             offline_translate.download_in_background()  # once, ≈640 MB; the original until then
@@ -1000,7 +1011,7 @@ class ExtensionsRuntime(QObject):
         return self._captions_words("shown")
 
     def hide_captions(self):
-        self._stop_film()
+        self._stop_film(keep_bridge=self.enabled("live_captions"))
         self._stop_caption_audio()
         bar, self._captions_bar = self._captions_bar, None
         if bar is not None:
@@ -1104,26 +1115,95 @@ class ExtensionsRuntime(QObject):
 
     # -- film captions in advance (Chrome extension) --
     def _start_film_bridge(self):
-        if not self.settings("live_captions").get("browser_films", True) or self._film_bridge is not None:
+        if not self.settings("live_captions").get("browser_films", True):
             return
-        from luxai.film_captions import BridgeServer
-        bridge = BridgeServer(self._film_report.emit)
-        if bridge.start():
-            self._film_bridge = bridge
+        if self._film_bridge is None:
+            from luxai.film_captions import BridgeServer
+            bridge = BridgeServer(self._film_report.emit, on_hello=self._extension_hello.emit)
+            if bridge.start():
+                self._film_bridge = bridge
+        if self._film_bridge is not None and self.captions_visible and not self._film_timer.isActive():
             self._film_timer.start()
 
-    def _stop_film(self):
+    def _stop_film(self, keep_bridge: bool = False):
+        """Stop preparing (and showing) film lines; ``keep_bridge`` keeps listening for the extension."""
         self._film_timer.stop()
-        bridge, self._film_bridge = self._film_bridge, None
-        if bridge is not None:
-            bridge.stop()
+        if not keep_bridge:
+            bridge, self._film_bridge = self._film_bridge, None
+            if bridge is not None:
+                bridge.stop()
         film, self._film = self._film, None
         if film is not None:
             film[3].stop()
         self._set_film_active(False)
 
+    # -- the browser extension: installed? --
+    def extension_installed(self) -> bool:
+        meta = (getattr(self.host, "cfg", {}) or {}).get("extensions_meta", {})
+        return bool(isinstance(meta, dict) and meta.get("browser_extension_seen"))
+
+    def _remember_extension(self, info: dict):
+        cfg = getattr(self.host, "cfg", None)
+        if not isinstance(cfg, dict):
+            return
+        meta = cfg.setdefault("extensions_meta", {})
+        value = {"version": str(info.get("version", ""))[:16], "browser": info.get("browser", "chrome")}
+        if meta.get("browser_extension_seen") != value:
+            meta["browser_extension_seen"] = value
+            if hasattr(self.host, "save_extensions_meta"):
+                self.host.save_extensions_meta()
+
+    def _on_extension_hello(self, info):
+        info = info if isinstance(info, dict) else {}
+        self._remember_extension(info)
+        dialog = self._extension_dialog
+        if dialog is not None:
+            try:
+                dialog.connected(info)
+            except RuntimeError:
+                self._extension_dialog = None
+
+    def _offer_browser_extension(self):
+        """At captions start: offer the extension once (Yes / Later / Never) when it is not installed yet."""
+        from luxai.ui_browser_extension import find_browser
+        cfg = getattr(self.host, "cfg", None)
+        meta = cfg.get("extensions_meta", {}) if isinstance(cfg, dict) else {}
+        if (self._extension_offered or self.extension_installed() or not self.captions_visible
+                or not self.settings("live_captions").get("browser_films", True)
+                or (isinstance(meta, dict) and meta.get("browser_extension_never")) or find_browser() is None):
+            return
+        self._extension_offered = True
+        box = QMessageBox()
+        box.setWindowTitle("Jarvis")
+        box.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        box.setText(_tr3("Установить расширение Jarvis для Chrome?",
+                         "Install the Jarvis extension for Chrome?",
+                         "Instalez extensia Jarvis pentru Chrome?", self.language))
+        box.setInformativeText(_tr3(
+            "С ним субтитры фильмов в браузере готовятся заранее: каждое слово появляется ровно тогда, когда его "
+            "произносят, с готовым переводом. Без него субтитры работают как сейчас (с задержкой ~1–2 с).",
+            "With it, captions of films in the browser are prepared in advance: every word appears exactly when it "
+            "is spoken, already translated. Without it, captions work as now (~1-2 s behind).",
+            "Cu ea, subtitrările filmelor din browser se pregătesc din timp: fiecare cuvânt apare exact când e rostit, "
+            "deja tradus. Fără ea, subtitrările merg ca acum (cu ~1–2 s întârziere).", self.language))
+        yes = box.addButton(_tr3("Да, установить", "Yes, install", "Da, instalează", self.language),
+                            QMessageBox.ButtonRole.AcceptRole)
+        box.addButton(_tr3("Позже", "Later", "Mai târziu", self.language), QMessageBox.ButtonRole.RejectRole)
+        never = box.addButton(_tr3("Больше не спрашивать", "Don't ask again", "Nu mai întreba", self.language),
+                              QMessageBox.ButtonRole.DestructiveRole)
+        box.setDefaultButton(yes)
+        box.exec()
+        if box.clickedButton() is yes:
+            self.open_browser_extension()
+        elif box.clickedButton() is never and isinstance(cfg, dict):
+            cfg.setdefault("extensions_meta", {})["browser_extension_never"] = True
+            if hasattr(self.host, "save_extensions_meta"):
+                self.host.save_extensions_meta()
+
     def _on_film_report(self, report):
         """A player report (Qt thread). A new film (other tab, page or length) starts its own preparation."""
+        if not self.extension_installed():
+            self._on_extension_hello({"version": "", "browser": "chrome"})  # reports = it is installed
         if not self.captions_visible or self._film_bridge is None:
             return
         candidates = list(report.get("media") or [])
@@ -1204,22 +1284,33 @@ class ExtensionsRuntime(QObject):
             bar.render()
 
     def open_browser_extension(self):
-        """Open the extension folder and Chrome's extensions page (one-time «Load unpacked»)."""
-        folder = Path(__file__).resolve().parents[1] / "browser_extension"
-        if sys.platform == "win32":
-            os.startfile(str(folder))  # noqa: S606 - our own folder
-            import subprocess
-            try:
-                subprocess.Popen(["cmd", "/c", "start", "", "chrome", "chrome://extensions"],
-                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-            except OSError:
-                pass
-        self._notify(_tr3("В Chrome: включите «Режим разработчика», нажмите «Загрузить распакованное» и выберите "
-                          "открывшуюся папку browser_extension. Это нужно один раз.",
-                          "In Chrome: turn on «Developer mode», click «Load unpacked» and choose the browser_extension "
-                          "folder that just opened. This is needed once.",
-                          "În Chrome: pornește „Modul dezvoltator”, apasă „Încarcă extensia neîmpachetată” și alege "
-                          "dosarul browser_extension care s-a deschis. E nevoie o singură dată.", self.language))
+        """The guided installation window: opens the extensions page, copies the folder path, turns green
+        by itself when the extension reports (the bridge listens while the window is open)."""
+        from luxai.ui_browser_extension import ExtensionInstallDialog
+        self._start_film_bridge_for_install()
+        dialog = self._extension_dialog
+        try:
+            if dialog is not None and dialog.isVisible():
+                dialog.raise_()
+                dialog.activateWindow()
+                return
+        except RuntimeError:
+            pass
+        dialog = ExtensionInstallDialog(self.language)
+        dialog.destroyed.connect(lambda *_: setattr(self, "_extension_dialog", None))
+        self._extension_dialog = dialog
+        dialog.show()
+        dialog.start()
+        if self.extension_installed():
+            meta = (getattr(self.host, "cfg", {}) or {}).get("extensions_meta", {})
+            dialog.connected(meta.get("browser_extension_seen") if isinstance(meta, dict) else None)
+
+    def _start_film_bridge_for_install(self):
+        if self._film_bridge is None:
+            from luxai.film_captions import BridgeServer
+            bridge = BridgeServer(self._film_report.emit, on_hello=self._extension_hello.emit)
+            if bridge.start():
+                self._film_bridge = bridge
 
     def _stop_caption_audio(self):
         capture, self._captions_capture = self._captions_capture, None
@@ -1530,6 +1621,7 @@ class ExtensionsRuntime(QObject):
 
     def stop(self):
         self._stopping = True  # late clipboard / dictation / translation callbacks do nothing now
+        self._stop_film()  # the browser bridge too (the port is free for the next start)
         clipboard = QApplication.clipboard() if QApplication.instance() else None
         if clipboard is not None and self._clipboard_connected:
             try:

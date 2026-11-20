@@ -441,6 +441,18 @@ def parse_report(raw: bytes) -> dict | None:
     return report
 
 
+def parse_hello(raw: bytes) -> dict:
+    """«The extension is installed»: its version and browser (short, cleaned)."""
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        data = {}
+    data = data if isinstance(data, dict) else {}
+    version = re.sub(r"[^0-9.]", "", str(data.get("version", "")))[:16]
+    browser = "edge" if data.get("browser") == "edge" else "chrome"
+    return {"version": version, "browser": browser}
+
+
 class _Handler(BaseHTTPRequestHandler):
     server_version = "JarvisBridge/1"
 
@@ -463,17 +475,25 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self):  # noqa: N802
         origin = self._allowed_origin()
         length = int(self.headers.get("Content-Length", "0") or 0)
-        if not origin or self.path != "/v1/state" or not 0 < length <= MAX_BODY:
+        if not origin or self.path not in ("/v1/state", "/v1/hello") or not 0 < length <= MAX_BODY:
             self.send_response(403)
             self.end_headers()
             return
-        report = parse_report(self.rfile.read(length))
+        raw = self.rfile.read(length)
+        if self.path == "/v1/hello":
+            report = parse_hello(raw)
+            report["extension"] = origin.rsplit("/", 1)[-1]
+            target = self.server.on_hello
+        else:
+            report = parse_report(raw)
+            target = self.server.on_report
         if report is None:
             self.send_response(400)
             self.end_headers()
             return
         try:
-            self.server.on_report(report)
+            if target is not None:
+                target(report)
         except Exception:
             pass
         body = json.dumps({"ok": True}).encode("utf-8")
@@ -501,8 +521,9 @@ class _ExclusiveServer(ThreadingHTTPServer):
 class BridgeServer:
     """127.0.0.1:PORT, extension origins only. ``on_report`` runs on the server thread."""
 
-    def __init__(self, on_report, port: int = PORT):
+    def __init__(self, on_report, port: int = PORT, on_hello=None):
         self.on_report = on_report
+        self.on_hello = on_hello
         self.port = port
         self._server = None
 
@@ -513,6 +534,7 @@ class BridgeServer:
             return False  # the port is taken (another Jarvis copy): the film mode stays off
         self._server.daemon_threads = True
         self._server.on_report = self.on_report
+        self._server.on_hello = self.on_hello
         threading.Thread(target=self._server.serve_forever, name="JarvisBrowserBridge", daemon=True).start()
         return True
 

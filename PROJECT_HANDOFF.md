@@ -44,6 +44,20 @@ commands; the local Windows executor still validates and runs every action.
 4. Setup window: `Update.py`/`install_windows.ps1` write JSON-lines events (plan/step/detail/log/bytes/done
    with ro/ru/en text) that `scripts/setup_ui.ps1` shows (fonts copied to temp — WPF locks them).
 
+## Publishing the browser extension (optional, one-click install)
+Today the user installs `browser_extension/` once with «Load unpacked» (the guided window in
+`luxai/ui_browser_extension.py`; Jarvis offers it when captions start). On Windows Chrome installs other
+extensions silently only from the Chrome Web Store, so for a one-click install:
+1. `python tests/build_extension_package.py` → `dist/jarvis-film-captions-<version>.zip`.
+2. https://chrome.google.com/webstore/devconsole (Google developer account, one-time fee) → New item → upload.
+3. Listing: name «Jarvis Film Captions»; summary «Lets the Jarvis desktop assistant (LuxAI Local) prepare film
+   captions in advance»; category Accessibility. Single purpose: tell the Jarvis app on the same PC which
+   video plays and where. Permissions: `webRequest` + all sites (find the media a page plays),
+   `storage` (per-tab list in session storage). Data: no personal data collected or sent anywhere; it only
+   talks to 127.0.0.1. Privacy policy: the same sentence, hosted e.g. on the GitHub repository page.
+4. After approval put the store ID in `STORE_ID` in `luxai/ui_browser_extension.py`; the guide then opens the
+   store page («Add to Chrome»).
+
 ## Release signing
 `tests/sign_release.py` builds the manifest from the git index and signs it with the private key
 (DPAPI-encrypted at `%USERPROFILE%\.luxai_release\signing_key.bin`; `--init` creates one). The public

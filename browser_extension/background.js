@@ -1,10 +1,25 @@
 // Jarvis film captions - background (service worker).
 // Remembers which media files each tab requested (HLS playlists, mp4/webm) and forwards the
 // player's position from content.js to Jarvis on this computer (127.0.0.1 only).
-const JARVIS = "http://127.0.0.1:47321/v1/state";
+const JARVIS = "http://127.0.0.1:47321/v1/";
 const MEDIA_PATH = /\.(m3u8|mp4|webm|m4v|mov|mkv)$/i;
 const MEDIA_TYPES = /mpegurl|video\/(mp4|webm|x-matroska|quicktime)/i;
 const KEEP = 20;
+
+function send(path, body) {
+  return fetch(JARVIS + path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  }).catch(() => { /* Jarvis is not running: nothing to do */ });
+}
+
+// «I am installed»: Jarvis shows that the extension works (install guide, settings).
+function hello() {
+  send("hello", { version: chrome.runtime.getManifest().version, browser: navigator.userAgent.includes("Edg/") ? "edge" : "chrome" });
+}
+chrome.runtime.onInstalled.addListener(hello);
+chrome.runtime.onStartup.addListener(hello);
 
 async function remember(tabId, url) {
   if (tabId < 0 || !/^https?:/i.test(url)) return;
@@ -31,21 +46,14 @@ chrome.tabs.onRemoved.addListener((tabId) => chrome.storage.session.remove("medi
 chrome.runtime.onMessage.addListener((message, sender) => {
   if (!message || message.type !== "jarvis-video" || !sender.tab) return;
   const key = "media:" + sender.tab.id;
-  chrome.storage.session.get(key).then((stored) => {
-    const report = {
-      tab: sender.tab.id,
-      page: message.page || "",
-      time: message.time,
-      paused: message.paused,
-      rate: message.rate,
-      duration: message.duration,
-      src: message.src || "",
-      media: stored[key] || [],
-    };
-    return fetch(JARVIS, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(report),
-    });
-  }).catch(() => { /* Jarvis is not running: nothing to do */ });
+  chrome.storage.session.get(key).then((stored) => send("state", {
+    tab: sender.tab.id,
+    page: message.page || "",
+    time: message.time,
+    paused: message.paused,
+    rate: message.rate,
+    duration: message.duration,
+    src: message.src || "",
+    media: stored[key] || [],
+  }));
 });

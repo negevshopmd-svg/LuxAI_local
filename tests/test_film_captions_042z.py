@@ -267,7 +267,7 @@ class ExtensionFilesTests(unittest.TestCase):
         manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
         self.assertEqual(manifest["manifest_version"], 3)
         background = (folder / "background.js").read_text(encoding="utf-8")
-        self.assertIn("http://127.0.0.1:47321/v1/state", background)
+        self.assertIn('const JARVIS = "http://127.0.0.1:47321/v1/";', background)
         self.assertEqual(background.count("fetch("), 1)  # one destination only
         self.assertTrue((folder / "icon128.png").is_file())
         import Update
