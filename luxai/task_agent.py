@@ -188,6 +188,61 @@ def _persist(memory, state):
                 _TRANSIENT.popitem(last=False)
 
 
+def _finish_is_verified(steps, live_results, facts, visual, multiple) -> bool:
+    """May the task report «completed»? Only with fresh, verified evidence (audit #44: own function)."""
+    last = steps[-1] if steps else {}
+    last_live = live_results[-1] if live_results else {}
+    explicit_complete = last_live.get("data", {}).get("goal_complete") is True
+    # Old proof is not a promise that later actions preserved the
+    # goal. The latest executed step must re-observe its satisfaction.
+    latest_effect = next((item for item in reversed(steps) if item.get("executed", True)), {})
+    proof = bool(latest_effect.get("goal_satisfied") and latest_effect.get("verified") and latest_effect.get("ok"))
+    complete = bool(last.get("ok") and last.get("verified") and last.get("evidence"))
+    if facts.get("requires_goal_evidence"):
+        return complete and proof
+    return (complete and last.get("tool") != "screenshot"
+            and not (last.get("tool") == "open_app" and (visual or multiple) and not explicit_complete))
+
+
+def _policy_error(tool, fingerprint, state, *, opening, visual, resumed_actions) -> str:
+    """Why the runtime refuses this proposed step, or "" (audit #44: own function)."""
+    prior_tools = [item for item in state["steps"] if item.get("tool") in TOOLS and item.get("executed", True)]
+    latest_native = next((item for item in reversed(prior_tools) if item["tool"] == "open_app"), None)
+    native_failed = bool(latest_native and not (latest_native.get("ok") and latest_native.get("verified")))
+    if opening and not any(item["tool"] == "open_app" for item in prior_tools) and tool != "open_app":
+        return "Open the application natively with open_app before using another tool."
+    if tool in {"screenshot", "visual_task"} and not (visual or native_failed):
+        return "The user has not requested visual work and native opening has not failed."
+    if fingerprint in state["actions"]:
+        previous_ok = any(item.get("action_hash") == fingerprint and item.get("ok") for item in state["steps"])
+        # Resumed checkpoints deliberately omit arguments/action_hash; a
+        # persisted fingerprint is conservatively treated as already done.
+        was_resumed = fingerprint in resumed_actions
+        if previous_ok or was_resumed or state["actions"].count(fingerprint) >= 2:
+            return "This action was already attempted; inspect its result and choose a different next step."
+    return ""
+
+
+def _apply_clarification(state, clarification, memory, task_id, finish):
+    """Record the user's answer to the pending question; a TaskResult when the task must stop here."""
+    if state["pending_question"]:
+        if clarification is None:
+            return finish("waiting", "The task is waiting for your answer.", question=state["pending_question"],
+                          reason="clarification_required")
+        question = state["pending_question"]
+        state["user_answers"].append({"question": question, "answer": clarification.strip()})
+        state["pending_question"] = ""
+        if memory is not None:
+            try:
+                memory.record_feedback(task_id, clarification.strip(), question=question)
+            except Exception:
+                return finish("unverified", "The clarification could not be saved.", reason="memory_error")
+        return None
+    if clarification is not None:
+        return finish("failed", "There is no pending question for this task.", reason="unexpected_clarification")
+    return None
+
+
 def run_task(goal, decide, execute, *, memory=None, cancelled=None, progress=None,
              task_id=None, clarification=None):
     """Run or resume a task without executing prior steps again.
@@ -277,19 +332,9 @@ def run_task(goal, decide, execute, *, memory=None, cancelled=None, progress=Non
                           evidence=[deepcopy(step["evidence"]) for step in state["steps"]
                                     if step.get("ok") and step.get("verified") and step.get("evidence")],
                           reason="already_finished")
-    if state["pending_question"]:
-        if clarification is None:
-            return finish("waiting", "The task is waiting for your answer.", question=state["pending_question"], reason="clarification_required")
-        question = state["pending_question"]
-        state["user_answers"].append({"question": question, "answer": clarification.strip()})
-        state["pending_question"] = ""
-        if memory is not None:
-            try:
-                memory.record_feedback(task_id, clarification.strip(), question=question)
-            except Exception:
-                return finish("unverified", "The clarification could not be saved.", reason="memory_error")
-    elif clarification is not None:
-        return finish("failed", "There is no pending question for this task.", reason="unexpected_clarification")
+    answered = _apply_clarification(state, clarification, memory, task_id, finish)
+    if answered is not None:
+        return answered
     state["status"] = "running"
     try:
         _persist(memory, state)
@@ -340,42 +385,14 @@ def run_task(goal, decide, execute, *, memory=None, cancelled=None, progress=Non
             question = decision["question"].strip()
             return finish("waiting", "The task needs clarification.", question=question, reason="clarification_required")
         if action == "finish":
-            last = state["steps"][-1] if state["steps"] else {}
-            last_live = live_results[-1] if live_results else {}
-            explicit_complete = last_live.get("data", {}).get("goal_complete") is True
-            # Old proof is not a promise that later actions preserved the
-            # goal. The latest executed step must re-observe its satisfaction.
-            latest_effect = next((item for item in reversed(state["steps"])
-                                  if item.get("executed", True)), {})
-            proof = bool(latest_effect.get("goal_satisfied") and latest_effect.get("verified")
-                         and latest_effect.get("ok"))
-            complete = bool(last.get("ok") and last.get("verified") and last.get("evidence"))
-            if facts.get("requires_goal_evidence"):
-                complete = complete and proof
-            else:
-                complete = (complete and last.get("tool") != "screenshot"
-                            and not (last.get("tool") == "open_app" and (visual or multiple) and not explicit_complete))
-            if complete:
+            if _finish_is_verified(state["steps"], live_results, facts, visual, multiple):
                 return finish("completed", decision["summary"].strip())
             return finish("unverified", "The requested result has not been verified; completion was not confirmed.", reason="unverified_finish")
 
         tool, arguments = decision["tool"], decision["arguments"]
         fingerprint = _fingerprint(tool, arguments)
-        prior_tools = [item for item in state["steps"] if item.get("tool") in TOOLS and item.get("executed", True)]
-        latest_native = next((item for item in reversed(prior_tools) if item["tool"] == "open_app"), None)
-        native_failed = bool(latest_native and not (latest_native.get("ok") and latest_native.get("verified")))
-        error = ""
-        if opening and not any(item["tool"] == "open_app" for item in prior_tools) and tool != "open_app":
-            error = "Open the application natively with open_app before using another tool."
-        elif tool in {"screenshot", "visual_task"} and not (visual or native_failed):
-            error = "The user has not requested visual work and native opening has not failed."
-        elif fingerprint in state["actions"]:
-            previous_ok = any(item.get("action_hash") == fingerprint and item.get("ok") for item in state["steps"])
-            # Resumed checkpoints deliberately omit arguments/action_hash; a
-            # persisted fingerprint is conservatively treated as already done.
-            was_resumed = saved and fingerprint in old.get("actions", [])
-            if previous_ok or was_resumed or state["actions"].count(fingerprint) >= 2:
-                error = "This action was already attempted; inspect its result and choose a different next step."
+        error = _policy_error(tool, fingerprint, state, opening=opening, visual=visual,
+                              resumed_actions=old.get("actions", []) if saved else [])
         if error:
             result = ToolResult(False, False, error)
             emit("policy_blocked", tool=tool, summary=error)

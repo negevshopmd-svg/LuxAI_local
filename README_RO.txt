@@ -1,5 +1,8 @@
-LUXAI LOCAL 0.4.2u — ACTUALIZARE 2026-11-19
+LUXAI LOCAL 0.4.2v — ACTUALIZARE 2026-11-20
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.2v: Codul intern e simplificat (bucla microfonului și cea a agentului împărțite în
+părți mici), fără schimbări de comportament.
 
 0.4.2u: install_windows.bat merge din nou (eroarea „The property 'Count' cannot be found”).
 Actualizările sunt semnate digital, se reiau singure după o întrerupere, iar bibliotecile

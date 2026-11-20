@@ -1,4 +1,7 @@
-LUXAI LOCAL (JARVIS) 0.4.2u — UPDATE 2026-11-19
+LUXAI LOCAL (JARVIS) 0.4.2v — UPDATE 2026-11-20
+
+0.4.2v: Internal code simplified (the microphone loop and the agent loop are split into
+small parts), no change in behaviour.
 
 0.4.2u: install_windows.bat works again («The property 'Count' cannot be found»).
 Updates are digitally signed, finish by themselves after an interruption, and libraries

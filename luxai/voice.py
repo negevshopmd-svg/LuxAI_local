@@ -25,6 +25,54 @@ class ModelLoadError(RuntimeError):
     """The selected Whisper model failed to load, rather than the microphone."""
 
 
+class _BargeInDetector:
+    """Collects one spoken phrase while Jarvis is talking (the «stop» channel).
+
+    Moved out of VoiceListener.listen (audit #44); the logic is unchanged: three voiced frames start a
+    phrase (with up to 9 frames before it), 13 silent frames or 120 frames end it, and only a phrase
+    with 5+ voiced frames and 0.35 s of audio is worth recognizing.
+    """
+
+    def __init__(self):
+        self.preroll = deque(maxlen=9)
+        self.parts = []
+        self.active = 0
+        self.silence = 0
+        self.started = False
+
+    def reset(self):
+        self.preroll.clear()
+        self.parts = []
+        self.active = self.silence = 0
+        self.started = False
+
+    def feed(self, frame, voiced: bool):
+        """The finished phrase's audio when it is worth recognizing, else None."""
+        if not self.started:
+            self.preroll.append(frame)
+            if voiced:
+                self.active += 1
+                if self.active >= 3:
+                    self.started = True
+                    self.parts = list(self.preroll)
+                    self.silence = 0
+            else:
+                self.active = 0
+            return None
+        self.parts.append(frame)
+        if voiced:
+            self.active += 1
+            self.silence = 0
+        else:
+            self.silence += 1
+        if self.silence >= 13 or len(self.parts) >= 120:
+            audio = np.concatenate(self.parts).astype(np.float32)
+            valid = self.active >= 5 and len(audio) >= 5600
+            self.reset()
+            return audio if valid else None
+        return None
+
+
 class VoiceListener:
     """Capture audio without killing native PortAudio/CTranslate2 threads.
 
@@ -128,6 +176,66 @@ class VoiceListener:
             return audio
         return (audio * min(16.0, 0.1 / peak)).astype(np.float32, copy=False)
 
+    def _frame_detected(self, chunk, rms, noise_samples, vad, output_rate) -> bool:
+        """Is this 30 ms frame speech? (VAD with gain, or the adaptive level gate.)"""
+        # Quiet speech should not poison the noise floor until
+        # every later utterance falls below an ever-rising gate.
+        noise = float(np.percentile(noise_samples, 20)) if noise_samples else 0.0001
+        threshold = max(0.0007 / self.sensitivity, noise * 2.2)
+        if vad is None:
+            return rms >= threshold
+        peak = float(np.max(np.abs(chunk)))
+        gain = min(16.0, max(1.0, 0.08 / max(peak, 0.000001)))
+        pcm = np.clip(chunk * gain * 32768.0, -32768, 32767).astype(np.int16).tobytes()
+        try:
+            return (
+                bool(vad.is_speech(pcm, output_rate))
+                and rms >= max(0.00012 / self.sensitivity, noise * 1.15)
+            ) or rms >= max(0.006 / self.sensitivity, noise * 4.0)
+        except (ValueError, RuntimeError):
+            return rms >= threshold
+
+    def _report_capture_issues(self, capture, warned_drops: int) -> int:
+        """Pass driver warnings and dropped frames on to the UI once each; returns the drops reported."""
+        if capture["warning"]:
+            self._emit("input_warning", message=capture["warning"])
+            capture["warning"] = ""
+        if capture["dropped"] > warned_drops:
+            warned_drops = capture["dropped"]
+            self._emit("input_warning", message="Audio processing fell behind; older microphone frames were dropped.",
+                       dropped_frames=warned_drops)
+        return warned_drops
+
+    def _playback_voiced(self, frame, noise_samples, vad, output_rate) -> bool:
+        """Is this frame (heard while Jarvis talks) the user's voice rather than echo or noise?"""
+        rms = float(np.sqrt(np.mean(np.square(frame, dtype=np.float64))))
+        background = float(np.percentile(noise_samples, 20)) if noise_samples else 0.0001
+        threshold = max(0.0018 / self.sensitivity, background * 3)
+        # Ignore clipping/very loud output leaking back into mic.
+        voiced = threshold <= rms <= 0.25
+        if vad is not None and voiced:
+            pcm = np.clip(frame * 32768.0, -32768, 32767).astype(np.int16).tobytes()
+            try:
+                voiced = bool(vad.is_speech(pcm, output_rate)) or rms > 0.007
+            except (ValueError, RuntimeError):
+                pass
+        return voiced
+
+    def _transcribe_interrupt(self, audio):
+        """The text to hand over when the phrase is an accepted interruption, else None."""
+        try:
+            detected_segments, _ = self.model.transcribe(
+                self._normalize_audio(audio),
+                **recognition_options(self.language, self.beam_size),
+            )
+            stop_text = " ".join(seg.text.strip() for seg in detected_segments).strip()
+            if self.interrupt_predicate(stop_text):
+                return (stop_text if self.preserve_interrupt_text
+                        else "stop" if is_stop_speech_command(stop_text) else stop_text)
+        except (OSError, RuntimeError, ValueError):
+            logging.getLogger(__name__).debug("Stop-word recognition failed")
+        return None
+
     def listen(self):
         output_rate = 16000
         input_rate = self._sample_rate()
@@ -205,11 +313,7 @@ class VoiceListener:
         warned_drops = 0
         # Dedicated interrupt channel while TTS is audible. Other speech
         # during playback is never forwarded as a desktop instruction.
-        interrupt_preroll = deque(maxlen=9)
-        interrupt_parts = []
-        interrupt_active = 0
-        interrupt_silence = 0
-        interrupt_started = False
+        barge = _BargeInDetector()
 
         with sd.InputStream(device=self.microphone_device, samplerate=input_rate,
                             channels=1, dtype="float32", blocksize=input_samples,
@@ -227,13 +331,7 @@ class VoiceListener:
                         self._emit("input_stalled", message="The microphone driver is no longer sending audio.")
                         raise RuntimeError("No audio frames received for 5 seconds. Check the wireless headset connection and restart the microphone.")
                     continue
-                if capture["warning"]:
-                    self._emit("input_warning", message=capture["warning"])
-                    capture["warning"] = ""
-                if capture["dropped"] > warned_drops:
-                    warned_drops = capture["dropped"]
-                    self._emit("input_warning", message="Audio processing fell behind; older microphone frames were dropped.",
-                               dropped_frames=warned_drops)
+                warned_drops = self._report_capture_issues(capture, warned_drops)
                 if not allowed:
                     # Synthetic silence while the key is released is expected,
                     # rather than a disconnected or muted recording device.
@@ -249,63 +347,15 @@ class VoiceListener:
                     # or speech synthesis. Typical headphones reduce echo.
                     if during_playback and barge_in_ready.is_set():
                         frame = self._resample_chunk(chunk, input_rate, 480)
-                        rms = float(np.sqrt(np.mean(np.square(frame, dtype=np.float64))))
-                        background = float(np.percentile(noise_samples, 20)) if noise_samples else 0.0001
-                        threshold = max(0.0018 / self.sensitivity, background * 3)
-                        # Ignore clipping/very loud output leaking back into mic.
-                        voiced = threshold <= rms <= 0.25
-                        if vad is not None and voiced:
-                            pcm = np.clip(frame * 32768.0, -32768, 32767).astype(np.int16).tobytes()
-                            try:
-                                voiced = bool(vad.is_speech(pcm, output_rate)) or rms > 0.007
-                            except (ValueError, RuntimeError):
-                                pass
-                        if not interrupt_started:
-                            interrupt_preroll.append(frame)
-                            if voiced:
-                                interrupt_active += 1
-                                if interrupt_active >= 3:
-                                    interrupt_started = True
-                                    interrupt_parts = list(interrupt_preroll)
-                                    interrupt_silence = 0
-                            else:
-                                interrupt_active = 0
-                        else:
-                            interrupt_parts.append(frame)
-                            if voiced:
-                                interrupt_active += 1
-                                interrupt_silence = 0
-                            else:
-                                interrupt_silence += 1
-                            if interrupt_silence >= 13 or len(interrupt_parts) >= 120:
-                                audio = np.concatenate(interrupt_parts).astype(np.float32)
-                                valid = interrupt_active >= 5 and len(audio) >= 5600
-                                interrupt_preroll.clear()
-                                interrupt_parts = []
-                                interrupt_active = interrupt_silence = 0
-                                interrupt_started = False
-                                if valid and not self._stop_event.is_set() and barge_in_ready.is_set():
-                                    try:
-                                        detected_segments, _ = self.model.transcribe(
-                                            self._normalize_audio(audio),
-                                            **recognition_options(self.language, self.beam_size),
-                                        )
-                                        stop_text = " ".join(seg.text.strip() for seg in detected_segments).strip()
-                                        if self.interrupt_predicate(stop_text):
-                                            yield (stop_text if self.preserve_interrupt_text
-                                                   else "stop" if is_stop_speech_command(stop_text) else stop_text)
-                                    except (OSError, RuntimeError, ValueError):
-                                        logging.getLogger(__name__).debug("Stop-word recognition failed")
+                        audio = barge.feed(frame, self._playback_voiced(frame, noise_samples, vad, output_rate))
+                        if audio is not None and not self._stop_event.is_set() and barge_in_ready.is_set():
+                            stop_text = self._transcribe_interrupt(audio)
+                            if stop_text is not None:
+                                yield stop_text
                     else:
-                        interrupt_preroll.clear()
-                        interrupt_parts = []
-                        interrupt_active = interrupt_silence = 0
-                        interrupt_started = False
+                        barge.reset()
                     continue
-                interrupt_preroll.clear()
-                interrupt_parts = []
-                interrupt_active = interrupt_silence = 0
-                interrupt_started = False
+                barge.reset()
                 if capture["discard_through"] != last_playback_discard:
                     # Never join a pre-playback partial sentence to later audio.
                     last_playback_discard = capture["discard_through"]
@@ -336,23 +386,7 @@ class VoiceListener:
                     elif not warned_silent and now - last_nonzero >= 5.0:
                         warned_silent = True
                         self._emit("input_silent", message="The microphone is sending silence. Check mute, headset input and Windows microphone permissions.")
-                    # Quiet speech should not poison the noise floor until
-                    # every later utterance falls below an ever-rising gate.
-                    noise = float(np.percentile(noise_samples, 20)) if noise_samples else 0.0001
-                    threshold = max(0.0007 / self.sensitivity, noise * 2.2)
-                    if vad is not None:
-                        peak = float(np.max(np.abs(chunk)))
-                        gain = min(16.0, max(1.0, 0.08 / max(peak, 0.000001)))
-                        pcm = np.clip(chunk * gain * 32768.0, -32768, 32767).astype(np.int16).tobytes()
-                        try:
-                            detected = (
-                                bool(vad.is_speech(pcm, output_rate))
-                                and rms >= max(0.00012 / self.sensitivity, noise * 1.15)
-                            ) or rms >= max(0.006 / self.sensitivity, noise * 4.0)
-                        except (ValueError, RuntimeError):
-                            detected = rms >= threshold
-                    else:
-                        detected = rms >= threshold
+                    detected = self._frame_detected(chunk, rms, noise_samples, vad, output_rate)
 
                     if not speech_started:
                         pre_roll.append(chunk)

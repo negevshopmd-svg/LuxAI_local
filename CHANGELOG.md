@@ -1,3 +1,8 @@
+## 0.4.2v — Last complex functions split (2026-11-20)
+
+- #44 completed: no function is above complexity 40 any more. `VoiceListener.listen` (51 → under 40): the «stop» channel while Jarvis talks is `_BargeInDetector` (identical to the old inline logic on 2000 random frame sequences), plus `_playback_voiced`, `_transcribe_interrupt`, `_frame_detected`, `_report_capture_issues`. `run_task` (48 → under 40): `_finish_is_verified`, `_policy_error`, `_apply_clarification`. All voice, microphone and agent tests pass; the real microphone path was not exercised live.
+- Checked live: an update to 0.4.2u went through the signed path end to end (Update.py signature in fetch_updater, all 484 archive files in Update.py).
+
 ## 0.4.2u — Installer fix, signed releases, resume journal, controlled libraries (2026-11-19)
 
 - install_windows.ps1: a function returning one or no process is not a list under Set-StrictMode, so `.Count` stopped every install since 0.4.2r («The property 'Count' cannot be found»); call sites use @(). The launch check no longer treats a warning on stderr as a broken environment.
