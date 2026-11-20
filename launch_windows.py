@@ -70,11 +70,20 @@ _MESSAGES = {
     "running": ("Jarvis уже запущен (значок в трее).", "Jarvis rulează deja (pictograma din bara de sistem).",
                 "Jarvis is already running (tray icon)."),
     "pending": ("Последнее обновление было прервано, часть файлов может быть от разных версий.\n"
-                "Закройте Jarvis и запустите Update.bat — он установит всё заново.",
+                "Лучше запустить Update.bat — он установит всё заново.\n\nВсё равно запустить Jarvis?",
                 "Ultima actualizare a fost întreruptă; unele fișiere pot fi din versiuni diferite.\n"
-                "Închide Jarvis și rulează Update.bat — reinstalează totul.",
+                "Cel mai bine rulează Update.bat — reinstalează totul.\n\nPornești totuși Jarvis?",
                 "The last update was interrupted; some files may come from different versions.\n"
-                "Close Jarvis and run Update.bat — it installs everything again."),
+                "Best run Update.bat — it installs everything again.\n\nStart Jarvis anyway?"),
+    "updating": ("Сейчас идёт обновление Jarvis. Дождитесь его окончания и запустите снова.",
+                 "Jarvis se actualizează chiar acum. Așteaptă să termine, apoi pornește-l din nou.",
+                 "Jarvis is being updated right now. Wait until it finishes, then start it again."),
+    "unfinished": ("Не удалось завершить прерванное обновление, Jarvis не запущен.\n"
+                   "Запустите Update.bat — он установит всё заново.",
+                   "Actualizarea întreruptă nu a putut fi terminată; Jarvis nu a pornit.\n"
+                   "Rulează Update.bat — reinstalează totul.",
+                   "The interrupted update could not be finished; Jarvis was not started.\n"
+                   "Run Update.bat — it installs everything again."),
 }
 
 
@@ -84,19 +93,71 @@ def _language_index() -> int:
         language = json.loads((ROOT / "config.json").read_text(encoding="utf-8")).get("ui_language", "ru")
     except Exception:
         language = "ru"
+    if not isinstance(language, str):
+        language = "ru"  # a damaged config (e.g. a list) never stops the message (audit 2 #21)
     return {"ru": 0, "ro": 1, "en": 2}.get(language, 0)
 
 
-def _message(key: str, icon: int = 0x40) -> None:
+def _message(key: str, icon: int = 0x40) -> int:
+    """Show a message box; returns the button pressed (6 = Yes) or 0 without a window."""
     text = _MESSAGES[key][_language_index()]
     if os.name == "nt":
         try:
-            ctypes.windll.user32.MessageBoxW(None, text, "Jarvis", icon)
-            return
+            return int(ctypes.windll.user32.MessageBoxW(None, text, "Jarvis", icon))
         except (AttributeError, OSError):
             pass
     if sys.stderr is not None:
         print(text, file=sys.stderr)
+    return 0
+
+
+def update_running() -> bool:
+    """Is Update.py holding its lock right now? (the same OS lock, released even after a crash)"""
+    lock_path = ROOT / ".luxai_data" / "updater.lock"
+    if not lock_path.is_file():
+        return False
+    try:
+        with lock_path.open("r+b") as handle:
+            if os.name == "nt":
+                import msvcrt
+                handle.seek(0)
+                try:
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                except OSError:
+                    return True
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+                try:
+                    fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except OSError:
+                    return True
+                fcntl.flock(handle, fcntl.LOCK_UN)
+    except OSError:
+        return False
+    return False
+
+
+def finish_interrupted_update() -> str:
+    """«ok», «updating» or «unfinished». The moves run in Update.py --resume under the updater lock
+    (audit 2 #1), so they never race a running update; a failure blocks the start."""
+    if not (ROOT / ".luxai_update_journal.json").exists():
+        return "ok"
+    import subprocess
+    python = Path(sys.executable)
+    console = python.with_name("python.exe")
+    try:
+        result = subprocess.run([str(console if console.is_file() else python), str(ROOT / "Update.py"), "--resume"],
+                                cwd=str(ROOT), timeout=180, check=False,
+                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except (OSError, subprocess.TimeoutExpired):
+        return "unfinished"
+    if result.returncode == 2:
+        return "updating"
+    if result.returncode != 0 or (ROOT / ".luxai_update_journal.json").exists():
+        return "unfinished"
+    return "ok"
 
 
 def single_instance(wait: float = 10.0) -> bool:
@@ -141,17 +202,17 @@ def main() -> int:
         if not single_instance():
             _message("running")
             return 0
-        if (ROOT / ".luxai_update_journal.json").exists():
-            # An update stopped between two files (audit #29): finish its moves before any code loads.
-            try:
-                import subprocess
-                subprocess.run([sys.executable.replace("pythonw.exe", "python.exe").replace("Jarvis.exe", "python.exe"),
-                                str(ROOT / "Update.py"), "--resume"], cwd=str(ROOT), timeout=120,
-                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), check=False)
-            except Exception:
-                pass
+        if update_running():
+            _message("updating", 0x30)  # files are being replaced right now (audit 2 #1)
+            return 0
+        state = finish_interrupted_update()
+        if state != "ok":
+            _message(state, 0x30 if state == "updating" else 0x10)
+            return 0 if state == "updating" else 1
         if (ROOT / ".luxai_update_pending.json").exists():
-            _message("pending", 0x30)  # interrupted update (audit #29): say it, then start anyway
+            # Interrupted update (audit #29): ask; «No» (the default) keeps Jarvis closed.
+            if _message("pending", 0x30 | 0x4 | 0x100) != 6:
+                return 1
         enable_native_crash_log()
         # The wheel is installed by setup/update. Recover interrupted/offline
         # installations silently; never hold Qt startup on a native import or pip.

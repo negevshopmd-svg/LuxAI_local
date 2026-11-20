@@ -8,6 +8,7 @@ with MP3, AAC, FLAC, Opus, H.264 and GIF encoders, so nothing is downloaded.
 from __future__ import annotations
 
 import os
+from contextlib import contextmanager
 
 from fractions import Fraction
 from pathlib import Path
@@ -39,6 +40,19 @@ def _reserve(path: Path) -> bool:
         return False
     os.close(handle)
     return True
+
+
+@contextmanager
+def _removed_on_error(target):
+    """The reserved (empty) output is deleted when anything after the reservation fails (audit 2 #11)."""
+    try:
+        yield
+    except BaseException:
+        try:
+            Path(target).unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
 
 
 def unique_path(path: Path) -> Path:
@@ -87,6 +101,11 @@ def _flatten(image):
 
 
 def save_image(image, target: Path, quality: int = 85):
+    with _removed_on_error(target):
+        return _save_image(image, Path(target), quality)
+
+
+def _save_image(image, target: Path, quality: int = 85):
     fmt = target.suffix.casefold().lstrip(".")
     if fmt in ("jpg", "jpeg"):
         _flatten(image).save(target, "JPEG", quality=int(quality), optimize=True, progressive=True)
@@ -192,7 +211,8 @@ def images_to_pdf(sources, *, out_dir=None) -> Path:
     first = Path(sources[0])
     tag = "" if len(images) == 1 else f"{len(images)}pages"
     target = target_path(first, "pdf", tag, out_dir)
-    images[0].save(target, "PDF", resolution=150.0, save_all=True, append_images=images[1:])
+    with _removed_on_error(target):
+        images[0].save(target, "PDF", resolution=150.0, save_all=True, append_images=images[1:])
     return target
 
 
@@ -200,6 +220,20 @@ def images_to_pdf(sources, *, out_dir=None) -> Path:
 
 _AUDIO_CODECS = {"mp3": ("mp3", "libmp3lame", "fltp"), "m4a": ("ipod", "aac", "fltp"), "wav": ("wav", "pcm_s16le", "s16"),
                  "flac": ("flac", "flac", "s16"), "ogg": ("ogg", "libopus", "flt"), "opus": ("ogg", "libopus", "flt")}
+
+
+def _throttled(progress):
+    """Report only when the whole percent changes (audit 2 #29): not one Qt event per frame."""
+    if progress is None:
+        return None
+    last = [-1]
+
+    def report(value):
+        percent = int(value * 100)
+        if percent != last[0]:
+            last[0] = percent
+            progress(value)
+    return report
 
 
 def _progress_from(container, stream, frame, progress):
@@ -216,8 +250,9 @@ def audio_convert(source, fmt, *, out_dir=None, progress=None, tag="") -> Path:
     if fmt not in _AUDIO_CODECS:
         raise ValueError("Неподдерживаемый формат.")
     container_format, codec, sample_format = _AUDIO_CODECS[fmt]
+    progress = _throttled(progress)
     target = target_path(source, fmt, tag, out_dir)
-    with av.open(str(source)) as inp:
+    with _removed_on_error(target), av.open(str(source)) as inp:
         if not inp.streams.audio:
             raise ValueError("В файле нет звука.")
         in_stream = inp.streams.audio[0]
@@ -270,9 +305,11 @@ def video_convert(source, *, mode="mp4", out_dir=None, progress=None) -> Path:
         target = target_path(source, "mp4", "nosound", out_dir)
     else:
         target = target_path(source, "mp4", out_dir=out_dir)
+    progress = _throttled(progress)
     if mode == "gif":
-        return _video_to_gif(source, target, progress)
-    with av.open(str(source)) as inp:
+        with _removed_on_error(target):
+            return _video_to_gif(source, target, progress)
+    with _removed_on_error(target), av.open(str(source)) as inp:
         if not inp.streams.video:
             raise ValueError("В файле нет видео.")
         vin = inp.streams.video[0]
@@ -318,9 +355,12 @@ def video_convert(source, *, mode="mp4", out_dir=None, progress=None) -> Path:
                         for packet in vout.encode(image):
                             out.mux(packet)
                     elif aout is not None:
-                        if audio_next is None:
-                            offset = (frame.time if frame.time is not None else start) - start
-                            audio_next = max(0, int(round(offset * 48000)))
+                        offset = (frame.time if frame.time is not None else start) - start
+                        expected = max(0, int(round(offset * 48000)))
+                        if audio_next is None or expected - audio_next > 2400:
+                            # The first frame AND every later gap (> 50 ms) follow the source's own
+                            # timeline, so a track with pauses stays in sync (audit 2 #13).
+                            audio_next = expected
                         frame.pts = None
                         for resampled in resampler.resample(frame):
                             resampled.pts = audio_next
@@ -328,6 +368,13 @@ def video_convert(source, *, mode="mp4", out_dir=None, progress=None) -> Path:
                             audio_next += resampled.samples
                             for packet in aout.encode(resampled):
                                 out.mux(packet)
+                if resampler is not None and audio_next is not None:
+                    for resampled in resampler.resample(None):  # the samples still inside the resampler
+                        resampled.pts = audio_next
+                        resampled.time_base = Fraction(1, 48000)
+                        audio_next += resampled.samples
+                        for packet in aout.encode(resampled):
+                            out.mux(packet)
                 for stream in [vout] + ([aout] if aout is not None else []):
                     for packet in stream.encode(None):
                         out.mux(packet)
@@ -371,27 +418,37 @@ def _video_to_gif(source, target, progress=None, fps=12, max_side=480):
     import av
     from PIL import Image
     frames = []
+    moments = []
     with av.open(str(source)) as inp:
         if not inp.streams.video:
             raise ValueError("В файле нет видео.")
         vin = inp.streams.video[0]
+        rate = vin.average_rate or vin.guessed_rate
+        step = 1.0 / float(rate) if rate else 1.0 / fps
         last = -1.0
+        end = 0.0
         for frame in inp.decode(vin):
             moment = frame.time or 0.0
             if moment > GIF_MAX_SECONDS:
                 break
+            end = moment + step  # this decoded frame is shown until the next one
             if last >= 0 and moment - last < 1.0 / fps * 0.99:
                 continue
             last = moment
             image = frame.to_image()
             image.thumbnail((max_side, max_side), Image.Resampling.LANCZOS)
             frames.append(image.convert("P", palette=Image.Palette.ADAPTIVE, colors=256))
+            moments.append(moment)
             if progress is not None:
                 progress(min(0.99, moment / GIF_MAX_SECONDS))
     if not frames:
         raise ValueError("Не удалось прочитать кадры.")
+    # Each kept frame stays until the NEXT kept frame (audit 2 #12): pauses keep their length
+    # instead of a fixed 80 ms per frame (a 1 s clip became 160 ms).
+    durations = [max(20, int(round((after - moment) * 1000)))
+                 for moment, after in zip(moments, moments[1:] + [max(end, moments[-1] + 1.0 / fps)])]
     try:
-        frames[0].save(target, "GIF", save_all=True, append_images=frames[1:], duration=int(1000 / fps),
+        frames[0].save(target, "GIF", save_all=True, append_images=frames[1:], duration=durations,
                        loop=0, optimize=True, disposal=2)
     except Exception:
         Path(target).unlink(missing_ok=True)

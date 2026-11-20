@@ -158,10 +158,19 @@ class CommandTriggerEngine:
             except (OSError, ValueError, TypeError):
                 pass
 
-    def _entries(self):
+    def _entries(self, *, fresh: bool = False):
         # The registry has validated JSON; check again at the dispatch boundary
         # so mutable editor drafts cannot be executed as saved triggers.
+        # Audit 2 #26: the checked list is kept until the library changes (its fingerprint),
+        # instead of validating hundreds of commands again every second.
         from luxai.command_registry import checked_command
+        fingerprint = None if fresh else getattr(self.registry, "fingerprint", None)
+        key = fingerprint() if callable(fingerprint) else None
+        if not isinstance(key, tuple):
+            key = None
+        cached = getattr(self, "_entries_cache", None)
+        if key is not None and cached is not None and cached[0] == key:
+            return [dict(entry) for entry in cached[1]]
         entries = []
         for entry in self.registry.entries():
             try:
@@ -170,6 +179,8 @@ class CommandTriggerEngine:
                     entries.append(checked)
             except (TypeError, ValueError):
                 continue
+        if key is not None:
+            self._entries_cache = (key, [dict(entry) for entry in entries])
         return entries
 
     def _dispatch(self, entry):
@@ -265,7 +276,7 @@ class CommandTriggerEngine:
         now = time.monotonic()
         if now - self._hotkey_times.get(identifier, -100.0) < 0.75:
             return
-        for entry in self._entries():
+        for entry in self._entries(fresh=True):  # a pressed hotkey always sees the current library
             if entry["id"] == identifier and entry.get("hotkey"):
                 self._hotkey_times[identifier] = now
                 self._dispatch(entry)

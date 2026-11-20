@@ -45,9 +45,12 @@ rem Run-as-administrator mode: start through the scheduled task (no prompt),
 rem but only when the task belongs to THIS folder (another copy is never started).
 set "HERE=%~dp0"
 set "HERE=%HERE:~0,-1%"
-schtasks /Query /TN "LuxAI Jarvis (admin)" /XML 2>nul | findstr /I /L /C:"<WorkingDirectory>%HERE%</WorkingDirectory>" >nul
+rem Each folder has its own task name (audit 2 #5), written by the settings switch.
+set "ADMIN_TASK=LuxAI Jarvis (admin)"
+if exist ".luxai_data\admin_task.txt" set /p ADMIN_TASK=<".luxai_data\admin_task.txt"
+schtasks /Query /TN "%ADMIN_TASK%" /XML 2>nul | findstr /I /L /C:"<WorkingDirectory>%HERE%</WorkingDirectory>" >nul
 if not errorlevel 1 (
-    schtasks /Run /TN "LuxAI Jarvis (admin)" >nul 2>&1
+    schtasks /Run /TN "%ADMIN_TASK%" >nul 2>&1
     if not errorlevel 1 exit /b 0
 )
 set "JARVIS_EXE=.venv\Scripts\pythonw.exe"

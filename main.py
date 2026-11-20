@@ -90,6 +90,72 @@ def _command_match_options(config):
 
 
 CONFIG_PROBLEM = ""  # set when config.json had to be put aside (shown once in the chat)
+CHAT_HISTORY_LIMIT = 400  # messages kept on screen (audit 2 #28)
+
+# Audit 2 #21: the root being an object is not enough — one wrong value (a text volume, a list as the
+# language) stopped settings, the launcher message or the confirmation dialog. Known fields are checked
+# on load: numbers are clamped into their range, values of the wrong type are dropped (the default
+# applies), and the original file is copied aside once, with the corrected keys named.
+_BOOL_FIELDS = (
+    "tts_enabled", "microphone_enabled", "prefix_enabled", "online_agent_enabled", "run_as_admin",
+    "minimize_to_tray", "autostart_windows", "ui_animations", "always_on_top", "confirm_all_actions",
+    "understand_paraphrases", "local_llm_fallback_enabled", "ui_sidebar_collapsed",
+)
+_TEXT_FIELDS = (
+    "wake_prefix", "ui_accent", "online_provider", "language", "ui_theme", "ui_background", "whisper_model",
+    "tesseract_path", "llm_model_path", "whisper_model_path", "online_model", "microphone_name",
+    "weather_city", "voice_id", "ui_font_family", "online_custom_url", "voice_engine", "response_language",
+    "listen_mode", "listen_hotkey", "fish_voice_id",
+)
+_NUMBER_FIELDS = {  # name: (kind, lowest, highest)
+    "voice_volume": (int, 0, 100), "voice_speed": (float, 0.7, 1.4), "confirmation_timeout": (int, 5, 180),
+    "whisper_beam_size": (int, 1, 10), "recognition_sensitivity": (int, 0, 100),
+    "microphone_sensitivity": (float, 0.5, 3.0), "speech_pause_seconds": (float, 1.2, 4.0),
+    "online_timeout": (int, 35, 120), "ui_transparency": (int, 0, 35),
+}
+_DICT_FIELDS = ("extensions", "extensions_meta")
+_CHOICE_FIELDS = {"ui_language": ("ru", "ro", "en")}
+
+
+def validate_config(data: dict) -> list[str]:
+    """Fix wrong field values IN PLACE; returns the names of the keys that were corrected."""
+    fixed = []
+    for name in _BOOL_FIELDS:
+        if name in data and not isinstance(data[name], bool):
+            data.pop(name)
+            fixed.append(name)
+    for name in _TEXT_FIELDS:
+        if name in data and data[name] is not None and not isinstance(data[name], str):
+            data.pop(name)
+            fixed.append(name)
+    for name, (kind, lowest, highest) in _NUMBER_FIELDS.items():
+        if name not in data:
+            continue
+        value = data[name]
+        try:
+            if isinstance(value, bool):
+                raise ValueError
+            number = kind(float(value))
+            if number != number or number in (float("inf"), float("-inf")):
+                raise ValueError
+        except (TypeError, ValueError, OverflowError):
+            data.pop(name)
+            fixed.append(name)
+            continue
+        clamped = min(highest, max(lowest, number))
+        if clamped != value:
+            data[name] = clamped
+            if clamped != number or type(value) not in (int, float):
+                fixed.append(name)
+    for name in _DICT_FIELDS:
+        if name in data and not isinstance(data[name], dict):
+            data.pop(name)
+            fixed.append(name)
+    for name, choices in _CHOICE_FIELDS.items():
+        if name in data and data[name] not in choices:
+            data.pop(name)
+            fixed.append(name)
+    return fixed
 
 
 def load_config():
@@ -102,6 +168,15 @@ def load_config():
     try:
         data = json.loads(CONFIG.read_text(encoding="utf-8"))
         if isinstance(data, dict):
+            fixed = validate_config(data)
+            if fixed:
+                import datetime as _datetime
+                backup = CONFIG.with_name(f"config.before-fix-{_datetime.datetime.now():%Y%m%d-%H%M%S}.json")
+                try:
+                    shutil.copy2(CONFIG, backup)
+                    CONFIG_PROBLEM = f"corrected: {', '.join(fixed)}; original: {backup.name}"
+                except OSError:
+                    CONFIG_PROBLEM = f"corrected: {', '.join(fixed)}"
             return data
         reason = f"type {type(data).__name__}"
     except (OSError, ValueError, UnicodeDecodeError) as exc:
@@ -265,6 +340,7 @@ class MainWindow(QMainWindow):
     discord_headphones_ready = Signal(str, str)
     discord_audio_offline_ready = Signal(str, str, str)  # text, kind, answer ("" = state not readable)
     ocr_text_ready = Signal(str, str)  # recognised text, error
+    admin_mode_done = Signal(bool, bool)  # requested state, Windows accepted it
     discord_call_ready = Signal(str, str)
     discord_quick_ready = Signal(str, str, str)
     steam_profile_ready = Signal(str, str)
@@ -309,6 +385,7 @@ class MainWindow(QMainWindow):
         self.discord_mic_visual_ready.connect(self._on_discord_mic_visual_ready)
         self.discord_audio_offline_ready.connect(self._on_discord_audio_offline_ready)
         self.ocr_text_ready.connect(self._on_ocr_text_ready)
+        self.admin_mode_done.connect(self._on_admin_mode_done)
         self.discord_headphones_ready.connect(self._on_discord_headphones_ready)
         self.discord_call_ready.connect(self._on_discord_call_ready)
         self.discord_quick_ready.connect(self._on_discord_quick_ready)
@@ -456,7 +533,11 @@ class MainWindow(QMainWindow):
         self._foreground_observer = QTimer(self)
         self._foreground_observer.setInterval(450)
         self._foreground_observer.timeout.connect(self._remember_external_window)
-        self._foreground_observer.start()
+        # Audit 2 #42: Windows tells us when the active window changes (a WinEvent hook) instead of a
+        # check twice a second for the whole session; the timer stays only as the fallback.
+        if not self._install_foreground_hook():
+            self._foreground_observer.start()
+        self._remember_external_window()
         self._setup_command_triggers()
 
         if self.cfg.get("microphone_enabled", True):
@@ -675,7 +756,10 @@ class MainWindow(QMainWindow):
         self._hotkey_listener.sync(entries)
         active = any(item.get("enabled") and any(item.get(key) for key in ("hotkey", "schedule", "event"))
                      for item in entries)
-        self._trigger_timer.start() if active else self._trigger_timer.stop()
+        # Hotkeys arrive through their own listener: the 1 s polling runs only for schedules and
+        # events (audit 2 #26). One check still runs now to report hotkeys that could not be registered.
+        polled = any(item.get("enabled") and any(item.get(key) for key in ("schedule", "event")) for item in entries)
+        self._trigger_timer.start() if polled else self._trigger_timer.stop()
         if active:
             self._poll_command_triggers()
 
@@ -731,9 +815,11 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(800, self._refresh_extension_errors)
         if CONFIG_PROBLEM:
             # audit #11: say that the settings file was unreadable and where its copy is.
-            QTimer.singleShot(1200, lambda: self.append_message(
-                "Jarvis", tr("config.json был повреждён — настройки сброшены, копия сохранена: ") + CONFIG_PROBLEM,
-                "#a5b9dc"))
+            if CONFIG_PROBLEM.startswith("corrected:"):
+                text = tr("В config.json были неверные значения — они заменены значениями по умолчанию: ")
+            else:
+                text = tr("config.json был повреждён — настройки сброшены, копия сохранена: ")
+            QTimer.singleShot(1200, lambda: self.append_message("Jarvis", text + CONFIG_PROBLEM, "#a5b9dc"))
 
     def _save_extensions(self, state):
         """Persist only the extensions key; unrelated settings drafts stay untouched."""
@@ -1323,9 +1409,12 @@ class MainWindow(QMainWindow):
         # 0.4.2r (audit #32): keys and config.json are saved together. A key that cannot be stored stops
         # everything (no settings written, fields kept); if config.json then fails, the keys go back to
         # their previous values, so a new key is never left paired with the old choices.
-        stored = []  # (provider, previous key or None)
+        stored = []  # (provider, previous SAVED key or "")
+        from luxai.secure_keys import saved_api_key
 
         def undo_keys():
+            """Put the saved keys back; an environment key is never written to disk (audit 2 #39)."""
+            complete = True
             for provider_name, previous in reversed(stored):
                 try:
                     if previous:
@@ -1334,14 +1423,17 @@ class MainWindow(QMainWindow):
                         from luxai.secure_keys import clear_api_key
                         clear_api_key(provider_name)
                 except Exception:
-                    pass
+                    complete = False
+            if not complete:
+                self.append_message("Jarvis", tr("Не удалось вернуть прежний ключ API — проверьте ключи в настройках."),
+                                    "#e5bd69")
 
         if new_key:
             try:
                 provider = self.settings_panel.online_provider.currentData()
-                previous = get_api_key(provider)
+                # Recorded BEFORE writing: a failure after the file was replaced is undone too.
+                stored.append((provider, saved_api_key(provider)))
                 store_api_key(new_key, provider)
-                stored.append((provider, previous))
                 if get_api_key(provider) != new_key:
                     raise OSError("API key could not be read back")
             except (ValueError, OSError, RuntimeError):
@@ -1358,9 +1450,8 @@ class MainWindow(QMainWindow):
         fish_key = self.settings_panel.fish_key_ready_for_save()
         if fish_key:
             try:
-                previous = get_api_key("fish")
+                stored.append(("fish", saved_api_key("fish")))
                 store_api_key(fish_key, "fish")
-                stored.append(("fish", previous))
                 if get_api_key("fish") != fish_key:
                     raise OSError("Fish Audio key could not be read back")
             except (ValueError, OSError, RuntimeError):
@@ -1371,7 +1462,10 @@ class MainWindow(QMainWindow):
                 self._update_cloud_indicator()
                 return False
         try:
-            save_config(self.cfg)
+            # Audit 2 #8: ordinary commands call this with nothing changed — then nothing is written
+            # (no fsync/retry on the UI thread). Changed settings and new keys are saved as before.
+            if self.cfg != old_configuration or new_key or fish_key or not CONFIG.exists():
+                save_config(self.cfg)
         except OSError:
             undo_keys()
             self.cfg = old_configuration
@@ -1386,7 +1480,9 @@ class MainWindow(QMainWindow):
         if fish_key:
             self.settings_panel.fish_api_key.clear()
             self.settings_panel.refresh_fish_key_status()
-        if self._cloud_signature() != old_signature:
+        # Audit 2 #46: one key read (DPAPI) for the whole save instead of three.
+        new_signature = self._cloud_signature()
+        if new_signature != old_signature:
             self._cloud_verified_signature = None
             self._cloud_probe_failed = False
             self._cloud_first_check_done = False
@@ -1402,9 +1498,9 @@ class MainWindow(QMainWindow):
             if configuration_signature(self.cfg) != monitor.current.signature:
                 self._refresh_local_ai_status()
         self._refresh_attachment_route()
-        if self._cloud_signature() != old_signature:
+        if new_signature != old_signature:
             self.online_planner.reset_connection_state()
-        self._cloud_applied_signature = self._cloud_signature()
+        self._cloud_applied_signature = new_signature
         if hasattr(self, "command_wizard"):
             self.command_wizard.wake_prefix = self.cfg.get("wake_prefix", "Jarvis")
         if hasattr(self, "settings_panel"):
@@ -1648,6 +1744,13 @@ class MainWindow(QMainWindow):
         background = self.cfg.get("ui_background")
         accent = theme_colors(theme, self.cfg.get("ui_accent", "#3978f6"), background)["accent"]
         app = QApplication.instance()
+        # Audit 2 #49: «always on top», animations or transparency alone do not rebuild the style sheet
+        # and walk every icon again; the full pass runs only when the look itself changed.
+        look = (theme, accent, str(background or ""), str(self.cfg.get("ui_font_family", "Onest")))
+        if look == getattr(self, "_applied_look", None):
+            self._apply_window_options()
+            return
+        self._applied_look = look
         if app is not None:
             register_project_fonts()
             preference = normalize_font_family(self.cfg.get("ui_font_family", "Onest"))
@@ -1671,9 +1774,6 @@ class MainWindow(QMainWindow):
                 section.setStyleSheet("")
             self.settings_panel.set_theme(theme, accent, background)
 
-        self.setWindowOpacity(
-            max(0.65, 1.0 - float(self.cfg.get("ui_transparency", 0)) / 100)
-        )
         self.home_page.set_theme(theme, accent, background)
         if hasattr(self, "extensions_page"):
             self.extensions_page.set_theme(theme, accent, background)
@@ -1681,25 +1781,50 @@ class MainWindow(QMainWindow):
         if self.tray_icon:
             self.tray_icon.setIcon(icon("jarvis", color=accent))
         self._refresh_history_colors()
-        self.avatar.set_animated(bool(self.cfg.get("ui_animations", True)))
-        self.setWindowFlag(
-            Qt.WindowType.WindowStaysOnTopHint,
-            bool(self.cfg.get("always_on_top", False)),
-        )
-        if self.isVisible():
-            self.show()
+        self._apply_window_options()
         self._update_home_backdrop()
 
+    def _apply_window_options(self):
+        """Transparency, animations and «always on top» (cheap; no style rebuild)."""
+        self.setWindowOpacity(max(0.65, 1.0 - float(self.cfg.get("ui_transparency", 0)) / 100))
+        self.avatar.set_animated(bool(self.cfg.get("ui_animations", True)))
+        on_top = bool(self.cfg.get("always_on_top", False))
+        if bool(self.windowFlags() & Qt.WindowType.WindowStaysOnTopHint) != on_top:
+            self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, on_top)
+            if self.isVisible():
+                self.show()
+
     def _apply_admin_mode(self, enabled):
-        """Create/delete the «run as administrator» task; restart Jarvis with the rights."""
+        """Create/delete the «run as administrator» task; restart Jarvis with the rights.
+
+        The Windows prompt can stay open for a long time: the wait runs on a worker thread and the
+        switch is updated from the result (audit 2 #20), so the window keeps responding.
+        """
         from luxai import admin_mode
         if sys.platform != "win32":
             return
-        ok = admin_mode.enable(BASE) if enabled else admin_mode.disable()
+        if getattr(self, "_admin_mode_busy", False):
+            return
+        self._admin_mode_busy = True
+
+        def work():
+            try:
+                ok = admin_mode.enable(BASE) if enabled else admin_mode.disable(BASE)
+            except Exception:
+                ok = False
+            self.admin_mode_done.emit(bool(enabled), bool(ok))
+
+        threading.Thread(target=work, name="luxai-admin-mode", daemon=True).start()
+
+    def _on_admin_mode_done(self, enabled, ok):
+        from luxai import admin_mode
+        self._admin_mode_busy = False
+        if self._closed:
+            return
         if not ok:
             # The Windows prompt was declined: show the switch as it really is
             # (switch first, then save directly — never ask again in a loop).
-            actual = admin_mode.task_exists()
+            actual = admin_mode.task_exists(BASE)
             if hasattr(self, "settings_panel"):
                 self.settings_panel.run_as_admin.blockSignals(True)
                 self.settings_panel.run_as_admin.setChecked(actual)
@@ -1716,39 +1841,55 @@ class MainWindow(QMainWindow):
         if enabled and not admin_mode.is_admin():
             answer = QMessageBox.question(
                 self, "Jarvis", tr("Готово. Перезапустить Jarvis с правами администратора сейчас?"))
-            if answer == QMessageBox.StandardButton.Yes and admin_mode.run_task():
+            if answer == QMessageBox.StandardButton.Yes and admin_mode.run_task(BASE):
                 self._quitting = True
                 QTimer.singleShot(300, QApplication.instance().quit)
 
     def _refresh_autostart_entry(self):
-        """An existing Windows autostart entry starts Jarvis the current way (Jarvis.exe)."""
+        """An existing Windows autostart entry starts Jarvis the current way (Jarvis.exe).
+
+        Audit 2 #5: the entry is per installation («LuxAI_Jarvis_<id>»); the old shared «LuxAI_Jarvis»
+        entry is migrated only when it starts THIS folder, never when it belongs to another copy.
+        """
         if sys.platform != "win32" or self._closed:
             return
+        from luxai.admin_mode import LEGACY_RUN_VALUE, autostart_command, autostart_value_is_ours, run_value_name
         try:
             import winreg
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run") as key:
-                current, _kind = winreg.QueryValueEx(key, "LuxAI_Jarvis")
+                try:
+                    current, _kind = winreg.QueryValueEx(key, run_value_name(BASE))
+                except OSError:
+                    current, _kind = winreg.QueryValueEx(key, LEGACY_RUN_VALUE)
+                    if not autostart_value_is_ours(str(current), BASE):
+                        return  # another installation's autostart
+                    current = None  # ours under the old name: rewrite under the new one
         except OSError:
             return  # autostart is off
-        from luxai.admin_mode import autostart_command
-        if str(current) != autostart_command(BASE):
+        if current is None or str(current) != autostart_command(BASE):
             self._set_autostart(True)
 
     def _set_autostart(self, enabled):
         if sys.platform != "win32":
             return
+        from luxai.admin_mode import LEGACY_RUN_VALUE, autostart_command, autostart_value_is_ours, run_value_name
         try:
             import winreg
             key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
             with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as key:
+                try:
+                    legacy, _kind = winreg.QueryValueEx(key, LEGACY_RUN_VALUE)
+                    if autostart_value_is_ours(str(legacy), BASE):
+                        winreg.DeleteValue(key, LEGACY_RUN_VALUE)  # this folder's old shared entry
+                except OSError:
+                    pass
                 if enabled:
-                    # Jarvis.exe (name and icon in Task Manager), or the
+                    # Jarvis.exe (name and icon in Task Manager), or this folder's
                     # «administrator» task when that mode is on.
-                    from luxai.admin_mode import autostart_command
-                    winreg.SetValueEx(key, "LuxAI_Jarvis", 0, winreg.REG_SZ, autostart_command(BASE))
+                    winreg.SetValueEx(key, run_value_name(BASE), 0, winreg.REG_SZ, autostart_command(BASE))
                 else:
                     try:
-                        winreg.DeleteValue(key, "LuxAI_Jarvis")
+                        winreg.DeleteValue(key, run_value_name(BASE))
                     except FileNotFoundError:
                         pass
         except Exception as exc:
@@ -2338,6 +2479,14 @@ class MainWindow(QMainWindow):
             f'<span style="color:{color_line};font-weight:600;">{html.escape(display_author)}</span>  {safe}</p>'
         )
         self.history.append((who, str(text)))
+        # Audit 2 #28: a long session keeps the last CHAT_HISTORY_LIMIT messages in all three places
+        # (the list and both views), so memory and a theme/language change stay bounded.
+        if len(self.history) > CHAT_HISTORY_LIMIT:
+            del self.history[:len(self.history) - CHAT_HISTORY_LIMIT]
+        for view in (self.log, self.home_history):
+            document = view.document()
+            if document.maximumBlockCount() != CHAT_HISTORY_LIMIT:
+                document.setMaximumBlockCount(CHAT_HISTORY_LIMIT)
 
     def _refresh_history_colors(self):
         palette = theme_colors(self.cfg.get("ui_theme", "dark"), self.cfg.get("ui_accent", "#3978f6"), self.cfg.get("ui_background", ""))
@@ -2804,6 +2953,48 @@ class MainWindow(QMainWindow):
             return
         self._current_route = route
         self._resolved_command(spoken, answer)
+
+    def _install_foreground_hook(self) -> bool:
+        """EVENT_SYSTEM_FOREGROUND, delivered on this (Qt) thread's message loop; False when unavailable."""
+        self._foreground_hook = None
+        if sys.platform != "win32":
+            return False
+        try:
+            import ctypes
+            from ctypes import wintypes
+            procedure = ctypes.WINFUNCTYPE(None, wintypes.HANDLE, wintypes.DWORD, wintypes.HWND, wintypes.LONG,
+                                           wintypes.LONG, wintypes.DWORD, wintypes.DWORD)
+
+            def changed(_hook, _event, _hwnd, _object, _child, _thread, _time):
+                try:
+                    self._remember_external_window()
+                except Exception:
+                    pass
+
+            self._foreground_callback = procedure(changed)  # kept alive as long as the hook
+            user32 = ctypes.WinDLL("user32")
+            user32.SetWinEventHook.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.HMODULE, procedure,
+                                               wintypes.DWORD, wintypes.DWORD, wintypes.DWORD]
+            user32.SetWinEventHook.restype = wintypes.HANDLE
+            # 3 = EVENT_SYSTEM_FOREGROUND; 0 = WINEVENT_OUTOFCONTEXT, 2 = WINEVENT_SKIPOWNPROCESS
+            hook = user32.SetWinEventHook(3, 3, None, self._foreground_callback, 0, 0, 0x0002)
+        except (AttributeError, OSError, TypeError):
+            return False
+        self._foreground_hook = hook or None
+        return bool(hook)
+
+    def _remove_foreground_hook(self):
+        hook = getattr(self, "_foreground_hook", None)
+        if hook and sys.platform == "win32":
+            try:
+                import ctypes
+                from ctypes import wintypes
+                user32 = ctypes.WinDLL("user32")
+                user32.UnhookWinEvent.argtypes = [wintypes.HANDLE]
+                user32.UnhookWinEvent(hook)
+            except (AttributeError, OSError):
+                pass
+        self._foreground_hook = None
 
     def _remember_external_window(self):
         if sys.platform != "win32" or self._closed:
@@ -4858,18 +5049,19 @@ class MainWindow(QMainWindow):
         pieces = split_chunks(str(text or ""), limit=600, first_limit=240)
         if len(pieces) > 1:
             # The voice engine reads at most 700 characters per call: the rest of a long answer was
-            # silently dropped (audit #31). Every piece shares this generation, so «stop» stops all.
-            for piece in pieces:
-                self._queue_speech_piece(piece, language)
+            # silently dropped (audit #31). Audit 2 #7: the whole answer is ONE queue item (its
+            # pieces are fed to the voice one by one), so a long answer can never push its own
+            # beginning out of the queue, and only the next piece is prepared ahead.
+            self._queue_speech_piece(tuple(pieces), language)
             return
         self._queue_speech_piece(text, language)
 
     def _queue_speech_piece(self, text, language):
         item = (text, language, self._speech_generation)
         if self._speech_queue.qsize() or voice_output_playing.is_set():
-            # Something is already speaking: prepare this piece meanwhile.
+            # Something is already speaking: prepare the start of this reply meanwhile.
             from luxai.voices import prefetch
-            prefetch(text, language)
+            prefetch(text[0] if isinstance(text, tuple) else text, language)
         try:
             self._speech_queue.put_nowait(item)
         except queue.Full:
@@ -4895,10 +5087,25 @@ class MainWindow(QMainWindow):
             text, language, generation = task
             if generation != self._speech_generation:
                 continue
-            try:
-                played = speak(text, enabled=True, language=language)
-            except Exception:
-                played = False
+            pieces = list(text) if isinstance(text, (tuple, list)) else [text]
+            played = True
+            for index, piece in enumerate(pieces):
+                if generation != self._speech_generation:
+                    break  # «stop» discards the rest of this answer
+                if index + 1 < len(pieces):
+                    try:
+                        from luxai.voices import prefetch
+                        prefetch(pieces[index + 1], language)  # one piece ahead, never the whole answer
+                    except Exception:
+                        pass
+                try:
+                    played = speak(piece, enabled=True, language=language)
+                except Exception:
+                    played = False
+                if not played:
+                    break
+            if generation != self._speech_generation:
+                continue
             if not self._closed:
                 try:
                     self.tts_played.emit(played, generation)
@@ -5020,6 +5227,7 @@ class MainWindow(QMainWindow):
         if self.tray_icon:
             self.tray_icon.hide()
         self._closed = True
+        self._remove_foreground_hook()
         if getattr(self, "_local_ai_monitor", None) is not None:
             self._local_ai_monitor.close()
         self._attachment_token += 1
@@ -5077,4 +5285,7 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # A direct «python main.py» (old autostart entries) goes through the same checks as
+    # run_windows.bat: one instance per folder, no start during an update (audit 2 #25).
+    import launch_windows
+    sys.exit(launch_windows.main())

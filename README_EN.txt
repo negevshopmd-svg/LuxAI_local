@@ -1,4 +1,12 @@
-LUXAI LOCAL (JARVIS) 0.4.2v — UPDATE 2026-11-20
+LUXAI LOCAL (JARVIS) 0.4.2w — UPDATE 2026-11-20
+
+0.4.2w: Fixes from the second audit (50 points). Pasting from the clipboard history can no
+longer land in another window; long spoken answers are read from the start;
+«remind me in -5 minutes» is refused and the reminder text is no longer lost;
+GIFs keep their real length; the window no longer freezes on the clipboard, notifications,
+downloads cleanup or administrator mode. Updates are safer: removed files and libraries
+come back when something fails, and Jarvis does not start during an update.
+Each Jarvis copy now has its own administrator task and its own autostart.
 
 0.4.2v: Internal code simplified (the microphone loop and the agent loop are split into
 small parts), no change in behaviour.

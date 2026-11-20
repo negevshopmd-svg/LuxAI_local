@@ -55,23 +55,14 @@ pause
 exit /b 1
 
 :legacy_download
-rem An installation older than 0.4.2r has no fetch_updater.py yet.
-set "BOOT=Update.py.new"
-curl.exe -fL --retry 2 --connect-timeout 15 --max-time 180 -o "%BOOT%" "https://raw.githubusercontent.com/negevshopmd-svg/LuxAI_local/main/Update.py"
-if errorlevel 1 (
-    del /q "%BOOT%" >nul 2>nul
-    echo EROARE: Nu am putut descarca updaterul din GitHub.
-    echo Verifica conexiunea la internet si incearca din nou.
-    pause
-    exit /b 1
-)
-%LUXAI_PYTHON% -I -c "from pathlib import Path; compile(Path('Update.py.new').read_bytes(), 'Update.py', 'exec')"
-if errorlevel 1 (
-    del /q "%BOOT%" >nul 2>nul
-    echo EROARE: Updaterul descarcat nu este valid. Am pastrat versiunea existenta.
-    pause
-    exit /b 1
-)
+rem 0.4.2w (audit 2 #3): no unsigned route any more. Without the local helper the
+rem signature cannot be checked, so nothing is downloaded or run.
+echo EROARE: Lipseste scripts\fetch_updater.py - instalarea este incompleta.
+echo Nu pot verifica semnatura actualizarii, deci nu descarc nimic.
+echo Descarca arhiva completa de pe GitHub si ruleaza install_windows.bat:
+echo https://github.com/negevshopmd-svg/LuxAI_local
+pause
+exit /b 1
 
 :run_update
 rem Parse this entire block before Update.py can replace the running batch file.

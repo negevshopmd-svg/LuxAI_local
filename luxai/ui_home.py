@@ -191,6 +191,12 @@ class OrbVisual(QWidget):
         # its own sound in the microphone must not amplify the listening ring.
         target = self._audio_level if self._listening and not self._speaking else 0.0
         self._level = self._approach(self._level, target, elapsed, attack=0.045, release=0.22)
+        # Audit 2 #41: the slow idle breathing needs ~20 frames per second, not 60; full speed returns
+        # as soon as Jarvis listens or speaks (the smoothing above is time-based, so it looks the same).
+        active = self._listening or self._speaking or self._listen_mix > 0.01 or self._speak_mix > 0.01
+        interval = 16 if active else 50
+        if self._timer.interval() != interval:
+            self._timer.setInterval(interval)
         self.update()
 
     def paintEvent(self, event):

@@ -1,3 +1,25 @@
+## 0.4.2w — Second audit report (2026-11-20)
+
+P1
+- #1 `Update.py --resume` takes the same OS lock as the updater (exit 2 while an update runs); the launcher refuses to start during an update, blocks the start when the interrupted update cannot be finished, and asks (default «No») when the pending marker is left.
+- #2 Files dropped by the new version are removed inside `file_transaction` (backup first) and come back when any later step, including writing the state, fails.
+- #3 Update.bat has no unsigned route any more: without `scripts/fetch_updater.py` it stops with an installation error.
+- #4 Package rollback: the snapshot keeps `==` and `name @ url` lines, packages added since are uninstalled, the result is compared with the snapshot (not only pip's exit code), and failures after the library step also restore the libraries.
+- #5 Each installation has its own admin task (`LuxAI Jarvis (admin) <id>`, name in `.luxai_data/admin_task.txt`) and autostart value (`LuxAI_Jarvis_<id>`); a task/value is used, ended or deleted only when it starts this folder. The old shared ones are migrated when they belong here.
+- #6 Clipboard-history paste and quick inserts: the activation must succeed and the foreground is checked again right before Ctrl+V; otherwise nothing is pasted and the text stays on the clipboard.
+
+P2
+- #7 A long spoken answer is one queue item; its pieces are fed one by one with one piece prefetched.
+- #8 `save_settings` does not write config.json when nothing changed. #39 rollback writes back only saved keys (never an environment key) and records the old key before writing. #46 one key read per save.
+- #9/#10 Reminders: the sign stays with the duration (negative refused); «remind me …» first means the rest is the message; the message before the time is kept; «07h30» uses one clock match for time and label. #18 Snooze saves first, closes only its own window, shows the reason on failure. #37 cancel-all writes once.
+- #11 A failed conversion removes its reserved output (audio, video, GIF, images, PDF). #12 GIF frame durations follow the real timestamps. #13 Audio gaps after the first frame are kept and the resampler is flushed. #29 progress once per percent.
+- #14 The clipboard is read with the Win32 API on a worker (Qt's reader is the fallback). #15/#16 one worker each for saves and picture encoding, in order, a waiting job replaced by a newer one; close waits up to 8 s for the last save. #17 the saved history loads on a worker (size checked first). #24 restoring after a quick insert keeps all formats and only when the clipboard is still Jarvis's own. #31 identity before truncation, cut items marked. #35 coalescing documented.
+- #19 Downloads cleanup scans and moves on a worker; the day is marked only after a run without errors. #20 the UAC wait for admin mode runs on a worker. #21 known config fields are validated (clamped or dropped, original copied aside, user told). #22 turning dictation off during transcription invalidates it and releases the state. #23 chat and notification translations share one queued worker. #25 `python main.py` goes through the launcher checks.
+
+P3/P4
+- #26 Validated trigger entries are cached by the registry fingerprint; the 1 s poll runs only for schedules/events. #27 notifications are read on a worker. #28 chat views keep the last 400 messages. #30 the translator signature covers all model files and a loaded model is replaced after a repair. #32 long document diffs are debounced. #33 one ZIP decompression, signed digests reused for the state. #34 bounded taskkill/cleanup. #36 screenshots go to the clipboard from raw pixels, the PNG is written on a worker. #38 dictation waits for modifier release with a Qt timer. #40 Telegram signals carry the bot generation. #41 idle animation at 20 fps. #42 active-window tracking by WinEvent hook. #43 the start check reuses a positive result while the venv is unchanged. #44 clipboard popup refresh coalesced, search in one pass. #45 setup window reads at most 128K characters and refreshes the log once per tick. #48 config.json and .pyc files are no longer tracked or signed. #49 window options alone no longer rebuild the style sheet; phrase normalization done once. #50 a positive Tesseract check is reused for the same executable and language data.
+- Not changed: #47 (the local LLM runs in a fresh isolated process per request on purpose — a native crash cannot take the window down; no profiling showed the start-up cost to matter yet).
+
 ## 0.4.2v — Last complex functions split (2026-11-20)
 
 - #44 completed: no function is above complexity 40 any more. `VoiceListener.listen` (51 → under 40): the «stop» channel while Jarvis talks is `_BargeInDetector` (identical to the old inline logic on 2000 random frame sequences), plus `_playback_voiced`, `_transcribe_interrupt`, `_frame_detected`, `_report_capture_issues`. `run_task` (48 → under 40): `_finish_is_verified`, `_policy_error`, `_apply_clarification`. All voice, microphone and agent tests pass; the real microphone path was not exercised live.

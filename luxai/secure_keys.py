@@ -132,6 +132,13 @@ def get_api_key(provider: str = "openai") -> str:
     return os.environ.get(_environment_variable(provider), "").strip()
 
 
+def saved_api_key(provider: str = "openai") -> str:
+    """Only the key saved through the UI (never an environment variable): what a settings
+    rollback may write back (audit 2 #39)."""
+    _validate_secret_provider(provider)
+    return _saved_key(provider)
+
+
 def has_api_key(provider: str = "openai") -> bool:
     return bool(get_api_key(provider))
 

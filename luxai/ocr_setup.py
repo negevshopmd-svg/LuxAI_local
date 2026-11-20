@@ -320,6 +320,21 @@ def verify_tesseract(binary: Path) -> tuple[bool, str]:
     return True, f"Tesseract готов: {binary} (rus+eng)"
 
 
+_VERIFIED: set = set()  # identities of executables + language data that already passed the check
+
+
+def _identity(binary: Path):
+    """The executable and its language data as they are now; any update or repair changes it."""
+    parts = [str(binary)]
+    for path in (Path(binary), DATA_DIR / "rus.traineddata", DATA_DIR / "eng.traineddata"):
+        try:
+            stat = path.stat()
+        except OSError:
+            return None
+        parts.append((stat.st_size, stat.st_mtime_ns))
+    return tuple(parts)
+
+
 def ensure_tesseract(configured_path: str = "", *, allow_download=True) -> tuple[Path, Path]:
     """Return (executable, tessdata dir); install on first call if missing.
 
@@ -329,8 +344,15 @@ def ensure_tesseract(configured_path: str = "", *, allow_download=True) -> tuple
     with _LOCK, _process_lock():
         binary = find_tesseract(configured_path)
         if binary and language_data_ready():
+            # Audit 2 #50: a positive check is reused for the SAME executable and language files,
+            # instead of starting «tesseract --list-langs» before every recognition.
+            identity = _identity(binary)
+            if identity is not None and identity in _VERIFIED:
+                return binary, DATA_DIR
             ok, _ = verify_tesseract(binary)
             if ok:
+                if identity is not None:
+                    _VERIFIED.add(identity)
                 return binary, DATA_DIR
         if not allow_download:
             raise OCRInstallError(

@@ -212,11 +212,14 @@ def checked_command(raw, builtin=False):
     if len(title) not in range(1, 101) or not isinstance(phrases, list) or len(phrases) not in range(0, 13):
         raise ValueError("Invalid command title or phrases")
     good_phrases = []
+    seen_phrases = set()
     for phrase in phrases:
         if not isinstance(phrase, str) or not (1 <= len(phrase.strip()) <= 120):
             raise ValueError("Invalid phrase")
         normalized = normalize_phrase(phrase)
-        if normalized and normalized not in {normalize_phrase(p) for p in good_phrases}:
+        # Audit 2 #49: the normalized forms are kept in a set instead of normalizing every phrase again.
+        if normalized and normalized not in seen_phrases:
+            seen_phrases.add(normalized)
             good_phrases.append(phrase.strip())
     for flag in ("voice_enabled", "ask_before_run", "allow_chaining", "agent"):
         if flag in raw and not isinstance(raw[flag], bool):
@@ -228,12 +231,15 @@ def checked_command(raw, builtin=False):
     if not isinstance(optional_words, list) or len(optional_words) > 20:
         raise ValueError("Некорректный список необязательных слов.")
     checked_optional = []
+    seen_optional = set()
     for value in optional_words:
         if (not isinstance(value, str) or not 1 <= len(value.strip()) <= 40
                 or any(ord(char) < 32 for char in value) or not normalize_phrase(value)):
             raise ValueError("Некорректное необязательное слово.")
         value = value.strip()
-        if normalize_phrase(value) not in {normalize_phrase(x) for x in checked_optional}:
+        normalized = normalize_phrase(value)
+        if normalized not in seen_optional:
+            seen_optional.add(normalized)
             checked_optional.append(value)
     from luxai.command_triggers import normalize_hotkey, validate_schedule, validate_event
     hotkey = normalize_hotkey(raw.get("hotkey", ""))
@@ -295,7 +301,13 @@ class CommandRegistry:
         self.agent_groups = {"folders": [], "collections": []}
         self.reload()
 
+    def fingerprint(self):
+        """Changes whenever the library changes (audit 2 #26): callers cache validated entries by it."""
+        return (getattr(self, "_revision", 0), id(self.custom), len(self.custom), len(self.builtin_overrides),
+                len(self.disabled_builtins), len(self.deleted_builtins))
+
     def reload(self):
+        self._revision = getattr(self, "_revision", 0) + 1
         self.custom = []
         self.disabled_builtins = set()
         self.builtin_overrides = {}
@@ -380,6 +392,7 @@ class CommandRegistry:
             raise
         finally:
             self._batching = False
+            self._revision = getattr(self, "_revision", 0) + 1
 
     def groups_for(self, agent=False):
         return self.agent_groups if agent else self.groups

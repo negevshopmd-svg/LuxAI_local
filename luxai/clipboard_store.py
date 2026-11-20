@@ -105,11 +105,17 @@ class ClipboardHistory:
         value = str(value or "")
         if not value.strip():
             return None
+        # The identity is the WHOLE text, computed before the cut (audit 2 #31): two long texts with
+        # the same beginning stay two items, and a pinned one is never replaced by the other.
+        key = "t:" + hashlib.sha1(value.encode("utf-8", "replace")).hexdigest()
+        truncated = len(value) > MAX_TEXT
         value = value[:MAX_TEXT]
         html = str(html or "")[: MAX_TEXT * 3]
         item = {"id": self._new_id(), "kind": "text", "text": value, "html": html, "app": app,
                 "time": time.time() if now is None else now, "pinned": False}
-        return self._push(item, "t:" + hashlib.sha1(value.encode("utf-8", "replace")).hexdigest())
+        if truncated:
+            item["truncated"] = True  # shown in the list: only the first MAX_TEXT characters were kept
+        return self._push(item, key)
 
     def add_image(self, png: bytes, *, thumb: bytes = b"", size=(0, 0), app: str = "",
                   now: float | None = None) -> dict | None:
@@ -220,10 +226,14 @@ class ClipboardHistory:
             temp.unlink(missing_ok=True)
         return True
 
+    MAX_FILE_BYTES = 400 * 1024 * 1024  # the trim budgets (160 + 64 MB) plus Base64 and encryption
+
     def load(self, path: Path) -> bool:
         path = Path(path)
         if sys.platform != "win32" or not path.is_file():
             return False
+        if path.stat().st_size > self.MAX_FILE_BYTES:
+            return False  # checked BEFORE reading (audit 2 #17)
         from luxai.secure_keys import _win_crypt
         raw = path.read_bytes()
         if not raw.startswith(FILE_MAGIC):

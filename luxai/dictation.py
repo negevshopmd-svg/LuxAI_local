@@ -265,6 +265,14 @@ def transcribe(model, audio: np.ndarray, language: str | None, beam_size: int = 
 
 # --- typing -----------------------------------------------------------------
 
+def modifiers_held() -> bool:
+    """Is Shift, Ctrl, Alt or Win held right now? (one check, no waiting)"""
+    if sys.platform != "win32":
+        return False
+    state = ctypes.windll.user32.GetAsyncKeyState
+    return any(state(code) & 0x8000 for code in (0x10, 0x11, 0x12, 0x5B, 0x5C))
+
+
 def wait_for_modifiers_released(timeout: float = 1.5) -> None:
     """Typing while Ctrl/Alt are still held would trigger app shortcuts."""
     if sys.platform != "win32":

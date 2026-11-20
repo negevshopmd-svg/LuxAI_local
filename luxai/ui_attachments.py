@@ -5,7 +5,7 @@ import base64
 from pathlib import Path
 import threading
 
-from PySide6.QtCore import Qt, Signal, QSize
+from PySide6.QtCore import Qt, Signal, QSize, QTimer
 from PySide6.QtGui import QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QDialog, QDialogButtonBox, QFileDialog, QFrame, QHBoxLayout, QLabel,
@@ -433,7 +433,12 @@ class AttachmentEditDialog(QDialog):
         self.tabs.addTab(self.original_view, _t("Оригинал", "Original", "Original"))
         self.new_text = QPlainTextEdit()
         self.new_text.setPlainText(proposal.new_text)
-        self.new_text.textChanged.connect(self._refresh_diff)
+        # Audit 2 #32: a long document is compared once typing pauses (300 ms), not on every key.
+        self._diff_timer = QTimer(self)
+        self._diff_timer.setSingleShot(True)
+        self._diff_timer.setInterval(300)
+        self._diff_timer.timeout.connect(self._refresh_diff)
+        self.new_text.textChanged.connect(self._text_edited)
         self.tabs.addTab(self.new_text, _t("Новый текст", "New text", "Text nou"))
         outer.addWidget(self.tabs, 1)
         self.warning = _plain_label()
@@ -457,7 +462,14 @@ class AttachmentEditDialog(QDialog):
         return propose_text_edit((self.proposal.attachment,), self.proposal.attachment.id,
                                  self.new_text.toPlainText())
 
+    def _text_edited(self):
+        if self.new_text.document().characterCount() < 20000:
+            self._refresh_diff()  # short texts: instant, as before
+        else:
+            self._diff_timer.start()
+
     def _refresh_diff(self):
+        self._diff_timer.stop()
         try:
             current = self._current_proposal()
             self.diff_view.setPlainText(current.diff)

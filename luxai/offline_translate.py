@@ -90,6 +90,7 @@ MAX_PIECE = 400  # characters per model call; longer text is split at sentences
 
 _lock = threading.Lock()
 _loaded: "OfflineTranslator | None" = None
+_loaded_signature = None  # the files the loaded translator came from
 _failed: tuple | None = None   # signature (size, mtime) of the model that failed to load
 _downloading = False
 
@@ -204,11 +205,17 @@ class OfflineTranslator:
 
 
 def _signature(directory: Path | None = None) -> tuple | None:
-    try:
-        stat = (model_dir(directory) / "model.bin").stat()
-        return stat.st_size, stat.st_mtime_ns
-    except OSError:
-        return None
+    """Size and time of EVERY file the translator needs (audit 2 #30): repairing only the tokenizer or the
+    configuration also counts as a change."""
+    folder = model_dir(directory)
+    parts = []
+    for name in sorted(SHA256):
+        try:
+            stat = (folder / name).stat()
+        except OSError:
+            return None
+        parts.append((name, stat.st_size, stat.st_mtime_ns))
+    return tuple(parts)
 
 
 def get(directory: Path | None = None) -> "OfflineTranslator | None":
@@ -217,18 +224,22 @@ def get(directory: Path | None = None) -> "OfflineTranslator | None":
     A model that failed to load is tried again only after its files changed
     (a repair); a damaged model is checked and repaired in the background.
     """
-    global _loaded, _failed
+    global _loaded, _failed, _loaded_signature
+    signature = _signature(directory)
     if _loaded is not None:
-        return _loaded
+        if signature == _loaded_signature or signature is None:
+            return _loaded
+        with _lock:  # the files were replaced (repair/update): load the new ones
+            _loaded = None
     if not installed(directory):
         return None
-    signature = _signature(directory)
     if _failed is not None and _failed == signature:
         return None
     with _lock:
         if _loaded is None:
             try:
                 _loaded = OfflineTranslator(directory)
+                _loaded_signature = signature
                 _failed = None
             except Exception:
                 _failed = signature

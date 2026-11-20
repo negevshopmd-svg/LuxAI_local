@@ -3,6 +3,7 @@
 .luxai_secrets/
 .luxai_data/
 config.local.json
+config.json
 voice_error.log
 online_agent.log
 logs/

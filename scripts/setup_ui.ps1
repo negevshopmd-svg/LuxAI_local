@@ -433,9 +433,15 @@ function Set-StepState([string]$Id, [string]$StepState, [string]$Note = '') {
 }
 
 function Add-Log([string]$Text) {
+    # The text box is refreshed once per tick (Show-Log), not once per line (audit 2 #45).
     [void]$state.log.AppendLine($Text)
     if ($state.log.Length -gt 60000) { [void]$state.log.Remove(0, 20000) }
-    if ($ui.LogBox.Visibility -eq 'Visible') { $ui.LogText.Text = $state.log.ToString(); $ui.LogText.ScrollToEnd() }
+    $state.logDirty = $true
+}
+
+function Show-Log {
+    if ($state.logDirty -and $ui.LogBox.Visibility -eq 'Visible') { $ui.LogText.Text = $state.log.ToString(); $ui.LogText.ScrollToEnd() }
+    $state.logDirty = $false
 }
 
 function Complete([bool]$Ok, [string]$Message) {
@@ -494,7 +500,11 @@ function Read-Events {
         if ($stream.Length -lt $state.position) { $state.position = 0 }
         [void]$stream.Seek($state.position, 'Begin')
         $reader = New-Object IO.StreamReader($stream, [Text.Encoding]::UTF8)
-        $chunk = $reader.ReadToEnd()
+        # At most 128K characters per tick (audit 2 #45): a big burst of log lines is spread over a few
+        # ticks, so the window keeps drawing; the rest is read on the next tick.
+        $buffer = New-Object char[] 131072
+        $count = $reader.Read($buffer, 0, $buffer.Length)
+        $chunk = New-Object string($buffer, 0, $count)
         $last = $chunk.LastIndexOf("`n")
         if ($last -lt 0) { return }
         $state.position += [Text.Encoding]::UTF8.GetByteCount($chunk.Substring(0, $last + 1))
@@ -520,6 +530,7 @@ function Read-Events {
             }
         }
     } catch { } finally { if ($stream) { $stream.Dispose() } }
+    Show-Log
 }
 
 function Update-Progress {

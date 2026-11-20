@@ -14,6 +14,7 @@ import tempfile
 import urllib.error
 import urllib.request
 import zipfile
+import zlib
 from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 
@@ -348,6 +349,9 @@ def _sig_file_digest(name: str, data: bytes) -> str:
 
 
 
+VERIFIED_DIGESTS: dict[str, str] = {}  # rel path → signed SHA-256 of the archive just verified
+
+
 def verify_release(source: Path) -> str:
     """Every file of the downloaded archive must be exactly the signed one; returns the signed version."""
     try:
@@ -371,6 +375,8 @@ def verify_release(source: Path) -> str:
     if changed:
         raise RuntimeError("Fișiere care nu corespund semnăturii: " + ", ".join(changed[:5])
                            + (" …" if len(changed) > 5 else ""))
+    VERIFIED_DIGESTS.clear()
+    VERIFIED_DIGESTS.update(actual)  # reused for the installation state (audit 2 #33)
     return str(data.get("version", ""))
 
 
@@ -422,10 +428,12 @@ def safe_extract(zip_path: Path, destination: Path) -> None:
             target = (destination / Path(*p.parts)).resolve()
             if target != base and base not in target.parents:
                 raise RuntimeError(f"Cale în afara directorului temporar: {name}")
-        bad = zf.testzip()
-        if bad:
-            raise RuntimeError(f"Arhivă ZIP deteriorată: {bad}")
-        zf.extractall(destination)
+        # One decompression (audit 2 #33): extracting checks every file's CRC itself, testzip() first
+        # decompressed the whole archive a second time.
+        try:
+            zf.extractall(destination)
+        except (zipfile.BadZipFile, zlib.error, EOFError) as exc:
+            raise RuntimeError(f"Arhivă ZIP deteriorată: {exc}") from exc
 
 
 def validate_staged_source(source: Path) -> None:
@@ -672,20 +680,25 @@ def cleanup_legacy_backups() -> None:
 
 
 @contextmanager
-def file_transaction(files: list[tuple[Path, Path]], backup: Path | None = None):
+def file_transaction(files: list[tuple[Path, Path]], backup: Path | None = None, remove=()):
     """Restore replaced code and remove new code if any update step fails.
+
+    ``remove``: files the new version dropped (audit 2 #2). They are deleted INSIDE the transaction,
+    after a backup copy, and come back with everything else when a later step (including writing
+    the installation state) fails.
 
     Package installation is a separate operation: pip cannot roll back all
     package changes. On dependency failure we restore the previous code and
     explicitly direct the user to the installer to repair the environment.
     """
     destinations = [(src, rel, _destination(rel)) for src, rel in files]
+    removals = [(Path(rel), ROOT / Path(rel)) for rel in remove]
     managed = backup is None
     backup = Path(tempfile.mkdtemp(prefix="luxai_rollback_")) if managed else backup
     retain = False
     try:
         originals = set()
-        for _, rel, dest in destinations:
+        for _, rel, dest in destinations + [(None, rel, dest) for rel, dest in removals]:
             if dest.is_file():
                 saved = backup / rel
                 saved.parent.mkdir(parents=True, exist_ok=True)
@@ -702,6 +715,15 @@ def file_transaction(files: list[tuple[Path, Path]], backup: Path | None = None)
                 dest.parent.mkdir(parents=True, exist_ok=True)  # a new folder in this version
                 _replace_with_retry(staging / rel, dest)
                 applied.append((rel, dest))
+            dropped = 0
+            for rel, dest in removals:
+                if rel in originals:
+                    dest.unlink(missing_ok=True)
+                    applied.append((rel, dest))  # restored from the backup on failure
+                    dropped += 1
+            if dropped:
+                report(f"Fișiere vechi eliminate: {dropped}.", f"Удалено старых файлов: {dropped}.",
+                       f"Old files removed: {dropped}.")
             yield
             _finish_journal()
         except BaseException as failure:
@@ -838,8 +860,15 @@ def clear_pending() -> None:
 
 
 def _installed_hashes(files) -> dict[str, str]:
+    """SHA-256 of each installed file. The signed digest of the verified archive is reused when the
+    installed bytes are the same bytes (everything except .bat/.cmd, which get CRLF) — audit 2 #33."""
     hashes = {}
     for _src, rel in files or []:
+        name = rel.as_posix()
+        known = VERIFIED_DIGESTS.get(name)
+        if known and not name.lower().endswith(_CRLF_SUFFIXES):
+            hashes[name] = known
+            continue
         destination = _destination(rel)
         try:
             hashes[rel.as_posix()] = hashlib.sha256(destination.read_bytes()).hexdigest()
@@ -855,13 +884,6 @@ def write_update_state(latest_sha: str, files=None) -> None:
     state = {"commit": latest_sha, "branch": BRANCH, "requirements": requirements_fingerprint()}
     if files is not None:
         state["files"] = _installed_hashes(files)
-        previous = {}
-        try:
-            old = json.loads(STATE_FILE.read_text(encoding="utf-8"))
-            previous = old.get("files", {}) if isinstance(old, dict) and isinstance(old.get("files"), dict) else {}
-        except (OSError, ValueError):
-            previous = {}
-        remove_dropped_files(previous, state["files"])
     try:
         temporary.write_text(json.dumps(state, indent=2), encoding="utf-8")
         os.replace(temporary, STATE_FILE)
@@ -869,9 +891,22 @@ def write_update_state(latest_sha: str, files=None) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def remove_dropped_files(previous: dict, current: dict) -> int:
-    """Files the previous update installed that the new version no longer has: removed when UNCHANGED (audit #29)."""
-    removed = 0
+def _previous_file_hashes() -> dict:
+    try:
+        old = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    files = old.get("files", {}) if isinstance(old, dict) else {}
+    return files if isinstance(files, dict) else {}
+
+
+def dropped_files(previous: dict, current) -> list[str]:
+    """Files the previous update installed that the new version no longer has, still UNCHANGED (audit #29).
+
+    Only computed here; they are removed inside file_transaction, so a failure brings them back (audit 2 #2).
+    """
+    current = {Path(rel).as_posix() for rel in current}
+    dropped = []
     for rel, digest in previous.items():
         if rel in current or not isinstance(rel, str) or not isinstance(digest, str):
             continue
@@ -881,8 +916,19 @@ def remove_dropped_files(previous: dict, current: dict) -> int:
         target = ROOT.joinpath(*path.parts)
         try:
             if target.is_file() and not _is_link(target) and hashlib.sha256(target.read_bytes()).hexdigest() == digest:
-                target.unlink()
-                removed += 1
+                dropped.append(path.as_posix())
+        except OSError:
+            continue
+    return dropped
+
+
+def remove_dropped_files(previous: dict, current: dict) -> int:
+    """Delete the dropped files directly (kept for callers outside an update transaction)."""
+    removed = 0
+    for rel in dropped_files(previous, current):
+        try:
+            ROOT.joinpath(*PurePosixPath(rel).parts).unlink()
+            removed += 1
         except OSError:
             continue
     if removed:
@@ -967,39 +1013,77 @@ def validate_staged_requirements(source: Path) -> None:
 
 
 
-def snapshot_packages() -> str:
-    """The exact installed package versions (pip freeze), to put back if the update fails (audit #7)."""
+def _freeze() -> str | None:
+    """«pip freeze --all» of the installation's .venv, or None when it cannot be read."""
     python = ROOT / ".venv" / "Scripts" / "python.exe"
     if not python.is_file():
-        return ""
+        return None
     try:
         result = subprocess.run([str(python), "-m", "pip", "freeze", "--all", "--disable-pip-version-check"],
                                 capture_output=True, text=True, timeout=120, check=False,
                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     except (OSError, subprocess.TimeoutExpired):
-        return ""
-    lines = [line for line in result.stdout.splitlines() if "==" in line and not line.startswith("-e")]
-    return "\n".join(lines) + "\n" if result.returncode == 0 and lines else ""
+        return None
+    return result.stdout if result.returncode == 0 else None
+
+
+def _package_lines(freeze: str) -> dict[str, str]:
+    """Normalized package name → its exact freeze line (== pins AND «name @ url» lines; audit 2 #4)."""
+    lines = {}
+    for line in (freeze or "").splitlines():
+        line = line.strip()
+        if not line or line.startswith(("#", "-")):
+            continue
+        name = re.split(r"\s*(?:==|@)\s*", line, maxsplit=1)[0]
+        if name and name != line:
+            lines[re.sub(r"[-_.]+", "-", name).lower()] = line
+    return lines
+
+
+def snapshot_packages() -> str:
+    """The exact installed package versions (pip freeze), to put back if the update fails (audit #7)."""
+    freeze = _freeze()
+    lines = list(_package_lines(freeze or "").values())
+    return "\n".join(lines) + "\n" if lines else ""
 
 
 def restore_packages(snapshot: str) -> bool:
-    """Put the libraries back to the versions that worked before this update."""
+    """Put the libraries back EXACTLY as they were before this update (audit 2 #4).
+
+    Packages added since the snapshot are removed, changed ones go back to their old version, and
+    the result is checked against the snapshot again — success is never taken from pip's exit
+    code alone. Nothing to do when the environment did not change.
+    """
     python = ROOT / ".venv" / "Scripts" / "python.exe"
     if not snapshot or not python.is_file():
         return False
+    wanted = _package_lines(snapshot)
+    current = _freeze()
+    if current is not None and _package_lines(current) == wanted:
+        return True
+    report("Revin la versiunile anterioare ale bibliotecilor...",
+           "Возвращаю прежние версии библиотек…", "Restoring the previous library versions…")
+    added = sorted(set(_package_lines(current or "")) - set(wanted) - {"pip", "setuptools", "wheel"})
     fd, name = tempfile.mkstemp(prefix="luxai_packages_", suffix=".txt")
     os.close(fd)
     try:
+        if added:
+            run_streamed([str(python), "-m", "pip", "uninstall", "-y", "--disable-pip-version-check", *added],
+                         timeout=600)
         Path(name).write_text(snapshot, encoding="utf-8")
-        report("Revin la versiunile anterioare ale bibliotecilor...",
-               "Возвращаю прежние версии библиотек…", "Restoring the previous library versions…")
-        result = run_streamed([str(python), "-m", "pip", "install", "--disable-pip-version-check", "--no-deps",
-                               "--prefer-binary", "-r", name], timeout=900)
-        return result.returncode == 0
+        run_streamed([str(python), "-m", "pip", "install", "--disable-pip-version-check", "--no-deps",
+                      "--prefer-binary", "-r", name], timeout=900)
     except (OSError, subprocess.TimeoutExpired):
         return False
     finally:
         Path(name).unlink(missing_ok=True)
+    after = _freeze()
+    restored = after is not None and _package_lines(after) == wanted
+    if not restored:
+        report("Bibliotecile NU au revenit complet la versiunile anterioare.",
+               "Библиотеки НЕ вернулись полностью к прежним версиям.",
+               "The libraries did NOT fully return to their previous versions.")
+    return restored
 
 
 def requirements_fingerprint() -> str:
@@ -1122,17 +1206,24 @@ def run_streamed(command: list[str], timeout: float, cwd: Path | None = None):
     try:
         process.wait(timeout)
     except subprocess.TimeoutExpired:
+        # Clean-up has its own limits (audit 2 #34): taskkill at most 20 s, then a plain kill, then
+        # at most 10 s for the process; the reader thread is a daemon and is never waited on here.
         if sys.platform == "win32":
-            subprocess.run(["taskkill", "/T", "/F", "/PID", str(process.pid)], capture_output=True,
-                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), check=False)
-        else:
-            process.kill()
+            try:
+                subprocess.run(["taskkill", "/T", "/F", "/PID", str(process.pid)], capture_output=True, timeout=20,
+                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), check=False)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
         try:
-            process.stdout.close()
+            process.kill()
         except OSError:
             pass
+        try:
+            process.wait(10)
+        except subprocess.TimeoutExpired:
+            pass
         raise
-    reader.join(5)
+    reader.join(2)  # a grandchild may keep the pipe open; its output is not needed any more
     return process
 
 
@@ -1206,14 +1297,39 @@ Get-CimInstance Win32_Process -Filter "Name='Jarvis.exe' OR Name='pythonw.exe' O
     ($_.Name -eq 'Jarvis.exe' -or $_.CommandLine -match '(main|launch_windows)\.py')
 } | ForEach-Object { if ($env:LUXAI_KILL -eq '1') { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; $_.ProcessId }
 """
-TASK_NAME = "LuxAI Jarvis (admin)"
+TASK_NAME = "LuxAI Jarvis (admin)"  # the old shared name; each folder now has its own (audit 2 #5)
+
+
+def _admin_task_names() -> list[str]:
+    """This folder's own task name (written by the settings switch), then the old shared name."""
+    names = []
+    try:
+        own = (ROOT / ".luxai_data" / "admin_task.txt").read_text(encoding="ascii").strip()
+        if own.startswith(TASK_NAME + " ") and len(own) <= 64 and '"' not in own:
+            names.append(own)
+    except (OSError, UnicodeError):
+        pass
+    names.append(TASK_NAME)
+    return names
+
+
+def our_admin_task() -> str | None:
+    """The name of the admin task that starts THIS folder, or None."""
+    for name in _admin_task_names():
+        if _task_is_ours(name):
+            return name
+    return None
 
 
 def admin_task_is_ours() -> bool:
-    """The «LuxAI Jarvis (admin)» task belongs to THIS folder (another installation's task is never touched)."""
+    return our_admin_task() is not None
+
+
+def _task_is_ours(name: str) -> bool:
+    """The task belongs to THIS folder (another installation's task is never touched)."""
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     try:
-        result = subprocess.run(["schtasks", "/Query", "/TN", TASK_NAME, "/XML"], capture_output=True,
+        result = subprocess.run(["schtasks", "/Query", "/TN", name, "/XML"], capture_output=True,
                                 timeout=20, creationflags=flags, check=False)
     except (OSError, subprocess.TimeoutExpired):
         return False
@@ -1241,10 +1357,10 @@ def _jarvis_pids(kill: bool) -> list[int]:
     return [int(line) for line in (result.stdout or "").split() if line.strip().isdigit()]
 
 
-def _task_running() -> bool:
+def _task_running(name: str = TASK_NAME) -> bool:
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     try:
-        result = subprocess.run(["schtasks", "/Query", "/TN", TASK_NAME, "/FO", "CSV", "/NH"], capture_output=True,
+        result = subprocess.run(["schtasks", "/Query", "/TN", name, "/FO", "CSV", "/NH"], capture_output=True,
                                 timeout=20, creationflags=flags, check=False)
     except (OSError, subprocess.TimeoutExpired):
         return False
@@ -1264,20 +1380,20 @@ def close_jarvis() -> int:
         return 0  # tests and folders without an installed Jarvis
     import time
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    ours = admin_task_is_ours()
+    ours = our_admin_task()
     if ours:
         try:
-            subprocess.run(["schtasks", "/End", "/TN", TASK_NAME], capture_output=True, timeout=15,
+            subprocess.run(["schtasks", "/End", "/TN", ours], capture_output=True, timeout=15,
                            creationflags=flags, check=False)
         except (OSError, subprocess.TimeoutExpired):
             pass
     closed = _jarvis_pids(kill=True)
     deadline = time.monotonic() + 15
     remaining = _jarvis_pids(kill=False)
-    while (remaining or (ours and _task_running())) and time.monotonic() < deadline:
+    while (remaining or (ours and _task_running(ours))) and time.monotonic() < deadline:
         time.sleep(0.7)
         remaining = _jarvis_pids(kill=False)
-    if remaining or (ours and _task_running()):
+    if remaining or (ours and _task_running(ours)):
         raise RuntimeError("Jarvis nu s-a închis (PID " + ", ".join(map(str, remaining)) + "). "
                            "Închide-l din bara de sistem și pornește din nou Update.bat.")
     if closed:
@@ -1572,28 +1688,36 @@ def perform_update() -> int:
             report(f"Aplic {len(files)} fișiere...", f"Применяю файлов: {len(files)}…", f"Applying {len(files)} files…")
             ui_detail(f"Aplic {len(files)} fișiere", f"Применяю файлов: {len(files)}", f"Applying {len(files)} files")
             packages = snapshot_packages()
+            dropped = dropped_files(_previous_file_hashes(), [rel for _src, rel in files])
             # A durable mark: if the PC loses power between two files, the next start says so and the
             # next update re-applies everything instead of trusting the old state (audit #29).
             write_pending(latest_sha)
-            with file_transaction(files):
-                ui_step("apply", "done")
-                # Direct dependencies are rechecked against the index, even when
-                # already installed. Stay within requirements and Python markers.
-                if not run_step("libs", upgrade_dependencies):
-                    ui_step("libs", "fail")
+            libraries_touched = False
+            try:
+                with file_transaction(files, remove=dropped):
+                    ui_step("apply", "done")
+                    libraries_touched = True
+                    if not run_step("libs", upgrade_dependencies):
+                        ui_step("libs", "fail")
+                        raise RuntimeError("Actualizarea bibliotecilor a eșuat. Codul anterior se restaurează.")
+
+                    # Optional parts: failures warn but never undo the code update.
+                    run_step("gguf", ensure_local_ai_backend)
+                    run_step("ocr", ensure_ocr)
+                    run_step("translator", ensure_offline_translator)
+
+                    write_update_state(latest_sha, files)
+            except Exception as failure:
+                # Any failure after the library step (state file included) brings the old code back,
+                # so the old libraries must come back with it (audit 2 #4).
+                if libraries_touched and packages:
                     restored = restore_packages(packages)
                     raise RuntimeError(
-                        "Actualizarea bibliotecilor a eșuat. Codul anterior se restaurează; "
-                        + ("bibliotecile au revenit la versiunile anterioare." if restored else
-                           "bibliotecile nu au putut reveni singure — rulează install_windows.bat.")
-                    )
-
-                # Optional parts: failures warn but never undo the code update.
-                run_step("gguf", ensure_local_ai_backend)
-                run_step("ocr", ensure_ocr)
-                run_step("translator", ensure_offline_translator)
-
-                write_update_state(latest_sha, files)
+                        f"{failure} "
+                        + ("Bibliotecile au revenit la versiunile anterioare." if restored else
+                           "Bibliotecile nu au putut reveni singure — rulează install_windows.bat.")
+                    ) from failure
+                raise
             clear_pending()
             report("Actualizare instalată cu succes.", "Обновление установлено.", "Update installed.")
             run_step("cleanup", lambda: (cleanup_development_files(), cleanup_legacy_backups(),
@@ -1645,7 +1769,16 @@ if __name__ == "__main__":
             cleanup_development_files()
             raise SystemExit(0)
         if sys.argv[1:] == ["--resume"]:
-            raise SystemExit(0 if resume_interrupted_update() >= 0 else 1)
+            # Same OS lock as the updater (audit 2 #1): never moves files while an update runs.
+            # 0 = done/nothing to do, 2 = an update is running right now, 1 = could not finish.
+            try:
+                with updater_lock():
+                    resume_interrupted_update()
+                    raise SystemExit(1 if _journal_file().exists() else 0)
+            except RuntimeError:
+                raise SystemExit(2)
+            except OSError:
+                raise SystemExit(1)
         if sys.argv[1:] == ["--remove-fish-local"]:
             raise SystemExit(0 if cleanup_retired_fish_local() else 1)
         raise SystemExit(main())

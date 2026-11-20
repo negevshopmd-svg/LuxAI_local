@@ -1,5 +1,13 @@
-LUXAI LOCAL 0.4.2v — ACTUALIZARE 2026-11-20
+LUXAI LOCAL 0.4.2w — ACTUALIZARE 2026-11-20
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.2w: Corecturile celui de-al doilea audit (50 de puncte). Lipirea din istoricul clipboard
+nu mai poate ajunge în altă fereastră; răspunsurile vocale lungi se citesc de la început;
+«amintește-mi peste -5 minute» e refuzat, iar mesajul mementoului nu se mai pierde;
+GIF-urile păstrează durata reală; fereastra nu mai îngheață la clipboard, notificări,
+curățarea descărcărilor sau modul administrator. Actualizarea e mai sigură: fișierele
+șterse și bibliotecile revin dacă ceva eșuează, iar Jarvis nu pornește în timpul ei.
+Fiecare copie Jarvis are acum propria sarcină de administrator și propria pornire automată.
 
 0.4.2v: Codul intern e simplificat (bucla microfonului și cea a agentului împărțite în
 părți mici), fără schimbări de comportament.

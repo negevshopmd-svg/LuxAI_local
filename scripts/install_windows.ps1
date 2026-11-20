@@ -53,15 +53,26 @@ function Start-SetupWindow {
     }
 }
 
-function Test-AdminTaskIsOurs {
-    # The admin task of ANOTHER installation is never ended (audit #6).
-    try {
-        $xml = (& schtasks.exe /Query /TN 'LuxAI Jarvis (admin)' /XML 2>$null) -join "`n"
-    } catch { return $false }
-    $match = [regex]::Match($xml, '<WorkingDirectory>(.*?)</WorkingDirectory>')
-    if (-not $match.Success) { return $false }
-    $folder = [System.Net.WebUtility]::HtmlDecode($match.Groups[1].Value).TrimEnd('\')
-    return ([IO.Path]::GetFullPath($folder) -ieq [IO.Path]::GetFullPath($script:Root).TrimEnd('\'))
+function Get-OurAdminTask {
+    # The admin task of ANOTHER installation is never ended (audit #6). Each folder has its own
+    # task name in .luxai_data\admin_task.txt (audit 2 #5); the old shared name is checked too.
+    $names = @()
+    $nameFile = Join-Path $script:Root '.luxai_data\admin_task.txt'
+    if (Test-Path -LiteralPath $nameFile) {
+        $own = ([IO.File]::ReadAllText($nameFile)).Trim()
+        if ($own.StartsWith('LuxAI Jarvis (admin) ') -and $own.Length -le 64 -and -not $own.Contains('"')) { $names += $own }
+    }
+    $names += 'LuxAI Jarvis (admin)'
+    foreach ($name in $names) {
+        try {
+            $xml = (& schtasks.exe /Query /TN $name /XML 2>$null) -join "`n"
+        } catch { continue }
+        $match = [regex]::Match($xml, '<WorkingDirectory>(.*?)</WorkingDirectory>')
+        if (-not $match.Success) { continue }
+        $folder = [System.Net.WebUtility]::HtmlDecode($match.Groups[1].Value).TrimEnd('\')
+        if ([IO.Path]::GetFullPath($folder) -ieq [IO.Path]::GetFullPath($script:Root).TrimEnd('\')) { return $name }
+    }
+    return $null
 }
 
 function Get-JarvisProcesses {
@@ -76,8 +87,9 @@ function Get-JarvisProcesses {
 function Stop-RunningJarvis {
     # A running Jarvis locks its libraries: close the one of THIS folder, also when started as
     # pythonw launch_windows.py, and wait until it really exited (audit #5).
-    if (Test-AdminTaskIsOurs) {
-        try { & schtasks.exe /End /TN 'LuxAI Jarvis (admin)' *> $null } catch { }
+    $ourTask = Get-OurAdminTask
+    if ($ourTask) {
+        try { & schtasks.exe /End /TN $ourTask *> $null } catch { }
     }
     $found = @(Get-JarvisProcesses)
     foreach ($process in $found) { Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue }
@@ -312,7 +324,30 @@ function Test-UsableVenv {
     return (Test-CompatiblePython $script:VenvPython)
 }
 
+function Get-VenvReadyKey {
+    # Changes when the interpreter, the venv configuration or the installed packages change.
+    $parts = @()
+    foreach ($path in @($script:VenvPython, $script:VenvPythonw, (Join-Path $script:Venv 'pyvenv.cfg'),
+                        (Join-Path $script:Venv 'Lib\site-packages'))) {
+        try { $item = Get-Item -LiteralPath $path -ErrorAction Stop } catch { return '' }
+        $length = 0
+        if (-not $item.PSIsContainer) { $length = $item.Length }
+        $parts += ('{0}:{1}' -f $item.LastWriteTimeUtc.Ticks, $length)
+    }
+    return ($parts -join '|')
+}
+
 if ($CheckVenv) {
+    if (-not (Test-ExistingFile $script:VenvPythonw) -or -not (Test-VenvBasePaths $script:Venv)) {
+        exit 1
+    }
+    # Audit 2 #43: the slow part (two Python starts) runs once per interpreter + packages; later starts
+    # reuse the positive result while nothing in the environment changed.
+    $readyFile = Join-Path $script:Venv '.luxai_ready'
+    $readyKey = Get-VenvReadyKey
+    if ($readyKey -and (Test-Path -LiteralPath $readyFile)) {
+        try { if (([IO.File]::ReadAllText($readyFile)).Trim() -eq $readyKey) { exit 0 } } catch { }
+    }
     if (-not (Test-UsableVenv)) {
         exit 1
     }
@@ -328,6 +363,7 @@ if ($CheckVenv) {
         $ErrorActionPreference = $previousPreference
     }
     if ($importCode -ne 0) { exit 1 }
+    if ($readyKey) { try { [IO.File]::WriteAllText($readyFile, $readyKey) } catch { } }
     exit 0
 }
 

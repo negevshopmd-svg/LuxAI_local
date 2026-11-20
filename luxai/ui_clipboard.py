@@ -60,7 +60,8 @@ def preview(item: dict, language: str) -> str:
     if item["kind"] == "image":
         width, height = (item.get("size") or [0, 0])[:2]
         return word("image", language) + (f" {width}×{height}" if width else "")
-    return " ".join(item.get("text", "").split())[:160]
+    text = " ".join(item.get("text", "").split())[:160]
+    return ("✂ " + text) if item.get("truncated") else text  # only the beginning was kept (audit 2 #31)
 
 
 class ElidedLabel(QLabel):
@@ -195,10 +196,27 @@ class ClipboardPopup(QDialog):
                     self.list.setCurrentRow(index)
 
     def refresh_from_runtime(self):
+        """Audit 2 #44: a burst of history changes rebuilds the list once (after 120 ms), and not at all
+        when the visible items did not change."""
+        timer = getattr(self, "_refresh_timer", None)
+        if timer is None:
+            from PySide6.QtCore import QTimer
+            timer = self._refresh_timer = QTimer(self)
+            timer.setSingleShot(True)
+            timer.setInterval(120)
+            timer.timeout.connect(self._refresh_now)
+        timer.start()
+
+    def _refresh_now(self):
         try:
-            if self.runtime_items is not None:
-                self.items = list(self.runtime_items())
-                self._fill()
+            if self.runtime_items is None:
+                return
+            items = list(self.runtime_items())
+            shape = lambda rows: [(row.get("id"), row.get("key"), row.get("pinned")) for row in rows]  # noqa: E731
+            if shape(items) == shape(self.items):
+                return
+            self.items = items
+            self._fill()
         except RuntimeError:
             pass
 
@@ -211,11 +229,14 @@ class ClipboardPopup(QDialog):
 
     def _filter(self, value):
         words = str(value or "").casefold().split()
-        for row in range(self.list.count()):
+        visible = []
+        for row in range(self.list.count()):  # one pass: hide and collect the visible rows (audit 2 #44)
             item = self.list.item(row)
             haystack = item.data(Qt.ItemDataRole.UserRole + 1) or ""
-            item.setHidden(bool(words) and not all(part in haystack for part in words))
-        visible = [row for row in range(self.list.count()) if not self.list.item(row).isHidden()]
+            hidden = bool(words) and not all(part in haystack for part in words)
+            item.setHidden(hidden)
+            if not hidden:
+                visible.append(row)
         current = self.list.currentRow()
         if visible and current not in visible:
             self.list.setCurrentRow(visible[0])

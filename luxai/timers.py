@@ -92,14 +92,25 @@ def parse_duration(text: str) -> int | None:
     return min(total, MAX_SECONDS)
 
 
+_CLOCK_FULL = re.compile(r"(?<!\d)(\d{1,2})[:.\-h ](\d{2})(?!\d)", re.I)
+_CLOCK_HOUR = re.compile(r"(?:\bв\b|\bна\b|\bla\b|\bat\b|\bfor\b|ora)\s+(\d{1,2})"
+                         r"(?!\s*(?:минут|мин|час|min|ore|or[aă]|hour|sec|сек|\d))", re.I)
+_CLOCK_SUFFIX = re.compile(r"\s*(?:am|pm|a\.m\.|p\.m\.|утра|вечера|дня|ночи)\b", re.I)
+
+
+def _clock_match(value: str):
+    """The clock-time match in ``value`` (the SAME one for the time and for the label, audit 2 #10)."""
+    return _CLOCK_FULL.search(value) or _CLOCK_HOUR.search(value)
+
+
 def parse_clock(text: str, now: dt.datetime) -> dt.datetime | None:
     """Next occurrence of a clock time: "7:30", "в 7 утра", "la 6", "at 6 pm"."""
     value = str(text or "").casefold()
-    match = re.search(r"(?<!\d)(\d{1,2})[:.\-h ](\d{2})(?!\d)", value)
+    match = _CLOCK_FULL.search(value)
     if match:
         hour, minute = int(match.group(1)), int(match.group(2))
     else:
-        match = re.search(r"(?:\bв\b|\bна\b|\bla\b|\bat\b|\bfor\b|ora)\s+(\d{1,2})(?!\s*(?:минут|мин|час|min|ore|or[aă]|hour|sec|сек|\d))", value)
+        match = _CLOCK_HOUR.search(value)
         if not match:
             return None
         hour, minute = int(match.group(1)), 0
@@ -121,18 +132,27 @@ _DURATION_PART = re.compile(
 _JOIN = re.compile(r"^\s*(?:,|и|and|și|si)?\s*$", re.I)
 
 
+def _duration_start(text: str) -> int:
+    """Where the first duration phrase starts (-1 when there is none)."""
+    match = _DURATION_PART.search(str(text or ""))
+    return match.start() if match else -1
+
+
 def _first_duration(text: str) -> tuple[str, str]:
     """(the first duration phrase with its compound parts, the words after it).
 
     «remind me in 5 minutes to check the oven for 2 minutes» → ("5 minutes", "to check the oven for 2 minutes"):
     only the first clause sets the time; the rest is the message (audit #15).
+    A minus in front stays with the phrase («-5 minutes», «−5 minutes»), so the same validation as for
+    timers refuses it (audit 2 #9).
     """
     value = str(text or "")
     matches = list(_DURATION_PART.finditer(value))
     if not matches:
         return "", ""
     end = matches[0].end()
-    parts = [matches[0].group(0)]
+    sign = "-" if re.search(r"[-−–]\s*$", value[:matches[0].start()]) else ""
+    parts = [sign + matches[0].group(0)]
     for match in matches[1:]:
         if _JOIN.match(value[end:match.start()]):
             parts.append(match.group(0))
@@ -148,18 +168,36 @@ def _clean_label(tail: str) -> str:
     return tail[:80]
 
 
+_TIME_PREPOSITION = re.compile(r"\s*(?:через|в|во|на|к|în|in|la|at|on|at\s+about|ora|peste)\s*$", re.I)
+
+
+def _body_before(text: str, start: int) -> str:
+    """The message written BEFORE the time: «remind me to call Ana in 5 minutes» → «call Ana» (audit 2 #10)."""
+    value = str(text or "")
+    remind = _REMIND_WORDS.search(value)
+    if not remind or start <= remind.end():
+        return ""
+    body = _TIME_PREPOSITION.sub("", value[remind.end():start])
+    return _clean_label(body)
+
+
 def _label(text: str) -> str:
     """Words after the time in a reminder: «… через 20 минут выключить плиту», «in five minutes to call Ana»."""
-    return _clean_label(_first_duration(text)[1])
+    after = _clean_label(_first_duration(text)[1])
+    return after or _body_before(text, _duration_start(text))
 
 
 def _clock_label(text: str) -> str:
-    """Words after the clock time in «remind me at 09:30 to call Ana»."""
+    """Words after the clock time in «remind me at 09:30 to call Ana» (or before it, «… to call Ana at 7:30»)."""
     value = str(text or "")
-    match = re.search(r"(?<!\d)\d{1,2}[:.]\d{2}(?!\d)(?:\s*(?:am|pm|a\.m\.|p\.m\.|утра|вечера|дня))?", value, re.I)
+    match = _clock_match(value)
     if not match:
-        match = re.search(r"(?:\bв\b|\bla\b|\bat\b|\bora\b)\s+\d{1,2}(?:\s*(?:am|pm|утра|вечера|дня))?", value, re.I)
-    return _clean_label(value[match.end():]) if match else ""
+        return ""
+    end = match.end()
+    suffix = _CLOCK_SUFFIX.match(value, end)
+    if suffix:
+        end = suffix.end()
+    return _clean_label(value[end:]) or _body_before(value, match.start())
 
 
 @dataclass
@@ -180,7 +218,13 @@ def parse_request(text: str, now: dt.datetime | None = None) -> Request | None:
     lowered = value.casefold()
     timerish = bool(_TIMER_WORDS.search(lowered))
     alarmish = bool(_ALARM_WORDS.search(lowered))
-    remind = bool(_REMIND_WORDS.search(lowered))
+    remind_match = _REMIND_WORDS.search(lowered)
+    remind = bool(remind_match)
+    if remind_match and not any(m.start() < remind_match.start() for pattern in (_TIMER_WORDS, _ALARM_WORDS, _CANCEL_WORDS)
+                                for m in [pattern.search(lowered)] if m):
+        # «remind me …» first: the words after it are the MESSAGE («… to check the alarm» stays a
+        # reminder with that label, audit 2 #10), never a second command.
+        return _parse_reminder(value, lowered, now)
     if _LIST_WORDS.search(lowered) and (timerish or alarmish or len(lowered.split()) <= 4):
         return Request("list")  # a long general question («… left in this video») goes to the chat (audit #16)
     if (timerish or alarmish) and _CANCEL_WORDS.search(lowered) and not re.search(r"\bна\s+\d|\bfor\s+\d|\bde\s+\d", lowered):
@@ -194,20 +238,25 @@ def parse_request(text: str, now: dt.datetime | None = None) -> Request | None:
         if seconds and re.search(r"(?:через|în|in)\s", lowered):
             return Request("alarm", at=now + dt.timedelta(seconds=seconds))
         return None
-    if timerish or remind:
-        if remind:
-            # Only the first clause sets the time; a duration inside the message stays in it.
-            first, _tail = _first_duration(value)
-            seconds = parse_duration(first) if first else None
-            if seconds:
-                return Request("timer", seconds=seconds, label=_label(value))
-            at = parse_clock(lowered, now)
-            if at is not None:
-                return Request("alarm", at=at, label=_clock_label(value))
-            return None
+    if remind:
+        return _parse_reminder(value, lowered, now)
+    if timerish:
         seconds = parse_duration(lowered)
         if seconds:
             return Request("timer", seconds=seconds)
+    return None
+
+
+def _parse_reminder(value: str, lowered: str, now: dt.datetime) -> Request | None:
+    """Intent, time and message parsed separately; the label comes from the same match as the time."""
+    # Only the first clause sets the time; a duration inside the message stays in it.
+    first, _tail = _first_duration(value)
+    if first:
+        seconds = parse_duration(first)  # «-5 minutes» → None: never five minutes (audit 2 #9)
+        return Request("timer", seconds=seconds, label=_label(value)) if seconds else None
+    at = parse_clock(lowered, now)
+    if at is not None:
+        return Request("alarm", at=at, label=_clock_label(value))
     return None
 
 
@@ -329,6 +378,15 @@ class TimerStore:
             return False
         self._commit(remaining)
         return True
+
+    def remove_many(self, identifiers) -> int:
+        """Remove several timers with ONE write (audit 2 #37): all or nothing."""
+        wanted = set(identifiers)
+        remaining = [item for item in self.items if item.id not in wanted]
+        removed = len(self.items) - len(remaining)
+        if removed:
+            self._commit(remaining)
+        return removed
 
     def clear(self, kind: str = "") -> int:
         remaining = [item for item in self.items if kind and item.kind != kind]
