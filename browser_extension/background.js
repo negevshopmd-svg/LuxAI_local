@@ -119,8 +119,12 @@ async function pump(tab) {
         const state = slot.state;
         const result = await post(state.buffer ? "audio" : "state", state);
         const document = docs.get(tab)?.get(state.doc);
+        if (document?.session === state.session) {
+          document.underrun = result?.underrun === true;
+        }
         if (document?.session === state.session && typeof result?.opening_ready === "boolean") {
           document.openingReady = result.opening_ready;
+          document.openingPreparing = result.opening_preparing === true;
         }
       }
     }
@@ -243,6 +247,8 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     const previous = documents.get(message.doc);
     const seen = Array.isArray(message.seen) ? message.seen : previous?.seen;
     const document = { page: message.page || "", frame: sender.frameId, seen, session: message.session,
+                       underrun: previous?.session === message.session && previous.underrun,
+                       openingPreparing: previous?.session === message.session && previous.openingPreparing,
                        openingReady: previous?.session === message.session && previous.openingReady };
     documents.set(message.doc, document);
     const key = "media:" + tab;
@@ -283,7 +289,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
       media: own.map((item) => ({ url: item.url, type: item.type })),
     });
     reply({ want: true, needSeen: !liveOnly && !seen, preroll: prerollSupported,
-            openingReady: !!document.openingReady, active: sender.tab.active });
+            underrun: !!document.underrun, openingReady: !!document.openingReady, openingPreparing: !!document.openingPreparing, active: sender.tab.active });
   })().catch(() => reply({ want: false }));
   return true; // the answer comes asynchronously
 });

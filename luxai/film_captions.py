@@ -43,7 +43,7 @@ MAX_BODY = 64 * 1024
 MAX_AUDIO_BYTES = (2048 + 32) * 1024  # compressed media plus the initialization segment
 MAX_AUDIO_BODY = ((MAX_AUDIO_BYTES + 2) // 3) * 4 + MAX_BODY
 BROWSER_AHEAD_SECONDS = 60.0
-BROWSER_PRECISE_LEAD = 6.0  # real seconds needed before committing a longer recognition window
+BROWSER_PRECISE_LEAD = 18.0  # reserve time for a cold CPU model and the first translated lines
 BROWSER_START_CHUNK = 8.0
 MAX_URLS = 20
 STALE_SECONDS = 5.0        # no report for this long → prepared lines are not shown (heartbeat: 1 s / 3 s paused)
@@ -245,10 +245,10 @@ class CueTimeline:
                     break
             return shown[::-1]
 
-    def opening_ready(self, position: float) -> bool:
+    def opening_ready(self, position: float, *, allow_silence: bool = False) -> bool:
         """The opening audio and first speakable, translated line have both been processed."""
         with self._lock:
-            stretch = self._stretch(position + 0.08)
+            stretch = self._stretch(position + 0.12)
             if stretch is None:
                 return False
             first = bisect.bisect_left(self._starts, position - self._longest)
@@ -258,7 +258,7 @@ class CueTimeline:
                     break
                 if cue.end > position:
                     return not cue.provisional and cue.translation_ready
-            return False
+            return allow_silence and stretch[1] >= position + 8
 
 
 # -- media ---------------------------------------------------------------------------------------------
@@ -457,6 +457,7 @@ class FilmTranscriber:
         self._stop = threading.Event()
         self._thread = None
         self._session = None                # this film's gateway session (closed by stop())
+        self._urgent = False
         self._empty = 0                     # decodes in a row that returned no audio at all
         self._prompt = ""
 
@@ -592,7 +593,7 @@ class FilmTranscriber:
         from luxai.live_captions import lone_filler, trustworthy
         from luxai.voice_rules import is_hallucinated_outro, is_repetitive_transcript
         segments, _info = model.transcribe(
-            audio, language=language, beam_size=2, temperature=0.0, vad_filter=True,
+            audio, language=language, beam_size=1 if self._urgent else 2, temperature=0.0, vad_filter=True,
             vad_parameters={"min_silence_duration_ms": 300, "speech_pad_ms": 200},
             condition_on_previous_text=False, initial_prompt=self._prompt or None, word_timestamps=True,
             no_speech_threshold=0.6, log_prob_threshold=-1.0, compression_ratio_threshold=2.4)
@@ -608,11 +609,22 @@ class FilmTranscriber:
             # Word times are exact; a segment's own start can be up to a second early.
             first = float(words[0].start) if words else float(segment.start)
             last = float(words[-1].end) if words else float(segment.end)
+            stable_prefix = False
+            if (self._urgent and not final and words and begin + last > reached - EDGE_SECONDS
+                    and not text.endswith((".", "!", "?", "…"))):
+                stable = [word for word in words if begin + word.end <= reached - EDGE_SECONDS]
+                if len(stable) >= 3:
+                    words = stable
+                    text = "".join(word.word for word in words).strip()
+                    last = float(words[-1].end)
+                    stable_prefix = True
             cue = Cue(begin + first, min(reached, begin + max(last, first + 0.3)), text,
                       words=word_marks(words, begin, text))
             if cue.end <= cue.start or self._stop.is_set():
                 continue
-            if not final and cue.end > reached - EDGE_SECONDS:
+            if stable_prefix:
+                next_start = min(next_start, cue.end)
+            elif not final and cue.end > reached - EDGE_SECONDS:
                 cue.provisional = True
                 next_start = min(next_start, max(begin + 0.5, cue.start - 0.2))
                 # A fragment with no sentence ending is retried with more audio instead of
@@ -699,6 +711,10 @@ class BufferedFilmTranscriber(FilmTranscriber):
         self._packet_ready = threading.Event()
         self._packet_lock = threading.Lock()
         self._packet = None
+        self.audio_range = (0.0, 0.0)
+        self.waiting_for_audio = False
+        self.priority_until = 0.0
+        self.precise_budget = BROWSER_PRECISE_LEAD
 
     def submit(self, packet):
         with self._packet_lock:
@@ -713,37 +729,67 @@ class BufferedFilmTranscriber(FilmTranscriber):
         import av
 
         models = {}
+        snapshot = None
+        window_start = None
+        held = False
+        decoded_to_limit = False
         while not self._stop.is_set():
-            self._packet_ready.wait()
+            self._packet_ready.wait(1.0 if snapshot is not None else None)
             with self._packet_lock:
                 packet, self._packet = self._packet, None
                 self._packet_ready.clear()
-            if self._stop.is_set() or packet is None:
+            if self._stop.is_set():
+                break
+            start_at = max(0.0, self.clock.position() - 0.8)
+            new_hold = self.clock.preroll and not held
+            held = self.clock.preroll
+            if packet is not None:
+                snapshot = packet
+            elif not new_hold and (window_start is None or abs(start_at - window_start) < 5
+                                   or (start_at >= window_start and not decoded_to_limit)):
                 continue
-            kind, _track, offset, data = packet
+            if snapshot is None:
+                continue
+            window_start = start_at
+            decoded_to_limit = False
+            kind, _track, offset, data = snapshot
+            self.waiting_for_audio = False
             try:
-                start_at = max(0.0, self.clock.position() - 0.8)
                 for begin, audio in decode_browser_audio(kind, offset, data, start_at=start_at):
+                    limit = min(BROWSER_AHEAD_SECONDS, self.ahead_seconds)
+                    decoded_to_limit |= begin + len(audio) / 16000 >= start_at + limit - 0.1
                     self._prepare_available(models, begin, audio)
             except av.FFmpegError:
                 continue
+            self.waiting_for_audio = not self._packet_ready.is_set()
 
     def _prepare_available(self, models, begin, audio):
         available_end = begin + len(audio) / 16000
         if self.video_duration:
             available_end = min(available_end, self.video_duration)
+        self.audio_range = (begin, available_end)
         start = begin
         retrying_edge = False
         while not self._stop.is_set():
             position = self.clock.position()
-            near_playhead = 0.0 if retrying_edge else position - 0.8
-            start = self.timeline.covered_until(max(start, 0.0, near_playhead))
+            near_playhead = position - 0.8
+            if not self.clock.paused and not self.timeline.is_covered(position):
+                # Prepare speech the listener can still hear. Starting behind a moving
+                # player repeatedly spends the CPU on lines which have already ended.
+                near_playhead = min(position + 4 * self.clock.rate, available_end - BROWSER_START_CHUNK)
+            if not retrying_edge:
+                start = max(start, near_playhead)
+            start = self.timeline.covered_until(max(start, 0.0))
             cap = min(available_end, position + min(self.ahead_seconds, BROWSER_AHEAD_SECONDS))
             if cap - start < 0.6:
                 return
             realtime_lead = (start - position) / max(0.1, self.clock.rate)
-            catching_up = realtime_lead < BROWSER_PRECISE_LEAD
+            catching_up = realtime_lead < self.precise_budget
+            self._urgent = catching_up
             provider = (self.fast_model_provider if catching_up else None) or self.model_provider
+            began = time.monotonic()
+            if begin <= position + 0.5 and available_end >= position + 4:
+                self.priority_until = began + 10
             if provider not in models:
                 models[provider] = provider()
             # If the short window cut a phrase, use the rest of the available audio on the retry.
@@ -755,6 +801,9 @@ class BufferedFilmTranscriber(FilmTranscriber):
             final = bool(self.video_duration and end >= self.video_duration - 0.25)
             following = self._prepare_audio(models[provider], audio[first:last], begin + first / 16000,
                                             start, end, final)
+            if not catching_up and provider is not self.fast_model_provider:
+                elapsed = time.monotonic() - began
+                self.precise_budget = max(BROWSER_PRECISE_LEAD, self.precise_budget * 0.9, elapsed * 1.5)
             self.ready.set()
             if end >= cap - 0.001 or following <= start + 0.01:
                 return
@@ -964,7 +1013,11 @@ class _Handler(BaseHTTPRequestHandler):
         except Exception:
             pass
         if want and report.get("preroll") and self.server.on_preroll is not None:
-            answer["opening_ready"] = self.server.on_preroll(report)
+            status = self.server.on_preroll(report)
+            answer["opening_ready"] = bool(status)
+            answer["opening_preparing"] = status is not None
+        elif want and not report.get("paused", True) and self.server.on_underrun is not None:
+            answer["underrun"] = bool(self.server.on_underrun(report))
         self._answer(200, origin, answer)
 
 
@@ -1005,12 +1058,13 @@ class _ExclusiveServer(ThreadingHTTPServer):
 class BridgeServer:
     """127.0.0.1:PORT, extension origins only. ``on_report`` runs on the server thread."""
 
-    def __init__(self, on_report, port: int = PORT, on_hello=None, token: str = "", *, on_preroll=None):
+    def __init__(self, on_report, port: int = PORT, on_hello=None, token: str = "", *, on_preroll=None, on_underrun=None):
         self.on_report = on_report
         self.on_hello = on_hello
         self.port = port
         self.token = token  # without a pairing token every request is refused
         self.on_preroll = on_preroll
+        self.on_underrun = on_underrun
         self._want = False   # Jarvis shows captions and wants the player's state (audit 4 #14)
         self._server = None
 
@@ -1033,6 +1087,7 @@ class BridgeServer:
         self._server.on_report = self.on_report
         self._server.on_hello = self.on_hello
         self._server.on_preroll = self.on_preroll
+        self._server.on_underrun = self.on_underrun
         self._server.token = self.token
         self._server.gate = threading.BoundedSemaphore(8)
         self._server.want = self._want

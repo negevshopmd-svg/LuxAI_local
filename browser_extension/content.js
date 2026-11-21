@@ -10,7 +10,8 @@
   const MEDIA = /\.(m3u8|mp4|webm|m4v|mov|mkv)$/i;
   const MEDIA_TYPES = /mpegurl|video\/(mp4|webm|x-matroska|quicktime)|audio\/(mp4|mpeg|aac|webm)/i;
   const liveOnly = /(^|\.)(youtube\.com|youtube-nocookie\.com|youtu\.be)$/i.test(location.hostname);
-  const openingLimit = 7000;
+  const discoveryLimit = 7000;
+  const preparationLimit = 60000;
   const resources = new Map();
   let observer = null;
   let resourceSnapshot = [];
@@ -66,6 +67,7 @@
   let checkedSession = -1;
   let triedOpening = false;
   let opening = null;
+  let retryAfter = 0;
   let protectedSource = false;
   let gestureUntil = 0;
 
@@ -81,6 +83,7 @@
     if (!opening) return;
     const held = opening;
     opening = null;
+    retryAfter = performance.now() + 30000;
     clearTimeout(held.timeout);
     clearInterval(held.poll);
     if (resume && held.video.isConnected && held.video.paused && held.session === session
@@ -90,15 +93,17 @@
     soonReport();
   }
 
-  function tryOpening(video) {
-    if (!video || video !== current || triedOpening || !canPreroll || !want || !activeTab || document.hidden
-        || protectedSource || video.paused || video.seeking || video.ended || video.currentTime > 0.6
+  function tryOpening(video, underrun = false) {
+    if (!video || video !== current || opening || (triedOpening && !(underrun && performance.now() >= retryAfter))
+        || !canPreroll || !want || !activeTab || document.hidden
+        || protectedSource || video.paused || video.seeking || video.ended
         || video.duration === Infinity
         || (!video.currentSrc && !video.src) || (video.muted && video.loop)) return;
     triedOpening = true;
     gestureUntil = 0;
     opening = { video, session, page: location.href, position: video.currentTime,
-                timeout: setTimeout(() => releaseOpening(true), openingLimit),
+                started: performance.now(), limit: underrun ? 15000 : preparationLimit, preparing: false,
+                timeout: setTimeout(() => releaseOpening(true), discoveryLimit),
                 poll: setInterval(() => {
                   if (opening && !opening.video.paused) opening.video.pause();
                   soonReport();
@@ -198,10 +203,16 @@
         want = !!(answer && answer.want);
         canPreroll = !!answer?.preroll;
         activeTab = !!answer?.active;
+        if (opening && answer?.openingPreparing && !opening.preparing) {
+          opening.preparing = true;
+          clearTimeout(opening.timeout);
+          opening.timeout = setTimeout(() => releaseOpening(true),
+                                       Math.max(0, opening.limit - (performance.now() - opening.started)));
+        }
         if (opening && (answer?.openingReady || !want || !activeTab || video.duration === Infinity)) {
           releaseOpening(true);
         } else if (!opening) {
-          tryOpening(video);
+          tryOpening(video, answer?.underrun === true);
         }
         if (answer?.needSeen) publishedResources = null;
         else if (want && seen) publishedResources = seen;

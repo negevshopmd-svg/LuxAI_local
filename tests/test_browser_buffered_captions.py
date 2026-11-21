@@ -78,7 +78,10 @@ class BufferedCaptionsTests(unittest.TestCase):
         worker._prepare_audio = prepare
         worker._prepare_available({}, 10, np.zeros(70 * 16000, dtype=np.float32))
         self.assertEqual(windows[0], (fast, 10, 18))
-        self.assertTrue(all(model is precise for model, _, _ in windows[1:]))
+        self.assertGreaterEqual(len(windows), 3)
+        self.assertIs(windows[1][0], fast)
+        self.assertIs(windows[-1][0], precise)
+        self.assertGreaterEqual(windows[-1][1] - clock.position(), fc.BROWSER_PRECISE_LEAD)
         self.assertEqual(timeline.covered_until(10), 70)
 
     def test_short_buffer_never_claims_a_minute_of_coverage(self):
@@ -109,6 +112,20 @@ class BufferedCaptionsTests(unittest.TestCase):
         worker._prepare_audio = prepare
         worker._prepare_available({}, 0, np.zeros(20 * 16000, dtype=np.float32))
         self.assertEqual(windows, [(0, 8), (4.8, 20)])
+
+    def test_urgent_continuous_speech_commits_the_stable_words_before_retrying(self):
+        clock, timeline = fc.PlayerClock(), fc.CueTimeline()
+        clock.update(0, True)
+        words = [SimpleNamespace(start=i, end=i + 0.8, word=" " + word)
+                 for i, word in enumerate("a voice keeps talking without a break here".split())]
+        segment = SimpleNamespace(text="a voice keeps talking without a break here", words=words,
+                                  no_speech_prob=0.0, avg_logprob=-0.2, compression_ratio=1.0)
+        model = SimpleNamespace(transcribe=lambda *args, **kwargs: ([segment], None))
+        worker = fc.BufferedFilmTranscriber([], "", clock, timeline, lambda: model, language="en")
+        worker._prepare_available({}, 0, np.ones(8 * 16000, dtype=np.float32))
+        self.assertEqual(timeline.cues[0].text, "a voice keeps talking without a")
+        self.assertAlmostEqual(timeline.covered_until(0), 5.8)
+        self.assertGreater(timeline.cues[0].shown(3.2)[0], timeline.cues[0].shown(2.2)[0])
 
     def test_transport_accepts_a_larger_audio_window_without_changing_state_limit(self):
         audio = b"\0" * (1024 * 1024)

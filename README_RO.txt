@@ -1,5 +1,7 @@
-LUXAI LOCAL 0.4.3j — ACTUALIZARE 2026-11-21
+LUXAI LOCAL 0.4.3k — ACTUALIZARE 2026-11-21
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.3k — Cu extensia 1.8.0, Jarvis pregătește în avans traducerile și la reluarea unui clip. Poate aștepta până la un minut la pornire și până la 15 secunde când se termină rezerva. Apasă din nou Play ca să continui imediat.
 
 0.4.3j: În fila activă, Jarvis poate aștepta până la 7 secunde la început ca să pregătească
 prima replică. Poți apăsa din nou Play ca să sari peste așteptare. Frazele următoare sunt

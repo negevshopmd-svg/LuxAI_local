@@ -1,4 +1,6 @@
-LUXAI LOCAL (JARVIS) 0.4.3j — UPDATE 2026-11-21
+LUXAI LOCAL (JARVIS) 0.4.3k — UPDATE 2026-11-21
+
+0.4.3k — Extension 1.8.0 prepares translations ahead when starting or resuming a video. It can wait up to one minute at the start and up to 15 seconds when captions run low. Press Play again to skip a wait.
 
 0.4.3j: In the active tab Jarvis can wait up to 7 seconds at the start to prepare the first spoken line.
 Press Play again to skip the wait. Later phrases are translated as soon as they are recognized.

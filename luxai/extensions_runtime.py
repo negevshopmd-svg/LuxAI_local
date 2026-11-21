@@ -1149,7 +1149,7 @@ class ExtensionsRuntime(QObject):
             return None
         from luxai.film_captions import BridgeServer
         bridge = BridgeServer(self._film_report.emit, on_hello=self._extension_hello.emit, token=token,
-                              on_preroll=self._browser_opening_ready)
+                              on_preroll=self._browser_opening_ready, on_underrun=self._browser_underrun)
         return bridge if bridge.start() else None
 
     BRIDGE_RETRIES = 10  # × 300 ms: the previous bridge frees the port within about a second
@@ -1434,15 +1434,48 @@ class ExtensionsRuntime(QObject):
                      preroll=report.get("preroll", False))
         transcriber.start()
 
-    def _browser_opening_ready(self, report) -> bool:
-        """Read-only check from the bridge thread. The Qt thread owns selection and playback state."""
+    def _reported_film(self, report):
+        """Select only the visible player that owns the current preparation worker."""
         film = self._film
         if film is None or not report.get("active") or not report.get("visible"):
-            return False
+            return None
         key, _clock, timeline, worker = film
         identity = (report["tab"], report.get("frame", 0), report.get("doc", ""), report.get("session", 0))
-        return not worker.stopped and identity == (key[0], key[2], key[-1], key[5]) \
-            and timeline.opening_ready(report["time"])
+        if worker.stopped or identity != (key[0], key[2], key[-1], key[5]):
+            return None
+        return timeline, worker
+
+    def _browser_underrun(self, report) -> bool:
+        film = self._reported_film(report)
+        if film is None or report.get("stalled") or report.get("ended"):
+            return False
+        timeline, worker = film
+        position = report["time"]
+        begin, end = getattr(worker, "audio_range", (0.0, 0.0))
+        return begin <= position + 0.15 and end >= position + 6 and timeline.covered_until(position) < position + 1
+
+    def _browser_opening_ready(self, report) -> bool | None:
+        film = self._reported_film(report)
+        if film is None:
+            return None
+        timeline, worker = film
+        from luxai.film_captions import BROWSER_AHEAD_SECONDS, EDGE_SECONDS
+        position = report["time"]
+        target = min(position + BROWSER_AHEAD_SECONDS, position + worker.ahead_seconds)
+        if worker.video_duration:
+            target = min(target, worker.video_duration)
+        audio_range = getattr(worker, "audio_range", None)
+        if audio_range is not None:
+            begin, available = audio_range
+            if begin > position + 0.5 or available <= position:
+                return False
+            target = min(target, max(position, available - 2 * EDGE_SECONDS))
+        if getattr(worker, "waiting_for_audio", False):
+            # A paused player may withhold its next append. Resume on a useful reserve
+            # when the recognizer has exhausted this snapshot, even with a cut final phrase.
+            target = min(target, position + 12 * min(4.0, max(1.0, report.get("rate", 1.0))))
+        until = timeline.covered_until(position + 0.12)
+        return until + 0.15 >= target and timeline.opening_ready(position, allow_silence=True)
 
     def _film_ahead_seconds(self) -> float:
         """How far ahead the film is prepared (audit 4 #17): less means less separate download and CPU."""
@@ -1482,16 +1515,27 @@ class ExtensionsRuntime(QObject):
         if film is not None and (film[3].stopped and film[3].failed or film[1].gone()):
             self._drop_film()  # failed (wait before retrying) or the browser stopped reporting (audit 3 #11, #14)
             film = None
-        if film is None or bar is None or not film[1].alive() or film[1].preroll:
+        if film is None or bar is None or not film[1].alive():
             self._set_film_active(False)
             return
         position = film[1].position()
+        if film[1].preroll:
+            self._set_film_active(True)  # reserve CPU for the worker while the browser holds playback
+            return
         cues = film[2].lines_at(position, keep=bar.max_lines)
         if not film[2].is_covered(position) and not any(cue.provisional and cue.end > position for cue in cues):
-            self._set_film_active(False)  # not prepared yet here: the live captions show it
+            self._set_film_active(False)
+            worker = film[3]
+            begin, end = getattr(worker, "audio_range", (0.0, 0.0))
+            if (self._captions_engine is not None and begin <= position < end - 2
+                    and time.monotonic() < getattr(worker, "priority_until", 0)):
+                # Both paths use the same local recognizer. Keep the loopback worker
+                # from taking its next turn while this playable audio is being prepared.
+                self._captions_engine.paused = True
             return
         self._set_film_active(True)
         # Words appear as they are spoken in the film (the rest of the line waits invisible).
+        cues = [cue for cue in cues if position < cue.end or cue.text in bar.reveal]
         reveal = {cue.text: cue.shown(position) for cue in cues}
         cues = [cue for cue in cues if reveal[cue.text][0] or reveal[cue.text][1]]
         shown = [(cue.text, cue.translation, reveal[cue.text]) for cue in cues]
@@ -1510,6 +1554,8 @@ class ExtensionsRuntime(QObject):
         if active == self._film_active:
             return
         self._film_active = active
+        self._cap_phrase += 1
+        self._cap_last_draft = ("", "")
         self._film_shown = None
         if self._captions_bar is not None:
             self._captions_bar.reveal = {}
@@ -1645,7 +1691,7 @@ class ExtensionsRuntime(QObject):
     def _on_cap_partial_translated(self, text: str, translated: str, phrase: int):
         if phrase == self._cap_phrase:
             self._cap_last_draft = (text, translated)  # a final line with the same text reuses it
-        if self._captions_bar is None or phrase != self._cap_phrase:
+        if self._captions_bar is None or self._film_active or phrase != self._cap_phrase:
             return
         self._captions_bar.set_partial("" if self._captions_translate_only() else text, translated)
 

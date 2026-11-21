@@ -1,3 +1,14 @@
+## 0.4.3k — Keep translated browser captions ahead during sustained speech (2026-11-21)
+
+- Extension 1.8.0 waits for a reserve of translated speech at the beginning or when reopening
+  a film midway. Preparation can take up to one minute when Jarvis confirms a matching worker.
+  If buffered speech runs ahead of the captions during playback, the player can wait up to
+  15 seconds to refill, with at least 30 seconds between holds. Play skips a hold.
+- The film worker gives urgent words CPU time before live recognition and adapts the precise
+  model's lead to the measured cost. It can reuse buffered audio after the player moves.
+  Stable words in continuous speech are published while the trailing fragment is reprocessed.
+- A late live draft or an already-ended unseen film line no longer appears over the current line.
+
 ## 0.4.3j — Smoother browser caption starts and phrase transitions (2026-11-21)
 
 - When Jarvis captions are on, the extension can briefly pause a new video at the beginning in the

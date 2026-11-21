@@ -271,10 +271,38 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(bar.lines, [("Prepared line", "Строка")])
         runtime._on_cap_final("live text")  # the live engine's late line is ignored meanwhile
         self.assertEqual(bar.lines, [("Prepared line", "Строка")])
+        timeline.add([fc.Cue(13, 14, "Already finished", "Too late")], 12, 15)
+        clock.update(15.0, paused=True)
+        runtime._film_tick()
+        self.assertNotIn(("Already finished", "Too late"), bar.lines)
+        runtime._on_cap_partial_translated("Old draft", "Late translation", runtime._cap_phrase)
+        self.assertFalse(bar.partial_translation)
         clock.update(70.0, paused=True)  # not prepared there: back to live captions
         runtime._film_tick()
         self.assertFalse(runtime._film_active)
         self.assertFalse(runtime._captions_engine.paused)
+
+    def test_reserve_uses_audio_available_for_the_selected_session(self):
+        runtime = self.runtime()
+        report = {"tab": 2, "frame": 0, "page": "https://example.org/film", "doc": "abc", "session": 3,
+                  "time": 120, "duration": 500, "active": True, "visible": True}
+        timeline = fc.CueTimeline()
+        worker = SimpleNamespace(stopped=False, ahead_seconds=180, audio_range=(119, 145), video_duration=500)
+        runtime._film = (runtime._film_key(report), fc.PlayerClock(), timeline, worker)
+        self.assertTrue(runtime._browser_underrun(report))
+        self.assertFalse(runtime._browser_opening_ready(report))
+        timeline.add([fc.Cue(121, 124, "A line", "O replică")], 120, 125)
+        self.assertFalse(runtime._browser_underrun(report))
+        self.assertFalse(runtime._browser_opening_ready(report))
+        worker.waiting_for_audio = True
+        timeline.add([], 125, 133)
+        self.assertTrue(runtime._browser_opening_ready(report))
+        worker.waiting_for_audio = False
+        self.assertFalse(runtime._browser_opening_ready(report))
+        timeline.add([], 133, 143)
+        self.assertTrue(runtime._browser_opening_ready(report))
+        self.assertIsNone(runtime._browser_opening_ready(dict(report, session=4)))
+        self.assertFalse(runtime._browser_underrun(dict(report, visible=False)))
 
     def test_a_new_film_starts_its_own_preparation(self):
         runtime = self.runtime()
