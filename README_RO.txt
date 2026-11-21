@@ -1,5 +1,8 @@
-LUXAI LOCAL 0.4.3c — ACTUALIZARE 2026-11-21
+LUXAI LOCAL 0.4.3d — ACTUALIZARE 2026-11-21
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.3d: Bara de derulare nu mai are o bandă închisă în spate, iar iconițele secțiunilor din
+setările extensiilor nu mai au pătrat de fundal.
 
 0.4.3c: Corecturile celui de-al patrulea audit (19 puncte). Extensia pentru Chrome (1.2.0) nu mai
 trimite nimic lui Jarvis cât timp subtitrările sunt oprite, preferă fila la care te uiți și

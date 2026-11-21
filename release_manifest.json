@@ -1,18 +1,18 @@
 {
  "format": 1,
- "version": "0.4.3c",
+ "version": "0.4.3d",
  "files": {
   ".gitattributes": "b4c7e9dbd4197e980d7a975f43a75d559750022ba697f96fe4685ce0282a08e2",
   ".github/workflows/ocr-windows.yml": "b41bcc35aea906f8737fcfe55cd9f904ed854e8c51bf46b6fdd4e5af842f1160",
   ".github/workflows/routing-check.yml": "976532e6e6001662d5e80f1be14e0d07de2c53b9e9049ad4da8ded62c99f8dea",
   ".gitignore": "b4dacaa33590a01683cdabd3b65badd9cfe4101803a2ca91cee4093319fa74f2",
-  "CHANGELOG.md": "37f720377159dd17f698e8d78981434518105211830d242bd7f467f6d0b886c7",
+  "CHANGELOG.md": "15951cde48375d644198c79a19d02a118db6bc2611046f4c276c0940e88a53f3",
   "CLAUDE.md": "ad885f2ca05f339309d0c1aae7dc4834f3b0bb4eb97a18c6f6aeb260b1f8e4be",
   "PROJECT_HANDOFF.md": "b61db271e8db18facc63033fb68a2d5a9c40130bd96011d285e7867b766e8d37",
   "README.md": "6905dc17e6b48a157ea7f7c207bded7a6a1212bc05150db0ead611d76e764556",
-  "README_EN.txt": "1c66dfd6927b28b64e280500d841f20b775c1fde90b73f1d1671aaf1c38925cb",
-  "README_RO.txt": "282cf2cb8c7dbc1f5d84af526abea30d523e8e566e4a9ddfc7761759f36ff690",
-  "README_RU.txt": "b15d602aca0616be5e0a3ef8830476de828ca95fc2ca4af8a2cbd06bed89dfc2",
+  "README_EN.txt": "bc3b63c7f9eec3aa652ff0946dac356f74bffb158b9bc67bf14d5d6ff069f2f8",
+  "README_RO.txt": "18e1708bee71c52bbb7266833bd10ec8cdae1deb3a589e95879c2f0e88716046",
+  "README_RU.txt": "21a6ae0e3ed0a556cc26b88ef20e288dc695386e1ae2a06b0843e1701ce226a1",
   "Update.bat": "1b5c820396729eeffcb267bb9b06fb18c3e6874f5f81d62a8cdb90bfc592c237",
   "Update.py": "2ebbe78e348a7a1e6f93b12d987a8f83baa7d50eb2e8060ad6388a4c49b4ae3c",
   "assets/fonts/FuzzyBubbles-Bold.ttf": "f18fa58c66cf2540800f10ae4c9ae315c89149c41ace2a394c5efca7354c4ea8",
@@ -270,7 +270,7 @@
   "luxai/settings_updates.py": "6513f4220072a672967c376453e0118cdc647c6296107fa2708accb952b3f14e",
   "luxai/steam_games.py": "102397dff420317bd448a03fb77d0f1086112b4fbdb1f35dd549e94f945db72f",
   "luxai/steam_profile_visual.py": "5240531d13e32b0ed7dd7edbd5b03badd582aece1f2c8f2c354e09ad0385819d",
-  "luxai/styles.py": "4ec8cc9e939c1e4a5851c0237b8d3a4d69d06425a29414c25511a58159658797",
+  "luxai/styles.py": "b927f533d690772ccc430fb957c672daee6354261233f7e964fca2edc7299978",
   "luxai/task_agent.py": "600c6006cb8e8ee5b3873578123533aac16d9ae4fa71434f57aa1fe7ff45614d",
   "luxai/task_intents.py": "76bd8849dfe866bd828ab3ee795d8076141780d922c690dbdecad7f4f53424c6",
   "luxai/task_memory.py": "4788e5185d39e438d668008ba891e0a73a03ad524a34c195ccc7cfb0d221ec14",
@@ -317,7 +317,7 @@
   "main.py": "28a72327b3001094bbfe1e301f80b6f81e9e4a74f825bb6c75fdbafe4fa0a458",
   "requirements.txt": "eee87a29f2d77a052228ed076244b1c46a8c45bc3fdc2005d34ffb821943a0f7",
   "run_windows.bat": "0f0afeee30d56f6ab735d12f79e6882831b16af048c46bdb516b0895b83496ee",
-  "runtime_cleanup_manifest.json": "b0a3398808a347694b3fdf80ed6d29b1a97e40cf72ed98f7c02906c81e95bb8b",
+  "runtime_cleanup_manifest.json": "9c4d13b3b5bc5ac5dba18b6a245739ca5cbd0c017ab840e3d320e8db53ee75ff",
   "scripts/fetch_updater.py": "d44d9513470be50b6ed80bd9daaea4860b796bf2090724e1317440f865692493",
   "scripts/install_windows.ps1": "8fbe759520fa0ba5845914336c97c3711628ccb6fdf479e3a7d23504dd970d2c",
   "scripts/release_signature.py": "511c5264b69f3974b8cfca902d2c8b023bd856a408d201cd513efbf72cd1a064",
@@ -474,6 +474,7 @@
   "tests/test_task_verification.py": "f3e9368658d04a7464b54ee02d6c49286ccf8a11edfadae2457462412cc3591b",
   "tests/test_timers_041c.py": "64076de470b834f5f6f983894485cdbbbe5ec835b71f220b63cb47ce7ec85b65",
   "tests/test_translation_041h.py": "425e394528ac5341687ac979e94ec2fe1579bfd0e84db40a3f928ceb2dce6ae8",
+  "tests/test_ui_backgrounds_043d.py": "481b6f0f42dfce6181730036bf1d04fc0d6bfcc7b4c4ee0938003ec8bce5667a",
   "tests/test_ui_i18n.py": "49b936c20b2ffc8a0ecd815f4e05cd51d58c7bc2731bc48f8dfa573caa978333",
   "tests/test_updater_reliability.py": "df5da83a6f1d4c8ec94fc9d57a3d95d84d83dac07a026bb469a11a57ea5c8b06",
   "tests/test_visual_avatar_041t.py": "607da6528b7fba020139939eba0bda542d8d82e0c81a527cf641eb086184ae87",
@@ -492,6 +493,6 @@
   "tests/test_windows_python_dependency_updates.py": "68afe560449ab27bd296bc6c6a12934d6914172fcc213ccacf8953ad71e5fb39",
   "tests/test_windows_startup.py": "8f4bac928de03456763cf42f734c39c11e281c4c27743b40a73548ef4a82f03d",
   "updater_config.json": "b2d180efa30a5e737ccb12f939c838f4094a695b0a3660435b6a2e31408b0552",
-  "version.txt": "460d23cb386d227af95a0e7816295f7d8a1fc3ccee7f10c871270f6cec8e19b4"
+  "version.txt": "dcafb9348e3b439c5f839ced9f7148c32679268cec8a9808021ef1479a005103"
  }
 }

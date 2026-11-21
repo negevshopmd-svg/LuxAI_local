@@ -606,6 +606,10 @@ QProgressBar::chunk {
     background: $accent;
     border-radius: 3px;
 }
+QWidget#qt_scrollarea_vcontainer, QWidget#qt_scrollarea_hcontainer {
+    /* Qt's own holder of a scroll bar: without this the general QWidget rule paints a dark stripe */
+    background: transparent;
+}
 QScrollBar:vertical {
     background: transparent;
     width: 12px;
@@ -818,9 +822,8 @@ QWidget#ExtSettingsView {
     background: transparent;
 }
 QLabel#ExtSectionIcon {
-    background: $control;
-    border: 1px solid $border;
-    border-radius: 10px;
+    background: transparent;
+    border: none;
 }
 QFrame#ExtSettingRow {
     background: transparent;

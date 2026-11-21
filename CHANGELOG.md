@@ -1,3 +1,10 @@
+## 0.4.3d — Backgrounds that should not be there (2026-11-21)
+
+- Qt's own scroll bar holders (`qt_scrollarea_vcontainer` / `hcontainer`) were painted by the general
+  `QWidget { background: $bg }` rule: a dark stripe behind every scroll bar on a lighter panel. Now transparent.
+- The section icons of the extension settings (`ExtSectionIcon`) have no box (fill and border) any more.
+- Test: rendered dark and light themes, track and icon pixels equal the panel behind them (both failed before).
+
 ## 0.4.3c — Fourth audit report (2026-11-21)
 
 P1

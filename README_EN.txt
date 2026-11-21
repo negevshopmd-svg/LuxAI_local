@@ -1,4 +1,7 @@
-LUXAI LOCAL (JARVIS) 0.4.3c — UPDATE 2026-11-21
+LUXAI LOCAL (JARVIS) 0.4.3d — UPDATE 2026-11-21
+
+0.4.3d: Scroll bars no longer have a dark stripe behind them, and the section icons in the
+extension settings no longer have a square background.
 
 0.4.3c: Fixes from the fourth audit (19 points). The Chrome extension (1.2.0) sends nothing to
 Jarvis while captions are off, prefers the tab you are looking at and starts correctly on a new
