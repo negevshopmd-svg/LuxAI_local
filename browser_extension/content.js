@@ -172,22 +172,33 @@
     return btoa(encoded);
   }
 
+  // Messages to the page hook go to THIS window's real origin. A sandboxed frame (chatgpt.com embeds one from
+  // cdn.platform.openai.com) has the origin "null": posting to its address threw an error in the browser's
+  // extension page. The hook cannot run there anyway, so nothing is sent.
+  const PAGE_ORIGIN = self.origin;
+  function toPage(message) {
+    if (!PAGE_ORIGIN || PAGE_ORIGIN === "null") return;
+    try {
+      window.postMessage(message, PAGE_ORIGIN);
+    } catch (e) { /* the page changed its document meanwhile */ }
+  }
+
   function resync() {
-    window.postMessage({ type: "jarvis-buffer-resync" }, location.origin);
+    toPage({ type: "jarvis-buffer-resync" });
   }
 
   function armBufferedAudio(reset = false) {
     const src = current?.currentSrc || current?.src || "";
     if (!/^blob:/i.test(src) && !liveOnly && !reset) return;
-    window.postMessage({ type: "jarvis-buffer-control", active: want && activeTab && !document.hidden && !protectedSource,
-                         src, reset }, location.origin);
+    toPage({ type: "jarvis-buffer-control", active: want && activeTab && !document.hidden && !protectedSource,
+             src, reset });
   }
 
   if (liveOnly) checkPlayer();
   if (/^https?:$/.test(location.protocol)) {
     window.addEventListener("message", (event) => {
       const packet = event.data;
-      if (!want || document.hidden || protectedSource || event.source !== window || event.origin !== location.origin
+      if (!want || document.hidden || protectedSource || event.source !== window || event.origin !== PAGE_ORIGIN
           || packet?.type !== "jarvis-buffer-audio" || !(packet.header instanceof ArrayBuffer)
           || packet.header.byteLength > 32 * 1024 || !Array.isArray(packet.pieces) || packet.pieces.length > 512
           || !["webm", "mp4"].includes(packet.kind) || !Number.isInteger(packet.track)

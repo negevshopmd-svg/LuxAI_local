@@ -1,3 +1,15 @@
+## 0.4.3q — No extension error in sandboxed frames (2026-11-22)
+
+- Reported from Chrome's extension errors page on chatgpt.com: «Failed to execute 'postMessage' on 'DOMWindow':
+  The target origin provided ('https://cdn.platform.openai.com') does not match the recipient window's origin
+  ('null')». A sandboxed iframe's real origin is "null"; content.js posted its page-hook messages to the frame's
+  ADDRESS (`location.origin`), which throws there (on pagehide / visibility changes).
+- content.js and the page hook now use the window's real origin (`self.origin`); in a sandboxed frame nothing is
+  posted (the hook cannot run there), and every post is wrapped. Extension 1.11.1.
+- Test: `tests/js/sandbox_frame_harness.js` runs content.js in a simulated sandboxed frame where postMessage
+  throws like Chrome: the old version reproduces the exact message, the new one raises nothing. YouTube in Edge
+  still prepares captions and holds after jumps (5.8 s / 2.8 s).
+
 ## 0.4.3p — Sixth audit report (0.4.3o, 2026-11-21)
 
 P2

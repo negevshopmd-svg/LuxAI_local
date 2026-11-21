@@ -1,5 +1,10 @@
-LUXAI LOCAL 0.4.3p — ACTUALIZARE 2026-11-21
+LUXAI LOCAL 0.4.3q — ACTUALIZARE 2026-11-21
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.3q: Extensia (1.11.1) nu mai dă eroarea „Failed to execute 'postMessage' … origin ('null')” pe
+site-uri cu cadre izolate (de exemplu chatgpt.com).
+IMPORTANT: după actualizare, în chrome://extensions apasă „Reîncarcă” la extensia Jarvis, apoi
+„Elimină toate” la erorile vechi.
 
 0.4.3p: Corecturile celui de-al șaselea audit (14 puncte). Update.bat reinstalează acum fișierele
 programului care lipsesc sau sunt deteriorate, chiar dacă versiunea e la zi. „Amintește-mi la 6 seara

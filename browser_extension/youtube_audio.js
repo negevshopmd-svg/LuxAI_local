@@ -79,9 +79,10 @@
     state.full = false;
     const header = state.header.slice();
     lastPublished = performance.now();
+    if (self.origin === "null") return; // a sandboxed frame: no extension listens there
     window.postMessage({ type: "jarvis-buffer-audio", src, kind: state.kind, track: state.id, offset,
                          epoch: state.epoch, full, header: header.buffer, pieces },
-                       location.origin, [header.buffer, ...pieces.map((piece) => piece.bytes)]);
+                       self.origin, [header.buffer, ...pieces.map((piece) => piece.bytes)]);
   }
 
   // Top-level MP4 boxes [type, start, size] (stops at the first incomplete or invalid box).
@@ -182,7 +183,7 @@
 
   window.addEventListener("message", (event) => {
     const message = event.data;
-    if (event.source !== window || event.origin !== location.origin) return;
+    if (event.source !== window || event.origin !== self.origin) return;
     if (message?.type === "jarvis-buffer-resync") {
       // Jarvis missed a piece: the next packet carries the whole window again.
       for (const state of captured) {

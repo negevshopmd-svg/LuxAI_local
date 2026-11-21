@@ -208,7 +208,7 @@ class ExtensionCodeTests(unittest.TestCase):
         background = (ROOT / "browser_extension" / "background.js").read_text(encoding="utf-8")
         page = (ROOT / "browser_extension" / "youtube_audio.js").read_text(encoding="utf-8")
         manifest = json.loads((ROOT / "browser_extension" / "manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "1.11.0")
+        self.assertGreaterEqual(tuple(map(int, manifest["version"].split("."))), (1, 11, 0))
         # #4: a «ready» answer belongs to one hold
         self.assertIn("holdId: opening?.video === video ? opening.id : 0", content)
         self.assertIn("forThisHold && answer?.openingReady", content)

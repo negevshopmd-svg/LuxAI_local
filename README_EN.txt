@@ -1,4 +1,9 @@
-LUXAI LOCAL (JARVIS) 0.4.3p — UPDATE 2026-11-21
+LUXAI LOCAL (JARVIS) 0.4.3q — UPDATE 2026-11-21
+
+0.4.3q: The extension (1.11.1) no longer reports «Failed to execute 'postMessage' … origin ('null')» on
+sites with sandboxed frames (e.g. chatgpt.com).
+IMPORTANT: after the update, click «Reload» on the Jarvis extension in chrome://extensions, then
+«Clear all» on the old errors.
 
 0.4.3p: Fixes from the sixth audit (14 points). Update.bat now reinstalls program files that are missing
 or damaged, even when the version is current. «Remind me at 6 pm to check the 19:45 departure» rings

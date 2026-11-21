@@ -17,6 +17,7 @@ global.window = {
 global.MediaSource = MediaSource;
 global.SourceBuffer = SourceBuffer;
 global.location = { origin: "https://www.youtube.com" };
+global.self = { origin: "https://www.youtube.com" };
 global.performance = { now: () => Date.now() };
 const timers = [];
 global.setTimeout = (fn) => { timers.push(fn); return timers.length; };
@@ -29,7 +30,7 @@ const source = new MediaSource();
 URL.createObjectURL(source);
 const buffer = source.addSourceBuffer(process.argv[2]);
 for (const fn of listeners) {
-  fn({ source: window, origin: location.origin,
+  fn({ source: window, origin: self.origin,
        data: { type: "jarvis-buffer-control", active: true, src: "blob:https://www.youtube.com/abc" } });
 }
 for (const file of process.argv.slice(3)) {
