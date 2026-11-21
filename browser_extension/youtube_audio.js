@@ -8,13 +8,16 @@
   const sources = new WeakMap();
   const buffers = new WeakMap();
   const captured = new Set();
-  const limit = 280 * 1024;
+  // Room for a minute of ordinary WebM/MP4 audio, including tracks above 192 kbps.
+  const limit = 2 * 1024 * 1024;
+  const minimumInterval = 1000;
   let active = false;
   let selected = "";
   let timer = null;
   let pending = null;
   let serial = 0;
   let generation = 0;
+  let lastPublished = -Infinity;
 
   URL.createObjectURL = function (object) {
     const url = createURL.call(this, object);
@@ -55,6 +58,7 @@
     if (!src || (selected && src !== selected)) return;
     const bytes = join([state.header, ...state.chunks.flatMap(chunk => chunk.parts)],
                        state.header.length + state.size);
+    lastPublished = performance.now();
     window.postMessage({ type: "jarvis-buffer-audio", src, kind: state.kind, track: state.id,
                          offset, bytes: bytes.buffer }, location.origin, [bytes.buffer]);
   }
@@ -91,7 +95,10 @@
     state.size += bytes.length;
     while (state.size > limit && state.chunks.length) state.size -= state.chunks.shift().size;
     pending = { state, offset };
-    if (timer === null) timer = setTimeout(publish, 240);
+    if (timer === null) {
+      const delay = Math.max(240, minimumInterval - (performance.now() - lastPublished));
+      timer = setTimeout(publish, delay);
+    }
   }
 
   SourceBuffer.prototype.appendBuffer = function (data) {
@@ -118,6 +125,7 @@
       pending = null;
       clearTimeout(timer);
       timer = null;
+      lastPublished = -Infinity;
     }
     active = next;
     selected = src;

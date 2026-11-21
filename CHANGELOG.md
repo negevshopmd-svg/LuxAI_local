@@ -1,3 +1,11 @@
+## 0.4.3i — More room to prepare YouTube captions (2026-11-21)
+
+- Extension 1.6.0 can pass enough already-buffered audio for a minute of caption preparation on
+  ordinary audio tracks. The worker skips old audio in a rolling window and prepares up to 60 seconds
+  from the playback position. YouTube still decides how much audio it buffers.
+- The first urgent windows stay short. Precise mode uses the stronger film model when the work is far
+  enough ahead of playback, then translates each recognized line using the configured language.
+
 ## 0.4.3h — Prepare and synchronize subtitles on YouTube (2026-11-21)
 
 - Extension 1.5.0 uses audio the selected YouTube player has already buffered. It sends small,

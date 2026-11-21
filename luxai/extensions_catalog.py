@@ -272,21 +272,21 @@ PLUGINS: tuple[Plugin, ...] = (
                         "rândurile apar exact la timp. Nu merge cu video protejat (Netflix etc.). Cu subtitrările oprite "
                         "extensia nu înregistrează și nu trimite nimic; doar o dată pe minut spune că e instalată.")),
          Setting("film_model", "choice", L("Модель для фильмов", "Model for films", "Model pentru filme"), "precise",
-                 hint=L("Jarvis сам скачивает звук фильма (дополнительный трафик) и готовит до 10 минут вперёд. "
-                        "«Быстрая» меньше нагружает слабый ПК.",
-                        "Jarvis downloads the film's sound itself (extra traffic) and prepares up to 10 minutes ahead. "
-                        "«Fast» is lighter on a slow PC.",
-                        "Jarvis descarcă singur sunetul filmului (trafic în plus) și pregătește până la 10 minute înainte. "
-                        "„Rapid” încarcă mai puțin un PC slab."),
+                 hint=L("«Точная» использует более мощную модель, когда до реплики достаточно времени. "
+                        "«Быстрая» меньше нагружает ПК.",
+                        "Precise uses a stronger model when enough time remains before the line. "
+                        "Fast uses less CPU.",
+                        "„Precis” folosește un model mai puternic când rămâne suficient timp până la replică. "
+                        "„Rapid” folosește mai puțin procesorul."),
                  options=(("precise", L("Точная (large-v3-turbo)", "Precise (large-v3-turbo)", "Precis (large-v3-turbo)")),
                           ("fast", L("Быстрая (small)", "Fast (small)", "Rapid (small)")))),
          Setting("film_ahead", "choice", L("Готовить вперёд", "Prepare ahead", "Pregătește înainte"), "180",
-                 hint=L("Jarvis скачивает звук фильма отдельно от браузера (дополнительный трафик). Меньше — меньше "
-                        "трафика и нагрузки; на паузе готовится не больше минуты.",
-                        "Jarvis downloads the film's sound separately from the browser (extra traffic). Less means "
-                        "less traffic and load; while paused at most one minute is prepared.",
-                        "Jarvis descarcă sunetul filmului separat de browser (trafic în plus). Mai puțin înseamnă "
-                        "mai puțin trafic și încărcare; pe pauză se pregătește cel mult un minut."),
+                 hint=L("Для YouTube готовится до минуты уже загруженного звука. Объём загрузки выбирает YouTube. "
+                        "Для других фильмов отдельная загрузка звука может добавить трафик; на паузе готовится до минуты.",
+                        "For YouTube, Jarvis prepares up to a minute of buffered audio. YouTube controls the buffer. "
+                        "For other films, the separate audio request may use extra bandwidth; on pause it prepares up to a minute.",
+                        "Pentru YouTube, Jarvis pregătește până la un minut de audio deja încărcat. YouTube decide cât încarcă. "
+                        "La alte filme, cererea audio separată poate folosi trafic în plus; pe pauză se pregătește până la un minut."),
                  options=(("600", L("10 минут", "10 minutes", "10 minute")),
                           ("180", L("3 минуты", "3 minutes", "3 minute")),
                           ("60", L("1 минута", "1 minute", "1 minut")))),

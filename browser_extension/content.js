@@ -80,7 +80,7 @@
       const packet = event.data;
       if (!want || document.hidden || event.source !== window || event.origin !== location.origin
           || packet?.type !== "jarvis-buffer-audio" || !(packet.bytes instanceof ArrayBuffer)
-          || packet.bytes.byteLength > 312 * 1024 || !["webm", "mp4"].includes(packet.kind)
+          || packet.bytes.byteLength > 2080 * 1024 || !["webm", "mp4"].includes(packet.kind)
           || !Number.isInteger(packet.track) || !Number.isFinite(packet.offset)) return;
       const video = current || document.querySelector("video, audio");
       if (!video || video.currentSrc !== packet.src) return;

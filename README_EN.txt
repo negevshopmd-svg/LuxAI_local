@@ -1,4 +1,8 @@
-LUXAI LOCAL (JARVIS) 0.4.3h — UPDATE 2026-11-21
+LUXAI LOCAL (JARVIS) 0.4.3i — UPDATE 2026-11-21
+
+0.4.3i: Jarvis can prepare up to a minute of captions from audio YouTube has already buffered.
+Precise mode uses the stronger speech model when there is enough time ahead. YouTube still controls
+buffering. Reload Jarvis extension 1.6.0 and refresh the video tab.
 
 0.4.3h: Jarvis prepares and translates audio already buffered by YouTube in the browser.
 Prepared text appears on the playback clock. Live captions fill in when buffered audio is unavailable.

@@ -40,7 +40,11 @@ FIRST_CHUNK_SECONDS = 10.0  # where nothing is prepared yet (start, a seek): the
 CATCH_UP_SECONDS = 20.0    # closer than this to the player, the fast model works (it must get ahead first)
 EDGE_SECONDS = 1.5         # a line ending this close to a piece's end is redone with the next piece
 MAX_BODY = 64 * 1024
-MAX_AUDIO_BODY = 432 * 1024
+MAX_AUDIO_BYTES = (2048 + 32) * 1024  # compressed media plus the initialization segment
+MAX_AUDIO_BODY = ((MAX_AUDIO_BYTES + 2) // 3) * 4 + MAX_BODY
+BROWSER_AHEAD_SECONDS = 60.0
+BROWSER_PRECISE_LEAD = 6.0  # real seconds needed before committing a longer recognition window
+BROWSER_START_CHUNK = 8.0
 MAX_URLS = 20
 STALE_SECONDS = 5.0        # no report for this long → prepared lines are not shown (heartbeat: 1 s / 3 s paused)
 GONE_SECONDS = 20.0        # no report for this long → the preparation stops (tab closed, browser gone)
@@ -604,7 +608,7 @@ class FilmTranscriber:
         return next_start
 
 
-def decode_browser_audio(kind: str, offset: float, data: bytes):
+def decode_browser_audio(kind: str, offset: float, data: bytes, *, start_at: float | None = None):
     """Yield contiguous 16 kHz audio with timestamps on the browser player's clock."""
     import av
 
@@ -617,6 +621,7 @@ def decode_browser_audio(kind: str, offset: float, data: bytes):
         parts = []
         count = 0
         total = 0
+        max_samples = int((BROWSER_AHEAD_SECONDS + 1) * 16000)
         try:
             for frame in container.decode(stream):
                 if frame.time is None:
@@ -624,13 +629,18 @@ def decode_browser_audio(kind: str, offset: float, data: bytes):
                 moment = frame.time + offset
                 if not -60 <= moment < 10 ** 7:
                     continue
+                if start_at is not None:
+                    if moment + frame.samples / (frame.sample_rate or 16000) <= start_at:
+                        continue  # an older cluster in the rolling snapshot
+                    if moment >= start_at + BROWSER_AHEAD_SECONDS + 1:
+                        break
                 frame.pts = None
-                samples = np.concatenate([piece.to_ndarray().reshape(-1) for piece in resampler.resample(frame)]
-                                         or [np.empty(0, dtype=np.float32)])
-                if not len(samples):
+                converted = resampler.resample(frame)
+                if not converted:
                     continue
+                samples = np.concatenate([piece.to_ndarray().reshape(-1) for piece in converted])
                 total += len(samples)
-                if total > 60 * 16000:
+                if total > max_samples:
                     break
                 if start is None:
                     start = moment
@@ -673,7 +683,7 @@ class BufferedFilmTranscriber(FilmTranscriber):
     def _work(self):
         import av
 
-        model = None
+        models = {}
         while not self._stop.is_set():
             self._packet_ready.wait()
             with self._packet_lock:
@@ -683,26 +693,38 @@ class BufferedFilmTranscriber(FilmTranscriber):
                 continue
             kind, _track, offset, data = packet
             try:
-                for begin, audio in decode_browser_audio(kind, offset, data):
-                    if not self._stop.is_set():
-                        model = self._prepare_available(model, begin, audio)
+                start_at = max(0.0, self.clock.position() - 0.8)
+                for begin, audio in decode_browser_audio(kind, offset, data, start_at=start_at):
+                    self._prepare_available(models, begin, audio)
             except av.FFmpegError:
                 continue
 
-    def _prepare_available(self, model, begin, audio):
-        position = self.clock.position()
-        first = max(0.0, begin, position - 0.8)
-        start = self.timeline.covered_until(first)
-        end = begin + len(audio) / 16000
-        if end - start < 0.6:
-            return model
-        if model is None:
-            model = (self.fast_model_provider or self.model_provider)()
-        start_sample = max(0, round((start - begin) * 16000))
-        final = bool(self.video_duration and end >= self.video_duration - 0.25)
-        self._prepare_audio(model, audio[start_sample:], begin + start_sample / 16000, start, end, final)
-        self.ready.set()
-        return model
+    def _prepare_available(self, models, begin, audio):
+        available_end = begin + len(audio) / 16000
+        if self.video_duration:
+            available_end = min(available_end, self.video_duration)
+        start = begin
+        while not self._stop.is_set():
+            position = self.clock.position()
+            start = self.timeline.covered_until(max(start, 0.0, position - 0.8))
+            cap = min(available_end, position + min(self.ahead_seconds, BROWSER_AHEAD_SECONDS))
+            if cap - start < 0.6:
+                return
+            realtime_lead = (start - position) / max(0.1, self.clock.rate)
+            catching_up = realtime_lead < BROWSER_PRECISE_LEAD
+            provider = (self.fast_model_provider if catching_up else None) or self.model_provider
+            if provider not in models:
+                models[provider] = provider()
+            end = min(cap, start + (BROWSER_START_CHUNK if catching_up else CHUNK_SECONDS))
+            first = max(0, round((start - begin) * 16000))
+            last = min(len(audio), round((end - begin) * 16000))
+            final = bool(self.video_duration and end >= self.video_duration - 0.25)
+            following = self._prepare_audio(models[provider], audio[first:last], begin + first / 16000,
+                                            start, end, final)
+            self.ready.set()
+            if end >= cap - 0.001 or following <= start + 0.01:
+                return
+            start = following
 
 
 # -- the local bridge for the browser extension --------------------------------------------------------
@@ -770,7 +792,7 @@ def parse_report(raw: bytes, *, with_audio: bool = False) -> dict | None:
             audio = base64.b64decode(encoded, validate=True)
         except (KeyError, TypeError, ValueError, OverflowError):
             return None
-        if not 0 < len(audio) <= 312 * 1024:
+        if not 0 < len(audio) <= MAX_AUDIO_BYTES:
             return None
         report["buffer"] = (packet["kind"], track, offset, audio)
     return report
