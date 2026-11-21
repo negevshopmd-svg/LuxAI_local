@@ -5124,6 +5124,7 @@ class MainWindow(QMainWindow):
             return
         if hasattr(self, "settings_panel"):
             self.settings_panel.refresh_voice_status()
+        self._show_voice_notice()
         if not played:
             language = reply_language(self.cfg)
             message = {
@@ -5134,6 +5135,38 @@ class MainWindow(QMainWindow):
             self.mic_status.setText(message)
             # Report in text only: a failed voice must not enqueue itself again.
             self.append_message("Jarvis", message, "#a5b9dc")
+
+    VOICE_NOTICES = {
+        "fish_auth": ("Fish Audio отклонил ключ API (неверный или истёк). Говорю локальным голосом; новый ключ — "
+                      "в Настройки → Синтез речи.",
+                      "Fish Audio rejected the API key (wrong or expired). Speaking with the local voice; a new key "
+                      "goes in Settings → Speech synthesis.",
+                      "Fish Audio a refuzat cheia API (greșită sau expirată). Vorbesc cu vocea locală; o cheie nouă "
+                      "se pune în Setări → Sinteza vorbirii."),
+        "fish_payment": ("Fish Audio: на счёте закончился кредит. Говорю локальным голосом.",
+                         "Fish Audio: the account is out of credit. Speaking with the local voice.",
+                         "Fish Audio: s-a terminat creditul contului. Vorbesc cu vocea locală."),
+        "fish_missing": ("Ключ Fish Audio не задан. Говорю локальным голосом; ключ — в Настройки → Синтез речи.",
+                         "No Fish Audio key is set. Speaking with the local voice; add it in Settings → Speech synthesis.",
+                         "Nu e setată cheia Fish Audio. Vorbesc cu vocea locală; cheia se pune în Setări → Sinteza vorbirii."),
+        "fish_unavailable": ("Fish Audio сейчас не отвечает. Пока говорю локальным голосом.",
+                             "Fish Audio is not answering right now. Speaking with the local voice meanwhile.",
+                             "Fish Audio nu răspunde acum. Între timp vorbesc cu vocea locală."),
+    }
+
+    def _show_voice_notice(self):
+        """Why the voice changed, once (never spoken: the text goes to the chat only)."""
+        try:
+            from luxai.voices import take_voice_notice
+            code = take_voice_notice()
+        except Exception:
+            return
+        texts = self.VOICE_NOTICES.get(code)
+        if not texts:
+            return
+        ru, en, ro = texts
+        message = {"ru": ru, "en": en, "ro": ro}[reply_language(self.cfg)]
+        self.append_message("Jarvis", message, "#a5b9dc")
 
     def confirm_action(self, description, *, force=False):
         # Ordinary app launches, documents, sites, text and hotkeys execute

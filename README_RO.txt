@@ -1,5 +1,9 @@
-LUXAI LOCAL 0.4.3e — ACTUALIZARE 2026-11-21
+LUXAI LOCAL 0.4.3f — ACTUALIZARE 2026-11-21
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.3f: Dacă Fish Audio refuză cheia (greșită/expirată), nu mai are credit sau nu răspunde, Jarvis
+nu mai tace („Vocea nu este disponibilă”): citește cu vocea locală și spune o dată în chat de ce.
+Pentru vocea Fish din nou, pune o cheie nouă în Setări → Sinteza vorbirii.
 
 0.4.3e: Corecturile celui de-al cincilea audit (18 puncte). Sunetul filmelor e descărcat acum
 de Jarvis însuși, cu verificarea completă a certificatului HTTPS pentru fiecare bucată a filmului.

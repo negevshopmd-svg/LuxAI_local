@@ -31,6 +31,8 @@ class FishVoicePlaybackTests(unittest.TestCase):
         return value
 
     def setUp(self):
+        voices._voice_notice_shown.clear()  # a notice is shown once per 10 min: each test starts clean
+        voices._voice_notices.clear()
         self.settings = {
             "tts_enabled": True,
             "voice_engine": "fish",
@@ -62,6 +64,12 @@ class FishVoicePlaybackTests(unittest.TestCase):
     def assert_no_fallback(self):
         self.select.assert_not_called()
         self.windows.assert_not_called()
+
+    def assert_local_fallback(self, notice):
+        """0.4.3f: a refused or failed Fish voice is NOT silence — the local voice speaks (free, offline,
+        no other cloud provider), and the reason is shown once in the chat (never spoken)."""
+        self.select.assert_called()
+        self.assertEqual(voices.take_voice_notice(), notice)
 
     def test_startup_does_not_request_cloud_speech_or_prepare_a_local_voice(self):
         # Startup only warms the device and the TLS connection: no text, no key.
@@ -165,28 +173,34 @@ class FishVoicePlaybackTests(unittest.TestCase):
         self.assertEqual(self.synthesize.call_args.kwargs["voice_id"], fish_tts.DEFAULT_FISH_VOICE)
         self.assertEqual(self.synthesize.call_args.kwargs["language"], "ro")
 
-    def test_missing_key_does_not_send_text_or_silently_change_provider(self):
+    def test_missing_key_sends_no_text_and_says_so_while_the_local_voice_speaks(self):
         self.key.return_value = ""
-        self.assertFalse(self.speak())
+        self.windows.return_value = True
+        self.assertTrue(self.speak())
         self.synthesize.assert_not_called()
         self.audio.play.assert_not_called()
-        self.assertIn("key not configured", self.log.call_args.args[0])
-        self.assert_no_fallback()
+        self.assertIn("key not configured", self.log.call_args_list[0].args[0])
+        self.assert_local_fallback("fish_missing")
 
-    def test_provider_failure_is_sanitized_and_does_not_use_paid_or_local_fallback(self):
+    def test_provider_failure_is_sanitized_and_only_the_local_voice_takes_over(self):
         self.synthesize.side_effect = fish_tts.FishTTSError("rate_limit")
-        self.assertFalse(self.speak())
-        self.assertEqual(self.log.call_args.args[0], "Fish Audio synthesis failed (rate_limit).")
+        self.windows.return_value = True
+        self.assertTrue(self.speak())
+        self.assertEqual(self.log.call_args_list[0].args[0], "Fish Audio synthesis failed (rate_limit).")
         self.audio.play.assert_not_called()
         self.assertFalse(voices.barge_in_ready.is_set())
-        self.assert_no_fallback()
+        self.assert_local_fallback("fish_unavailable")
 
     def test_unexpected_key_or_decoder_error_logs_no_key_text_or_error_body(self):
         self.soundfile.read.side_effect = RuntimeError("private-fish-key Сэр, всё готово. remote body")
-        self.assertFalse(self.speak())
-        self.assertEqual(self.log.call_args.args[0], "Fish Audio playback failed (RuntimeError).")
+        self.windows.return_value = True
+        self.assertTrue(self.speak())
+        self.assertEqual(self.log.call_args_list[0].args[0], "Fish Audio playback failed (RuntimeError).")
+        for call in self.log.call_args_list:
+            self.assertNotIn("private-fish-key", call.args[0])
+            self.assertNotIn("Сэр", call.args[0])
         self.audio.play.assert_not_called()
-        self.assert_no_fallback()
+        self.assert_local_fallback("fish_unavailable")
 
     def test_reply_cancelled_before_start_never_looks_up_a_key(self):
         token = voices._cancel_token()

@@ -1,3 +1,17 @@
+## 0.4.3f — The voice never goes silent because of Fish Audio (2026-11-21)
+
+- Reported: reading messages aloud showed «Голос недоступен»; `voice_error.log` had
+  `Fish Audio synthesis failed (auth)` since 2026-11-20 (the key is rejected by Fish Audio).
+- Since 0.3.9e a Fish failure deliberately did not switch voices («no silent provider change»), which left
+  Jarvis silent. Now the LOCAL voice (Piper / Windows; free, offline, no other cloud) reads instead, and the
+  reason is written once in the chat (never spoken; at most once per 10 minutes): key rejected, out of credit,
+  no key, or not answering.
+- A rejected key or no credit pauses Fish until the key changes (a new key is tried at once); network trouble
+  pauses it for 30–60 s. The prefetch of the next piece spends no request on a paused Fish.
+- A piece already partly heard from Fish is not repeated by the local voice.
+- Verified on this PC with the real settings and DPAPI key: Fish answered «auth», the local voice spoke, the
+  notice appeared once, and the next reply went straight to the local voice (1.3 s).
+
 ## 0.4.3e — Fifth audit report (2026-11-21)
 
 P1

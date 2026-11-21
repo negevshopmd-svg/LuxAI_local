@@ -1,4 +1,8 @@
-LUXAI LOCAL (JARVIS) 0.4.3e — UPDATE 2026-11-21
+LUXAI LOCAL (JARVIS) 0.4.3f — UPDATE 2026-11-21
+
+0.4.3f: When Fish Audio rejects the key (wrong/expired), the account is out of credit or the service does
+not answer, Jarvis is no longer silent («Voice unavailable»): it reads with the local voice and says
+why once in the chat. For the Fish voice again, put a new key in Settings → Speech synthesis.
 
 0.4.3e: Fixes from the fifth audit (18 points). Jarvis now downloads the film sound itself, with full
 HTTPS certificate checks for every piece of the film. Captions keep working after «Back» in the

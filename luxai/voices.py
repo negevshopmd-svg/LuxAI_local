@@ -15,6 +15,7 @@ import subprocess
 import sys
 import threading
 import tempfile
+import time
 import urllib.request
 import wave
 from datetime import datetime
@@ -412,7 +413,7 @@ class VoiceManager:
         """
         text = re.sub(r"\s+", " ", str(text or "")).strip()[:700]
         config = self._load_config()
-        if not text or str(config.get("voice_engine", "piper")).lower() != "fish":
+        if not text or str(config.get("voice_engine", "piper")).lower() != "fish" or not self._fish_usable():
             return
         language = (language or config.get("language", "ru") or "ru").lower()
         key = (text, language, _cancel_generation)
@@ -452,11 +453,43 @@ class VoiceManager:
         slot["done"].wait(30)
         return slot["wav"]
 
+    # How long Fish Audio is skipped after a failure (None = until the key changes). Meanwhile the local
+    # Piper voice speaks, so a refused or empty key never makes Jarvis silent.
+    FISH_PAUSE = {"auth": None, "payment": None, "rate_limit": 60.0, "unavailable": 60.0, "timeout": 30.0,
+                  "response": 30.0, "network": 30.0}
+
+    @staticmethod
+    def _fish_fingerprint() -> str:
+        import hashlib
+        from luxai.secure_keys import get_api_key
+        try:
+            key = get_api_key("fish") or ""
+        except Exception:
+            key = ""
+        return hashlib.sha256(key.encode("utf-8")).hexdigest()[:16] if key else ""
+
+    def _fish_usable(self) -> bool:
+        """False while Fish Audio is paused after a failure (a new key ends the pause at once)."""
+        pause = getattr(self, "_fish_pause", None)
+        if not pause:
+            return True
+        fingerprint, until = pause
+        if fingerprint != self._fish_fingerprint() or (until is not None and time.monotonic() >= until):
+            self._fish_pause = None
+            return True
+        return False
+
+    def _fish_failed(self, code: str) -> None:
+        delay = self.FISH_PAUSE.get(code, 30.0)
+        self._fish_pause = (self._fish_fingerprint(), None if delay is None else time.monotonic() + delay)
+        _note_voice_notice("fish_" + (code if code in ("auth", "payment", "missing") else "unavailable"))
+
     def _fish_speak(self, text: str, language: str, cancel_token: int) -> bool:
         """Use the explicitly selected free cloud voice, preserving stop behavior."""
         from luxai import fish_tts
         from luxai.secure_keys import get_api_key
 
+        self._fish_heard = False  # some of this piece already played (then it is not repeated locally)
         if _was_cancelled(cancel_token):
             return False
         ready = self._take_prefetched(text, language, cancel_token)
@@ -466,6 +499,7 @@ class VoiceManager:
             key = get_api_key("fish")
             if not key:
                 self._log("Fish Audio key not configured; add it in speech synthesis settings.")
+                self._fish_failed("missing")
                 return False
             speed = max(0.7, min(1.4, float(self.config.get("voice_speed", 1.0))))
             volume = max(0.0, min(1.0, float(self.config.get("voice_volume", 80)) / 100))
@@ -479,6 +513,7 @@ class VoiceManager:
                     on_chunk=player.feed,
                 )
             except BaseException:
+                self._fish_heard = player.received > 0
                 player.abort()
                 raise
             if _was_cancelled(cancel_token):
@@ -494,11 +529,14 @@ class VoiceManager:
         except fish_tts.FishTTSError as exc:
             if not _was_cancelled(cancel_token):
                 self._log(f"Fish Audio synthesis failed ({exc.code}).")
+                if exc.code != "cancelled":
+                    self._fish_failed(exc.code)
         except Exception as exc:
             # HTTP/decoder exceptions may contain the user's text or key.
             # Only the exception type is suitable for the diagnostic log.
             if not _was_cancelled(cancel_token):
                 self._log(f"Fish Audio playback failed ({type(exc).__name__}).")
+                self._fish_failed("network")
         finally:
             barge_in_ready.clear()
         return False
@@ -521,7 +559,12 @@ class VoiceManager:
 
         voice_engine = str(self.config.get("voice_engine", "piper") or "piper").lower()
         if voice_engine == "fish":
-            return self._fish_speak(text, language, cancel_token)
+            if self._fish_usable():
+                if self._fish_speak(text, language, cancel_token):
+                    return True
+                if _was_cancelled(cancel_token) or getattr(self, "_fish_heard", False):
+                    return False  # stopped, or part of it was already heard: never said twice
+            # Fish Audio refused (key, credit) or is unreachable: the local Piper voice speaks instead.
         if voice_engine == "windows":
             if self._windows_speak(text, language, cancel_token):
                 return True
@@ -708,6 +751,28 @@ def prefetch(text: str, language: str | None = None) -> None:
         _manager.prefetch(text, language)
     except Exception:
         pass
+
+
+_voice_notices: list[str] = []
+_voice_notice_lock = threading.Lock()
+_voice_notice_shown: dict[str, float] = {}
+
+
+def _note_voice_notice(code: str) -> None:
+    """Something the user should know once (e.g. «Fish Audio refused the key»), not at every reply."""
+    with _voice_notice_lock:
+        last = _voice_notice_shown.get(code, 0.0)
+        if time.monotonic() - last < 600 and last:
+            return
+        _voice_notice_shown[code] = time.monotonic()
+        if code not in _voice_notices:
+            _voice_notices.append(code)
+
+
+def take_voice_notice() -> str:
+    """The oldest notice not shown yet ("" when none): fish_auth, fish_payment, fish_missing, fish_unavailable."""
+    with _voice_notice_lock:
+        return _voice_notices.pop(0) if _voice_notices else ""
 
 
 def speak(text: str, enabled: bool = True, language: str | None = None) -> bool:
