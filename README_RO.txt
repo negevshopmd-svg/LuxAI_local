@@ -1,5 +1,11 @@
-LUXAI LOCAL 0.4.3a — ACTUALIZARE 2026-11-21
+LUXAI LOCAL 0.4.3b — ACTUALIZARE 2026-11-21
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.3b: Corecturile celui de-al treilea audit (29 de puncte). Extensia pentru Chrome are acum o
+cheie secretă de asociere cu Jarvis (alte extensii sau programe nu mai pot vorbi cu el), urmărește
+un singur player, se oprește când închizi fila și ține cont de pauză și buffering. Mementourile
+„la 08:00 … 5 minute” și „PM” din text sunt înțelese corect; lipirea nu mai pune ce s-a copiat între
+timp. IMPORTANT: după actualizare, în chrome://extensions apasă „Reîncarcă” la extensia Jarvis.
 
 0.4.3a: Subtitrările nu se mai opresc la eroarea „COMError … Разрушительный сбой”
 (o eroare de moment a sunetului Windows, de ex. când Chrome își repornește partea audio).

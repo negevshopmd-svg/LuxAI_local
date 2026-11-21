@@ -1,4 +1,10 @@
-LUXAI LOCAL (JARVIS) 0.4.3a — UPDATE 2026-11-21
+LUXAI LOCAL (JARVIS) 0.4.3b — UPDATE 2026-11-21
+
+0.4.3b: Fixes from the third audit (29 points). The Chrome extension now has a secret pairing key
+with Jarvis (other extensions or programs cannot talk to it), follows one player, stops when the tab
+closes and handles pause and buffering. Reminders «at 08:00 … 5 minutes» and «PM» in the text are
+read correctly; pasting no longer pastes something copied in between.
+IMPORTANT: after the update, click «Reload» on the Jarvis extension in chrome://extensions.
 
 0.4.3a: Captions no longer stop on «COMError … Catastrophic failure» (a momentary Windows audio
 error, e.g. when Chrome restarts its audio part). The capture restarts by itself, finds the

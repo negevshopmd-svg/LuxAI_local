@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Jarvis Film Captions",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Tells Jarvis (LuxAI Local) which video plays and where, so it can prepare captions ahead. Talks only to 127.0.0.1.",
   "permissions": ["webRequest", "storage"],
   "host_permissions": ["<all_urls>"],

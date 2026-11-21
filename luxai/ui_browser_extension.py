@@ -76,9 +76,15 @@ def copy_folder_path() -> None:
 
 
 class ExtensionInstallDialog(QDialog):
-    def __init__(self, language: str, parent=None):
+    def __init__(self, language: str, parent=None, browser: str | None = None):
         super().__init__(parent)
         self.language = language
+        if browser is None:
+            found = find_browser()
+            browser = found[0] if found else "chrome"
+        self.browser = browser
+        name = "Edge" if browser == "edge" else "Chrome"
+        address = extensions_address(browser)
         self.setWindowTitle("Jarvis")
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
@@ -87,30 +93,30 @@ class ExtensionInstallDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(22, 18, 22, 16)
         layout.setSpacing(10)
-        title = QLabel(_t(lang, "Расширение Jarvis для Chrome", "Jarvis extension for Chrome", "Extensia Jarvis pentru Chrome"))
+        title = QLabel(_t(lang, f"Расширение Jarvis для {name}", f"Jarvis extension for {name}", f"Extensia Jarvis pentru {name}"))
         title.setStyleSheet("font-size:20px; font-weight:800;")
         layout.addWidget(title)
         intro = QLabel(_t(
             lang,
             "С ним субтитры фильма в браузере готовятся заранее и каждое слово появляется точно вовремя. "
-            "Chrome уже открыт — нужно несколько кликов, один раз:",
+            f"{name} уже открыт — нужно несколько кликов, один раз:",
             "With it, film captions in the browser are prepared in advance and every word appears exactly on time. "
-            "Chrome is already open — a few clicks, once:",
+            f"{name} is already open — a few clicks, once:",
             "Cu ea, subtitrările filmelor din browser se pregătesc din timp și fiecare cuvânt apare exact la timp. "
-            "Chrome e deja deschis — câteva clicuri, o singură dată:"))
+            f"{name} e deja deschis — câteva clicuri, o singură dată:"))
         intro.setWordWrap(True)
         layout.addWidget(intro)
         steps = [
-            _t(lang, "1. В адресной строке Chrome вставьте (Ctrl+V) и нажмите Enter: chrome://extensions "
+            _t(lang, f"1. В адресной строке {name} вставьте (Ctrl+V) и нажмите Enter: {address} "
                      "(адрес уже скопирован).",
-               "1. In Chrome's address bar paste (Ctrl+V) and press Enter: chrome://extensions (already copied).",
-               "1. În bara de adrese din Chrome lipește (Ctrl+V) și apasă Enter: chrome://extensions (adresa e deja copiată)."),
+               f"1. In {name}'s address bar paste (Ctrl+V) and press Enter: {address} (already copied).",
+               f"1. În bara de adrese din {name} lipește (Ctrl+V) și apasă Enter: {address} (adresa e deja copiată)."),
             _t(lang, "2. Справа вверху включите «Режим разработчика».",
                "2. Top right: turn on «Developer mode».",
                "2. Dreapta sus: pornește „Modul dezvoltator” (Developer mode)."),
-            _t(lang, "3. Нажмите «Скопировать путь» здесь, затем в Chrome — «Загрузить распакованное расширение».",
-               "3. Click «Copy the path» here, then «Load unpacked» in Chrome.",
-               "3. Apasă aici „Copiază calea”, apoi în Chrome „Încarcă extensia neîmpachetată” (Load unpacked)."),
+            _t(lang, f"3. Нажмите «Скопировать путь» здесь, затем в {name} — «Загрузить распакованное расширение».",
+               f"3. Click «Copy the path» here, then «Load unpacked» in {name}.",
+               f"3. Apasă aici „Copiază calea”, apoi în {name} „Încarcă extensia neîmpachetată” (Load unpacked)."),
             _t(lang, "4. В окне выбора папки вставьте путь (Ctrl+V) в адресную строку вверху, нажмите Enter, "
                      "затем «Выбор папки».",
                "4. In the folder window, paste the path (Ctrl+V) into the address bar at the top, press Enter, "
@@ -137,8 +143,8 @@ class ExtensionInstallDialog(QDialog):
         row = QHBoxLayout()
         self.copy_button = QPushButton(_t(lang, "Скопировать путь", "Copy the path", "Copiază calea"))
         self.copy_button.clicked.connect(copy_folder_path)
-        self.open_button = QPushButton(_t(lang, "Открыть Chrome ещё раз", "Open Chrome again",
-                                          "Deschide Chrome din nou"))
+        self.open_button = QPushButton(_t(lang, f"Открыть {name} ещё раз", f"Open {name} again",
+                                          f"Deschide {name} din nou"))
         self.open_button.clicked.connect(self.start)
         self.close_button = QPushButton(_t(lang, "Закрыть", "Close", "Închide"))
         self.close_button.setObjectName("Primary")
@@ -160,8 +166,13 @@ class ExtensionInstallDialog(QDialog):
     def start(self):
         """Open the browser with the extensions address on the clipboard (the folder as a fallback)."""
         browser = open_extensions_page()
-        if not browser and sys.platform == "win32":
-            os.startfile(str(FOLDER))  # noqa: S606 - our own folder
+        if not browser:
+            self.status.setStyleSheet("color:#e5484d; font-weight:600;")
+            self.status.setText(_t(self.language, "Chrome или Edge не найден или не запустился. Установите Chrome и повторите.",
+                                   "Chrome or Edge was not found or did not start. Install Chrome and try again.",
+                                   "Chrome sau Edge nu a fost găsit sau nu a pornit. Instalează Chrome și încearcă din nou."))
+            if sys.platform == "win32":
+                os.startfile(str(FOLDER))  # noqa: S606 - our own folder
         return browser
 
     def connected(self, info: dict | None = None):

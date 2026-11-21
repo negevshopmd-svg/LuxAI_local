@@ -792,11 +792,14 @@ def _stage_files(files) -> Path:
     """Copy the new files into one staging folder on the same disk, then record the journal."""
     import uuid
     staging = _staging_root() / uuid.uuid4().hex[:12]
+    hashes = {}
     for src, rel in files:
         target = staging / rel
         _atomic_copy(src, target)  # also turns .bat/.cmd into CRLF
-    _fsync_write(_journal_file(), json.dumps({"staging": staging.name,
-                                           "files": [Path(rel).as_posix() for _src, rel in files]}).encode("utf-8"))
+        # The digest of the STAGED bytes: after a crash, a file already moved is recognised by it (audit 3 #1).
+        hashes[Path(rel).as_posix()] = hashlib.sha256(target.read_bytes()).hexdigest()
+    _fsync_write(_journal_file(), json.dumps({"staging": staging.name, "files": list(hashes),
+                                           "sha256": hashes}).encode("utf-8"))
     return staging
 
 
@@ -812,31 +815,56 @@ def _finish_journal() -> None:
 
 
 def resume_interrupted_update() -> int:
-    """Finish the file moves of an update the PC did not finish (power cut, forced close)."""
+    """Finish the file moves of an update the PC did not finish (power cut, forced close).
+
+    Returns the number of files moved, or -1 when the state cannot be confirmed (audit 3 #1): an unreadable
+    journal, or a file that is neither waiting in staging nor already in place with its recorded digest.
+    Then the journal STAYS, the launcher keeps Jarvis closed and Update.bat installs everything again —
+    success is never declared for a state nobody can check.
+    """
     if not _journal_file().exists():
         return 0
     try:
         journal = json.loads(_journal_file().read_text(encoding="utf-8"))
         name = str(journal["staging"])
         files = [str(item) for item in journal["files"]]
-    except (OSError, ValueError, KeyError, TypeError):
-        _journal_file().unlink(missing_ok=True)
-        return 0
+        digests = journal.get("sha256", {})
+        digests = digests if isinstance(digests, dict) else {}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        report("Jurnalul actualizării întrerupte nu poate fi citit — rulează Update.bat.",
+               "Журнал прерванного обновления не читается — запустите Update.bat.",
+               "The interrupted update's journal cannot be read — run Update.bat.")
+        return -1
     if "/" in name or "\\" in name or name in ("", ".", ".."):
-        _journal_file().unlink(missing_ok=True)
-        return 0
+        return -1
     staging = _staging_root() / name
     moved = 0
+    unconfirmed = []
     for rel in files:
         path = PurePosixPath(rel)
         if path.is_absolute() or ".." in path.parts:
+            unconfirmed.append(rel)
             continue
         staged = staging.joinpath(*path.parts)
+        target = ROOT.joinpath(*path.parts)
         if staged.is_file():
-            target = ROOT.joinpath(*path.parts)
             target.parent.mkdir(parents=True, exist_ok=True)
             _replace_with_retry(staged, target)
             moved += 1
+            continue
+        # Not in staging any more: fine only if the file in place is exactly the staged one.
+        expected = digests.get(rel)
+        try:
+            present = target.is_file() and expected and hashlib.sha256(target.read_bytes()).hexdigest() == expected
+        except OSError:
+            present = False
+        if not present:
+            unconfirmed.append(rel)
+    if unconfirmed:
+        report(f"Actualizarea întreruptă nu poate fi confirmată ({len(unconfirmed)} fișiere) — rulează Update.bat.",
+               f"Прерванное обновление не подтверждено (файлов: {len(unconfirmed)}) — запустите Update.bat.",
+               f"The interrupted update cannot be confirmed ({len(unconfirmed)} files) — run Update.bat.")
+        return -1
     _finish_journal()
     if moved:
         report(f"Am terminat o actualizare întreruptă ({moved} fișiere).",
@@ -1567,8 +1595,9 @@ def cleanup_retired_fish_local() -> bool:
 
 def perform_update() -> int:
     try:
-        resume_interrupted_update()  # a half-applied update is finished first (audit #29)
+        resumed = resume_interrupted_update()  # a half-applied update is finished first (audit #29)
     except OSError as exc:
+        resumed = -1
         report(f"Nu am putut termina actualizarea întreruptă: {exc}")
     translator_weight = 5 if (ROOT / "models" / "nllb-200-600M-ct2-int8" / "model.bin").is_file() else 70
     plan = [("check", 2), ("download", 8), ("apply", 3), ("libs", 25), ("gguf", 8), ("ocr", 4),
@@ -1593,8 +1622,9 @@ def perform_update() -> int:
             except (OSError, json.JSONDecodeError):
                 state = {}
         current_sha = state.get("commit", "") if isinstance(state, dict) else ""
-        if PENDING_FILE.exists():
-            # The last update was interrupted between files: install everything again (audit #29).
+        if PENDING_FILE.exists() or resumed < 0 or _journal_file().exists():
+            # The last update was interrupted between files (or its journal cannot be confirmed, audit 3 #1):
+            # install everything again; the new transaction replaces the old journal.
             current_sha = ""
             report("Actualizarea anterioară a fost întreruptă — reinstalez toate fișierele.",
                    "Прошлое обновление было прервано — устанавливаю все файлы заново.",
@@ -1773,8 +1803,8 @@ if __name__ == "__main__":
             # 0 = done/nothing to do, 2 = an update is running right now, 1 = could not finish.
             try:
                 with updater_lock():
-                    resume_interrupted_update()
-                    raise SystemExit(1 if _journal_file().exists() else 0)
+                    done = resume_interrupted_update()
+                    raise SystemExit(1 if done < 0 or _journal_file().exists() else 0)
             except RuntimeError:
                 raise SystemExit(2)
             except OSError:

@@ -22,3 +22,4 @@ voices/*.onnx.json
 .luxai_update_journal.json
 .luxai_bootstrap.lock
 dist/
+browser_extension/pairing.json

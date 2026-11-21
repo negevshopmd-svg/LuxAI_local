@@ -1,3 +1,40 @@
+## 0.4.3b — Third audit report (2026-11-21)
+
+P1
+- #1 `resume_interrupted_update` returns -1 and KEEPS the journal when it cannot be read or a file is neither in
+  staging nor already in place with the digest recorded at staging (the journal now stores SHA-256 per file).
+  `--resume` exits 1, the launcher keeps Jarvis closed, and `Update.py` reinstalls everything.
+- #2 Bridge pairing: a 48-hex secret in `browser_extension/pairing.json` (created by Jarvis, readable only by
+  the unpacked extension of this installation, not in git or the release); every request needs it in
+  `X-Jarvis-Token` (constant-time compare, 401 otherwise). Media is opened only over http/https/tls/tcp/crypto
+  (FFmpeg `protocol_whitelist`, also inside playlists), only to public addresses (loopback, LAN, link-local
+  refused before connecting), and the Referer/Origin headers come only from checked addresses.
+
+P2/P3/P4
+- #3 Paste checks the clipboard sequence right before Ctrl+V. #4 «Clear» invalidates a history still loading.
+- #5 Reminders: the clock time or duration that comes FIRST sets the trigger; AM/PM and «tomorrow» count only
+  next to the time. #6 every phrase list, `microphone_hostapi`, `microphone_device` and
+  `check_updates_automatically` are validated.
+- #7 One player: another tab or frame takes over only when it plays and the current one does not; reports carry
+  the frame id. #8/#20 The film key includes frame, address, spoken language, translation and model.
+  #9 media entries keep the browser's content type (playlists without «.m3u8»). #10/#11 the worker always ends
+  stopped and reports failure; a failed film waits 30 s → 10 min before another attempt. #12 gaps in the audio
+  track become silence (timeline kept). #14 closed tab / navigation → «closed» event; no report for 20 s →
+  preparation stops. #15 media is accepted only with «Browser films» on; the guide's own bridge closes with it.
+  #16 bridge: 5 s socket timeout, at most 8 requests at once, invalid Content-Length → 400.
+  #19 touching lines both stay. #21 «installed» = seen within 30 days. #22 «Model for films»: Precise
+  (large-v3-turbo) or Fast (small), with the traffic noted. #23 paused/buffering/ended freeze the clock; heartbeat
+  every 3 s while paused. #24 closing waits at most 2 s for the clipboard save (atomic file, logged).
+  #26 cue lookup by binary search. #27 the guide names the browser it opens (edge://extensions for Edge).
+- Extension 1.1.0: pairing header, one storage write queue (#13), lists cleared on navigation (#18), media
+  filtered to the player's frame, errors noticed with back-off (#25), one followed player instead of page scans.
+- #28 capture fallback to all PC sound returns to the chosen program (checked every 30 s). #29 a COM
+  initialisation failure is reported.
+- Not changed: #17 (all-sites permission): film sites are not known in advance; the extension now only follows a
+  playing video, filters to its frame and talks only to the paired Jarvis.
+- Verified: a real Edge (temporary profile) with a copy of the extension on another port (the user's Jarvis held
+  47321): pairing hello accepted, 70 of 70 bar updates matched the film, words revealed progressively, seek handled.
+
 ## 0.4.3a — Captions survive Windows audio errors (2026-11-21)
 
 - Reported: the caption bar showed `COMError: (-2147418113, 'Разрушительный сбой', …)` (0x8000FFFF,

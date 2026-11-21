@@ -97,6 +97,7 @@ CHAT_HISTORY_LIMIT = 400  # messages kept on screen (audit 2 #28)
 # on load: numbers are clamped into their range, values of the wrong type are dropped (the default
 # applies), and the original file is copied aside once, with the corrected keys named.
 _BOOL_FIELDS = (
+    "check_updates_automatically",
     "tts_enabled", "microphone_enabled", "prefix_enabled", "online_agent_enabled", "run_as_admin",
     "minimize_to_tray", "autostart_windows", "ui_animations", "always_on_top", "confirm_all_actions",
     "understand_paraphrases", "local_llm_fallback_enabled", "ui_sidebar_collapsed",
@@ -106,12 +107,15 @@ _TEXT_FIELDS = (
     "tesseract_path", "llm_model_path", "whisper_model_path", "online_model", "microphone_name",
     "weather_city", "voice_id", "ui_font_family", "online_custom_url", "voice_engine", "response_language",
     "listen_mode", "listen_hotkey", "fish_voice_id",
+    # every phrase list and device field the settings window puts into a text box (audit 3 #6)
+    "command_chain_words", "command_stop_phrases", "confirm_no_words", "confirm_yes_words",
+    "microphone_off_phrases", "prefix_mode_phrases", "quiet_mode_phrases", "microphone_hostapi",
 )
 _NUMBER_FIELDS = {  # name: (kind, lowest, highest)
     "voice_volume": (int, 0, 100), "voice_speed": (float, 0.7, 1.4), "confirmation_timeout": (int, 5, 180),
     "whisper_beam_size": (int, 1, 10), "recognition_sensitivity": (int, 0, 100),
     "microphone_sensitivity": (float, 0.5, 3.0), "speech_pause_seconds": (float, 1.2, 4.0),
-    "online_timeout": (int, 35, 120), "ui_transparency": (int, 0, 35),
+    "online_timeout": (int, 35, 120), "ui_transparency": (int, 0, 35), "microphone_device": (int, -1, 1000),
 }
 _DICT_FIELDS = ("extensions", "extensions_meta")
 _CHOICE_FIELDS = {"ui_language": ("ru", "ro", "en")}

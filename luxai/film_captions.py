@@ -17,8 +17,11 @@ The local bridge listens on 127.0.0.1 only and accepts requests only from a brow
 from __future__ import annotations
 
 import bisect
+import hmac
 import json
+import os
 import re
+import secrets
 import threading
 import time
 from dataclasses import dataclass
@@ -35,7 +38,8 @@ CATCH_UP_SECONDS = 20.0    # closer than this to the player, the fast model work
 EDGE_SECONDS = 1.5         # a line ending this close to a piece's end is redone with the next piece
 MAX_BODY = 64 * 1024
 MAX_URLS = 20
-STALE_SECONDS = 4.0        # no report from the browser for this long → the film mode pauses
+STALE_SECONDS = 5.0        # no report for this long → prepared lines are not shown (heartbeat: 1 s / 3 s paused)
+GONE_SECONDS = 20.0        # no report for this long → the preparation stops (tab closed, browser gone)
 MEDIA_EXTENSIONS = (".m3u8", ".mp4", ".webm", ".m4v", ".mov", ".mkv")
 USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
               "Chrome/131.0 Safari/537.36")
@@ -53,10 +57,12 @@ class PlayerClock:
         self.duration = 0.0
         self.reported = 0.0  # time.monotonic() of the last report, 0 = never
 
-    def update(self, position: float, paused: bool, rate: float = 1.0, duration: float = 0.0, now=None):
+    def update(self, position: float, paused: bool, rate: float = 1.0, duration: float = 0.0, now=None,
+               stalled: bool = False, ended: bool = False):
+        """``stalled`` (buffering) and ``ended`` freeze the clock like a pause (audit 3 #23)."""
         with self._lock:
             self.time = max(0.0, float(position))
-            self.paused = bool(paused)
+            self.paused = bool(paused or stalled or ended)
             self.rate = min(4.0, max(0.1, float(rate or 1.0)))
             self.duration = max(0.0, float(duration or 0.0))
             self.reported = time.monotonic() if now is None else now
@@ -71,6 +77,10 @@ class PlayerClock:
     def alive(self, now=None) -> bool:
         now = time.monotonic() if now is None else now
         return bool(self.reported) and now - self.reported <= STALE_SECONDS
+
+    def gone(self, now=None) -> bool:
+        now = time.monotonic() if now is None else now
+        return bool(self.reported) and now - self.reported > GONE_SECONDS
 
 
 # -- prepared lines ------------------------------------------------------------------------------------
@@ -131,14 +141,24 @@ class CueTimeline:
     def __init__(self):
         self._lock = threading.Lock()
         self.cues: list[Cue] = []
+        self._starts: list[float] = []  # cue starts, for a binary search (audit 3 #26)
         self.covered: list[list[float]] = []  # merged [start, end) intervals
 
     def add(self, cues, start: float, end: float) -> None:
         with self._lock:
             for cue in cues:
-                # A piece that was redone (a seek, an edge line) never doubles a line.
-                self.cues = [old for old in self.cues if not (old.start < cue.end and cue.start < old.end)]
+                kept = []
+                for old in self.cues:
+                    overlap = min(old.end, cue.end) - max(old.start, cue.start)
+                    shorter = max(0.01, min(old.end - old.start, cue.end - cue.start))
+                    if overlap > 0.5 * shorter:
+                        continue  # the same line redone (a seek, an edge line): never doubled
+                    if overlap > 0 and old.start < cue.start:
+                        old.end = cue.start  # lines that only touch: both stay (audit 3 #19)
+                    kept.append(old)
+                self.cues = kept
                 bisect.insort(self.cues, cue, key=lambda item: item.start)
+            self._starts = [cue.start for cue in self.cues]
             self._cover(start, end)
 
     def _cover(self, start: float, end: float) -> None:
@@ -168,14 +188,27 @@ class CueTimeline:
     def lines_at(self, position: float, keep: int = 2, linger: float = 3.0) -> list[Cue]:
         """The lines to show now: the current one and the ones that ended at most ``linger`` s ago."""
         with self._lock:
-            shown = [cue for cue in self.cues if cue.start <= position + 0.05 and cue.end + linger >= position]
-            return shown[-keep:]
+            last = bisect.bisect_right(self._starts, position + 0.05)
+            shown = []
+            for cue in reversed(self.cues[max(0, last - 12):last]):  # only the neighbourhood of the position
+                if cue.end + linger >= position:
+                    shown.append(cue)
+                if len(shown) >= keep:
+                    break
+            return shown[::-1]
 
 
 # -- media ---------------------------------------------------------------------------------------------
+# FFmpeg may open only network media: no files, pipes or other protocols, also inside playlists (audit 3 #2).
+PROTOCOLS = "http,https,tls,tcp,crypto"
+PLAYLIST_TYPES = re.compile(r"mpegurl", re.I)
+MEDIA_TYPES = re.compile(r"mpegurl|video/(mp4|webm|x-matroska|quicktime)|audio/(mp4|mpeg|aac|webm)", re.I)
+
+
 def media_options(referer: str) -> dict:
-    options = {"user_agent": USER_AGENT, "reconnect": "1", "reconnect_streamed": "1", "rw_timeout": "20000000"}
-    if referer:
+    options = {"user_agent": USER_AGENT, "reconnect": "1", "reconnect_streamed": "1", "rw_timeout": "20000000",
+               "protocol_whitelist": PROTOCOLS}
+    if referer and safe_media_url(referer):  # never a header built from an unchecked value
         parsed = urlparse(referer)
         origin = f"{parsed.scheme}://{parsed.netloc}"
         options["headers"] = f"Referer: {referer}\r\nOrigin: {origin}\r\n"
@@ -183,10 +216,32 @@ def media_options(referer: str) -> dict:
 
 
 def safe_media_url(url) -> bool:
-    if not isinstance(url, str) or len(url) > 4000:
+    if not isinstance(url, str) or len(url) > 4000 or any(ord(ch) < 33 or ord(ch) == 127 for ch in url):
         return False
     parsed = urlparse(url)
-    return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+    return parsed.scheme in ("http", "https") and bool(parsed.hostname)
+
+
+def public_destination(url: str) -> bool:
+    """True when the host resolves only to public addresses: a report can never make Jarvis open this PC,
+    the local network or a router (LUXAI_FILM_ALLOW_LOCAL=1 allows it for local tests)."""
+    import ipaddress
+    import socket
+    if os.environ.get("LUXAI_FILM_ALLOW_LOCAL") == "1":
+        return True
+    host = urlparse(url).hostname or ""
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except OSError:
+        return False
+    for info in infos:
+        try:
+            address = ipaddress.ip_address(info[4][0].split("%")[0])
+        except ValueError:
+            return False
+        if not address.is_global or address.is_multicast:
+            return False
+    return bool(infos)
 
 
 def looks_like_media(url: str) -> bool:
@@ -194,20 +249,32 @@ def looks_like_media(url: str) -> bool:
     return path.endswith(MEDIA_EXTENSIONS)
 
 
+def _entry(item) -> tuple[str, str]:
+    if isinstance(item, dict):
+        return str(item.get("url", "")), str(item.get("type", ""))[:100]
+    return (item, "") if isinstance(item, str) else ("", "")
+
+
 def rank_candidates(urls) -> list[str]:
-    """Playlists first (newest first), then single files; segments and others dropped."""
-    unique = []
-    for url in urls:
+    """Playlists first (newest first), then single files; segments and others dropped. Entries may carry the
+    content type the browser saw, so a playlist without «.m3u8» in its address is kept too (audit 3 #9)."""
+    unique, kinds = [], {}
+    for item in urls:
+        url, kind = _entry(item)
         if safe_media_url(url) and url not in unique:
             unique.append(url)
-    playlists = [url for url in unique if urlparse(url).path.casefold().endswith(".m3u8")]
-    files = [url for url in unique if url not in playlists and looks_like_media(url)]
+            kinds[url] = kind
+    playlists = [url for url in unique
+                 if urlparse(url).path.casefold().endswith(".m3u8") or PLAYLIST_TYPES.search(kinds[url])]
+    files = [url for url in unique if url not in playlists and (looks_like_media(url) or MEDIA_TYPES.search(kinds[url]))]
     return playlists + files
 
 
 def open_media(url: str, referer: str, opener=None):
     """(container, audio stream) or raises. The audio with the lowest bit rate is enough for speech."""
     import av
+    if not safe_media_url(url) or not public_destination(url):
+        raise PermissionError("media address not allowed")
     opener = opener or av.open
     container = opener(url, options=media_options(referer), timeout=20)
     audio = [stream for stream in container.streams if stream.type == "audio"]
@@ -229,6 +296,7 @@ def decode_audio(container, stream, start: float, end: float) -> tuple[np.ndarra
     resampler = av.AudioResampler(format="flt", layout="mono", rate=16000)
     parts = []
     begin = None
+    written = 0  # samples placed so far
     for packet in container.demux(stream):
         done = False
         try:
@@ -247,9 +315,15 @@ def decode_audio(container, stream, start: float, end: float) -> tuple[np.ndarra
                 break
             if begin is None:
                 begin = moment
+            expected = int(round((moment - begin) * 16000))
+            if expected - written > 800:  # a gap of more than 50 ms in the track: silence keeps the timeline
+                parts.append(np.zeros(expected - written, dtype=np.float32))
+                written = expected
             frame.pts = None
             for piece in resampler.resample(frame):
-                parts.append(piece.to_ndarray().reshape(-1))
+                samples = piece.to_ndarray().reshape(-1)
+                parts.append(samples)
+                written += len(samples)
         if done:
             break
     if not parts or begin is None:
@@ -282,6 +356,7 @@ class FilmTranscriber:
         self.video_duration = float(video_duration or 0.0)
         self.opener = opener
         self.url = ""
+        self.failed = False                 # ended by an error (the runtime waits before trying this film again)
         self.ready = threading.Event()      # media opened and checked
         self._stop = threading.Event()
         self._thread = None
@@ -318,12 +393,20 @@ class FilmTranscriber:
 
     def _run(self):
         try:
-            container, stream = self._choose()
+            self._work()
         except Exception as error:
+            self.failed = True
             if self.on_error is not None:
-                self.on_error(str(error))
-            self._stop.set()
-            return
+                self.on_error(f"{type(error).__name__}: {error}")
+        finally:
+            self._stop.set()  # whatever happened, the runtime sees a finished worker
+
+    def _work(self):
+        try:
+            container, stream = self._choose()
+        except Exception:
+            self.failed = True
+            raise
         self.ready.set()
         models = {}
         total = media_seconds(container) or self.video_duration or 0.0
@@ -347,9 +430,10 @@ class FilmTranscriber:
                 if total:
                     end = min(end, total)
                 next_start = self._prepare(model, container, stream, next_start, end, final=bool(total) and end >= total)
-        except Exception as error:
-            if self.on_error is not None and not self._stop.is_set():
-                self.on_error(f"{type(error).__name__}: {error}")
+        except Exception:
+            if not self._stop.is_set():
+                self.failed = True
+                raise
         finally:
             try:
                 container.close()
@@ -419,25 +503,37 @@ def parse_report(raw: bytes) -> dict | None:
         return None
     if not isinstance(data, dict):
         return None
+    event = data.get("event", "state")
     try:
         report = {
+            "event": event if event in ("state", "closed") else "state",
             "tab": int(data.get("tab", 0)),
+            "frame": int(data.get("frame", 0) or 0),
             "page": str(data.get("page", ""))[:2000],
-            "time": float(data.get("time", 0.0)),
+            "time": float(data.get("time", 0.0) or 0.0),
             "paused": bool(data.get("paused", True)),
+            "stalled": bool(data.get("stalled", False)),   # buffering: the time does not move
+            "ended": bool(data.get("ended", False)),
             "rate": float(data.get("rate", 1.0) or 1.0),
             "duration": float(data.get("duration", 0.0) or 0.0),
         }
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
-    if not (0.0 <= report["time"] < 10 ** 6) or report["duration"] != report["duration"]:
+    if not (0.0 <= report["time"] < 10 ** 6) or report["duration"] != report["duration"] \
+            or not (0.0 <= report["duration"] < 10 ** 7):
         return None
     if report["page"] and not safe_media_url(report["page"]):
         report["page"] = ""
     media = data.get("media", [])
     media = media if isinstance(media, list) else []
     src = data.get("src", "")
-    report["media"] = [url for url in ([src] if src else []) + media[:MAX_URLS] if safe_media_url(url)]
+    report["src"] = src if safe_media_url(src) else ""
+    entries = []
+    for item in ([src] if src else []) + media[:MAX_URLS]:
+        url, kind = _entry(item)
+        if safe_media_url(url):
+            entries.append({"url": url, "type": kind})
+    report["media"] = entries
     return report
 
 
@@ -453,8 +549,32 @@ def parse_hello(raw: bytes) -> dict:
     return {"version": version, "browser": browser}
 
 
+def pairing_token(folder) -> str:
+    """The secret shared with the Jarvis extension (audit 3 #2).
+
+    It is written into the extension's own folder (``pairing.json``), which only the unpacked extension
+    loaded from THIS installation can read (``chrome.runtime.getURL``); another extension or a web page never
+    has it, so it cannot talk to the bridge. Created once, kept across updates (not part of the release).
+    """
+    from pathlib import Path
+    path = Path(folder) / "pairing.json"
+    try:
+        token = str(json.loads(path.read_text(encoding="utf-8")).get("token", ""))
+        if re.fullmatch(r"[0-9a-f]{48}", token):
+            return token
+    except (OSError, ValueError, AttributeError):
+        pass
+    token = secrets.token_hex(24)
+    try:
+        path.write_text(json.dumps({"token": token}), encoding="utf-8")
+    except OSError:
+        pass
+    return token
+
+
 class _Handler(BaseHTTPRequestHandler):
     server_version = "JarvisBridge/1"
+    timeout = 5  # a client that sends half a request cannot keep a thread (audit 3 #16)
 
     def log_message(self, *_args):  # nothing in the console or logs
         pass
@@ -463,23 +583,58 @@ class _Handler(BaseHTTPRequestHandler):
         origin = self.headers.get("Origin", "")
         return origin if re.fullmatch(r"chrome-extension://[a-p]{32}", origin) else ""
 
+    def _paired(self) -> bool:
+        token = getattr(self.server, "token", "")
+        offered = self.headers.get("X-Jarvis-Token", "")
+        return bool(token) and hmac.compare_digest(offered.encode("utf-8", "ignore"), token.encode("utf-8"))
+
+    def _answer(self, code: int, origin: str = "", body: dict | None = None):
+        data = json.dumps(body or {}).encode("utf-8")
+        self.send_response(code)
+        if origin:
+            self.send_header("Access-Control-Allow-Origin", origin)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
     def do_OPTIONS(self):  # noqa: N802 - the browser's CORS preflight
         origin = self._allowed_origin()
         self.send_response(204 if origin else 403)
         if origin:
             self.send_header("Access-Control-Allow-Origin", origin)
             self.send_header("Access-Control-Allow-Methods", "POST")
-            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Jarvis-Token")
         self.end_headers()
 
     def do_POST(self):  # noqa: N802
-        origin = self._allowed_origin()
-        length = int(self.headers.get("Content-Length", "0") or 0)
-        if not origin or self.path not in ("/v1/state", "/v1/hello") or not 0 < length <= MAX_BODY:
-            self.send_response(403)
-            self.end_headers()
+        gate = getattr(self.server, "gate", None)
+        if gate is not None and not gate.acquire(blocking=False):
+            self._answer(503)  # too many requests at once
             return
-        raw = self.rfile.read(length)
+        try:
+            self._post()
+        finally:
+            if gate is not None:
+                gate.release()
+
+    def _post(self):
+        origin = self._allowed_origin()
+        try:
+            length = int(self.headers.get("Content-Length", "0") or 0)
+        except ValueError:
+            self._answer(400, origin)
+            return
+        if not origin or self.path not in ("/v1/state", "/v1/hello") or not 0 < length <= MAX_BODY:
+            self._answer(403)
+            return
+        if not self._paired():
+            self._answer(401, origin, {"error": "pairing"})  # the extension reloads pairing.json
+            return
+        try:
+            raw = self.rfile.read(length)
+        except OSError:
+            return  # timed out or closed: nothing more to answer
         if self.path == "/v1/hello":
             report = parse_hello(raw)
             report["extension"] = origin.rsplit("/", 1)[-1]
@@ -487,22 +642,15 @@ class _Handler(BaseHTTPRequestHandler):
         else:
             report = parse_report(raw)
             target = self.server.on_report
-        if report is None:
-            self.send_response(400)
-            self.end_headers()
+        if report is None or len(raw) != length:
+            self._answer(400, origin)
             return
         try:
             if target is not None:
                 target(report)
         except Exception:
             pass
-        body = json.dumps({"ok": True}).encode("utf-8")
-        self.send_response(200)
-        self.send_header("Access-Control-Allow-Origin", origin)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        self._answer(200, origin, {"ok": True})
 
 
 class _ExclusiveServer(ThreadingHTTPServer):
@@ -521,10 +669,11 @@ class _ExclusiveServer(ThreadingHTTPServer):
 class BridgeServer:
     """127.0.0.1:PORT, extension origins only. ``on_report`` runs on the server thread."""
 
-    def __init__(self, on_report, port: int = PORT, on_hello=None):
+    def __init__(self, on_report, port: int = PORT, on_hello=None, token: str = ""):
         self.on_report = on_report
         self.on_hello = on_hello
         self.port = port
+        self.token = token  # without a pairing token every request is refused
         self._server = None
 
     def start(self) -> bool:
@@ -535,6 +684,8 @@ class BridgeServer:
         self._server.daemon_threads = True
         self._server.on_report = self.on_report
         self._server.on_hello = self.on_hello
+        self._server.token = self.token
+        self._server.gate = threading.BoundedSemaphore(8)
         threading.Thread(target=self._server.serve_forever, name="JarvisBrowserBridge", daemon=True).start()
         return True
 

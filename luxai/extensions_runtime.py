@@ -1117,12 +1117,18 @@ class ExtensionsRuntime(QObject):
         self._captions_capture = capture.start()
 
     # -- film captions in advance (Chrome extension) --
+    def _pairing_token(self) -> str:
+        """The secret in browser_extension/pairing.json that only our own extension can read (audit 3 #2)."""
+        from luxai.film_captions import pairing_token
+        from luxai.ui_browser_extension import FOLDER
+        return pairing_token(FOLDER)
+
     def _start_film_bridge(self):
         if not self.settings("live_captions").get("browser_films", True):
             return
         if self._film_bridge is None:
             from luxai.film_captions import BridgeServer
-            bridge = BridgeServer(self._film_report.emit, on_hello=self._extension_hello.emit)
+            bridge = BridgeServer(self._film_report.emit, on_hello=self._extension_hello.emit, token=self._pairing_token())
             if bridge.start():
                 self._film_bridge = bridge
         if self._film_bridge is not None and self.captions_visible and not self._film_timer.isActive():
@@ -1141,20 +1147,33 @@ class ExtensionsRuntime(QObject):
         self._set_film_active(False)
 
     # -- the browser extension: installed? --
+    EXTENSION_FRESH_DAYS = 30
+
     def extension_installed(self) -> bool:
+        """Seen within the last 30 days (a removed extension stops counting; Jarvis offers it again)."""
         meta = (getattr(self.host, "cfg", {}) or {}).get("extensions_meta", {})
-        return bool(isinstance(meta, dict) and meta.get("browser_extension_seen"))
+        seen = meta.get("browser_extension_seen") if isinstance(meta, dict) else None
+        if not isinstance(seen, dict):
+            return False
+        at = seen.get("at")
+        return not isinstance(at, (int, float)) or time.time() - at < self.EXTENSION_FRESH_DAYS * 86400
 
     def _remember_extension(self, info: dict):
         cfg = getattr(self.host, "cfg", None)
         if not isinstance(cfg, dict):
             return
         meta = cfg.setdefault("extensions_meta", {})
-        value = {"version": str(info.get("version", ""))[:16], "browser": info.get("browser", "chrome")}
-        if meta.get("browser_extension_seen") != value:
-            meta["browser_extension_seen"] = value
-            if hasattr(self.host, "save_extensions_meta"):
-                self.host.save_extensions_meta()
+        old = meta.get("browser_extension_seen") if isinstance(meta.get("browser_extension_seen"), dict) else {}
+        value = {"version": str(info.get("version", "") or old.get("version", ""))[:16],
+                 "browser": info.get("browser", old.get("browser", "chrome")), "at": int(time.time())}
+        changed = {k: v for k, v in old.items() if k != "at"} != {k: v for k, v in value.items() if k != "at"}
+        stale = time.time() - float(old.get("at", 0) or 0) > 86400  # the date is refreshed once a day
+        meta["browser_extension_seen"] = value
+        if (changed or stale) and hasattr(self.host, "save_extensions_meta"):
+            self.host.save_extensions_meta()
+
+    def _note_extension_alive(self):
+        self._remember_extension({})
 
     def _on_extension_hello(self, info):
         info = info if isinstance(info, dict) else {}
@@ -1203,42 +1222,92 @@ class ExtensionsRuntime(QObject):
             if hasattr(self.host, "save_extensions_meta"):
                 self.host.save_extensions_meta()
 
+    def _film_key(self, report):
+        """One film = one player: tab, page, frame, length, address and the settings that shape the lines
+        (spoken language, translation) — a change of any of them prepares the film again (audit 3 #8, #20)."""
+        settings = self.settings("live_captions")
+        return (report["tab"], report["page"], report.get("frame", 0), round(report["duration"]),
+                report.get("src", ""), self._caption_language(), self._caption_target(),
+                settings.get("film_model", "precise"))
+
     def _on_film_report(self, report):
-        """A player report (Qt thread). A new film (other tab, page or length) starts its own preparation."""
-        if not self.extension_installed():
-            self._on_extension_hello({"version": "", "browser": "chrome"})  # reports = it is installed
-        if not self.captions_visible or self._film_bridge is None:
+        """A player report (Qt thread): follow ONE player, prepare its film, stop when it goes away."""
+        film = self._film
+        if report.get("event") == "closed":
+            if film is not None and film[0][0] == report["tab"]:
+                self._drop_film()  # the tab was closed or left the page (audit 3 #14)
+            return
+        self._note_extension_alive()
+        # Installing the extension only confirms it; media is accepted only with the option on (audit 3 #15).
+        if (not self.captions_visible or self._film_bridge is None
+                or not self.settings("live_captions").get("browser_films", True)):
             return
         candidates = list(report.get("media") or [])
         if not candidates:
             return
-        key = (report["tab"], report["page"], round(report["duration"]))
-        film = self._film
-        if film is None or film[0] != key or film[3].stopped:
-            if film is not None:
-                film[3].stop()
-            from luxai.film_captions import CueTimeline, FilmTranscriber, PlayerClock
-            from luxai.live_captions import caption_model
-            clock, timeline = PlayerClock(), CueTimeline()
-            target = self._caption_target()
-            translate = None
-            if target is not None:
-                def translate(text, source, target=target):
-                    from luxai.translation import text_language, translate_offline
-                    if text_language(text) == target:
-                        return ""
-                    return translate_offline(text, target, source) or ""
-            # The best model: the film is prepared ahead, so there is time for it.
-            transcriber = FilmTranscriber(candidates, report["page"], clock, timeline,
-                                          lambda: caption_model("large-v3-turbo", threads=8),
-                                          language=self._caption_language(), translate=translate,
-                                          on_error=self._film_error.emit, video_duration=report["duration"],
-                                          fast_model_provider=lambda: caption_model("small", threads=6))
-            self._film = (key, clock, timeline, transcriber)
-            clock.update(report["time"], report["paused"], report["rate"], report["duration"])
-            transcriber.start()
+        key = self._film_key(report)
+        stalled = report.get("stalled", False)
+        ended = report.get("ended", False)
+        if film is not None and film[0] == key and not film[3].stopped:
+            film[1].update(report["time"], report["paused"], report["rate"], report["duration"],
+                           stalled=stalled, ended=ended)
             return
-        film[1].update(report["time"], report["paused"], report["rate"], report["duration"])
+        if film is not None and (film[0][0], film[0][2]) != (key[0], key[2]) and not film[3].stopped:
+            # Another tab or frame (an ad, a background tab): it takes over only when it plays and the
+            # current player does not (audit 3 #7).
+            current_plays = film[1].alive() and not film[1].paused
+            if report["paused"] or ended or current_plays:
+                return
+        if self._film_waiting(key):
+            return  # this film failed a moment ago: no new attempt yet (audit 3 #10)
+        self._start_film(key, report, candidates)
+
+    def _start_film(self, key, report, candidates):
+        from luxai.film_captions import CueTimeline, FilmTranscriber, PlayerClock
+        from luxai.live_captions import caption_model
+        self._drop_film()
+        clock, timeline = PlayerClock(), CueTimeline()
+        target = self._caption_target()
+        translate = None
+        if target is not None:
+            def translate(text, source, target=target):
+                from luxai.translation import text_language, translate_offline
+                if text_language(text) == target:
+                    return ""
+                return translate_offline(text, target, source) or ""
+        # «Precise»: large-v3-turbo once it is ahead of the player; «Fast»: small only — lighter on a slow
+        # PC (audit 3 #22). The fast model always does the catching up.
+        fast = lambda: caption_model("small", threads=6)  # noqa: E731
+        precise = fast if self.settings("live_captions").get("film_model", "precise") == "fast" \
+            else (lambda: caption_model("large-v3-turbo", threads=8))
+        transcriber = FilmTranscriber(candidates, report["page"], clock, timeline, precise,
+                                      language=self._caption_language(), translate=translate,
+                                      on_error=self._film_error.emit, video_duration=report["duration"],
+                                      fast_model_provider=fast)
+        self._film = (key, clock, timeline, transcriber)
+        clock.update(report["time"], report["paused"], report["rate"], report["duration"],
+                     stalled=report.get("stalled", False), ended=report.get("ended", False))
+        transcriber.start()
+
+    def _drop_film(self):
+        film, self._film = self._film, None
+        if film is not None:
+            film[3].stop()
+            if film[3].failed:
+                self._film_failed(film[0])
+        self._set_film_active(False)
+
+    def _film_failed(self, key):
+        """Remember a failed film: tried again after 30 s, 60 s, 2 min … up to 10 min."""
+        failures = getattr(self, "_film_failures", None)
+        if failures is None:
+            failures = self._film_failures = {}
+        count = failures.get(key, (0, 0.0))[0] + 1
+        failures[key] = (count, time.monotonic() + min(600.0, 30.0 * 2 ** (count - 1)))
+
+    def _film_waiting(self, key) -> bool:
+        entry = getattr(self, "_film_failures", {}).get(key)
+        return bool(entry) and time.monotonic() < entry[1]
 
     def _on_film_error(self, error: str):
         # Not usable (protected or refused media): the normal live captions simply continue.
@@ -1248,6 +1317,9 @@ class ExtensionsRuntime(QObject):
     def _film_tick(self):
         film = self._film
         bar = self._captions_bar
+        if film is not None and (film[3].stopped and film[3].failed or film[1].gone()):
+            self._drop_film()  # failed (wait before retrying) or the browser stopped reporting (audit 3 #11, #14)
+            film = None
         if film is None or bar is None or not film[1].alive():
             self._set_film_active(False)
             return
@@ -1302,16 +1374,23 @@ class ExtensionsRuntime(QObject):
         dialog = ExtensionInstallDialog(self.language)
         dialog.destroyed.connect(lambda *_: setattr(self, "_extension_dialog", None))
         self._extension_dialog = dialog
+        dialog.finished.connect(self._extension_guide_closed)
         dialog.show()
         dialog.start()
         if self.extension_installed():
             meta = (getattr(self.host, "cfg", {}) or {}).get("extensions_meta", {})
             dialog.connected(meta.get("browser_extension_seen") if isinstance(meta, dict) else None)
 
+    def _extension_guide_closed(self, *_):
+        """The bridge opened only for the guide closes with it (audit 3 #15)."""
+        if not (self.enabled("live_captions") and self.settings("live_captions").get("browser_films", True)):
+            if self._film_bridge is not None:
+                self._stop_film()
+
     def _start_film_bridge_for_install(self):
         if self._film_bridge is None:
             from luxai.film_captions import BridgeServer
-            bridge = BridgeServer(self._film_report.emit, on_hello=self._extension_hello.emit)
+            bridge = BridgeServer(self._film_report.emit, on_hello=self._extension_hello.emit, token=self._pairing_token())
             if bridge.start():
                 self._film_bridge = bridge
 
@@ -1650,8 +1729,8 @@ class ExtensionsRuntime(QObject):
         if self._clip_save_timer.isActive():
             self._clip_save_timer.stop()
             self._save_clip_history(wait=True)  # the last copies are not lost on close (audit #14)
-        else:
-            self._clip_saver.wait(8.0)  # a save that already started finishes first (audit 2 #15)
+        elif not self._clip_saver.wait(2.0):  # a save that already started finishes first (audit 2 #15)
+            self._clip_error(RuntimeError("clipboard history save still running at exit (previous file kept)"))
         self._close_avatar()
         self.hide_captions()
         self._notif_timer.stop()
@@ -3376,8 +3455,10 @@ class ExtensionsRuntime(QObject):
                     self._clip_error(error)
 
         self._clip_saver.submit(work)
-        if wait:
-            self._clip_saver.wait(8.0)
+        if wait and not self._clip_saver.wait(2.0):
+            # At most 2 s on close (audit 3 #24); the file is replaced atomically, so an unfinished save
+            # leaves the previous history intact and this is written to the log.
+            self._clip_error(RuntimeError("clipboard history save still running at exit (previous file kept)"))
 
     def _load_clip_history_async(self):
         """Read, decrypt and decode the saved history on a worker (audit 2 #17)."""
@@ -3411,10 +3492,12 @@ class ExtensionsRuntime(QObject):
         self.clipboard_changed.emit()
 
     def clear_clipboard(self):
+        self._clip_load_generation += 1  # a history still loading never brings items back (audit 3 #4)
         self.clip_history.clear()
         self._clip_changed()
 
     def clear_clipboard_all(self):
+        self._clip_load_generation += 1
         self.clip_history.clear_all()
         self._clip_changed()
 
@@ -3490,9 +3573,10 @@ class ExtensionsRuntime(QObject):
         QApplication.clipboard().setMimeData(self._clip_mime(item, plain))
         if not target_hwnd:
             return
-        self._paste_into(target_hwnd)
+        from luxai.selection import clipboard_sequence
+        self._paste_into(target_hwnd, sequence=clipboard_sequence())
 
-    def _paste_into(self, target_hwnd: int, after=None):
+    def _paste_into(self, target_hwnd: int, after=None, sequence: int | None = None):
         """Bring the target forward and press Ctrl+V only while it is STILL the foreground window.
 
         Audit 2 #6: the result of the activation was ignored and the window could change during the
@@ -3517,6 +3601,14 @@ class ExtensionsRuntime(QObject):
             if _foreground_window() != int(target_hwnd):
                 refused()
                 return
+            if sequence is not None:
+                from luxai.selection import clipboard_sequence
+                if clipboard_sequence() != sequence:
+                    # Something else was copied during the wait: Ctrl+V would paste THAT (audit 3 #3).
+                    self.notice.emit(_tr3("Буфер обмена изменился — ничего не вставлено.",
+                                          "The clipboard changed meanwhile — nothing was pasted.",
+                                          "Clipboardul s-a schimbat între timp — nu am lipit nimic.", self.language))
+                    return
             try:
                 _send_paste()
             except Exception as error:
@@ -3663,7 +3755,7 @@ class ExtensionsRuntime(QObject):
             except Exception:
                 pass
 
-        self._paste_into(target_hwnd, after=lambda: QTimer.singleShot(700, put_back))
+        self._paste_into(target_hwnd, after=lambda: QTimer.singleShot(700, put_back), sequence=ours)
 
     # -- read aloud --
     def reading_language(self) -> str:

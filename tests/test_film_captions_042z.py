@@ -110,7 +110,7 @@ class ReportTests(unittest.TestCase):
             "tab": 3, "page": "https://site.example/film", "time": 181.5, "paused": False, "rate": 1,
             "duration": 5400, "src": "blob:https://x/1",
             "media": ["https://cdn.example/a.m3u8", "javascript:alert(1)", "file:///C:/x.mp4"]}).encode())
-        self.assertEqual(report["media"], ["https://cdn.example/a.m3u8"])  # only http(s)
+        self.assertEqual(report["media"], [{"url": "https://cdn.example/a.m3u8", "type": ""}])  # only http(s)
         self.assertEqual(report["time"], 181.5)
 
     def test_garbage_is_refused(self):
@@ -124,9 +124,10 @@ class ReportTests(unittest.TestCase):
 
 
 class BridgeTests(unittest.TestCase):
-    def post(self, port, body, origin=ORIGIN, path="/v1/state"):
+    def post(self, port, body, origin=ORIGIN, path="/v1/state", token="t" * 48):
         request = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=body, method="POST",
-                                         headers={"Content-Type": "application/json", "Origin": origin})
+                                         headers={"Content-Type": "application/json", "Origin": origin,
+                                                  "X-Jarvis-Token": token})
         try:
             with urllib.request.urlopen(request, timeout=3) as response:
                 return response.status
@@ -135,17 +136,19 @@ class BridgeTests(unittest.TestCase):
 
     def test_only_a_browser_extension_may_talk_to_jarvis(self):
         reports = []
-        bridge = fc.BridgeServer(reports.append, port=47399)
+        bridge = fc.BridgeServer(reports.append, port=47399, token="t" * 48)
         self.assertTrue(bridge.start())
         self.addCleanup(bridge.stop)
         body = json.dumps({"tab": 1, "time": 5, "paused": False, "media": ["https://c/a.m3u8"]}).encode()
         self.assertEqual(self.post(47399, body, origin="https://evil.example"), 403)  # a web page
         self.assertEqual(self.post(47399, body, origin=""), 403)
         self.assertEqual(self.post(47399, body, path="/other"), 403)
+        self.assertEqual(self.post(47399, body, token="x" * 48), 401)  # another extension: no pairing secret
+        self.assertEqual(self.post(47399, body, token=""), 401)
         self.assertEqual(self.post(47399, b"{", ), 400)
         self.assertEqual(reports, [])
         self.assertEqual(self.post(47399, body), 200)
-        self.assertEqual(reports[0]["media"], ["https://c/a.m3u8"])
+        self.assertEqual(reports[0]["media"], [{"url": "https://c/a.m3u8", "type": ""}])
 
     def test_a_taken_port_does_not_crash(self):
         first = fc.BridgeServer(lambda _r: None, port=47398)
@@ -198,7 +201,8 @@ class PrepareTests(unittest.TestCase):
                                    streams=[SimpleNamespace(type="audio", bit_rate=64000)])
         worker = fc.FilmTranscriber(["https://c/ad.mp4", "https://c/film.m3u8"], "https://site/p", fc.PlayerClock(),
                                     fc.CueTimeline(), lambda: None, video_duration=5400, opener=opener)
-        worker._choose()
+        with mock.patch.object(fc, "public_destination", return_value=True):
+            worker._choose()
         self.assertEqual(worker.url, "https://c/film.m3u8")
 
     def test_referer_and_browser_agent_are_sent(self):
@@ -268,7 +272,8 @@ class ExtensionFilesTests(unittest.TestCase):
         self.assertEqual(manifest["manifest_version"], 3)
         background = (folder / "background.js").read_text(encoding="utf-8")
         self.assertIn('const JARVIS = "http://127.0.0.1:47321/v1/";', background)
-        self.assertEqual(background.count("fetch("), 1)  # one destination only
+        self.assertEqual(background.count("fetch(JARVIS"), 1)  # one destination only (+ its own pairing.json)
+        self.assertIn('fetch(chrome.runtime.getURL("pairing.json")', background)
         self.assertTrue((folder / "icon128.png").is_file())
         import Update
         for name in ("manifest.json", "background.js", "content.js", "icon128.png"):

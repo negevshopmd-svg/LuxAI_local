@@ -152,6 +152,12 @@ def _activate_system_loopback():
     return unknown.QueryInterface(IAudioClient)
 
 
+class _BackToApp(Exception):
+    def __init__(self, pid: int):
+        super().__init__(pid)
+        self.pid = pid
+
+
 class LoopbackCapture:
     """Background thread calling ``on_audio(float32 16 kHz mono chunk)``."""
 
@@ -207,7 +213,15 @@ class LoopbackCapture:
         """Capture until stopped. Windows audio can fail at any time (0x8000FFFF «catastrophic failure»
         when a program restarts its audio process, AUDCLNT_E_DEVICE_INVALIDATED when the speakers change):
         the capture is reopened instead of stopping the captions for good."""
-        ctypes.oledll.ole32.CoInitializeEx(None, 0)  # MTA: the activation callback is agile
+        try:
+            ctypes.oledll.ole32.CoInitializeEx(None, 0)  # MTA: the activation callback is agile
+        except OSError as error:
+            # Reported like any capture failure, and nothing to uninitialise (audit 3 #29).
+            self.started.set()
+            _log_capture_error(error, "com")
+            if self.on_error is not None:
+                self.on_error(f"{type(error).__name__}: {error}")
+            return
         failures = 0
         try:
             while not self._stop.is_set():
@@ -215,13 +229,19 @@ class LoopbackCapture:
                 try:
                     self._capture_once()
                     return  # stopped normally
+                except _BackToApp as back:
+                    # The chosen program can be heard again: leave «all PC sound» (audit 3 #28).
+                    self.app_pid, self._fallback_since, failures = back.pid, 0.0, 0
+                    if self.on_notice is not None:
+                        self.on_notice("recovered")
                 except Exception as error:
                     self.started.set()
                     self._had_error = True
                     _log_capture_error(error, self.mode or ("app" if self.app_pid else "system"))
                     failures = 1 if time.monotonic() - started > 30 else failures + 1  # long runs reset the count
                     if self.app_pid and failures >= self.APP_FAILURES_BEFORE_SYSTEM:
-                        self.app_pid = 0  # the one program keeps failing: listen to all PC sound
+                        self.app_pid = 0  # the one program keeps failing: listen to all PC sound for now
+                        self._fallback_since = time.monotonic()  # …and try the program again every 30 s
                         failures = 0
                         if self.on_notice is not None:
                             self.on_notice("system")
@@ -236,6 +256,17 @@ class LoopbackCapture:
                 ctypes.oledll.ole32.CoUninitialize()
             except OSError:
                 pass
+
+    BACK_TO_APP_SECONDS = 30.0
+
+    def _maybe_back_to_app(self):
+        since = getattr(self, "_fallback_since", 0.0)
+        if not since or not self.app_name or time.monotonic() - since < self.BACK_TO_APP_SECONDS:
+            return
+        self._fallback_since = time.monotonic()  # next check in 30 s
+        pid = app_pid(self.app_name)
+        if pid:
+            raise _BackToApp(pid)
 
     def _capture_once(self):
         event = None
@@ -257,6 +288,7 @@ class LoopbackCapture:
                     self.on_notice("recovered")  # the error on the bar can go away
             silence_until = time.monotonic()
             while not self._stop.is_set():
+                self._maybe_back_to_app()
                 if event:
                     ctypes.windll.kernel32.WaitForSingleObject(event, 200)
                 else:

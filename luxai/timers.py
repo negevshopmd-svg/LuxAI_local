@@ -103,8 +103,17 @@ def _clock_match(value: str):
     return _CLOCK_FULL.search(value) or _CLOCK_HOUR.search(value)
 
 
-def parse_clock(text: str, now: dt.datetime) -> dt.datetime | None:
-    """Next occurrence of a clock time: "7:30", "в 7 утра", "la 6", "at 6 pm"."""
+_PM = r"(?:вечера|дня|pm|p\.m\.|seara|seară|după-amiaza)"
+_AM = r"(?:ночи|утра|am|a\.m\.|dimineața|dimineata)"
+_DAY = r"(?:завтра|mâine|maine|tomorrow)"
+
+
+def parse_clock(text: str, now: dt.datetime, *, near_only: bool = False) -> dt.datetime | None:
+    """Next occurrence of a clock time: "7:30", "в 7 утра", "la 6", "at 6 pm".
+
+    ``near_only`` (reminders): AM/PM and «tomorrow» count only next to the time itself, never inside the
+    message — «remind me at 08:00 to check PM report» is 08:00, not 20:00 (audit 3 #5).
+    """
     value = str(text or "").casefold()
     match = _CLOCK_FULL.search(value)
     if match:
@@ -114,14 +123,22 @@ def parse_clock(text: str, now: dt.datetime) -> dt.datetime | None:
         if not match:
             return None
         hour, minute = int(match.group(1)), 0
-    if re.search(r"(?:вечера|дня|pm|p\.m\.|seara|seară|după-amiaza)", value) and hour < 12:
+    if near_only:
+        after = value[match.end():]
+        marker = re.match(r"\s*(" + _PM + "|" + _AM + r")\b", after)
+        marks = marker.group(1) if marker else ""
+        rest = after[marker.end():] if marker else after
+        day = bool(re.search(_DAY, value[:match.start()]) or re.match(r"\s*,?\s*" + _DAY, rest))
+    else:
+        marks, day = value, bool(re.search(_DAY, value))
+    if re.search(_PM, marks) and hour < 12:
         hour += 12
-    if re.search(r"(?:ночи|am|a\.m\.)", value) and hour == 12:
+    if re.search(r"(?:ночи|am|a\.m\.)", marks) and hour == 12:
         hour = 0
     if not (0 <= hour <= 23 and 0 <= minute <= 59):
         return None
     target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-    if re.search(r"(?:завтра|mâine|maine|tomorrow)", value) or target <= now:
+    if day or target <= now:
         target += dt.timedelta(days=1)
     return target
 
@@ -249,12 +266,17 @@ def parse_request(text: str, now: dt.datetime | None = None) -> Request | None:
 
 def _parse_reminder(value: str, lowered: str, now: dt.datetime) -> Request | None:
     """Intent, time and message parsed separately; the label comes from the same match as the time."""
-    # Only the first clause sets the time; a duration inside the message stays in it.
-    first, _tail = _first_duration(value)
-    if first:
-        seconds = parse_duration(first)  # «-5 minutes» → None: never five minutes (audit 2 #9)
-        return Request("timer", seconds=seconds, label=_label(value)) if seconds else None
-    at = parse_clock(lowered, now)
+    # Whatever comes FIRST sets the trigger — a duration («in 5 minutes») or a clock time («at 08:00»);
+    # the other one belongs to the message (audit 3 #5: «at 08:00 to water plants for 5 minutes»).
+    duration_at = _duration_start(value)
+    clock = _clock_match(value)
+    clock_first = clock is not None and (duration_at < 0 or clock.start() < duration_at)
+    if not clock_first:
+        first, _tail = _first_duration(value)
+        if first:
+            seconds = parse_duration(first)  # «-5 minutes» → None: never five minutes (audit 2 #9)
+            return Request("timer", seconds=seconds, label=_label(value)) if seconds else None
+    at = parse_clock(lowered, now, near_only=True)
     if at is not None:
         return Request("alarm", at=at, label=_clock_label(value))
     return None

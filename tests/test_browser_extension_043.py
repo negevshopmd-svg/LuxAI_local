@@ -18,12 +18,13 @@ ORIGIN = "chrome-extension://" + "b" * 32
 class HelloTests(unittest.TestCase):
     def test_hello_reaches_jarvis_with_the_extension_id(self):
         hellos = []
-        bridge = fc.BridgeServer(lambda _r: None, port=47397, on_hello=hellos.append)
+        bridge = fc.BridgeServer(lambda _r: None, port=47397, on_hello=hellos.append, token="k" * 48)
         self.assertTrue(bridge.start())
         self.addCleanup(bridge.stop)
         request = urllib.request.Request("http://127.0.0.1:47397/v1/hello", method="POST",
                                          data=json.dumps({"version": "1.0.0", "browser": "chrome"}).encode(),
-                                         headers={"Content-Type": "application/json", "Origin": ORIGIN})
+                                         headers={"Content-Type": "application/json", "Origin": ORIGIN,
+                                                  "X-Jarvis-Token": "k" * 48})
         with urllib.request.urlopen(request, timeout=3) as response:
             self.assertEqual(response.status, 200)
         self.assertEqual(hellos, [{"version": "1.0.0", "browser": "chrome", "extension": "b" * 32}])
