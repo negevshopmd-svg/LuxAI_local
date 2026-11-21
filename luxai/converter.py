@@ -144,7 +144,8 @@ def image_compress(source, *, quality=85, out_dir=None) -> Path:
     if ext in ("png", "gif", "bmp", "tif", "tiff"):
         image = image.convert("RGBA").quantize(colors=256, method=2, dither=1)
         target = target_path(source, "png", "compressed", out_dir)
-        image.save(target, "PNG", optimize=True)
+        with _removed_on_error(target):  # a failed write leaves no broken «…_compressed.png» (audit 6 #10)
+            image.save(target, "PNG", optimize=True)
         return target
     ext = "webp" if ext == "webp" else "jpg"
     return save_image(image, target_path(source, ext, "compressed", out_dir), min(int(quality), 80))

@@ -143,7 +143,7 @@ class ExtensionCodeTests(unittest.TestCase):
         content = (ROOT / "browser_extension" / "content.js").read_text(encoding="utf-8")
         background = (ROOT / "browser_extension" / "background.js").read_text(encoding="utf-8")
         manifest = json.loads((ROOT / "browser_extension" / "manifest.json").read_text(encoding="utf-8"))
-        self.assertIn(manifest["version"], ("1.9.0", "1.10.0"))
+        self.assertGreaterEqual(tuple(map(int, manifest["version"].split("."))), (1, 9, 0))
         self.assertIn("chunk.sent = chunk.size", page)               # only new bytes
         self.assertIn('"jarvis-buffer-resync"', page)                # whole window again on request
         self.assertIn("old.pieces.concat(next.pieces)", content)      # never dropped in the page…

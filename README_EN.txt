@@ -1,4 +1,11 @@
-LUXAI LOCAL (JARVIS) 0.4.3o — UPDATE 2026-11-21
+LUXAI LOCAL (JARVIS) 0.4.3p — UPDATE 2026-11-21
+
+0.4.3p: Fixes from the sixth audit (14 points). Update.bat now reinstalls program files that are missing
+or damaged, even when the version is current. «Remind me at 6 pm to check the 19:45 departure» rings
+at 18:00; «2 ore și jumătate» lasts 2.5 hours. The extension (1.11.0) also captures fragmented AAC
+audio, no longer resumes the film on the answer for the old place after a seek, and resumes the
+video after a source change.
+IMPORTANT: after the update, click «Reload» on the Jarvis extension in chrome://extensions.
 
 0.4.3o: New tests for the 7 modules that had none. They found two mistakes, now fixed: the converter's
 circle crashed on the arrow keys when it had no items, and a selected screen region came out one

@@ -52,6 +52,9 @@ async function post(path, body) {
       clearTimeout(timer);
     }
     if (answer.status === 401 && attempt === 0) continue; // new pairing: read pairing.json again
+    if (answer.status === 400) {
+      return { rejected: true }; // this one packet was refused (e.g. the tab went to the background)
+    }
     if (!answer.ok) {
       pausedUntil = Date.now() + 5000;
       setWanted(false);
@@ -106,10 +109,11 @@ function enqueue(tab, kind, value) {
   const slot = waiting.get(tab) || { closed: null, state: null };
   if (kind === "closed") {
     slot.closed = (slot.closed || []).concat(value);
-    slot.state = null; // a state of the closed document must never arrive after the «closed»
+    // A state of a closed document must never arrive after the «closed»; another frame's state stays.
+    if (!value.length || value.includes(slot.state?.doc)) slot.state = null;
   } else {
     const old = slot.state?.buffer;
-    if (old && slot.state.doc === value.doc && slot.state.session === value.session) {
+    if (old && slot.state.doc === value.doc && slot.state.session === value.session && value.active && value.visible) {
       const next = value.buffer;
       if (!next) {
         value.buffer = old;
@@ -138,11 +142,13 @@ async function pump(tab) {
         const document = docs.get(tab)?.get(state.doc);
         if (document?.session === state.session) {
           document.underrun = result?.underrun === true;
-          if (result?.need_full) document.needFull = true;
+          // Jarvis lost pieces, or this audio packet was refused: the next packet is the whole window.
+          if (result?.need_full || (result?.rejected && state.buffer)) document.needFull = true;
         }
         if (document?.session === state.session && typeof result?.opening_ready === "boolean") {
           document.openingReady = result.opening_ready;
           document.openingPreparing = result.opening_preparing === true;
+          document.openingHold = state.hold_id; // the answer belongs to THIS hold (audit 6 #4)
         }
       }
     }
@@ -290,7 +296,8 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     const document = { page: message.page || "", frame: sender.frameId, seen, session: message.session,
                        underrun: previous?.session === message.session && previous.underrun,
                        openingPreparing: previous?.session === message.session && previous.openingPreparing,
-                       openingReady: previous?.session === message.session && previous.openingReady };
+                       openingReady: previous?.session === message.session && previous.openingReady,
+                       openingHold: previous?.session === message.session ? previous.openingHold : 0 };
     documents.set(message.doc, document);
     const key = "media:" + tab;
     const liveOnly = usesLiveAudio(sender.url || message.page);
@@ -322,6 +329,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
       paused: message.paused,
       preroll: message.preroll === true && sender.tab.active && message.visible,
       preroll_kind: message.prerollKind === "seek" ? "seek" : "start",
+      hold_id: Number.isInteger(message.holdId) ? message.holdId : 0,
       stalled: message.stalled,
       ended: message.ended,
       rate: message.rate,
@@ -332,6 +340,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     });
     reply({ want: true, needSeen: !liveOnly && !seen, preroll: prerollSupported, ...holdLimits,
             underrun: !!document.underrun, openingReady: !!document.openingReady, openingPreparing: !!document.openingPreparing,
+            holdId: document.openingHold || 0,
             needFull: !!previous?.needFull && previous.session === message.session, active: sender.tab.active });
   })().catch(() => reply({ want: false }));
   return true; // the answer comes asynchronously

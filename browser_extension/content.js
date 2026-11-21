@@ -83,12 +83,20 @@
   let gestureUntil = 0;
 
   function notePlaybackGesture(event) {
+    if (event.isTrusted) resumeWhenReady = null; // the user acts: the extension does not press Play for them
     if (opening && event.isTrusted) gestureUntil = performance.now() + 750;
   }
   document.addEventListener("pointerdown", notePlaybackGesture, true);
   document.addEventListener("keydown", (event) => {
     if (["Space", "KeyK", "Enter"].includes(event.code)) notePlaybackGesture(event);
   }, true);
+
+  let holdSerial = 0;
+  let resumeWhenReady = null; // a hold ended while the player was loading a new source (audit 6 #5)
+
+  function resumeLater(video) {
+    resumeWhenReady = { video, until: performance.now() + 8000 };
+  }
 
   function releaseOpening(resume) {
     if (!opening) return;
@@ -102,7 +110,12 @@
     clearInterval(held.poll);
     // Resumed also when the source changed during the hold: the user pressed Play, the video must go on.
     if (resume && held.video.isConnected && held.video.paused && held.page === location.href) {
-      held.video.play().catch(() => {}); // the native player still controls autoplay restrictions
+      if (held.video.readyState < 2) {
+        resumeLater(held.video); // a new source is loading: play() now would be interrupted by the load
+      } else {
+        // the native player still controls autoplay restrictions; an interrupted play is retried once loaded
+        held.video.play().catch(() => resumeLater(held.video));
+      }
     }
     soonReport();
   }
@@ -124,7 +137,7 @@
     if (seek) seekAllowedAt = performance.now() + 4000;
     else triedOpening = true;
     gestureUntil = 0;
-    opening = { video, session, page: location.href, position: video.currentTime, kind,
+    opening = { video, session, page: location.href, position: video.currentTime, kind, id: ++holdSerial,
                 started: performance.now(), limit: budget, preparing: false,
                 timeout: setTimeout(() => releaseOpening(true), seek ? budget : Math.min(discoveryLimit, budget)),
                 poll: setInterval(() => {
@@ -242,6 +255,7 @@
         time: video.currentTime,
         paused: video.paused,
         preroll: opening?.video === video,
+        holdId: opening?.video === video ? opening.id : 0,
         prerollKind: opening?.video === video ? opening.kind : undefined,
         stalled: stalled,
         ended: video.ended,
@@ -260,13 +274,17 @@
         if (Number.isFinite(answer?.holdMs)) preparationLimit = Math.max(0, Math.min(30000, answer.holdMs));
         if (Number.isFinite(answer?.underrunMs)) underrunLimit = Math.max(0, Math.min(15000, answer.underrunMs));
         if (Number.isFinite(answer?.seekMs)) seekLimit = Math.max(0, Math.min(15000, answer.seekMs));
-        if (opening && answer?.openingPreparing && !opening.preparing) {
+        // An answer about another hold (the position before a jump) never ends or extends this one.
+        const forThisHold = opening && answer?.holdId === opening.id;
+        if (forThisHold && answer?.openingPreparing && !opening.preparing) {
           opening.preparing = true;
           clearTimeout(opening.timeout);
           opening.timeout = setTimeout(() => releaseOpening(true),
                                        Math.max(0, opening.limit - (performance.now() - opening.started)));
         }
-        if (opening && (answer?.openingReady || !want || !activeTab || video.duration === Infinity)) {
+        // «Never pause the video» (no preroll any more) releases a running hold at once (audit 6 #6).
+        if (opening && ((forThisHold && answer?.openingReady) || !want || !activeTab || !canPreroll
+                        || video.duration === Infinity)) {
           releaseOpening(true);
         } else if (!opening) {
           tryOpening(video, answer?.underrun === true ? "underrun" : "start");
@@ -317,6 +335,11 @@
       protectedSource = false;
       if (event.type === "loadstart") checkPlayer();
     }
+    if ((event.type === "canplay" || event.type === "loadeddata") && resumeWhenReady?.video === video) {
+      const pending = resumeWhenReady;
+      resumeWhenReady = null;
+      if (performance.now() < pending.until && video.paused && !opening) video.play().catch(() => {});
+    }
     if (event.type === "encrypted") {
       protectedSource = true;
       audioPacket = null;
@@ -364,7 +387,7 @@
 
   // Media events do not bubble, but the capture phase on the document sees them.
   for (const name of ["play", "playing", "pause", "seeking", "seeked", "ratechange", "loadedmetadata", "loadstart",
-                      "waiting", "stalled", "ended", "emptied", "encrypted"]) {
+                      "waiting", "stalled", "ended", "emptied", "encrypted", "canplay", "loadeddata"]) {
     document.addEventListener(name, follow, true);
   }
   // Back/forward restored this page from the browser's memory: it is a NEW document for Jarvis (the old one

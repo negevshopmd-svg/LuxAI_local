@@ -222,8 +222,10 @@ class CueTimeline:
                         continue
                     stretch = self._stretch(old.start)
                     cut_at_edge = old.provisional or (stretch is not None and abs(stretch[1] - old.end) <= 0.05)
-                    other_pass = id(old) not in batch and (not old.pass_id or old.pass_id != cue.pass_id)
-                    if self.same_line(old, cue, cut_at_edge=cut_at_edge, other_pass=other_pass):
+                    same_pass = id(old) in batch or (bool(old.pass_id) and old.pass_id == cue.pass_id)
+                    # Lines of ONE recognition pass are consecutive speech, even when they repeat («Yes.» /
+                    # «Yes!» spoken twice): they never replace each other (audit 6 #8).
+                    if not same_pass and self.same_line(old, cue, cut_at_edge=cut_at_edge, other_pass=True):
                         del self.cues[index]
                         del self._starts[index]
                     elif old.start < cue.start:
@@ -699,6 +701,22 @@ class FilmTranscriber:
         return next_start
 
 
+def _frames_from(container, stream, start_at, offset):
+    """Decoded frames, skipping the packets that end well before ``start_at`` WITHOUT decoding them (audit 6
+    #14: a minute of rolling audio was decoded only to keep its last seconds — 84 ms of 167 ms measured).
+    Decoding starts half a second early, so the decoder has the context it needs."""
+    import av
+    base = stream.time_base
+    for packet in container.demux(stream):
+        if start_at is not None and packet.pts is not None and base is not None and packet.duration:
+            if float((packet.pts + packet.duration) * base) + offset < start_at - 0.5:
+                continue
+        try:
+            yield from packet.decode()
+        except av.error.InvalidDataError:
+            continue
+
+
 def decode_browser_audio(kind: str, offset: float, data: bytes, *, start_at: float | None = None,
                          duration: float = 0.0):
     """Yield contiguous 16 kHz audio with timestamps on the browser player's clock.
@@ -717,7 +735,7 @@ def decode_browser_audio(kind: str, offset: float, data: bytes, *, start_at: flo
         total = 0
         max_samples = int((BROWSER_AHEAD_SECONDS + 1) * 16000)
         try:
-            for frame in container.decode(stream):
+            for frame in _frames_from(container, stream, start_at, offset):
                 if frame.time is None:
                     continue
                 moment = frame.time + offset

@@ -1,5 +1,12 @@
-LUXAI LOCAL 0.4.3o — ACTUALIZARE 2026-11-21
+LUXAI LOCAL 0.4.3p — ACTUALIZARE 2026-11-21
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.3p: Corecturile celui de-al șaselea audit (14 puncte). Update.bat reinstalează acum fișierele
+programului care lipsesc sau sunt deteriorate, chiar dacă versiunea e la zi. „Amintește-mi la 6 seara
+să verific trenul de la 19:45” sună la 18:00; „2 ore și jumătate” durează 2,5 ore. Extensia (1.11.0)
+prinde și pistele audio AAC fragmentate, nu mai pornește filmul cu răspunsul de la locul vechi după
+o derulare și repornește video-ul după o schimbare de sursă.
+IMPORTANT: după actualizare, în chrome://extensions apasă „Reîncarcă” la extensia Jarvis.
 
 0.4.3o: Teste noi pentru cele 7 module care nu aveau niciunul. Au găsit două greșeli, acum reparate:
 cercul convertorului se bloca la săgeți când nu avea nicio opțiune, iar zona selectată pe ecran

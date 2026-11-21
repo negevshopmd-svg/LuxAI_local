@@ -67,10 +67,13 @@
     for (const chunk of state.chunks) {
       const from = full ? 0 : chunk.sent;
       if (chunk.size <= from) continue;
-      const whole = join(chunk.parts, chunk.size);
-      const bytes = from ? whole.slice(from) : whole;
+      // Only the parts not sent yet are copied (a chunk is sent at part boundaries), not the whole chunk.
+      const first = full ? 0 : chunk.sentParts || 0;
+      const parts = chunk.parts.slice(first);
+      const bytes = join(parts, chunk.size - from);
       pieces.push({ n: chunk.n, from, bytes: bytes.buffer });
       chunk.sent = chunk.size;
+      chunk.sentParts = chunk.parts.length;
     }
     if (!pieces.length) return;
     state.full = false;
@@ -81,8 +84,33 @@
                        location.origin, [header.buffer, ...pieces.map((piece) => piece.bytes)]);
   }
 
+  // Top-level MP4 boxes [type, start, size] (stops at the first incomplete or invalid box).
+  function mp4Boxes(bytes) {
+    const boxes = [];
+    let at = 0;
+    while (at + 8 <= bytes.length && boxes.length < 64) {
+      let size = bytes[at] * 16777216 + (bytes[at + 1] << 16) + (bytes[at + 2] << 8) + bytes[at + 3];
+      if (size === 0) size = bytes.length - at;
+      if (size === 1 || size < 8) break; // 64-bit sizes do not occur in audio fragments of this size
+      boxes.push([String.fromCharCode(bytes[at + 4], bytes[at + 5], bytes[at + 6], bytes[at + 7]), at, size]);
+      at += size;
+    }
+    return boxes;
+  }
+  const BEFORE_MOOF = ["styp", "sidx", "emsg", "prft", "free", "skip"];
+
+  // The start of a media fragment in an MP4 append: the offset of its «moof» when only index/segment boxes
+  // come before it (DASH puts «sidx» first, audit 6 #3), or -1 for the continuation of a fragment.
+  function mp4FragmentStart(bytes) {
+    const boxes = mp4Boxes(bytes);
+    const moof = boxes.findIndex((box) => box[0] === "moof");
+    if (moof < 0 || !boxes.slice(0, moof).every((box) => BEFORE_MOOF.includes(box[0]))) return -1;
+    return boxes[moof][1];
+  }
+
   function collect(state, bytes, offset) {
     const webm = state.kind === "webm";
+    if (!webm) return collectMp4(state, bytes, offset);
     const element = webm ? [31, 67, 182, 117] : [109, 111, 111, 102]; // Cluster / moof
     const initial = webm ? [26, 69, 223, 163] : [102, 116, 121, 112]; // EBML / ftyp
     const typeAt = webm ? 0 : 4;
@@ -98,6 +126,10 @@
       bytes = bytes.subarray(end);
       begins = true;
     }
+    store(state, bytes, offset, begins);
+  }
+
+  function store(state, bytes, offset, begins) {
     if (!active || !state.header || bytes.length > limit) return;
     const src = sources.get(state.source);
     if (!src || (selected && src !== selected)) return;
@@ -117,6 +149,22 @@
       const delay = Math.max(240, minimumInterval - (performance.now() - lastPublished));
       timer = setTimeout(publish, delay);
     }
+  }
+
+  function collectMp4(state, bytes, offset) {
+    const boxes = mp4Boxes(bytes);
+    if (boxes[0]?.[0] === "ftyp") {
+      // Initialization: everything before the first media box is the header.
+      const media = boxes.find((box) => box[0] === "moof" || BEFORE_MOOF.includes(box[0]) || box[0] === "mdat");
+      const end = media ? media[1] : bytes.length;
+      state.header = end && end <= 32 * 1024 ? bytes.slice(0, end) : null;
+      reset(state);
+      if (!media) return;
+      bytes = bytes.subarray(end);
+    }
+    const start = mp4FragmentStart(bytes);
+    if (start > 0) bytes = bytes.subarray(start);
+    store(state, bytes, offset, start >= 0);
   }
 
   SourceBuffer.prototype.appendBuffer = function (data) {

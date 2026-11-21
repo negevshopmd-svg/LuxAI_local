@@ -1,3 +1,29 @@
+## 0.4.3p — Sixth audit report (0.4.3o, 2026-11-21)
+
+P2
+- #1 «Already up to date» checks the installed program files against the SHA-256 the last update recorded;
+  a missing or damaged file installs the signed archive again (the user's install: 311 files, all intact).
+- #2 The EARLIEST clock time sets a reminder («at 6 pm to check the 19:45 departure» → 18:00, label kept);
+  hour words that lead into a full time («at 08:00») still give the full time.
+- #3 The page hook walks the MP4 boxes: DASH fragments starting with `styp`/`sidx` (also `emsg`, `prft`) before
+  `moof` are captured, and the init header stops at the first media box. Proved with a real FFmpeg DASH AAC track
+  run through the hook in Node (`tests/js/hook_harness.js`): 0 packets before, all 5 now, 8 s decoded.
+- #4 Every hold has its own number; a «ready» answer counts only for that hold (not the place before a jump).
+- #5 A hold ended while a new source loads resumes the video once it can play (unless the user acts meanwhile).
+
+P3/P4
+- #6 «Never pause the video» releases a running hold at once. #7 Queued audio goes only with a state of an
+  active, visible tab; one refused packet (400) is not «Jarvis is away» and asks for the whole window instead of
+  pausing everything for 5 s. #8 Repetitions inside one recognition pass («Yes.» / «Yes!») stay two lines.
+  #9 A call that ended while nothing arrived closes its episode: the next call is explained again (the
+  explanation is shown as a notification, not spoken). #10 A failed PNG compression leaves no broken file.
+  #11 Closing one frame's document keeps another frame's waiting state. #12 «2 ore și jumătate», «два с
+  половиной часа», «2 часа и половина» are 2.5 hours. #13 `atomic_write_bytes` always tries at least once.
+  #14 Measured first: decoding a one-minute window to keep its last 5 s took 84 ms; packets that end well
+  before the needed place are now skipped without decoding (27 ms). The hook copies only a chunk's new parts.
+- Verified in Edge on a film from the user's YouTube history: two jumps held 7.0 s and 3.1 s, the first phrase
+  ready before playback resumed, no sentence twice.
+
 ## 0.4.3o — Tests for the seven modules no test named (2026-11-21)
 
 - The module map showed 7 modules (orange) that no test named: `atomic_io`, `voice_presets`, `app_icons`,

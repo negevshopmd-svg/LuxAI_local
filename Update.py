@@ -954,6 +954,29 @@ def write_update_state(latest_sha: str, files=None) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def damaged_installed_files(previous: dict) -> list[str]:
+    """Installed program files that are missing or no longer the bytes the last update wrote (audit 6 #1).
+
+    «Already up to date» is only true when the files are there too: a deleted or damaged file is otherwise
+    never repaired by Update.bat. An unreadable path counts as damaged; a path outside the program folder is
+    ignored (never followed)."""
+    damaged = []
+    for rel, digest in previous.items():
+        if not isinstance(rel, str) or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+            continue
+        try:
+            target = _destination(Path(*PurePosixPath(rel).parts))
+        except (RuntimeError, ValueError, OSError):
+            continue
+        try:
+            same = target.is_file() and hashlib.sha256(target.read_bytes()).hexdigest() == digest
+        except OSError:
+            same = False
+        if not same:
+            damaged.append(rel)
+    return damaged
+
+
 def _previous_file_hashes() -> dict:
     try:
         old = json.loads(STATE_FILE.read_text(encoding="utf-8"))
@@ -1666,6 +1689,14 @@ def perform_update() -> int:
                    "The previous update was interrupted — installing all files again.")
         if not isinstance(current_sha, str) or len(current_sha) != 40 or any(c not in "0123456789abcdef" for c in current_sha):
             current_sha = ""
+        if current_sha == latest_sha:
+            damaged = damaged_installed_files(_previous_file_hashes())
+            if damaged:
+                # Same version, but files are missing or damaged: the signed archive is installed again.
+                current_sha = ""
+                report(f"{len(damaged)} fișiere ale programului lipsesc sau sunt deteriorate — le reinstalez.",
+                       f"{len(damaged)} файлов программы отсутствуют или повреждены — переустанавливаю.",
+                       f"{len(damaged)} program files are missing or damaged — installing them again.")
         report(f"Commit instalat: {current_sha[:12] if current_sha else 'necunoscut'}",
                f"Установленный коммит: {current_sha[:12] if current_sha else 'неизвестен'}",
                f"Installed commit: {current_sha[:12] if current_sha else 'unknown'}")

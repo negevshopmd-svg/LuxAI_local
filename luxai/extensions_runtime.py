@@ -2730,6 +2730,10 @@ class ExtensionsRuntime(QObject):
     def _flush_notifications(self):
         from luxai.dictation import DICTATION_ACTIVE
         if not self._notif_pending:
+            # A call that ended while nothing arrived still ends its episode: the NEXT call is told again
+            # (audit 6 #9). The check runs only while an explained silence is open.
+            if getattr(self, "_held_reason", "") and not self._silence_reason():
+                self._held_reason = ""
             return
         if DICTATION_ACTIVE.is_set() or self.dictating:
             return  # wait for our turn

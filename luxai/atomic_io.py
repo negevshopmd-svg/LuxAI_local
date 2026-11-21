@@ -15,6 +15,7 @@ from pathlib import Path
 
 
 def atomic_write_bytes(path, data: bytes, attempts: int = 10) -> None:
+    attempts = max(1, int(attempts))  # at least one real try: never «saved» without writing (audit 6 #13)
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     handle, name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))

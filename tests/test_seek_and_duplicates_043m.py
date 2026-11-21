@@ -159,7 +159,7 @@ class ExtensionCodeTests(unittest.TestCase):
         content = (ROOT / "browser_extension" / "content.js").read_text(encoding="utf-8")
         background = (ROOT / "browser_extension" / "background.js").read_text(encoding="utf-8")
         manifest = json.loads((ROOT / "browser_extension" / "manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "1.10.0")
+        self.assertGreaterEqual(tuple(map(int, manifest["version"].split("."))), (1, 10, 0))
         # Seeks: a real jump (10 s or more) waits for the first phrase; small skips never.
         self.assertIn("SEEK_JUMP = 10", content)
         self.assertIn('tryOpening(video, "seek")', content)

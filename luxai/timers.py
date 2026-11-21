@@ -44,6 +44,9 @@ _WORD_NUMBERS = {
 }
 _NUMBER_WORD = "|".join(sorted((re.escape(word) for word in _WORD_NUMBERS), key=len, reverse=True))
 _MIXED_HALF = r"\s+and\s+a\s+half"
+# A half placed around the unit: «два с половиной часа», «2 ore și jumătate», «2 часа и половина».
+_HALF_BEFORE = r"(\s+с\s+половиной)?"
+_HALF_AFTER = r"(\s+(?:și|si|и)\s+(?:o\s+)?(?:jum[aă]tate|половин\w*)(?!\s+de\s+or))?"
 _NUMBER = r"((?:\d+(?:[.,]\d+)?|" + _NUMBER_WORD + r")(?:" + _MIXED_HALF + r")?)"
 
 _TIMER_WORDS = re.compile(
@@ -92,10 +95,12 @@ def parse_duration(text: str) -> int | None:
             total += seconds  # every occurrence: «half an hour and half an hour» is an hour
         value = re.sub(pattern, " ", value)
     for unit, unit_pattern in _UNITS.items():
-        for match in re.finditer(r"(?<![\w:])" + _NUMBER + r"\s*" + unit_pattern + r"(?!\w)", value, re.I):
+        for match in re.finditer(r"(?<![\w:])" + _NUMBER + _HALF_BEFORE + r"\s*" + unit_pattern + r"(?!\w)" + _HALF_AFTER,
+                                 value, re.I):
             if _NEGATIVE.search(value[:match.start()]):
                 return None  # «-5 minutes» is not five minutes (audit #16)
-            total += int(round(_number(match.group(1)) * _FACTOR[unit]))
+            half = 0.5 if (match.group(2) or match.group(3)) else 0.0  # «2 ore și jumătate» (audit 6 #12)
+            total += int(round((_number(match.group(1)) + half) * _FACTOR[unit]))
     if total == 0:
         # A bare unit means one: «на минуту», «на час», «на секунду».
         bare = re.search(r"(?<!\w)(минуту|час|секунду)(?!\w)", value)
@@ -114,8 +119,20 @@ _CLOCK_HOUR = re.compile(r"(?:\bв\b|\bна\b|\bla\b|\bat\b|\bfor\b|ora)\s+(\d{1
 
 
 def _clock_match(value: str):
-    """The clock-time match in ``value`` (the SAME one for the time and for the label, audit 2 #10)."""
-    return _CLOCK_FULL.search(value) or _CLOCK_HOUR.search(value)
+    """The clock-time match in ``value`` (the SAME one for the time and for the label, audit 2 #10).
+
+    The EARLIEST time wins, «at 6» as much as «08:00»: a «19:45» later in the message is part of the message
+    (audit 6 #2: «remind me at 6 pm to check the 19:45 departure» was set to 19:45)."""
+    full, hour = _CLOCK_FULL.search(value), _CLOCK_HOUR.search(value)
+    if full and hour and hour.start() <= full.start() < hour.end():
+        return full  # «at 08:00»: the hour words lead into the full time, which is the time
+    found = [match for match in (full, hour) if match]
+    return min(found, key=lambda match: match.start()) if found else None
+
+
+def _clock_parts(match) -> tuple[int, int]:
+    """(hour, minute) of a match of either clock pattern."""
+    return int(match.group(1)), int(match.group(2)) if match.re is _CLOCK_FULL else 0
 
 
 _PM = r"(?:вечера|дня|pm|p\.m\.|seara|seară|după-amiaza)"
@@ -148,14 +165,10 @@ def parse_clock(text: str, now: dt.datetime, *, near_only: bool = False) -> dt.d
     message — «remind me at 08:00 to check PM report» is 08:00, not 20:00 (audit 3 #5).
     """
     value = str(text or "").casefold()
-    match = _CLOCK_FULL.search(value)
-    if match:
-        hour, minute = int(match.group(1)), int(match.group(2))
-    else:
-        match = _CLOCK_HOUR.search(value)
-        if not match:
-            return None
-        hour, minute = int(match.group(1)), 0
+    match = _clock_match(value)
+    if not match:
+        return None
+    hour, minute = _clock_parts(match)
     marker = _MARK_AFTER.match(value, match.end())
     suffix = marker.group().strip() if marker else ""
     if re.fullmatch(r"[ap](?:m|\.m\.)", suffix) and not 1 <= hour <= 12:
@@ -178,7 +191,7 @@ def parse_clock(text: str, now: dt.datetime, *, near_only: bool = False) -> dt.d
 
 
 _DURATION_PART = re.compile(
-    r"(?<![\w:])" + _NUMBER + r"\s*(?:" + "|".join(_UNITS.values()) + r")(?!\w)|"
+    r"(?<![\w:])" + _NUMBER + _HALF_BEFORE + r"\s*(?:" + "|".join(_UNITS.values()) + r")(?!\w)" + _HALF_AFTER + "|"
     + "|".join(f"(?:{pattern})" for pattern in _SPECIAL_DURATIONS), re.I)
 _JOIN = re.compile(r"^\s*(?:,|и|and|și|si)?\s*$", re.I)
 
