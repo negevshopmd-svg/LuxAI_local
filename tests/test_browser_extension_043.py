@@ -75,7 +75,9 @@ class OfferTests(unittest.TestCase):
         self.assertEqual(shown, [])  # once per session
 
     def test_never_asks_when_installed_or_refused_or_no_chrome(self):
-        installed = self.runtime({"browser_extension_seen": {"version": "1.0.0", "browser": "chrome"}})
+        import time as _time  # audit 4 #10: only an entry WITH a recent date counts as installed
+        installed = self.runtime({"browser_extension_seen": {"version": "1.0.0", "browser": "chrome",
+                                                             "at": int(_time.time())}})
         self.assertEqual(self.offer(installed)[0], [])
         refused = self.runtime({"browser_extension_never": True})
         self.assertEqual(self.offer(refused)[0], [])

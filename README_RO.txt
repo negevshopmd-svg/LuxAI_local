@@ -1,5 +1,13 @@
-LUXAI LOCAL 0.4.3b — ACTUALIZARE 2026-11-21
+LUXAI LOCAL 0.4.3c — ACTUALIZARE 2026-11-21
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.3c: Corecturile celui de-al patrulea audit (19 puncte). Extensia pentru Chrome (1.2.0) nu mai
+trimite nimic lui Jarvis cât timp subtitrările sunt oprite, preferă fila la care te uiți și
+pornește corect alt episod în același player. Sunetul filmelor trece printr-un filtru local care
+nu lasă conexiuni spre acest PC sau rețeaua de acasă. Setare nouă „Pregătește înainte” (10/3/1 min).
+Mementoul „at 08:00 tomorrow to call Ana” are acum eticheta corectă. Dacă programul ales pentru
+subtitrări pornește mai târziu, captura trece singură pe el.
+IMPORTANT: după actualizare, în chrome://extensions apasă „Reîncarcă” la extensia Jarvis.
 
 0.4.3b: Corecturile celui de-al treilea audit (29 de puncte). Extensia pentru Chrome are acum o
 cheie secretă de asociere cu Jarvis (alte extensii sau programe nu mai pot vorbi cu el), urmărește

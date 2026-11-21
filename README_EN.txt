@@ -1,4 +1,12 @@
-LUXAI LOCAL (JARVIS) 0.4.3b — UPDATE 2026-11-21
+LUXAI LOCAL (JARVIS) 0.4.3c — UPDATE 2026-11-21
+
+0.4.3c: Fixes from the fourth audit (19 points). The Chrome extension (1.2.0) sends nothing to
+Jarvis while captions are off, prefers the tab you are looking at and starts correctly on a new
+episode in the same player. The film sound goes through a local filter that allows no connection
+to this PC or the home network. New setting «Prepare ahead» (10/3/1 min). The reminder
+«at 08:00 tomorrow to call Ana» gets the right label. When the program chosen for captions starts
+later, the capture switches to it by itself.
+IMPORTANT: after the update, click «Reload» on the Jarvis extension in chrome://extensions.
 
 0.4.3b: Fixes from the third audit (29 points). The Chrome extension now has a secret pairing key
 with Jarvis (other extensions or programs cannot talk to it), follows one player, stops when the tab

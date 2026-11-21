@@ -79,7 +79,7 @@ class BridgeTrustTests(unittest.TestCase):
 
     def test_decoder_is_limited_to_network_protocols(self):
         options = fc.media_options("https://site.example/w")
-        self.assertEqual(options["protocol_whitelist"], "http,https,tls,tcp,crypto")
+        self.assertEqual(options["protocol_whitelist"], "http,https,tls,tcp,crypto,httpproxy")  # + the checking proxy (audit 4 #2)
         self.assertNotIn("headers", fc.media_options("https://x\r\nEvil: 1"))  # no header from an unchecked value
 
     def test_open_refuses_before_connecting(self):

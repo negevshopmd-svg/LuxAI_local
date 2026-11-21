@@ -74,6 +74,9 @@ def parse_duration(text: str) -> int | None:
                r"полтора\s+часа": 5400, r"полторы\s+минуты": 90, r"четверть\s+часа|un\s+sfert\s+de\s+or[aă]|quarter\s+of\s+an\s+hour": 900}
     total = 0
     for pattern, seconds in special.items():
+        for match in re.finditer(pattern, value):
+            if re.search(r"[-−–]\s*$", value[:match.start()]):
+                return None  # «-half an hour» is refused like «-5 minutes» (audit 4 #12)
         if re.search(pattern, value):
             total += seconds
             value = re.sub(pattern, " ", value)
@@ -180,7 +183,8 @@ def _first_duration(text: str) -> tuple[str, str]:
 
 
 def _clean_label(tail: str) -> str:
-    tail = re.sub(r"^[\s,.:;—-]*(?:что(?:бы)?|о\s+том,?\s+что(?:бы)?|să|sa|to|about|that)?\s*", "", tail,
+    # The linking word is removed only as a WHOLE word: «tomorrow» is not «to» + «morrow» (audit 4 #11).
+    tail = re.sub(r"^[\s,.:;—-]*(?:(?:что(?:бы)?|о\s+том,?\s+что(?:бы)?|să|sa|to|about|that)(?!\w))?\s*", "", tail,
                   flags=re.I).strip(" .,!?")
     return tail[:80]
 
@@ -214,6 +218,10 @@ def _clock_label(text: str) -> str:
     suffix = _CLOCK_SUFFIX.match(value, end)
     if suffix:
         end = suffix.end()
+    # The day word right after the time belongs to the time, not to the message (audit 4 #11).
+    day = re.compile(r"\s*,?\s*" + _DAY + r"(?!\w)", re.I).match(value, end)
+    if day:
+        end = day.end()
     return _clean_label(value[end:]) or _body_before(value, match.start())
 
 

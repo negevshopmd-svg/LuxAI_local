@@ -1,3 +1,45 @@
+## 0.4.3c — Fourth audit report (2026-11-21)
+
+P1
+- #1 Recovery of an interrupted update checks the journal's shape (a non-empty file list, a SHA-256 for every
+  file) and the digest of EVERY staged file before anything moves; one damaged or unconfirmed file → nothing is
+  installed, the journal stays, `--resume` exits 1 and the update is redone.
+- #2 New `luxai/media_proxy.py`: every connection of the film decoder (redirects, playlist segments, keys) goes
+  through a local proxy with a random password (FFmpeg `http_proxy`, CONNECT for https, `httpproxy` in the
+  protocol whitelist). The proxy resolves the host, refuses any non-public address and connects to the checked
+  address itself. Verified with the real decoder: a public HLS stream plays, a redirect to localhost is refused.
+
+P2
+- #3 The browser's content type survives deduplication (address seen first without it).
+- #4 Reports carry a document id and a sequence number; a closed document's late reports and older reports are
+  ignored. Pages say goodbye (`pagehide`); a tab's top document closes on a new address.
+- #5 A media session number (new element, `loadstart`, `emptied`) is part of the film key: a blob player loading
+  another source prepares again.
+- #6 Reports carry visibility and focus: the tab the user looks at takes over; media of other frames is used
+  only when the player names it.
+- #7 `pairing.json` is written atomically and read back; on failure the bridge does not start and the guide says
+  why (read-only folder, full disk).
+- #8 A program chosen for captions that is not running yet is looked for every 3 s and then captured alone.
+
+P3/P4
+- #9 Two lines that overlap a lot both stay unless their words are similar. #19 insertion looks only at time
+  neighbours and updates the index in place (4000 lines added one by one in well under a second).
+- #10 An entry without a date is not «installed»; the saved date changes only when saved (daily saves add up);
+  the guide turns green only after a contact in this session (the extension says hello every minute).
+- #11 «remind me at 08:00 tomorrow to call Ana» → label «call Ana» (day word after the time, whole-word links).
+  #12 «-half an hour» is refused like «-5 minutes».
+- #13 The bridge limits connections when they are accepted (8), before a thread exists.
+- #14 Nothing about a page leaves the browser while Jarvis does not show captions: the bridge answers
+  `want`, the extension asks at most every 10 s while a video plays (verified in Edge: 0 reports with captions
+  off). The all-sites permission stays (film sites are not known in advance).
+- #15 Closing never waits on the Qt thread: the last clipboard save finishes on a non-daemon thread (≤ 8 s).
+- #16 A stop is honoured between media candidates; the choice is limited to 60 s and is not counted as a failure.
+- #17 New setting «Prepare ahead»: 10, 3 or 1 minute, with the separate download explained.
+- #18 Extension 1.2.0: one request in flight per tab (only the newest state waits, «closed» always first),
+  4 s fetch time limit.
+- Verified: real Edge (temporary profile, extension copy on another port): 71 of 71 bar updates in sync with the
+  media decoded through the proxy; with captions off no state report was sent.
+
 ## 0.4.3b — Third audit report (2026-11-21)
 
 P1

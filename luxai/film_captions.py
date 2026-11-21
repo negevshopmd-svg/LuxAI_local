@@ -142,23 +142,42 @@ class CueTimeline:
         self._lock = threading.Lock()
         self.cues: list[Cue] = []
         self._starts: list[float] = []  # cue starts, for a binary search (audit 3 #26)
+        self._longest = 0.0              # the longest line: how far back a neighbour can start
         self.covered: list[list[float]] = []  # merged [start, end) intervals
+
+    @staticmethod
+    def same_line(old: Cue, cue: Cue) -> bool:
+        """The same line redone (a seek, an edge line): mostly the same time AND similar words. Two different
+        lines that overlap a lot (people talking at once) both stay (audit 4 #9)."""
+        from difflib import SequenceMatcher
+        overlap = min(old.end, cue.end) - max(old.start, cue.start)
+        shorter = max(0.01, min(old.end - old.start, cue.end - cue.start))
+        if overlap <= 0.5 * shorter:
+            return False
+        a, b = old.text.casefold().strip(), cue.text.casefold().strip()
+        return not a or not b or a in b or b in a or SequenceMatcher(None, a, b).ratio() >= 0.5
 
     def add(self, cues, start: float, end: float) -> None:
         with self._lock:
             for cue in cues:
-                kept = []
-                for old in self.cues:
+                # Only the neighbours in time are looked at, and the index is kept up to date in place
+                # (audit 4 #19): a long film does not rescan every line for each new one.
+                low = bisect.bisect_left(self._starts, cue.start - self._longest - 0.01)
+                high = bisect.bisect_left(self._starts, cue.end)
+                for index in range(high - 1, low - 1, -1):
+                    old = self.cues[index]
                     overlap = min(old.end, cue.end) - max(old.start, cue.start)
-                    shorter = max(0.01, min(old.end - old.start, cue.end - cue.start))
-                    if overlap > 0.5 * shorter:
-                        continue  # the same line redone (a seek, an edge line): never doubled
-                    if overlap > 0 and old.start < cue.start:
-                        old.end = cue.start  # lines that only touch: both stay (audit 3 #19)
-                    kept.append(old)
-                self.cues = kept
-                bisect.insort(self.cues, cue, key=lambda item: item.start)
-            self._starts = [cue.start for cue in self.cues]
+                    if overlap <= 0:
+                        continue
+                    if self.same_line(old, cue):
+                        del self.cues[index]
+                        del self._starts[index]
+                    elif old.start < cue.start:
+                        old.end = max(old.start + 0.01, min(old.end, cue.start))  # touching lines: both stay
+                position = bisect.bisect_right(self._starts, cue.start)
+                self.cues.insert(position, cue)
+                self._starts.insert(position, cue.start)
+                self._longest = max(self._longest, cue.end - cue.start)
             self._cover(start, end)
 
     def _cover(self, start: float, end: float) -> None:
@@ -200,14 +219,31 @@ class CueTimeline:
 
 # -- media ---------------------------------------------------------------------------------------------
 # FFmpeg may open only network media: no files, pipes or other protocols, also inside playlists (audit 3 #2).
-PROTOCOLS = "http,https,tls,tcp,crypto"
+PROTOCOLS = "http,https,tls,tcp,crypto,httpproxy"
 PLAYLIST_TYPES = re.compile(r"mpegurl", re.I)
 MEDIA_TYPES = re.compile(r"mpegurl|video/(mp4|webm|x-matroska|quicktime)|audio/(mp4|mpeg|aac|webm)", re.I)
 
 
-def media_options(referer: str) -> dict:
+_PROXY = None
+_PROXY_LOCK = threading.Lock()
+
+
+def media_proxy_url() -> str:
+    """The checking proxy every decoder connection goes through (audit 4 #2): redirects, playlist segments
+    and keys are checked at the address actually connected, not only the first media address."""
+    global _PROXY
+    from luxai.media_proxy import MediaProxy
+    with _PROXY_LOCK:
+        if _PROXY is None or _PROXY._server is None:
+            _PROXY = MediaProxy().start()
+        return _PROXY.url
+
+
+def media_options(referer: str, proxy: str = "") -> dict:
     options = {"user_agent": USER_AGENT, "reconnect": "1", "reconnect_streamed": "1", "rw_timeout": "20000000",
                "protocol_whitelist": PROTOCOLS}
+    if proxy:
+        options["http_proxy"] = proxy  # FFmpeg tunnels https with CONNECT and keeps it for every segment
     if referer and safe_media_url(referer):  # never a header built from an unchecked value
         parsed = urlparse(referer)
         origin = f"{parsed.scheme}://{parsed.netloc}"
@@ -261,9 +297,13 @@ def rank_candidates(urls) -> list[str]:
     unique, kinds = [], {}
     for item in urls:
         url, kind = _entry(item)
-        if safe_media_url(url) and url not in unique:
+        if not safe_media_url(url):
+            continue
+        if url not in kinds:
             unique.append(url)
             kinds[url] = kind
+        elif kind and not kinds[url]:
+            kinds[url] = kind  # the same address seen again WITH its type: keep it (audit 4 #3)
     playlists = [url for url in unique
                  if urlparse(url).path.casefold().endswith(".m3u8") or PLAYLIST_TYPES.search(kinds[url])]
     files = [url for url in unique if url not in playlists and (looks_like_media(url) or MEDIA_TYPES.search(kinds[url]))]
@@ -275,8 +315,10 @@ def open_media(url: str, referer: str, opener=None):
     import av
     if not safe_media_url(url) or not public_destination(url):
         raise PermissionError("media address not allowed")
+    os.environ.pop("no_proxy", None)  # FFmpeg would bypass the proxy for hosts listed there
+    os.environ.pop("NO_PROXY", None)
     opener = opener or av.open
-    container = opener(url, options=media_options(referer), timeout=20)
+    container = opener(url, options=media_options(referer, media_proxy_url()), timeout=20)
     audio = [stream for stream in container.streams if stream.type == "audio"]
     if not audio:
         container.close()
@@ -341,8 +383,9 @@ class FilmTranscriber:
 
     def __init__(self, candidates, referer, clock: PlayerClock, timeline: CueTimeline, model_provider,
                  language=None, translate=None, on_error=None, video_duration: float = 0.0, opener=None,
-                 fast_model_provider=None):
+                 fast_model_provider=None, ahead_seconds: float = AHEAD_SECONDS):
         self.candidates = rank_candidates(candidates)
+        self.ahead_seconds = max(30.0, min(AHEAD_SECONDS, float(ahead_seconds or AHEAD_SECONDS)))
         self.referer = referer
         self.clock = clock
         self.timeline = timeline
@@ -374,15 +417,24 @@ class FilmTranscriber:
     def stopped(self) -> bool:
         return self._stop.is_set()
 
+    CHOOSE_SECONDS = 60.0  # all candidates together (each open has its own 20 s limit)
+
     def _choose(self):
-        """The candidate whose length matches the video in the page (a page loads ads and previews too)."""
+        """The candidate whose length matches the video in the page (a page loads ads and previews too).
+        A stop is honoured before and after every attempt, and the whole choice is time-limited (audit 4 #16)."""
         last_error = None
+        deadline = time.monotonic() + self.CHOOSE_SECONDS
         for url in self.candidates[:5]:
+            if self._stop.is_set() or time.monotonic() > deadline:
+                raise RuntimeError("stopped while choosing the media")
             try:
                 container, stream = open_media(url, self.referer, self.opener)
             except Exception as error:  # refused, not media, no audio
                 last_error = error
                 continue
+            if self._stop.is_set():
+                container.close()
+                raise RuntimeError("stopped while choosing the media")
             seconds = media_seconds(container)
             if self.video_duration and seconds and abs(seconds - self.video_duration) > max(3.0, seconds * 0.02):
                 container.close()
@@ -405,6 +457,8 @@ class FilmTranscriber:
         try:
             container, stream = self._choose()
         except Exception:
+            if self._stop.is_set():
+                return  # stopped on purpose: not a failure
             self.failed = True
             raise
         self.ready.set()
@@ -417,7 +471,7 @@ class FilmTranscriber:
                 frontier = self.timeline.covered_until(position)
                 if next_start is None or not (position - 2.0 <= next_start <= frontier + 0.5):
                     next_start = frontier  # a seek (or the start): work from where the film is now
-                if (total and next_start >= total - 0.2) or next_start - position >= AHEAD_SECONDS:
+                if (total and next_start >= total - 0.2) or next_start - position >= self.ahead_seconds:
                     self._stop.wait(0.5)  # far enough ahead (or the end): wait for the player
                     continue
                 catching_up = self.fast_model_provider is not None and next_start - position < CATCH_UP_SECONDS
@@ -516,6 +570,13 @@ def parse_report(raw: bytes) -> dict | None:
             "ended": bool(data.get("ended", False)),
             "rate": float(data.get("rate", 1.0) or 1.0),
             "duration": float(data.get("duration", 0.0) or 0.0),
+            # One page load = one document; its reports are numbered (a late one is ignored, audit 4 #4).
+            "doc": re.sub(r"[^0-9A-Za-z-]", "", str(data.get("doc", "")))[:40],
+            "seq": max(0, min(10 ** 12, int(data.get("seq", 0) or 0))),
+            # A new source in the same player (blob players, a new episode) = a new media session (#5).
+            "session": max(0, min(10 ** 9, int(data.get("session", 0) or 0))),
+            "visible": bool(data.get("visible", True)),   # the tab the user looks at (#6)
+            "focused": bool(data.get("focused", False)),
         }
     except (TypeError, ValueError, OverflowError):
         return None
@@ -524,6 +585,9 @@ def parse_report(raw: bytes) -> dict | None:
         return None
     if report["page"] and not safe_media_url(report["page"]):
         report["page"] = ""
+    docs = data.get("docs", [])
+    report["docs"] = [re.sub(r"[^0-9A-Za-z-]", "", str(item))[:40] for item in docs[:20]] \
+        if isinstance(docs, list) else []  # «closed»: the documents of the tab that went away
     media = data.get("media", [])
     media = media if isinstance(media, list) else []
     src = data.get("src", "")
@@ -555,20 +619,34 @@ def pairing_token(folder) -> str:
     It is written into the extension's own folder (``pairing.json``), which only the unpacked extension
     loaded from THIS installation can read (``chrome.runtime.getURL``); another extension or a web page never
     has it, so it cannot talk to the bridge. Created once, kept across updates (not part of the release).
+    Raises OSError when the file cannot be written and read back: a key the extension cannot load would leave
+    the bridge refusing everything without a word (audit 4 #7).
     """
     from pathlib import Path
     path = Path(folder) / "pairing.json"
-    try:
-        token = str(json.loads(path.read_text(encoding="utf-8")).get("token", ""))
-        if re.fullmatch(r"[0-9a-f]{48}", token):
-            return token
-    except (OSError, ValueError, AttributeError):
-        pass
+
+    def read() -> str:
+        try:
+            value = str(json.loads(path.read_text(encoding="utf-8")).get("token", ""))
+        except (OSError, ValueError, AttributeError):
+            return ""
+        return value if re.fullmatch(r"[0-9a-f]{48}", value) else ""
+
+    token = read()
+    if token:
+        return token
     token = secrets.token_hex(24)
+    temporary = path.with_name(f"pairing.{os.getpid()}.tmp")
     try:
-        path.write_text(json.dumps({"token": token}), encoding="utf-8")
-    except OSError:
-        pass
+        temporary.write_text(json.dumps({"token": token}), encoding="utf-8")
+        os.replace(temporary, path)  # atomic: the extension never reads half a file
+    finally:
+        try:
+            temporary.unlink()
+        except OSError:
+            pass
+    if read() != token:
+        raise OSError(f"pairing.json could not be written in {folder}")
     return token
 
 
@@ -607,25 +685,14 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Jarvis-Token")
         self.end_headers()
 
-    def do_POST(self):  # noqa: N802
-        gate = getattr(self.server, "gate", None)
-        if gate is not None and not gate.acquire(blocking=False):
-            self._answer(503)  # too many requests at once
-            return
-        try:
-            self._post()
-        finally:
-            if gate is not None:
-                gate.release()
-
-    def _post(self):
+    def do_POST(self):  # noqa: N802 - connections are limited when accepted (_ExclusiveServer)
         origin = self._allowed_origin()
         try:
             length = int(self.headers.get("Content-Length", "0") or 0)
         except ValueError:
             self._answer(400, origin)
             return
-        if not origin or self.path not in ("/v1/state", "/v1/hello") or not 0 < length <= MAX_BODY:
+        if not origin or self.path not in ("/v1/state", "/v1/hello", "/v1/want") or not 0 < length <= MAX_BODY:
             self._answer(403)
             return
         if not self._paired():
@@ -635,6 +702,11 @@ class _Handler(BaseHTTPRequestHandler):
             raw = self.rfile.read(length)
         except OSError:
             return  # timed out or closed: nothing more to answer
+        want = bool(getattr(self.server, "want", False))
+        if self.path == "/v1/want":
+            # «Are captions on?» Nothing is sent about the page until Jarvis says yes (audit 4 #14).
+            self._answer(200, origin, {"ok": True, "want": want})
+            return
         if self.path == "/v1/hello":
             report = parse_hello(raw)
             report["extension"] = origin.rsplit("/", 1)[-1]
@@ -650,13 +722,34 @@ class _Handler(BaseHTTPRequestHandler):
                 target(report)
         except Exception:
             pass
-        self._answer(200, origin, {"ok": True})
+        self._answer(200, origin, {"ok": True, "want": want})
 
 
 class _ExclusiveServer(ThreadingHTTPServer):
     """On Windows SO_REUSEADDR lets a SECOND program bind the same port: two Jarvis copies (or another
     program) would split the reports. The port is taken exclusively instead."""
     allow_reuse_address = False
+    gate = None
+
+    def process_request(self, request, client_address):
+        """At most 8 connections at once, counted at accept time (audit 4 #13): a slow client that never
+        finishes its headers holds a slot, not an unbounded thread."""
+        if self.gate is not None and not self.gate.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            if self.gate is not None:
+                self.gate.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            if self.gate is not None:
+                self.gate.release()
 
     def server_bind(self):
         import socket
@@ -674,7 +767,18 @@ class BridgeServer:
         self.on_hello = on_hello
         self.port = port
         self.token = token  # without a pairing token every request is refused
+        self._want = False   # Jarvis shows captions and wants the player's state (audit 4 #14)
         self._server = None
+
+    @property
+    def want(self) -> bool:
+        return self._want
+
+    @want.setter
+    def want(self, value: bool) -> None:
+        self._want = bool(value)
+        if self._server is not None:
+            self._server.want = self._want
 
     def start(self) -> bool:
         try:
@@ -686,6 +790,7 @@ class BridgeServer:
         self._server.on_hello = self.on_hello
         self._server.token = self.token
         self._server.gate = threading.BoundedSemaphore(8)
+        self._server.want = self._want
         threading.Thread(target=self._server.serve_forever, name="JarvisBrowserBridge", daemon=True).start()
         return True
 

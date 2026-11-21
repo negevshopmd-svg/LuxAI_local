@@ -174,6 +174,10 @@ class LoopbackCapture:
         self.app_name = app_name        # to find the program again after it restarted (a new pid)
         self.exclude_pid = exclude_pid or os.getpid()
         self.mode = ""
+        # The chosen program is not running at the start: all PC sound is heard meanwhile and the program is
+        # looked for every few seconds, then captured alone (audit 4 #8).
+        self._waiting_for_app = bool(app_name) and not app_pid
+        self._fallback_since = time.monotonic() if self._waiting_for_app else 0.0
         self._stop = threading.Event()
         self._thread = None
         self.started = threading.Event()
@@ -232,8 +236,9 @@ class LoopbackCapture:
                 except _BackToApp as back:
                     # The chosen program can be heard again: leave «all PC sound» (audit 3 #28).
                     self.app_pid, self._fallback_since, failures = back.pid, 0.0, 0
+                    self._waiting_for_app = False
                     if self.on_notice is not None:
-                        self.on_notice("recovered")
+                        self.on_notice("app")
                 except Exception as error:
                     self.started.set()
                     self._had_error = True
@@ -258,10 +263,12 @@ class LoopbackCapture:
                 pass
 
     BACK_TO_APP_SECONDS = 30.0
+    WAIT_FOR_APP_SECONDS = 3.0  # a program not started yet is looked for more often
 
     def _maybe_back_to_app(self):
         since = getattr(self, "_fallback_since", 0.0)
-        if not since or not self.app_name or time.monotonic() - since < self.BACK_TO_APP_SECONDS:
+        every = self.WAIT_FOR_APP_SECONDS if getattr(self, "_waiting_for_app", False) else self.BACK_TO_APP_SECONDS
+        if not since or not self.app_name or time.monotonic() - since < every:
             return
         self._fallback_since = time.monotonic()  # next check in 30 s
         pid = app_pid(self.app_name)

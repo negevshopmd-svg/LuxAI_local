@@ -276,6 +276,16 @@ PLUGINS: tuple[Plugin, ...] = (
                         "„Rapid” încarcă mai puțin un PC slab."),
                  options=(("precise", L("Точная (large-v3-turbo)", "Precise (large-v3-turbo)", "Precis (large-v3-turbo)")),
                           ("fast", L("Быстрая (small)", "Fast (small)", "Rapid (small)")))),
+         Setting("film_ahead", "choice", L("Готовить вперёд", "Prepare ahead", "Pregătește înainte"), "600",
+                 hint=L("Jarvis скачивает звук фильма отдельно от браузера. Меньше — меньше трафика и нагрузки "
+                        "на процессор; после перемотки строки всё равно появятся.",
+                        "Jarvis downloads the film's sound separately from the browser. Less means less traffic and "
+                        "CPU load; after a seek the lines still appear.",
+                        "Jarvis descarcă sunetul filmului separat de browser. Mai puțin înseamnă mai puțin trafic și "
+                        "procesor; după derulare rândurile apar oricum."),
+                 options=(("600", L("10 минут", "10 minutes", "10 minute")),
+                          ("180", L("3 минуты", "3 minutes", "3 minute")),
+                          ("60", L("1 минута", "1 minute", "1 minut")))),
          Setting("translate", "bool", L("Переводить", "Translate", "Tradu"), False,
                  hint=L("Под субтитрами — перевод законченных фраз.", "Under the captions — the translation of finished phrases.",
                         "Sub subtitrări — traducerea frazelor terminate.")),
@@ -840,7 +850,7 @@ SECTIONS = {
         Section("sound", "headphones", L("Звук и язык", "Sound and language", "Sunet și limbă"),
                 L("На каком языке говорят и что слушать.", "Which language is spoken and what to listen to.",
                   "Ce limbă se vorbește și ce ascult."),
-                ("language", "quality", "@source", "browser_films", "film_model", "@browser_extension")),
+                ("language", "quality", "@source", "browser_films", "film_model", "film_ahead", "@browser_extension")),
         Section("translate", "globe", L("Перевод", "Translation", "Traducere"),
                 L("Законченные фразы переводятся на ваш язык прямо на этом ПК.",
                   "Finished phrases are translated into your language right on this PC.",

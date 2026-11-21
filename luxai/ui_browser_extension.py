@@ -175,6 +175,18 @@ class ExtensionInstallDialog(QDialog):
                 os.startfile(str(FOLDER))  # noqa: S606 - our own folder
         return browser
 
+    def pairing_failed(self):
+        """Jarvis could not write the pairing key into the extension folder (audit 4 #7)."""
+        self.status.setStyleSheet("color:#e5484d; font-weight:600;")
+        self.status.setText(_t(self.language,
+                               f"Jarvis не может записать ключ связи в папку расширения ({FOLDER}). Проверьте, что "
+                               "папка не только для чтения и диск не заполнен, затем откройте это окно снова.",
+                               f"Jarvis cannot write the pairing key into the extension folder ({FOLDER}). Check that "
+                               "the folder is not read-only and the disk is not full, then open this window again.",
+                               f"Jarvis nu poate scrie cheia de asociere în dosarul extensiei ({FOLDER}). Verifică să nu "
+                               "fie doar pentru citire și discul să nu fie plin, apoi deschide din nou fereastra."))
+        self.open_button.hide()
+
     def connected(self, info: dict | None = None):
         self.done_already = True
         browser = "Edge" if (info or {}).get("browser") == "edge" else "Chrome"

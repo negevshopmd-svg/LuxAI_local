@@ -1,18 +1,32 @@
 {
   "manifest_version": 3,
   "name": "Jarvis Film Captions",
-  "version": "1.1.0",
-  "description": "Tells Jarvis (LuxAI Local) which video plays and where, so it can prepare captions ahead. Talks only to 127.0.0.1.",
-  "permissions": ["webRequest", "storage"],
-  "host_permissions": ["<all_urls>"],
-  "background": {"service_worker": "background.js"},
+  "version": "1.2.0",
+  "description": "Tells Jarvis (LuxAI Local) which video plays and where, so it can prepare captions ahead. Talks only to 127.0.0.1, and only while Jarvis shows captions.",
+  "permissions": [
+    "webRequest",
+    "storage",
+    "alarms"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["content.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ],
       "all_frames": true,
       "run_at": "document_idle"
     }
   ],
-  "icons": {"128": "icon128.png"}
+  "icons": {
+    "128": "icon128.png"
+  }
 }

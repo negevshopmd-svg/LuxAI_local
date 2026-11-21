@@ -828,8 +828,11 @@ def resume_interrupted_update() -> int:
         journal = json.loads(_journal_file().read_text(encoding="utf-8"))
         name = str(journal["staging"])
         files = [str(item) for item in journal["files"]]
-        digests = journal.get("sha256", {})
-        digests = digests if isinstance(digests, dict) else {}
+        digests = journal["sha256"]
+        # The shape is checked first (audit 4 #1): a non-empty list, and a 64-hex digest for EVERY file.
+        if (not isinstance(journal["files"], list) or not files or not isinstance(digests, dict)
+                or any(not re.fullmatch(r"[0-9a-f]{64}", str(digests.get(rel, ""))) for rel in files)):
+            raise ValueError("journal shape")
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         report("Jurnalul actualizării întrerupte nu poate fi citit — rulează Update.bat.",
                "Журнал прерванного обновления не читается — запустите Update.bat.",
@@ -838,7 +841,16 @@ def resume_interrupted_update() -> int:
     if "/" in name or "\\" in name or name in ("", ".", ".."):
         return -1
     staging = _staging_root() / name
-    moved = 0
+
+    def digest(path: Path) -> str:
+        try:
+            return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else ""
+        except OSError:
+            return ""
+
+    # Every file is checked BEFORE anything moves (audit 4 #1): a staged file must still be exactly the
+    # staged bytes, and a file no longer in staging must already be in place with that digest.
+    to_move = []
     unconfirmed = []
     for rel in files:
         path = PurePosixPath(rel)
@@ -848,18 +860,18 @@ def resume_interrupted_update() -> int:
         staged = staging.joinpath(*path.parts)
         target = ROOT.joinpath(*path.parts)
         if staged.is_file():
+            if digest(staged) == digests[rel]:
+                to_move.append((staged, target))
+            else:
+                unconfirmed.append(rel)  # damaged in staging: never installed
+        elif digest(target) != digests[rel]:
+            unconfirmed.append(rel)
+    moved = 0
+    if not unconfirmed:
+        for staged, target in to_move:
             target.parent.mkdir(parents=True, exist_ok=True)
             _replace_with_retry(staged, target)
             moved += 1
-            continue
-        # Not in staging any more: fine only if the file in place is exactly the staged one.
-        expected = digests.get(rel)
-        try:
-            present = target.is_file() and expected and hashlib.sha256(target.read_bytes()).hexdigest() == expected
-        except OSError:
-            present = False
-        if not present:
-            unconfirmed.append(rel)
     if unconfirmed:
         report(f"Actualizarea întreruptă nu poate fi confirmată ({len(unconfirmed)} fișiere) — rulează Update.bat.",
                f"Прерванное обновление не подтверждено (файлов: {len(unconfirmed)}) — запустите Update.bat.",
