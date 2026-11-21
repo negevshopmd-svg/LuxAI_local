@@ -187,6 +187,15 @@ class ExtensionInstallDialog(QDialog):
                                "fie doar pentru citire și discul să nu fie plin, apoi deschide din nou fereastra."))
         self.open_button.hide()
 
+    def port_unavailable(self):
+        self.status.setStyleSheet("color:#e5484d; font-weight:600;")
+        self.status.setText(_t(
+            self.language,
+            "Порт расширения занят. Закройте другую копию Jarvis, затем откройте это окно снова.",
+            "The extension port is busy. Close any other copy of Jarvis, then reopen this window.",
+            "Portul extensiei este ocupat. Închide cealaltă copie Jarvis, apoi redeschide fereastra.",
+        ))
+
     def connected(self, info: dict | None = None):
         self.done_already = True
         browser = "Edge" if (info or {}).get("browser") == "edge" else "Chrome"

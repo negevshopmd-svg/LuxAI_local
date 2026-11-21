@@ -368,7 +368,7 @@ class ExtensionCodeTests(unittest.TestCase):
         background = (ROOT / "browser_extension" / "background.js").read_text(encoding="utf-8")
         content = (ROOT / "browser_extension" / "content.js").read_text(encoding="utf-8")
         manifest = json.loads((ROOT / "browser_extension" / "manifest.json").read_text(encoding="utf-8"))
-        self.assertIn(manifest["version"], ("1.2.0", "1.3.0"))
+        self.assertGreaterEqual(tuple(map(int, manifest["version"].split("."))), (1, 2, 0))
         self.assertIn("AbortController", background)        # #18 fetch time limit
         self.assertIn("busy.has(tab)", background)           # #18 one request in flight per tab
         self.assertIn('post("want"', background)             # #14 asks before sending anything

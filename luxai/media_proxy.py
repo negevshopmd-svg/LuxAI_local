@@ -237,7 +237,8 @@ class MediaGateway:
             except (OSError, http.client.HTTPException, ValueError):
                 client.sendall(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
                 return
-            self._relay(session, client, method, response, final)
+            with response:
+                self._relay(session, client, method, response, final)
         except (OSError, ValueError, http.client.HTTPException, Refused):
             pass
         finally:
@@ -262,34 +263,43 @@ class MediaGateway:
             try:
                 if parts.scheme == "https":
                     raw = sock
-                    sock = self.tls.wrap_socket(raw, server_hostname=parts.hostname)  # verified (audit 5 #1)
+                    sock = self.tls.wrap_socket(raw, server_hostname=parts.hostname, do_handshake_on_connect=False)
                     session.release(raw)
                     if not session.hold(sock):
                         raise Refused("stopped")
+                    sock.do_handshake()
+                path = parts.path or "/"
+                if parts.query:
+                    path += "?" + parts.query
+                host = f"[{parts.hostname}]" if ":" in parts.hostname else parts.hostname
+                if parts.port is not None:
+                    host += f":{parts.port}"
+                request = [f"{method} {path} HTTP/1.1", f"Host: {host}", "Connection: close", "Accept-Encoding: identity"]
+                request += [f"{name}: {value}" for name, value in headers.items()]
+                sock.sendall(("\r\n".join(request) + "\r\n\r\n").encode("latin-1"))
+                response = http.client.HTTPResponse(sock, method=method)
+                try:
+                    response.begin()
+                    location = response.getheader("Location")
+                    if response.status not in (301, 302, 303, 307, 308) or not location:
+                        upstream, sock = sock, None  # handed off to _serve
+                        return upstream, response, url
+                    url = urljoin(url, location)
+                finally:
+                    if sock is not None:
+                        response.close()
             except ssl.SSLError as error:
                 self._note_refused(parts.hostname)
-                sock.close()
-                raise Refused(f"certificate: {error}") from error
-            path = parts.path or "/"
-            if parts.query:
-                path += "?" + parts.query
-            host = parts.hostname if parts.port is None else f"{parts.hostname}:{parts.port}"
-            request = [f"{method} {path} HTTP/1.1", f"Host: {host}", "Connection: close", "Accept-Encoding: identity"]
-            request += [f"{name}: {value}" for name, value in headers.items()]
-            sock.sendall(("\r\n".join(request) + "\r\n\r\n").encode("latin-1"))
-            response = http.client.HTTPResponse(sock, method=method)
-            response.begin()
-            location = response.getheader("Location")
-            if response.status in (301, 302, 303, 307, 308) and location:
-                response.close()
-                session.release(sock)
-                sock.close()
-                url = urljoin(url, location)
-                continue
-            return sock, response, url
+                raise Refused(f"TLS verification: {error}") from error
+            finally:
+                if sock is not None:
+                    session.release(sock)
+                    sock.close()
         raise Refused("too many redirects")
 
     def _connect(self, session: Session, host: str, port: int):
+        if session.closed:
+            raise Refused("stopped")
         if not 0 < port < 65536:
             raise Refused(host)
         addresses = allowed_addresses(host, port)

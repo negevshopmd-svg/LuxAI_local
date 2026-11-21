@@ -42,7 +42,9 @@ _WORD_NUMBERS = {
     "eight": 8, "nine": 9, "ten": 10, "fifteen": 15, "twenty": 20, "thirty": 30, "forty": 40,
     "forty five": 45, "fifty": 50, "half": 0.5,
 }
-_NUMBER = r"(\d+(?:[.,]\d+)?|" + "|".join(sorted((re.escape(word) for word in _WORD_NUMBERS), key=len, reverse=True)) + r")"
+_NUMBER_WORD = "|".join(sorted((re.escape(word) for word in _WORD_NUMBERS), key=len, reverse=True))
+_MIXED_HALF = r"\s+and\s+a\s+half"
+_NUMBER = r"((?:\d+(?:[.,]\d+)?|" + _NUMBER_WORD + r")(?:" + _MIXED_HALF + r")?)"
 
 _TIMER_WORDS = re.compile(
     r"(?:таймер\w*|засеки|засечь|отсчёт|отсчет|cronometr\w*|temporizator\w*|timer\w*|countdown)", re.I)
@@ -62,9 +64,10 @@ _LIST_WORDS = re.compile(
 
 def _number(value: str) -> float:
     value = value.strip().casefold()
+    value, half = re.subn(_MIXED_HALF + r"$", "", value)
     if value in _WORD_NUMBERS:
-        return float(_WORD_NUMBERS[value])
-    return float(value.replace(",", "."))
+        return float(_WORD_NUMBERS[value]) + 0.5 * half
+    return float(value.replace(",", ".")) + 0.5 * half
 
 
 # Spoken durations with their own words. The SAME table serves timers and reminders (audit 5 #9).
@@ -108,7 +111,6 @@ def parse_duration(text: str) -> int | None:
 _CLOCK_FULL = re.compile(r"(?<!\d)(\d{1,2})[:.\-h ](\d{2})(?!\d)", re.I)
 _CLOCK_HOUR = re.compile(r"(?:\bв\b|\bна\b|\bla\b|\bat\b|\bfor\b|ora)\s+(\d{1,2})"
                          r"(?!\s*(?:минут|мин|час|min|ore|or[aă]|hour|sec|сек|\d))", re.I)
-_CLOCK_SUFFIX = re.compile(r"\s*(?:am|pm|a\.m\.|p\.m\.|утра|вечера|дня|ночи)\b", re.I)
 
 
 def _clock_match(value: str):
@@ -154,17 +156,18 @@ def parse_clock(text: str, now: dt.datetime, *, near_only: bool = False) -> dt.d
         if not match:
             return None
         hour, minute = int(match.group(1)), 0
+    marker = _MARK_AFTER.match(value, match.end())
+    suffix = marker.group().strip() if marker else ""
+    if re.fullmatch(r"[ap](?:m|\.m\.)", suffix) and not 1 <= hour <= 12:
+        return None
     if near_only:
-        after = value[match.end():]
-        marker = re.match(r"\s*(" + _PM + "|" + _AM + r")\b", after)
-        marks = marker.group(1) if marker else ""
-        rest = after[marker.end():] if marker else after
+        marks = suffix
         day = _day_next_to_time(value, match)
     else:
-        marks, day = value, bool(re.search(r"(?<!\w)" + _DAY + r"(?!\w)", value))
+        marks, day = suffix or value, bool(re.search(r"(?<!\w)" + _DAY + r"(?!\w)", value))
     if re.search(_PM, marks) and hour < 12:
         hour += 12
-    if re.search(r"(?:ночи|am|a\.m\.)", marks) and hour == 12:
+    if re.search(_AM, marks) and hour == 12:
         hour = 0
     if not (0 <= hour <= 23 and 0 <= minute <= 59):
         return None
@@ -202,11 +205,12 @@ def _first_duration(text: str) -> tuple[str, str]:
     sign = "-" if _NEGATIVE.search(value[:matches[0].start()]) else ""
     parts = [sign + matches[0].group(0)]
     for match in matches[1:]:
-        if _JOIN.match(value[end:match.start()]):
-            parts.append(match.group(0))
-            end = match.end()
-        else:
+        gap = value[end:match.start()]
+        negative = _NEGATIVE.search(gap)
+        if not _JOIN.fullmatch(gap[:negative.start()] if negative else gap):
             break
+        parts.append(("-" if negative else "") + match.group(0))
+        end = match.end()
     return " ".join(parts), value[end:]
 
 
@@ -248,7 +252,7 @@ def _clock_label(text: str) -> str:
     end = match.end()
     # AM/PM words of every language («seara», «вечера», «pm») and the day word right after the time belong to
     # the time, not to the message — the same lists the parser uses (audit 4 #11, audit 5 #8).
-    suffix = _CLOCK_SUFFIX.match(value, end) or _MARK_AFTER.match(value, end)
+    suffix = _MARK_AFTER.match(value, end)
     if suffix:
         end = suffix.end()
     day = _DAY_AFTER.match(value, end)

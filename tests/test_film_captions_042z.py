@@ -201,8 +201,8 @@ class PrepareTests(unittest.TestCase):
                                    streams=[SimpleNamespace(type="audio", bit_rate=64000)])
         worker = fc.FilmTranscriber(["https://c/ad.mp4", "https://c/film.m3u8"], "https://site/p", fc.PlayerClock(),
                                     fc.CueTimeline(), lambda: None, video_duration=5400, opener=opener)
-        with mock.patch.object(fc, "public_destination", return_value=True):
-            worker._choose()
+        self.addCleanup(worker.stop)
+        worker._choose()
         self.assertEqual(worker.url, "https://c/film.m3u8")
 
     def test_referer_and_browser_agent_are_sent(self):

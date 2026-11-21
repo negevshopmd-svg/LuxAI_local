@@ -147,28 +147,20 @@ class CueTimeline:
         self.covered: list[list[float]] = []  # merged [start, end) intervals
 
     @staticmethod
-    def same_line(old: Cue, cue: Cue) -> bool:
-        """The same line redone (a seek, an edge line): mostly the same time AND similar words. Two different
-        lines that overlap a lot (people talking at once) both stay (audit 4 #9)."""
-        from difflib import SequenceMatcher
+    def same_line(old: Cue, cue: Cue, *, cut_at_edge: bool = False) -> bool:
+        """A repeat, or the completion of a line cut at a known chunk boundary."""
         overlap = min(old.end, cue.end) - max(old.start, cue.start)
         shorter = max(0.01, min(old.end - old.start, cue.end - cue.start))
         if overlap <= 0.5 * shorter:
             return False
-        # Compared as WHOLE words (audit 5 #10): «Go» is not the same line as «Do not go». A shorter version
-        # counts as the same line only when it is most of the longer one, in order.
-        a, b = re.findall(r"\w+", old.text.casefold()), re.findall(r"\w+", cue.text.casefold())
-        if not a or not b:
-            return True
-        short, long_ = (a, b) if len(a) <= len(b) else (b, a)
-
-        def inside(i: int) -> bool:  # the last word may be cut at a piece's edge («wor» of «words»)
-            window = long_[i:i + len(short)]
-            return window[:-1] == short[:-1] and window[-1].startswith(short[-1])
-
-        if len(short) / len(long_) >= 0.6 and any(inside(i) for i in range(len(long_) - len(short) + 1)):
-            return True
-        return SequenceMatcher(None, a, b).ratio() >= 0.6
+        words = r"\w+(?:['’]\w+)*"
+        a = re.findall(words, old.text.casefold().replace("’", "'"))
+        b = re.findall(words, cue.text.casefold().replace("’", "'"))
+        if a == b:
+            return bool(a) or old.text.strip() == cue.text.strip()
+        return (cut_at_edge and 2 <= len(a) <= len(b) and len(a[-1]) >= 3
+                and abs(old.start - cue.start) <= 0.5 and cue.end > old.end
+                and a[:-1] == b[:len(a) - 1] and b[len(a) - 1].startswith(a[-1]))
 
     def add(self, cues, start: float, end: float) -> None:
         with self._lock:
@@ -182,7 +174,9 @@ class CueTimeline:
                     overlap = min(old.end, cue.end) - max(old.start, cue.start)
                     if overlap <= 0:
                         continue
-                    if self.same_line(old, cue):
+                    stretch = self._stretch(old.start)
+                    cut_at_edge = stretch is not None and abs(stretch[1] - old.end) <= 0.05
+                    if self.same_line(old, cue, cut_at_edge=cut_at_edge):
                         del self.cues[index]
                         del self._starts[index]
                     elif old.start < cue.start:
@@ -269,7 +263,8 @@ def media_options(referer: str) -> dict:
                # Never a proxy from the environment (the gateway is local), and nothing in os.environ is
                # changed for it (audit 5 #12).
                "http_proxy": "",
-               "allowed_extensions": "ALL"}
+               # A gateway URL can have no suffix. Identify HLS segment data by its contents.
+               "allowed_extensions": "ALL", "allowed_segment_extensions": "ALL", "extension_picky": "0"}
     if referer and safe_media_url(referer):  # never a header built from an unchecked value
         parsed = urlparse(referer)
         origin = f"{parsed.scheme}://{parsed.netloc}"
@@ -280,30 +275,21 @@ def media_options(referer: str) -> dict:
 def safe_media_url(url) -> bool:
     if not isinstance(url, str) or len(url) > 4000 or any(ord(ch) < 33 or ord(ch) == 127 for ch in url):
         return False
-    parsed = urlparse(url)
-    return parsed.scheme in ("http", "https") and bool(parsed.hostname)
-
-
-def public_destination(url: str) -> bool:
-    """True when the host resolves only to public addresses: a report can never make Jarvis open this PC,
-    the local network or a router (LUXAI_FILM_ALLOW_LOCAL=1 allows it for local tests)."""
-    import ipaddress
-    import socket
-    if os.environ.get("LUXAI_FILM_ALLOW_LOCAL") == "1":
-        return True
-    host = urlparse(url).hostname or ""
     try:
-        infos = socket.getaddrinfo(host, None)
-    except OSError:
+        parsed = urlparse(url)
+        port = parsed.port
+        return parsed.scheme in ("http", "https") and bool(parsed.hostname) and port != 0
+    except ValueError:
         return False
-    for info in infos:
-        try:
-            address = ipaddress.ip_address(info[4][0].split("%")[0])
-        except ValueError:
-            return False
-        if not address.is_global or address.is_multicast:
-            return False
-    return bool(infos)
+
+
+def uses_live_audio(page: str) -> bool:
+    """Use playback audio for YouTube, including its embedded and music players."""
+    if not safe_media_url(page):
+        return False
+    host = (urlparse(page).hostname or "").rstrip(".")
+    return any(host == name or host.endswith("." + name)
+               for name in ("youtube.com", "youtube-nocookie.com", "youtu.be"))
 
 
 def looks_like_media(url: str) -> bool:
@@ -318,13 +304,15 @@ def _entry(item) -> tuple[str, str]:
 
 
 def rank_candidates(urls) -> list[str]:
-    """Playlists first (newest first), then single files; segments and others dropped. Entries may carry the
-    content type the browser saw, so a playlist without «.m3u8» in its address is kept too (audit 3 #9)."""
+    """The player's own HTTP source first, then playlists and known media."""
     unique, kinds = [], {}
+    primary = ""
     for item in urls:
         url, kind = _entry(item)
         if not safe_media_url(url):
             continue
+        if isinstance(item, dict) and item.get("direct") is True and not primary:
+            primary = url
         if url not in kinds:
             unique.append(url)
             kinds[url] = kind
@@ -333,17 +321,15 @@ def rank_candidates(urls) -> list[str]:
     playlists = [url for url in unique
                  if urlparse(url).path.casefold().endswith(".m3u8") or PLAYLIST_TYPES.search(kinds[url])]
     files = [url for url in unique if url not in playlists and (looks_like_media(url) or MEDIA_TYPES.search(kinds[url]))]
-    return playlists + files
+    return ([primary] if primary else []) + [url for url in playlists + files if url != primary]
 
 
-def open_media(url: str, referer: str, opener=None, session=None):
+def open_media(url: str, referer: str, opener=None, *, session):
     """(container, audio stream) or raises. The audio with the lowest bit rate is enough for speech.
-    ``session``: the film's gateway session (a new one when omitted); the decoder opens its address."""
+    The caller owns the film's gateway session. Address resolution and filtering are done there."""
     import av
-    if not safe_media_url(url) or not public_destination(url):
+    if not safe_media_url(url):
         raise PermissionError("media address not allowed")
-    if session is None:
-        session = media_gateway().open_session()
     opener = opener or av.open
     container = opener(session.url_for(url), options=media_options(referer), timeout=20)
     audio = [stream for stream in container.streams if stream.type == "audio"]
@@ -533,7 +519,7 @@ class FilmTranscriber:
                     models[kind] = (self.fast_model_provider if catching_up else self.model_provider)()
                 model = models[kind]
                 fresh = not self.timeline.is_covered(position) and next_start - position < 5.0
-                end = next_start + (FIRST_CHUNK_SECONDS if fresh else CHUNK_SECONDS)
+                end = min(position + ahead, next_start + (FIRST_CHUNK_SECONDS if fresh else CHUNK_SECONDS))
                 if total:
                     end = min(end, total)
                 next_start = self._prepare(model, container, stream, next_start, end, final=bool(total) and end >= total)
@@ -550,7 +536,7 @@ class FilmTranscriber:
     def _prepare(self, model, container, stream, start: float, end: float, final: bool) -> float:
         """Recognise and translate [start, end); returns where the next piece starts."""
         audio, begin = decode_audio(container, stream, start, end)
-        if not len(audio) and not final:
+        if not len(audio):
             # Nothing decoded at all is NOT silence (audit 5 #4): the stretch stays uncovered (the live captions
             # keep showing it) and the same place is tried again; three times in a row → this film fails.
             self._empty += 1
@@ -638,6 +624,7 @@ def parse_report(raw: bytes) -> dict | None:
             # A new source in the same player (blob players, a new episode) = a new media session (#5).
             "session": max(0, min(10 ** 9, int(data.get("session", 0) or 0))),
             "visible": bool(data.get("visible", True)),   # the tab the user looks at (#6)
+            "active": bool(data.get("active", data.get("focused", False))),
             "focused": bool(data.get("focused", False)),
         }
     except (TypeError, ValueError, OverflowError):
@@ -654,8 +641,8 @@ def parse_report(raw: bytes) -> dict | None:
     media = media if isinstance(media, list) else []
     src = data.get("src", "")
     report["src"] = src if safe_media_url(src) else ""
-    entries = []
-    for item in ([src] if src else []) + media[:MAX_URLS]:
+    entries = [{"url": report["src"], "type": "", "direct": True}] if report["src"] else []
+    for item in media[:MAX_URLS]:
         url, kind = _entry(item)
         if safe_media_url(url):
             entries.append({"url": url, "type": kind})

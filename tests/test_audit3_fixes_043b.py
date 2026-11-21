@@ -71,22 +71,24 @@ class BridgeTrustTests(unittest.TestCase):
         self.assertEqual(fc.pairing_token(folder), first)
 
     def test_local_and_private_destinations_are_refused(self):
-        for url in ("http://127.0.0.1/a.m3u8", "http://localhost/a.mp4", "http://192.168.1.1/a.mp4",
-                    "http://10.0.0.5/x.m3u8", "http://169.254.1.1/a.mp4"):
-            self.assertFalse(fc.public_destination(url), url)
+        from luxai.media_proxy import allowed_addresses
+        for host in ("127.0.0.1", "localhost", "192.168.1.1", "10.0.0.5", "169.254.1.1"):
+            self.assertFalse(allowed_addresses(host, 443), host)
         with mock.patch.dict("os.environ", {"LUXAI_FILM_ALLOW_LOCAL": "1"}):
-            self.assertTrue(fc.public_destination("http://127.0.0.1/a.m3u8"))
+            self.assertTrue(allowed_addresses("127.0.0.1", 443))
 
     def test_decoder_is_limited_to_network_protocols(self):
         options = fc.media_options("https://site.example/w")
         self.assertEqual(options["protocol_whitelist"], "http,tcp,crypto")  # only the local gateway (audit 5 #1)
         self.assertNotIn("headers", fc.media_options("https://x\r\nEvil: 1"))  # no header from an unchecked value
 
-    def test_open_refuses_before_connecting(self):
+    def test_open_rejects_a_malformed_source_before_opening_a_session_url(self):
         opener = mock.Mock()
+        session = mock.Mock()
         with self.assertRaises(PermissionError):
-            fc.open_media("http://127.0.0.1/a.m3u8", "", opener=opener)
+            fc.open_media("https://example.invalid:bad/movie.mp4", "", opener=opener, session=session)
         opener.assert_not_called()
+        session.url_for.assert_not_called()
 
     def test_bad_content_length_gets_an_answer(self):
         bridge = fc.BridgeServer(lambda _r: None, port=47396, token="z" * 48)

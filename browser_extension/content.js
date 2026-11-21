@@ -8,17 +8,41 @@
   window.__jarvisFilmCaptions = true;
 
   const MEDIA = /\.(m3u8|mp4|webm|m4v|mov|mkv)$/i;
+  const MEDIA_TYPES = /mpegurl|video\/(mp4|webm|x-matroska|quicktime)|audio\/(mp4|mpeg|aac|webm)/i;
+  const liveOnly = /(^|\.)(youtube\.com|youtube-nocookie\.com|youtu\.be)$/i.test(location.hostname);
+  const resources = new Map();
+  let observer = null;
+  let resourceSnapshot = [];
+  let publishedResources = null;
 
-  // Media this frame loaded (playlists, files), from the page's own resource list: available when captions are
-  // turned on in the middle of a film, without recording anything beforehand.
-  function seenMedia() {
-    try {
-      return performance.getEntriesByType("resource")
-        .map((entry) => entry.name)
-        .filter((name) => { try { return MEDIA.test(new URL(name).pathname); } catch (e) { return false; } })
-        .slice(-10);
-    } catch (e) {
-      return [];
+  // Read buffered resource timings on activation, then only inspect new entries.
+  function rememberResources(entries) {
+    let changed = false;
+    for (const entry of entries) {
+      const url = entry.name;
+      const type = entry.contentType || "";
+      if (!/^https?:/i.test(url) || !(MEDIA_TYPES.test(type) || MEDIA.test(new URL(url).pathname))) continue;
+      resources.delete(url);
+      resources.set(url, { url: url, type: type });
+      if (resources.size > 10) resources.delete(resources.keys().next().value);
+      changed = true;
+    }
+    if (changed) resourceSnapshot = [...resources.values()];
+  }
+
+  function trackResources(active) {
+    if (liveOnly) return; // Jarvis can caption the audio YouTube is already playing.
+    if (active && !observer) {
+      observer = new PerformanceObserver((list) => {
+        if (want) rememberResources(list.getEntries());
+      });
+      observer.observe({ type: "resource", buffered: true });
+    } else if (!active && observer) {
+      observer.disconnect();
+      observer = null;
+      resources.clear();
+      resourceSnapshot = [];
+      publishedResources = null;
     }
   }
 
@@ -48,6 +72,9 @@
     last = Date.now();
     seq += 1;
     const src = video.currentSrc || "";
+    const reportDoc = doc;
+    const reportSeq = seq;
+    const seen = want && resourceSnapshot !== publishedResources ? resourceSnapshot : undefined;
     try {
       chrome.runtime.sendMessage({
         type: "jarvis-video",
@@ -63,11 +90,15 @@
         ended: video.ended,
         rate: video.playbackRate,
         duration: isFinite(video.duration) ? video.duration : 0,
-        src: /^https?:/i.test(src) ? src : "",
-        seen: want ? seenMedia() : [],
+        src: !liveOnly && /^https?:/i.test(src) ? src : "",
+        seen: seen,
       }, (answer) => {
         void chrome.runtime.lastError; // no answer (the extension restarted): nothing to do
+        if (doc !== reportDoc || seq !== reportSeq) return;
         want = !!(answer && answer.want);
+        if (answer?.needSeen) publishedResources = null;
+        else if (want && seen) publishedResources = seen;
+        trackResources(want);
       });
     } catch (e) { /* the extension was reloaded: this page needs a refresh */ }
   }
@@ -84,9 +115,13 @@
     }
   }
 
+  function isPlayer(element) {
+    return element instanceof HTMLVideoElement || (liveOnly && element instanceof HTMLAudioElement);
+  }
+
   function follow(event) {
     const video = event.target;
-    if (!(video instanceof HTMLVideoElement)) return;
+    if (!isPlayer(video)) return;
     if (event.type === "playing" || event.type === "play") adopt(video);
     else if (!current && video.readyState > 0) adopt(video);
     if (video !== current) return;
@@ -99,7 +134,7 @@
   // A video that started before this script loaded: adopted at its next time update (cheap: only while
   // nothing is followed yet).
   document.addEventListener("timeupdate", (event) => {
-    if (!current && event.target instanceof HTMLVideoElement && !event.target.paused) {
+    if (!current && isPlayer(event.target) && !event.target.paused) {
       adopt(event.target);
       soonReport();
     }
@@ -121,6 +156,7 @@
   });
   // The page goes away (navigation, closed tab): its document is closed at once.
   window.addEventListener("pagehide", () => {
+    trackResources(false);
     try {
       chrome.runtime.sendMessage({ type: "jarvis-bye", doc: doc }, () => void chrome.runtime.lastError);
     } catch (e) { /* extension reloaded */ }

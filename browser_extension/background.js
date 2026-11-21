@@ -25,7 +25,7 @@ async function pairing(reload) {
 
 // -- talking to Jarvis: a time limit, errors noticed, a pause while Jarvis is away --
 let pausedUntil = 0;
-let wanted = false;     // Jarvis shows captions and wants the player's state
+let wanted = null;      // null until the first check after a worker restart
 let wantAskedAt = 0;
 
 async function post(path, body) {
@@ -43,7 +43,7 @@ async function post(path, body) {
       });
     } catch (e) {
       pausedUntil = Date.now() + 10000; // Jarvis is not running (or hangs): try again in 10 s
-      wanted = false;
+      setWanted(false);
       return null;
     } finally {
       clearTimeout(timer);
@@ -51,13 +51,13 @@ async function post(path, body) {
     if (answer.status === 401 && attempt === 0) continue; // new pairing: read pairing.json again
     if (!answer.ok) {
       pausedUntil = Date.now() + 5000;
+      setWanted(false);
       return null;
     }
     try {
       const data = await answer.json();
       if (data && "want" in data) {
-        if (wanted && !data.want) forgetMedia(); // captions turned off: nothing stays recorded
-        wanted = !!data.want;
+        setWanted(!!data.want);
         wantAskedAt = Date.now();
       }
       return data;
@@ -107,8 +107,8 @@ async function pump(tab) {
     while (waiting.has(tab)) {
       const slot = waiting.get(tab);
       waiting.delete(tab);
-      if (slot.closed) await post("state", { event: "closed", tab: tab, docs: slot.closed });
-      if (slot.state) await post("state", slot.state);
+      if (wanted && slot.closed) await post("state", { event: "closed", tab: tab, docs: slot.closed });
+      if (wanted && slot.state) await post("state", slot.state);
     }
   } finally {
     busy.delete(tab);
@@ -128,10 +128,14 @@ function closeDocs(tab, which) {
 
 // -- media seen per tab: one write queue, so two requests at once never overwrite each other --
 let queue = Promise.resolve();
+let mediaGeneration = 0;
 function update(tabId, change) {
+  const generation = mediaGeneration;
   const key = "media:" + tabId;
   queue = queue.then(async () => {
+    if (generation !== mediaGeneration) return;
     const stored = (await chrome.storage.session.get(key))[key] || [];
+    if (generation !== mediaGeneration) return;
     const next = change(stored);
     if (next === null) await chrome.storage.session.remove(key);
     else await chrome.storage.session.set({ [key]: next });
@@ -140,12 +144,31 @@ function update(tabId, change) {
 }
 
 function forgetMedia() {
-  chrome.storage.session.clear().catch(() => {});
+  mediaGeneration += 1;
+  queue = queue.then(() => chrome.storage.session.clear()).catch(() => {});
+}
+
+function setWanted(next) {
+  if (wanted !== false && !next) {
+    forgetMedia();
+    docs.clear();
+    waiting.clear();
+  }
+  wanted = next;
+}
+
+function usesLiveAudio(url) {
+  try {
+    return /(^|\.)(youtube\.com|youtube-nocookie\.com|youtu\.be)$/i.test(new URL(url).hostname);
+  } catch (e) {
+    return false;
+  }
 }
 
 function remember(details, type) {
   // Only while Jarvis shows captions (audit 5 #11).
   if (!wanted || details.tabId < 0 || !/^https?:/i.test(details.url)) return;
+  if (usesLiveAudio(details.documentUrl) || usesLiveAudio(details.initiator)) return;
   const item = { url: details.url, type: type || "", frame: details.frameId };
   // One entry per (frame, address): two frames loading the same playlist both keep it, and a type seen
   // before is not lost (audit 5 #5).
@@ -172,13 +195,12 @@ chrome.webRequest.onHeadersReceived.addListener((details) => {
 // A closed tab: its list goes and Jarvis stops preparing its film. A new address in the tab: the top page's
 // old document is closed (a page inside a frame says goodbye itself, see «jarvis-bye»).
 chrome.tabs.onRemoved.addListener((tabId) => {
-  update(tabId, () => null);
+  if (wanted) update(tabId, () => null);
   if (docs.has(tabId)) closeDocs(tabId, () => true);
-  else enqueue(tabId, "closed", []);
 });
 chrome.tabs.onUpdated.addListener((tabId, change) => {
   if (change.url) {
-    update(tabId, () => null);
+    if (wanted) update(tabId, () => null);
     closeDocs(tabId, ([, info]) => info.frame === 0 && info.page !== change.url);
   }
 });
@@ -196,16 +218,26 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
       reply({ want: false }); // captions are off in Jarvis: nothing about this page leaves the browser
       return;
     }
+    const generation = mediaGeneration;
     if (!docs.has(tab)) docs.set(tab, new Map());
-    docs.get(tab).set(message.doc, { page: message.page || "", frame: sender.frameId });
+    const documents = docs.get(tab);
+    const seen = Array.isArray(message.seen) ? message.seen : documents.get(message.doc)?.seen;
+    documents.set(message.doc, { page: message.page || "", frame: sender.frameId, seen: seen });
     const key = "media:" + tab;
-    const all = (await chrome.storage.session.get(key))[key] || [];
+    const liveOnly = usesLiveAudio(sender.url || message.page);
+    await queue;
+    const all = liveOnly ? [] : (await chrome.storage.session.get(key))[key] || [];
+    if (!wanted || generation !== mediaGeneration || !docs.get(tab)?.has(message.doc)) {
+      reply({ want: false });
+      return;
+    }
     // Only what the player's own frame loaded (an ad iframe has its own frame id), plus an address the
     // player itself names; never other frames' media at random (audit 4 #6).
     const own = all.filter((item) => item.frame === sender.frameId || (message.src && item.url === message.src));
     // What this frame itself loaded before captions were turned on (its own resource list, sent by content.js).
-    for (const url of message.seen || []) {
-      if (/^https?:/i.test(url) && !own.some((item) => item.url === url)) own.push({ url: url, type: "" });
+    for (const item of (liveOnly ? [] : seen) || []) {
+      if (item && typeof item.url === "string" && /^https?:/i.test(item.url)
+          && !own.some((entry) => entry.url === item.url)) own.push(item);
     }
     enqueue(tab, "state", {
       tab: tab,
@@ -214,6 +246,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
       seq: message.seq,
       session: message.session,
       visible: message.visible,
+      active: sender.tab.active,
       focused: message.focused && sender.tab.active,
       page: message.page || "",
       time: message.time,
@@ -222,10 +255,10 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
       ended: message.ended,
       rate: message.rate,
       duration: message.duration,
-      src: message.src || "",
+      src: liveOnly ? "" : message.src || "",
       media: own.map((item) => ({ url: item.url, type: item.type })),
     });
-    reply({ want: true });
+    reply({ want: true, needSeen: !liveOnly && !seen });
   })().catch(() => reply({ want: false }));
   return true; // the answer comes asynchronously
 });

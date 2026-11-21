@@ -717,6 +717,7 @@ class ExtensionsRuntime(QObject):
         self._film_shown = None
         self._film_doc = ""           # the browser document of the film being prepared
         self._film_looked_at = False  # its tab is the one the user looks at
+        self._film_live_browser = None  # (tab, frame, document, last report) for live-only players
         self._film_closed_docs = {}   # documents closed: their late reports are ignored (audit 4 #4)
         self._film_doc_seq = {}
         self._extension_contact = 0.0  # last report of the extension in this session (monotonic)
@@ -1151,6 +1152,7 @@ class ExtensionsRuntime(QObject):
         return bridge if bridge.start() else None
 
     BRIDGE_RETRIES = 10  # × 300 ms: the previous bridge frees the port within about a second
+    BRIDGE_RETRY_MS = 300
 
     def _start_film_bridge(self, retry: int = 0):
         if not self.settings("live_captions").get("browser_films", True):
@@ -1159,7 +1161,7 @@ class ExtensionsRuntime(QObject):
             self._film_bridge = self._new_film_bridge()
             if self._film_bridge is None and not getattr(self, "_pairing_error", "") and retry < self.BRIDGE_RETRIES:
                 # Switched off and on quickly: the old bridge may still hold the port (audit 5 #3).
-                QTimer.singleShot(300, lambda: self._retry_film_bridge(retry + 1))
+                QTimer.singleShot(self.BRIDGE_RETRY_MS, lambda: self._retry_film_bridge(retry + 1))
                 return
         if self._film_bridge is not None:
             # The extension sends the player's state only while Jarvis shows captions (audit 4 #14).
@@ -1170,6 +1172,7 @@ class ExtensionsRuntime(QObject):
     def _stop_film(self, keep_bridge: bool = False):
         """Stop preparing (and showing) film lines; ``keep_bridge`` keeps listening for the extension."""
         self._film_timer.stop()
+        self._film_live_browser = None
         if self._film_bridge is not None:
             self._film_bridge.want = False
         if not keep_bridge:
@@ -1313,11 +1316,17 @@ class ExtensionsRuntime(QObject):
             docs = report.get("docs", [])
             if film is not None and film[0][0] == report["tab"] and (not docs or self._film_doc in docs):
                 self._drop_film()  # the tab was closed or left the page (audit 3 #14)
+            live = self._film_live_browser
+            if live is not None and live[0] == report["tab"] and (not docs or live[2] in docs):
+                self._film_live_browser = None
             return
         self._note_extension_alive()
         # Installing the extension only confirms it; media is accepted only with the option on (audit 3 #15).
         if (not self.captions_visible or self._film_bridge is None
                 or not self.settings("live_captions").get("browser_films", True)):
+            return
+        looked_at = report.get("visible", True) and report.get("focused", False)
+        if self._prefer_live_browser_audio(report, looked_at):
             return
         candidates = list(report.get("media") or [])
         if not candidates:
@@ -1325,7 +1334,6 @@ class ExtensionsRuntime(QObject):
         key = self._film_key(report)
         stalled = report.get("stalled", False)
         ended = report.get("ended", False)
-        looked_at = report.get("visible", True) and report.get("focused", False)
         if film is not None and film[0] == key and not film[3].stopped:
             film[1].update(report["time"], report["paused"], report["rate"], report["duration"],
                            stalled=stalled, ended=ended)
@@ -1342,6 +1350,27 @@ class ExtensionsRuntime(QObject):
             return  # this film failed a moment ago: no new attempt yet (audit 3 #10)
         self._start_film(key, report, candidates)
         self._film_looked_at = looked_at
+
+    def _prefer_live_browser_audio(self, report, looked_at: bool) -> bool:
+        from luxai.film_captions import GONE_SECONDS, uses_live_audio
+
+        selection = self._film_live_browser
+        key = (report["tab"], report.get("frame", 0), report.get("doc", ""))
+        now = time.monotonic()
+        if uses_live_audio(report.get("page", "")):
+            active = report.get("active", looked_at) and report.get("visible", True)
+            if active and not report.get("ended", False):
+                self._film_live_browser = (*key, now)
+                if self._film is not None:
+                    self._drop_film()  # re-enable audio transcription for the selected browser player
+            elif selection is not None and selection[:3] == key:
+                self._film_live_browser = None
+            return True
+        if selection is not None:
+            if now - selection[3] <= GONE_SECONDS and not looked_at:
+                return True  # an off-screen film must not pause live captions for the selected tab
+            self._film_live_browser = None
+        return False
 
     def _start_film(self, key, report, candidates):
         from luxai.film_captions import CueTimeline, FilmTranscriber, PlayerClock
@@ -1451,7 +1480,6 @@ class ExtensionsRuntime(QObject):
         """The guided installation window: opens the extensions page, copies the folder path, turns green
         by itself when the extension reports (the bridge listens while the window is open)."""
         from luxai.ui_browser_extension import ExtensionInstallDialog
-        self._start_film_bridge_for_install()
         dialog = self._extension_dialog
         try:
             if dialog is not None and dialog.isVisible():
@@ -1465,11 +1493,11 @@ class ExtensionsRuntime(QObject):
         self._extension_dialog = dialog
         dialog.finished.connect(self._extension_guide_closed)
         dialog.show()
+        self._start_film_bridge_for_install(dialog)
         if self._film_bridge is None and getattr(self, "_pairing_error", ""):
-            dialog.pairing_failed()  # the key file could not be written: say so instead of waiting forever
             return
         dialog.start()
-        if self.extension_contacted():  # only a contact in THIS session counts (audit 4 #10)
+        if self._film_bridge is not None and self.extension_contacted():
             meta = (getattr(self.host, "cfg", {}) or {}).get("extensions_meta", {})
             dialog.connected(meta.get("browser_extension_seen") if isinstance(meta, dict) else None)
 
@@ -1479,9 +1507,20 @@ class ExtensionsRuntime(QObject):
             if self._film_bridge is not None:
                 self._stop_film()
 
-    def _start_film_bridge_for_install(self):
-        if self._film_bridge is None:
-            self._film_bridge = self._new_film_bridge()
+    def _start_film_bridge_for_install(self, dialog, retry: int = 0):
+        if (getattr(self, "_stopping", False) or dialog is not self._extension_dialog
+                or not dialog.isVisible() or self._film_bridge is not None):
+            return
+        self._film_bridge = self._new_film_bridge()
+        if self._film_bridge is not None:
+            if self.enabled("live_captions") and self.settings("live_captions").get("browser_films", True):
+                self._start_film_bridge()  # also enable reports if captions were already showing
+        elif getattr(self, "_pairing_error", ""):
+            dialog.pairing_failed()
+        elif retry < self.BRIDGE_RETRIES:
+            QTimer.singleShot(self.BRIDGE_RETRY_MS, lambda: self._start_film_bridge_for_install(dialog, retry + 1))
+        else:
+            dialog.port_unavailable()
 
     def _stop_caption_audio(self):
         capture, self._captions_capture = self._captions_capture, None

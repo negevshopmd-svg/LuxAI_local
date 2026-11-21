@@ -1,3 +1,19 @@
+## 0.4.3g — Media and reminder reliability (2026-11-21)
+
+- The media gateway closes upstream connections on interrupted responses and registers the TLS socket
+  before its handshake. The film worker uses a caller-owned gateway session and resolves media hosts
+  through the gateway, so stopping the film can interrupt the decoder during a slow lookup.
+- Film captions accept the player's direct URL after enabling captions or restoring a tab, including
+  URLs with no extension. HLS can identify segment formats from the data. Extension 1.4.0 tracks new
+  media resources while active and prevents pending writes from restoring media after deactivation.
+- The browser setup guide retries a busy bridge and shows an error if the port stays unavailable.
+- An active YouTube player keeps Windows live transcription running, including embedded and
+  privacy-enhanced players. The extension sends player state and skips collecting its media URLs.
+- Preparation respects the pause limit. An empty final interval keeps live captions available, and
+  distinct lines with overlapping timings stay visible.
+- Reminders share their time marker with the visible label, including dotted AM/PM. Durations support
+  forms such as “two and a half hours” and reject signed negative parts in compound reminders.
+
 ## 0.4.3f — The voice never goes silent because of Fish Audio (2026-11-21)
 
 - Reported: reading messages aloud showed «Голос недоступен»; `voice_error.log` had

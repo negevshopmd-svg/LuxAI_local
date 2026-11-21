@@ -1,4 +1,9 @@
-LUXAI LOCAL (JARVIS) 0.4.3f — UPDATE 2026-11-21
+LUXAI LOCAL (JARVIS) 0.4.3g — UPDATE 2026-11-21
+
+0.4.3g: Film captions recognize extensionless media URLs, including after Back, and close interrupted
+connections. Reminders understand “a.m.”, “p.m.” and durations such as “two and a half hours”.
+For YouTube, Jarvis transcribes the browser's playback audio live, including embedded players.
+After updating, reload Jarvis extension 1.4.0 at chrome://extensions or edge://extensions.
 
 0.4.3f: When Fish Audio rejects the key (wrong/expired), the account is out of credit or the service does
 not answer, Jarvis is no longer silent («Voice unavailable»): it reads with the local voice and says

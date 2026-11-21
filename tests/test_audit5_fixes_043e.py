@@ -28,6 +28,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class _Server(http.server.BaseHTTPRequestHandler):
     """/redirect → localhost; /slow → never answers; /list.m3u8 → a playlist; anything else → bytes."""
     hold = threading.Event()
+    segment = b""
 
     def do_GET(self):  # noqa: N802
         if self.path.startswith("/redirect"):
@@ -36,8 +37,17 @@ class _Server(http.server.BaseHTTPRequestHandler):
             self.end_headers()
         elif self.path.startswith("/slow"):
             _Server.hold.wait(10)
+        elif self.path == "/dropped":
+            self.close_connection = True
+        elif self.path == "/fragment":
+            self.send_response(200)
+            self.send_header("Content-Type", "video/mp2t")
+            self.send_header("Content-Length", str(len(self.segment)))
+            self.end_headers()
+            self.wfile.write(self.segment)
         elif self.path.startswith("/list"):
-            body = b"#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:4,\nseg1.ts\n#EXT-X-ENDLIST\n"
+            name = b"fragment" if self.path == "/list-extensionless.m3u8" else b"seg1.ts"
+            body = b"#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:4,\n" + name + b"\n#EXT-X-ENDLIST\n"
             self.send_response(200)
             self.send_header("Content-Type", "application/vnd.apple.mpegurl")
             self.send_header("Content-Length", str(len(body)))
@@ -109,6 +119,33 @@ class GatewayTests(unittest.TestCase):
         self.assertTrue(segment.endswith("/seg1.ts"))  # the file name stays (FFmpeg checks extensions)
         self.assertEqual(self.session.target(int(segment.split("/")[4])), self.local("/seg1.ts"))
 
+    def test_disconnect_during_headers_releases_the_upstream_socket(self):
+        self.assertEqual(self.get(self.session.url_for(self.local("/dropped")))[0], 502)
+        with self.session._lock:
+            self.assertEqual(len([sock for sock in self.session._sockets
+                                  if sock.getsockname()[1] != self.gateway._server.getsockname()[1]]), 0)
+
+    def test_real_decoder_accepts_extensionless_hls_segment(self):
+        import io
+        import av
+
+        buffer = io.BytesIO()
+        with av.open(buffer, "w", format="mpegts") as out:
+            stream = out.add_stream("mp2", rate=48000)
+            stream.layout = "mono"
+            for _ in range(150):
+                frame = av.AudioFrame.from_ndarray(np.full((1, 1152), 3000, dtype=np.int16),
+                                                   format="s16", layout="mono")
+                frame.sample_rate = 48000
+                for packet in stream.encode(frame):
+                    out.mux(packet)
+            for packet in stream.encode(None):
+                out.mux(packet)
+        with mock.patch.object(_Server, "segment", buffer.getvalue()):
+            container, track = fc.open_media(self.local("/list-extensionless.m3u8"), "", session=self.session)
+            with container:
+                self.assertEqual(track.type, "audio")
+
     def test_rewrite_covers_keys_maps_and_relative_addresses(self):
         text = ('#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI="key.bin"\n#EXT-X-MAP:URI="https://cdn.example/init.mp4"\n'
                 '#EXTINF:4,\n../seg/1.ts\n#EXT-X-KEY:METHOD=SAMPLE-AES,URI="skd://drm"\n')
@@ -156,9 +193,8 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(options["protocol_whitelist"], "http,tcp,crypto")
         self.assertEqual(options["http_proxy"], "")
         with mock.patch.dict(os.environ, {"no_proxy": "corp.example", "NO_PROXY": "corp.example"}):
-            with mock.patch.object(fc, "public_destination", return_value=True):
-                with self.assertRaises(Exception):
-                    fc.open_media(self.local("/redirect.mp4"), "", session=self.session)
+            with self.assertRaises(Exception):
+                fc.open_media(self.local("/redirect.mp4"), "", session=self.session)
             self.assertEqual(os.environ.get("no_proxy"), "corp.example")
             self.assertEqual(os.environ.get("NO_PROXY"), "corp.example")
 
@@ -204,6 +240,13 @@ class OffsetTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 worker._prepare(None, None, None, 10.0, 40.0, final=False)
 
+    def test_an_empty_final_chunk_is_not_marked_as_prepared(self):
+        worker = fc.FilmTranscriber([], "", fc.PlayerClock(), fc.CueTimeline(), lambda: None)
+        with mock.patch.object(fc, "decode_audio", return_value=(np.empty(0), 90.0)), \
+                mock.patch.object(worker._stop, "wait"):
+            self.assertEqual(worker._prepare(None, None, None, 90.0, 100.0, final=True), 90.0)
+        self.assertFalse(worker.timeline.is_covered(99.0))
+
 
 class RuntimeTests(unittest.TestCase):
     @classmethod
@@ -242,6 +285,29 @@ class RuntimeTests(unittest.TestCase):
             runtime._on_film_report(self.report(doc="d2"))
         self.assertEqual(start.call_count, 2)
         self.assertTrue(first.stopped)
+
+    def test_active_youtube_uses_live_audio_and_suppresses_preparation_in_background(self):
+        runtime = self.runtime()
+        runtime._film_bridge = object()
+        runtime._captions_engine = mock.Mock(paused=False)
+        with mock.patch.object(fc.FilmTranscriber, "start") as start:
+            runtime._on_film_report(self.report(tab=1, doc="movie"))
+            movie = runtime._film[3]
+            runtime._set_film_active(True)
+            runtime._on_film_report(self.report(tab=2, doc="youtube", page="https://www.youtube.com/watch?v=fixture",
+                                                active=True, focused=False, media=[]))
+            self.assertIsNone(runtime._film)
+            self.assertTrue(movie.stopped)
+            self.assertFalse(runtime._captions_engine.paused)
+            runtime._on_film_report(self.report(tab=1, doc="movie", seq=2, focused=False, visible=False))
+            self.assertEqual(start.call_count, 1)
+            runtime._on_film_report(self.report(tab=1, doc="movie", seq=3))
+            self.assertEqual(start.call_count, 2)
+
+    def test_youtube_hosts_are_matched_at_domain_boundaries(self):
+        self.assertTrue(fc.uses_live_audio("https://music.youtube.com/watch?v=fixture"))
+        self.assertTrue(fc.uses_live_audio("https://www.youtube-nocookie.com/embed/fixture"))
+        self.assertFalse(fc.uses_live_audio("https://notyoutube.com/watch?v=fixture"))
 
     def test_bridge_start_is_retried_while_the_port_frees(self):
         """#3"""
@@ -310,6 +376,13 @@ class TimelineTests(unittest.TestCase):
         timeline.add([fc.Cue(1.0, 4.0, "cut wor")], 0, 4)
         timeline.add([fc.Cue(1.0, 4.2, "cut words here")], 0, 10)
         self.assertEqual([c.text for c in timeline.cues], ["cut words here"])
+
+    def test_overlapping_lines_with_different_meanings_are_kept(self):
+        for first, second in (("No", "Now"), ("You can watch now", "You cannot watch now")):
+            with self.subTest(first=first, second=second):
+                timeline = fc.CueTimeline()
+                timeline.add([fc.Cue(1, 4, first), fc.Cue(2, 5, second)], 0, 10)
+                self.assertEqual([cue.text for cue in timeline.cues], [first, second])
 
     def test_many_separate_stretches_stay_sorted_and_fast(self):
         """#17: thousands of seeks."""
@@ -383,6 +456,17 @@ class RecoveryPathTests(unittest.TestCase):
 class ReminderTests(unittest.TestCase):
     now = dt.datetime(2026, 11, 21, 7, 0)
 
+    def test_dotted_time_markers_change_trigger_and_are_removed_from_label(self):
+        evening = self.parse("remind me at 6 p.m. to call Ana")
+        midnight = self.parse("remind me at 12 a.m. to call Ana")
+        self.assertEqual((evening.at, evening.label), (dt.datetime(2026, 11, 21, 18), "call Ana"))
+        self.assertEqual((midnight.at, midnight.label), (dt.datetime(2026, 11, 22), "call Ana"))
+        self.assertIsNone(self.parse("remind me at 00:30 pm to call Ana"))
+
+    def test_compound_durations_keep_all_parts_and_reject_negative_parts(self):
+        self.assertEqual(self.parse("set timer 2 and a half hours").seconds, 9000)
+        self.assertIsNone(self.parse("remind me in 5 minutes and minus two minutes to call Ana"))
+
     def parse(self, text):
         from luxai.timers import parse_request
         return parse_request(text, self.now)
@@ -424,13 +508,18 @@ class ExtensionCodeTests(unittest.TestCase):
         background = (ROOT / "browser_extension" / "background.js").read_text(encoding="utf-8")
         content = (ROOT / "browser_extension" / "content.js").read_text(encoding="utf-8")
         manifest = json.loads((ROOT / "browser_extension" / "manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "1.3.0")
+        self.assertGreaterEqual(tuple(map(int, manifest["version"].split("."))), (1, 3, 0))
         self.assertIn('addEventListener("pageshow"', content)         # #2 a restored page is a new document
         self.assertIn("event.persisted", content)
         self.assertIn("old.url === item.url && old.frame === item.frame", background)  # #5 per frame
         self.assertIn("if (!wanted || details.tabId < 0", background)   # #11 nothing recorded with captions off
         self.assertIn("forgetMedia()", background)
-        self.assertIn('getEntriesByType("resource")', content)         # the frame's own list instead
+        self.assertIn('type: "resource", buffered: true', content)    # the frame's own list instead
+
+    def test_extensionless_player_src_is_ranked_without_mime(self):
+        source = "https://video.example/stream"
+        report = fc.parse_report(json.dumps({"src": source}).encode())
+        self.assertEqual(fc.rank_candidates(report["media"]), [source])
 
 
 if __name__ == "__main__":

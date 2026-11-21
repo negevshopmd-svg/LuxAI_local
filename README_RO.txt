@@ -1,5 +1,10 @@
-LUXAI LOCAL 0.4.3f — ACTUALIZARE 2026-11-21
+LUXAI LOCAL 0.4.3g — ACTUALIZARE 2026-11-21
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.3g: Subtitrările pregătite recunosc surse fără extensie, inclusiv după „Înapoi”, și închid
+conexiunile întrerupte. Mementourile acceptă „a.m.”, „p.m.” și durate precum „two and a half hours”.
+Pentru YouTube, Jarvis transcrie live sunetul redat de browser, inclusiv în playerele încorporate.
+După actualizare, reîncarcă extensia Jarvis 1.4.0 din chrome://extensions sau edge://extensions.
 
 0.4.3f: Dacă Fish Audio refuză cheia (greșită/expirată), nu mai are credit sau nu răspunde, Jarvis
 nu mai tace („Vocea nu este disponibilă”): citește cu vocea locală și spune o dată în chat de ce.
