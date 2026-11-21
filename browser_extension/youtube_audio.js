@@ -1,4 +1,4 @@
-// Runs in the YouTube page so we can see the unencrypted audio chunks already appended by its player.
+// Runs in the media page so we can read unencrypted audio chunks already appended by its player.
 // Nothing is copied from the audio track until the extension confirms that Jarvis wants captions.
 (() => {
   if (!window.MediaSource || !window.SourceBuffer) return;

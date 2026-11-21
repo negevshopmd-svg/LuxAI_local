@@ -1,5 +1,9 @@
-LUXAI LOCAL 0.4.3i — ACTUALIZARE 2026-11-21
+LUXAI LOCAL 0.4.3j — ACTUALIZARE 2026-11-21
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.3j: În fila activă, Jarvis poate aștepta până la 7 secunde la început ca să pregătească
+prima replică. Poți apăsa din nou Play ca să sari peste așteptare. Frazele următoare sunt
+traduse imediat ce sunt recunoscute. Reîncarcă extensia Jarvis 1.7.0 și reîmprospătează fila video.
 
 0.4.3i: Jarvis poate pregăti până la un minut de subtitrări din audio-ul deja încărcat pe YouTube.
 În modul „Precis” folosește modelul mai puternic atunci când are suficient avans. YouTube decide cât

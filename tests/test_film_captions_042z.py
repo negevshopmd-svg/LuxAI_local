@@ -194,6 +194,33 @@ class PrepareTests(unittest.TestCase):
         self.assertEqual([c.text for c in worker.timeline.cues], ["Kept."])
         self.assertAlmostEqual(next_start, 26.8)
 
+    def test_translation_of_first_phrase_is_visible_to_timeline_before_decoding_next(self):
+        worker = self.transcriber(translate=lambda text, source: "RO:" + text)
+        audio = np.full(16000 * 30, 0.2, dtype=np.float32)
+
+        def phrases():
+            yield segment(1, 4, "First sentence.")
+            self.assertTrue(worker.timeline.opening_ready(0))
+            self.assertEqual(worker.timeline.lines_at(1)[0].translation, "RO:First sentence.")
+            yield segment(27, 29.5, "Second sentence.")
+
+        with mock.patch.object(fc, "decode_audio", return_value=(audio, 0.0)):
+            worker._prepare(FakeModel(phrases()), None, None, 0.0, 30.0, final=False)
+        self.assertNotIn("Second sentence.", [cue.text for cue in worker.timeline.lines_at(26.999)])
+        second = worker.timeline.lines_at(27.0)[-1]
+        self.assertEqual(second.translation, "RO:Second sentence.")
+        self.assertTrue(second.provisional)
+
+    def test_opening_waits_for_a_line_and_its_translation(self):
+        timeline = fc.CueTimeline()
+        timeline.add([], 0, 4)
+        self.assertFalse(timeline.opening_ready(0))
+        line = fc.Cue(1, 2, "First", translation_ready=False)
+        timeline.add([line], 0, 4)
+        self.assertFalse(timeline.opening_ready(0))
+        line.translation_ready = True
+        self.assertTrue(timeline.opening_ready(0))
+
     def test_choose_skips_ads_by_length(self):
         def opener(url, options, timeout):
             seconds = 30 if url.rsplit("/", 1)[-1] == "ad.mp4" else 5400  # the gateway keeps the file name

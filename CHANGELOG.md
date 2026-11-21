@@ -1,3 +1,14 @@
+## 0.4.3j — Smoother browser caption starts and phrase transitions (2026-11-21)
+
+- When Jarvis captions are on, the extension can briefly pause a new video at the beginning in the
+  active tab. It resumes when Jarvis has the opening translated line, after at most seven seconds,
+  or on another Play action. The player can keep buffering during the wait.
+- Completed lines are translated and published as soon as recognition yields them. A complete line
+  near the end of a buffered window can appear at its timestamp while the worker prepares a refinement.
+- Buffered WebM/MP4 audio is supported beyond YouTube in compatible unencrypted browser players.
+  Direct media retains its existing preparation path. Protected players and unavailable audio keep
+  the existing live-caption fallback when the operating system can capture their sound.
+
 ## 0.4.3i — More room to prepare YouTube captions (2026-11-21)
 
 - Extension 1.6.0 can pass enough already-buffered audio for a minute of caption preparation on

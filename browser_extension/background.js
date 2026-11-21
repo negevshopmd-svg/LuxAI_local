@@ -27,6 +27,8 @@ async function pairing(reload) {
 let pausedUntil = 0;
 let wanted = null;      // null until the first check after a worker restart
 let wantAskedAt = 0;
+let prerollSupported = false;
+let wantPending = null;
 
 async function post(path, body) {
   if (Date.now() < pausedUntil) return null;
@@ -56,6 +58,7 @@ async function post(path, body) {
     }
     try {
       const data = await answer.json();
+      if (typeof data?.preroll === "boolean") prerollSupported = data.preroll;
       if (data && "want" in data) {
         setWanted(!!data.want);
         wantAskedAt = Date.now();
@@ -69,9 +72,11 @@ async function post(path, body) {
 }
 
 async function askWant() {
+  if (wantPending) await wantPending;
   if (Date.now() - wantAskedAt >= WANT_EVERY) {
     wantAskedAt = Date.now();
-    await post("want", {});
+    wantPending = post("want", {}).finally(() => { wantPending = null; });
+    await wantPending;
   }
   return wanted;
 }
@@ -110,7 +115,14 @@ async function pump(tab) {
       const slot = waiting.get(tab);
       waiting.delete(tab);
       if (wanted && slot.closed) await post("state", { event: "closed", tab: tab, docs: slot.closed });
-      if (wanted && slot.state) await post(slot.state.buffer ? "audio" : "state", slot.state);
+      if (wanted && slot.state) {
+        const state = slot.state;
+        const result = await post(state.buffer ? "audio" : "state", state);
+        const document = docs.get(tab)?.get(state.doc);
+        if (document?.session === state.session && typeof result?.opening_ready === "boolean") {
+          document.openingReady = result.opening_ready;
+        }
+      }
     }
   } finally {
     busy.delete(tab);
@@ -214,8 +226,9 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     closeDocs(tab, ([doc]) => doc === message.doc);
     return;
   }
-  if (message.type === "jarvis-buffer-check" && usesLiveAudio(sender.url)) {
-    askWant().then((active) => reply({ want: !!active && sender.tab.active }), () => reply({ want: false }));
+  if (message.type === "jarvis-buffer-check") {
+    askWant().then((active) => reply({ want: !!active && sender.tab.active, preroll: prerollSupported }),
+                   () => reply({ want: false }));
     return true;
   }
   if (message.type !== "jarvis-video") return;
@@ -227,8 +240,11 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     const generation = mediaGeneration;
     if (!docs.has(tab)) docs.set(tab, new Map());
     const documents = docs.get(tab);
-    const seen = Array.isArray(message.seen) ? message.seen : documents.get(message.doc)?.seen;
-    documents.set(message.doc, { page: message.page || "", frame: sender.frameId, seen: seen });
+    const previous = documents.get(message.doc);
+    const seen = Array.isArray(message.seen) ? message.seen : previous?.seen;
+    const document = { page: message.page || "", frame: sender.frameId, seen, session: message.session,
+                       openingReady: previous?.session === message.session && previous.openingReady };
+    documents.set(message.doc, document);
     const key = "media:" + tab;
     const liveOnly = usesLiveAudio(sender.url || message.page);
     await queue;
@@ -257,15 +273,17 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
       page: message.page || "",
       time: message.time,
       paused: message.paused,
+      preroll: message.preroll === true && sender.tab.active && message.visible,
       stalled: message.stalled,
       ended: message.ended,
       rate: message.rate,
       duration: message.duration,
       src: liveOnly ? "" : message.src || "",
-      buffer: liveOnly && sender.tab.active && message.visible ? message.buffer : undefined,
+      buffer: sender.tab.active && message.visible ? message.buffer : undefined,
       media: own.map((item) => ({ url: item.url, type: item.type })),
     });
-    reply({ want: true, needSeen: !liveOnly && !seen });
+    reply({ want: true, needSeen: !liveOnly && !seen, preroll: prerollSupported,
+            openingReady: !!document.openingReady, active: sender.tab.active });
   })().catch(() => reply({ want: false }));
   return true; // the answer comes asynchronously
 });

@@ -1148,7 +1148,8 @@ class ExtensionsRuntime(QObject):
         if not token:
             return None
         from luxai.film_captions import BridgeServer
-        bridge = BridgeServer(self._film_report.emit, on_hello=self._extension_hello.emit, token=token)
+        bridge = BridgeServer(self._film_report.emit, on_hello=self._extension_hello.emit, token=token,
+                              on_preroll=self._browser_opening_ready)
         return bridge if bridge.start() else None
 
     BRIDGE_RETRIES = 10  # × 300 ms: the previous bridge frees the port within about a second
@@ -1328,15 +1329,23 @@ class ExtensionsRuntime(QObject):
         looked_at = report.get("visible", True) and report.get("focused", False)
         if self._prefer_live_browser_audio(report, looked_at):
             return
+        from luxai.film_captions import BufferedFilmTranscriber
+
+        key = self._film_key(report)
+        if report.get("visible", True) and report.get("active", looked_at) and (
+            report.get("buffer") or (film is not None and film[0] == key
+                                     and isinstance(film[3], BufferedFilmTranscriber))
+        ):
+            self._on_buffered_browser_audio(report, looked_at)
+            return
         candidates = list(report.get("media") or [])
         if not candidates:
             return
-        key = self._film_key(report)
         stalled = report.get("stalled", False)
         ended = report.get("ended", False)
         if film is not None and film[0] == key and not film[3].stopped:
             film[1].update(report["time"], report["paused"], report["rate"], report["duration"],
-                           stalled=stalled, ended=ended)
+                           stalled=stalled, ended=ended, preroll=report.get("preroll", False))
             self._film_looked_at = looked_at
             return
         if film is not None and (film[0][0], film[0][2]) != (key[0], key[2]) and not film[3].stopped:
@@ -1344,7 +1353,8 @@ class ExtensionsRuntime(QObject):
             # the current player does not, or the user is looking at the new one and not the old (audit 4 #6).
             current_plays = film[1].alive() and not film[1].paused
             chosen = looked_at and not getattr(self, "_film_looked_at", False)
-            if report["paused"] or ended or (current_plays and not chosen):
+            opening = report.get("preroll") and report.get("active", looked_at)
+            if ended or (not opening and (report["paused"] or (current_plays and not chosen))):
                 return
         if self._film_waiting(key):
             return  # this film failed a moment ago: no new attempt yet (audit 3 #10)
@@ -1388,7 +1398,8 @@ class ExtensionsRuntime(QObject):
             film = self._film
         else:
             film[1].update(report["time"], report["paused"], report["rate"], report["duration"],
-                           stalled=report.get("stalled", False), ended=report.get("ended", False))
+                           stalled=report.get("stalled", False), ended=report.get("ended", False),
+                           preroll=report.get("preroll", False))
         self._film_looked_at = looked_at
         if packet is not None:
             film[3].submit(packet)
@@ -1405,7 +1416,7 @@ class ExtensionsRuntime(QObject):
                 from luxai.translation import text_language, translate_offline
                 if text_language(text) == target:
                     return ""
-                return translate_offline(text, target, source) or ""
+                return translate_offline(text, target, source)
         # «Precise»: large-v3-turbo once it is ahead of the player; «Fast»: small only — lighter on a slow
         # PC (audit 3 #22). The fast model always does the catching up.
         fast = lambda: caption_model("small", threads=6)  # noqa: E731
@@ -1419,8 +1430,19 @@ class ExtensionsRuntime(QObject):
         self._film = (key, clock, timeline, transcriber)
         self._film_doc = report.get("doc", "")
         clock.update(report["time"], report["paused"], report["rate"], report["duration"],
-                     stalled=report.get("stalled", False), ended=report.get("ended", False))
+                     stalled=report.get("stalled", False), ended=report.get("ended", False),
+                     preroll=report.get("preroll", False))
         transcriber.start()
+
+    def _browser_opening_ready(self, report) -> bool:
+        """Read-only check from the bridge thread. The Qt thread owns selection and playback state."""
+        film = self._film
+        if film is None or not report.get("active") or not report.get("visible"):
+            return False
+        key, _clock, timeline, worker = film
+        identity = (report["tab"], report.get("frame", 0), report.get("doc", ""), report.get("session", 0))
+        return not worker.stopped and identity == (key[0], key[2], key[-1], key[5]) \
+            and timeline.opening_ready(report["time"])
 
     def _film_ahead_seconds(self) -> float:
         """How far ahead the film is prepared (audit 4 #17): less means less separate download and CPU."""
@@ -1460,15 +1482,15 @@ class ExtensionsRuntime(QObject):
         if film is not None and (film[3].stopped and film[3].failed or film[1].gone()):
             self._drop_film()  # failed (wait before retrying) or the browser stopped reporting (audit 3 #11, #14)
             film = None
-        if film is None or bar is None or not film[1].alive():
+        if film is None or bar is None or not film[1].alive() or film[1].preroll:
             self._set_film_active(False)
             return
         position = film[1].position()
-        if not film[2].is_covered(position):
+        cues = film[2].lines_at(position, keep=bar.max_lines)
+        if not film[2].is_covered(position) and not any(cue.provisional and cue.end > position for cue in cues):
             self._set_film_active(False)  # not prepared yet here: the live captions show it
             return
         self._set_film_active(True)
-        cues = film[2].lines_at(position, keep=bar.max_lines)
         # Words appear as they are spoken in the film (the rest of the line waits invisible).
         reveal = {cue.text: cue.shown(position) for cue in cues}
         cues = [cue for cue in cues if reveal[cue.text][0] or reveal[cue.text][1]]

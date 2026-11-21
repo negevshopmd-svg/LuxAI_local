@@ -1,4 +1,8 @@
-LUXAI LOCAL (JARVIS) 0.4.3i — UPDATE 2026-11-21
+LUXAI LOCAL (JARVIS) 0.4.3j — UPDATE 2026-11-21
+
+0.4.3j: In the active tab Jarvis can wait up to 7 seconds at the start to prepare the first spoken line.
+Press Play again to skip the wait. Later phrases are translated as soon as they are recognized.
+Reload Jarvis extension 1.7.0 on the extensions page and refresh the video tab.
 
 0.4.3i: Jarvis can prepare up to a minute of captions from audio YouTube has already buffered.
 Precise mode uses the stronger speech model when there is enough time ahead. YouTube still controls

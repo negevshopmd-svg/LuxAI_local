@@ -64,11 +64,13 @@ class PlayerClock:
         self.rate = 1.0
         self.duration = 0.0
         self.reported = 0.0  # time.monotonic() of the last report, 0 = never
+        self.preroll = False
 
     def update(self, position: float, paused: bool, rate: float = 1.0, duration: float = 0.0, now=None,
-               stalled: bool = False, ended: bool = False):
+               stalled: bool = False, ended: bool = False, preroll: bool = False):
         """``stalled`` (buffering) and ``ended`` freeze the clock like a pause (audit 3 #23)."""
         with self._lock:
+            self.preroll = bool(preroll)
             self.time = max(0.0, float(position))
             self.paused = bool(paused or stalled or ended)
             self.rate = min(4.0, max(0.1, float(rate or 1.0)))
@@ -100,6 +102,8 @@ class Cue:
     translation: str = ""
     # (film time the word starts, characters of ``text`` shown once it is spoken), in order
     words: tuple = ()
+    provisional: bool = False
+    translation_ready: bool = True
 
     def shown(self, position: float) -> tuple[int, int]:
         """(characters of the text, characters of the translation) heard by ``position``.
@@ -184,7 +188,7 @@ class CueTimeline:
                     if overlap <= 0:
                         continue
                     stretch = self._stretch(old.start)
-                    cut_at_edge = stretch is not None and abs(stretch[1] - old.end) <= 0.05
+                    cut_at_edge = old.provisional or (stretch is not None and abs(stretch[1] - old.end) <= 0.05)
                     if self.same_line(old, cue, cut_at_edge=cut_at_edge):
                         del self.cues[index]
                         del self._starts[index]
@@ -232,7 +236,7 @@ class CueTimeline:
     def lines_at(self, position: float, keep: int = 2, linger: float = 3.0) -> list[Cue]:
         """The lines to show now: the current one and the ones that ended at most ``linger`` s ago."""
         with self._lock:
-            last = bisect.bisect_right(self._starts, position + 0.05)
+            last = bisect.bisect_right(self._starts, position)
             shown = []
             for cue in reversed(self.cues[max(0, last - 12):last]):  # only the neighbourhood of the position
                 if cue.end + linger >= position:
@@ -240,6 +244,21 @@ class CueTimeline:
                 if len(shown) >= keep:
                     break
             return shown[::-1]
+
+    def opening_ready(self, position: float) -> bool:
+        """The opening audio and first speakable, translated line have both been processed."""
+        with self._lock:
+            stretch = self._stretch(position + 0.08)
+            if stretch is None:
+                return False
+            first = bisect.bisect_left(self._starts, position - self._longest)
+            for index in range(first, len(self.cues)):
+                cue = self.cues[index]
+                if cue.start >= stretch[1] or cue.start > position + 8:
+                    break
+                if cue.end > position:
+                    return not cue.provisional and cue.translation_ready
+            return False
 
 
 # -- media ---------------------------------------------------------------------------------------------
@@ -577,7 +596,9 @@ class FilmTranscriber:
             vad_parameters={"min_silence_duration_ms": 300, "speech_pad_ms": 200},
             condition_on_previous_text=False, initial_prompt=self._prompt or None, word_timestamps=True,
             no_speech_threshold=0.6, log_prob_threshold=-1.0, compression_ratio_threshold=2.4)
-        cues = []
+        reached = begin + len(audio) / 16000
+        next_start = reached
+        committed = max(start, begin)
         for segment in segments:
             text = segment.text.strip()
             if not text or not trustworthy(segment) or lone_filler(text) \
@@ -587,24 +608,32 @@ class FilmTranscriber:
             # Word times are exact; a segment's own start can be up to a second early.
             first = float(words[0].start) if words else float(segment.start)
             last = float(words[-1].end) if words else float(segment.end)
-            cues.append(Cue(begin + first, begin + max(last, first + 0.3), text, words=word_marks(words, begin, text)))
-        reached = begin + len(audio) / 16000
-        next_start = reached
-        if not final and cues and cues[-1].end > reached - EDGE_SECONDS:
-            # The last line may be cut in the middle of a word: it is redone with the next piece.
-            next_start = max(begin + 0.5, cues[-1].start - 0.2)
-            cues = cues[:-1]
-        if self.translate is not None:
-            for cue in cues:
-                if self._stop.is_set():
-                    break
+            cue = Cue(begin + first, min(reached, begin + max(last, first + 0.3)), text,
+                      words=word_marks(words, begin, text))
+            if cue.end <= cue.start or self._stop.is_set():
+                continue
+            if not final and cue.end > reached - EDGE_SECONDS:
+                cue.provisional = True
+                next_start = min(next_start, max(begin + 0.5, cue.start - 0.2))
+                # A fragment with no sentence ending is retried with more audio instead of
+                # showing a translation of half a sentence.
+                if not cue.text.endswith((".", "!", "?", "…")):
+                    continue
+            if self.translate is not None:
+                cue.translation_ready = False
                 try:
-                    cue.translation = self.translate(cue.text, language or "") or ""
+                    translation = self.translate(cue.text, language or "")
+                    cue.translation_ready = translation is not None
+                    cue.translation = translation or ""
                 except Exception:
-                    cue.translation = ""
-        if cues:
-            self._prompt = cues[-1].text[-160:]
-        self.timeline.add(cues, start, next_start)
+                    pass
+            end = committed if cue.provisional else max(committed, cue.end)
+            self.timeline.add([cue], committed, end)
+            committed = end
+            if not cue.provisional:
+                self._prompt = cue.text[-160:]
+        if not self._stop.is_set():
+            self.timeline.add([], committed, next_start)
         return next_start
 
 
@@ -704,9 +733,11 @@ class BufferedFilmTranscriber(FilmTranscriber):
         if self.video_duration:
             available_end = min(available_end, self.video_duration)
         start = begin
+        retrying_edge = False
         while not self._stop.is_set():
             position = self.clock.position()
-            start = self.timeline.covered_until(max(start, 0.0, position - 0.8))
+            near_playhead = 0.0 if retrying_edge else position - 0.8
+            start = self.timeline.covered_until(max(start, 0.0, near_playhead))
             cap = min(available_end, position + min(self.ahead_seconds, BROWSER_AHEAD_SECONDS))
             if cap - start < 0.6:
                 return
@@ -715,7 +746,10 @@ class BufferedFilmTranscriber(FilmTranscriber):
             provider = (self.fast_model_provider if catching_up else None) or self.model_provider
             if provider not in models:
                 models[provider] = provider()
-            end = min(cap, start + (BROWSER_START_CHUNK if catching_up else CHUNK_SECONDS))
+            # If the short window cut a phrase, use the rest of the available audio on the retry.
+            # Otherwise a long sentence can be recut every few seconds without ever being finished.
+            chunk = BROWSER_START_CHUNK if catching_up and not retrying_edge else CHUNK_SECONDS
+            end = min(cap, start + chunk)
             first = max(0, round((start - begin) * 16000))
             last = min(len(audio), round((end - begin) * 16000))
             final = bool(self.video_duration and end >= self.video_duration - 0.25)
@@ -724,6 +758,7 @@ class BufferedFilmTranscriber(FilmTranscriber):
             self.ready.set()
             if end >= cap - 0.001 or following <= start + 0.01:
                 return
+            retrying_edge = following < end - 0.05
             start = following
 
 
@@ -756,6 +791,7 @@ def parse_report(raw: bytes, *, with_audio: bool = False) -> dict | None:
             "session": max(0, min(10 ** 9, int(data.get("session", 0) or 0))),
             "visible": bool(data.get("visible", True)),   # the tab the user looks at (#6)
             "active": bool(data.get("active", data.get("focused", False))),
+            "preroll": data.get("preroll") is True,
             "focused": bool(data.get("focused", False)),
         }
     except (TypeError, ValueError, OverflowError):
@@ -780,7 +816,7 @@ def parse_report(raw: bytes, *, with_audio: bool = False) -> dict | None:
     report["media"] = entries
     if with_audio:
         packet = data.get("buffer")
-        if (not uses_live_audio(report["page"]) or not report["active"] or not report["visible"]
+        if (not safe_media_url(report["page"]) or not report["active"] or not report["visible"]
                 or not isinstance(packet, dict) or packet.get("kind") not in ("webm", "mp4")):
             return None
         try:
@@ -902,9 +938,12 @@ class _Handler(BaseHTTPRequestHandler):
         except OSError:
             return  # timed out or closed: nothing more to answer
         want = bool(getattr(self.server, "want", False))
+        answer = {"ok": True, "want": want}
+        if self.server.on_preroll is not None:
+            answer["preroll"] = True
         if self.path == "/v1/want":
             # «Are captions on?» Nothing is sent about the page until Jarvis says yes (audit 4 #14).
-            self._answer(200, origin, {"ok": True, "want": want})
+            self._answer(200, origin, answer)
             return
         if audio_request and not want:
             self._answer(200, origin, {"ok": True, "want": False})
@@ -924,7 +963,9 @@ class _Handler(BaseHTTPRequestHandler):
                 target(report)
         except Exception:
             pass
-        self._answer(200, origin, {"ok": True, "want": want})
+        if want and report.get("preroll") and self.server.on_preroll is not None:
+            answer["opening_ready"] = self.server.on_preroll(report)
+        self._answer(200, origin, answer)
 
 
 class _ExclusiveServer(ThreadingHTTPServer):
@@ -964,11 +1005,12 @@ class _ExclusiveServer(ThreadingHTTPServer):
 class BridgeServer:
     """127.0.0.1:PORT, extension origins only. ``on_report`` runs on the server thread."""
 
-    def __init__(self, on_report, port: int = PORT, on_hello=None, token: str = ""):
+    def __init__(self, on_report, port: int = PORT, on_hello=None, token: str = "", *, on_preroll=None):
         self.on_report = on_report
         self.on_hello = on_hello
         self.port = port
         self.token = token  # without a pairing token every request is refused
+        self.on_preroll = on_preroll
         self._want = False   # Jarvis shows captions and wants the player's state (audit 4 #14)
         self._server = None
 
@@ -990,6 +1032,7 @@ class BridgeServer:
         self._server.daemon_threads = True
         self._server.on_report = self.on_report
         self._server.on_hello = self.on_hello
+        self._server.on_preroll = self.on_preroll
         self._server.token = self.token
         self._server.gate = threading.BoundedSemaphore(8)
         self._server.want = self._want

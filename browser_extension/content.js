@@ -10,6 +10,7 @@
   const MEDIA = /\.(m3u8|mp4|webm|m4v|mov|mkv)$/i;
   const MEDIA_TYPES = /mpegurl|video\/(mp4|webm|x-matroska|quicktime)|audio\/(mp4|mpeg|aac|webm)/i;
   const liveOnly = /(^|\.)(youtube\.com|youtube-nocookie\.com|youtu\.be)$/i.test(location.hostname);
+  const openingLimit = 7000;
   const resources = new Map();
   let observer = null;
   let resourceSnapshot = [];
@@ -60,25 +61,81 @@
   let seq = 0;            // reports are numbered: Jarvis ignores a late one
   let session = 0;        // a new source in the player = a new media session
   let audioPacket = null;
+  let canPreroll = false;
+  let activeTab = false;
+  let checkedSession = -1;
+  let triedOpening = false;
+  let opening = null;
+  let protectedSource = false;
+  let gestureUntil = 0;
 
-  function armBufferedAudio(reset = false) {
-    if (!liveOnly) return;
-    window.postMessage({ type: "jarvis-buffer-control", active: want && !document.hidden,
-                         src: current?.currentSrc || "", reset }, location.origin);
+  function notePlaybackGesture(event) {
+    if (opening && event.isTrusted) gestureUntil = performance.now() + 750;
+  }
+  document.addEventListener("pointerdown", notePlaybackGesture, true);
+  document.addEventListener("keydown", (event) => {
+    if (["Space", "KeyK", "Enter"].includes(event.code)) notePlaybackGesture(event);
+  }, true);
+
+  function releaseOpening(resume) {
+    if (!opening) return;
+    const held = opening;
+    opening = null;
+    clearTimeout(held.timeout);
+    clearInterval(held.poll);
+    if (resume && held.video.isConnected && held.video.paused && held.session === session
+        && held.page === location.href) {
+      held.video.play().catch(() => {}); // the native player still controls autoplay restrictions
+    }
+    soonReport();
   }
 
-  if (liveOnly) {
-    function checkBufferedAudio() {
+  function tryOpening(video) {
+    if (!video || video !== current || triedOpening || !canPreroll || !want || !activeTab || document.hidden
+        || protectedSource || video.paused || video.seeking || video.ended || video.currentTime > 0.6
+        || video.duration === Infinity
+        || (!video.currentSrc && !video.src) || (video.muted && video.loop)) return;
+    triedOpening = true;
+    gestureUntil = 0;
+    opening = { video, session, page: location.href, position: video.currentTime,
+                timeout: setTimeout(() => releaseOpening(true), openingLimit),
+                poll: setInterval(() => {
+                  if (opening && !opening.video.paused) opening.video.pause();
+                  soonReport();
+                }, 280) };
+    video.pause();
+    soonReport();
+  }
+
+  function checkPlayer() {
+    if (checkedSession === session) return;
+    const requested = session;
+    checkedSession = requested;
+    try {
       chrome.runtime.sendMessage({ type: "jarvis-buffer-check" }, (answer) => {
-        if (chrome.runtime.lastError || current) return;
+        if (chrome.runtime.lastError || requested !== session) return;
         want = !!answer?.want;
+        activeTab = want;
+        canPreroll = !!answer?.preroll;
+        trackResources(want);
         armBufferedAudio();
+        tryOpening(current);
       });
-    }
-    checkBufferedAudio();
+    } catch (e) { /* extension was reloaded */ }
+  }
+
+  function armBufferedAudio(reset = false) {
+    const src = current?.currentSrc || current?.src || "";
+    if (!/^blob:/i.test(src) && !liveOnly && !reset) return;
+    window.postMessage({ type: "jarvis-buffer-control", active: want && activeTab && !document.hidden && !protectedSource,
+                         src, reset }, location.origin);
+  }
+
+  if (liveOnly) checkPlayer();
+  if (/^https?:$/.test(location.protocol)) {
     window.addEventListener("message", (event) => {
       const packet = event.data;
-      if (!want || document.hidden || event.source !== window || event.origin !== location.origin
+      if (!want || document.hidden || protectedSource || event.source !== window || event.origin !== location.origin
           || packet?.type !== "jarvis-buffer-audio" || !(packet.bytes instanceof ArrayBuffer)
           || packet.bytes.byteLength > 2080 * 1024 || !["webm", "mp4"].includes(packet.kind)
           || !Number.isInteger(packet.track) || !Number.isFinite(packet.offset)) return;
@@ -92,7 +149,10 @@
                       data: btoa(encoded) };
       soonReport();
     });
-    document.addEventListener("visibilitychange", () => armBufferedAudio(document.hidden));
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) releaseOpening(true);
+      armBufferedAudio(document.hidden);
+    });
   }
 
   function report() {
@@ -100,6 +160,7 @@
     const video = current;
     if (!video || !video.isConnected) return;
     if (location.href !== href) {
+      if (opening && opening.page !== location.href) releaseOpening(false);
       href = location.href;
       doc = newId();
       seq = 0;
@@ -110,7 +171,7 @@
     const reportDoc = doc;
     const reportSeq = seq;
     const seen = want && resourceSnapshot !== publishedResources ? resourceSnapshot : undefined;
-    const audio = liveOnly && want && !document.hidden && audioPacket?.src === src ? audioPacket : undefined;
+    const audio = want && !document.hidden && audioPacket?.src === src ? audioPacket : undefined;
     audioPacket = null;
     try {
       chrome.runtime.sendMessage({
@@ -123,6 +184,7 @@
         focused: document.hasFocus(),
         time: video.currentTime,
         paused: video.paused,
+        preroll: opening?.video === video,
         stalled: stalled,
         ended: video.ended,
         rate: video.playbackRate,
@@ -134,6 +196,13 @@
         void chrome.runtime.lastError; // no answer (the extension restarted): nothing to do
         if (doc !== reportDoc || seq !== reportSeq) return;
         want = !!(answer && answer.want);
+        canPreroll = !!answer?.preroll;
+        activeTab = !!answer?.active;
+        if (opening && (answer?.openingReady || !want || !activeTab || video.duration === Infinity)) {
+          releaseOpening(true);
+        } else if (!opening) {
+          tryOpening(video);
+        }
         if (answer?.needSeen) publishedResources = null;
         else if (want && seen) publishedResources = seen;
         trackResources(want);
@@ -148,9 +217,13 @@
 
   function adopt(video) {
     if (video !== current) {
+      releaseOpening(false);
       current = video;
       session += 1; // another player element
+      triedOpening = false;
+      protectedSource = false;
       stalled = false;
+      checkPlayer();
       armBufferedAudio();
     }
   }
@@ -163,12 +236,39 @@
     const video = event.target;
     if (!isPlayer(video)) return;
     if (event.type === "playing" || event.type === "play") adopt(video);
-    else if (!current && video.readyState > 0) adopt(video);
+    else if (!current && (event.type === "loadstart" || video.readyState > 0)) adopt(video);
     if (video !== current) return;
-    if (event.type === "loadstart" || event.type === "emptied") session += 1; // a new source (blob players too)
-    if (event.type === "seeking") {
+    if (event.type === "loadstart" || event.type === "emptied") {
+      const starting = opening && event.type === "loadstart" && opening.page === location.href
+          && Math.abs(video.currentTime - opening.position) < 0.8;
+      if (!starting) releaseOpening(false);
+      session += 1; // a new source (blob players too)
+      if (starting) opening.session = session; // play can arrive before the first loadstart
+      triedOpening = !!starting;
+      protectedSource = false;
+      if (event.type === "loadstart") checkPlayer();
+    }
+    if (event.type === "encrypted") {
+      protectedSource = true;
       audioPacket = null;
+      releaseOpening(true);
       armBufferedAudio(true);
+    }
+    if (event.type === "play" || event.type === "playing") {
+      if (opening) {
+        if (performance.now() < gestureUntil) releaseOpening(false);
+        else video.pause(); // a player's automatic retry must not cancel preparation
+      } else if (event.type === "play") {
+        tryOpening(video);
+      }
+    }
+    if (event.type === "seeking") {
+      if (!opening || performance.now() < gestureUntil || Math.abs(video.currentTime - opening.position) > 0.8) {
+        releaseOpening(true);
+        audioPacket = null;
+        armBufferedAudio(true);
+      }
+      stalled = true;
     }
     if (event.type === "waiting" || event.type === "stalled") stalled = true;
     if (event.type === "playing" || event.type === "seeked" || event.type === "pause") stalled = false;
@@ -186,7 +286,7 @@
 
   // Media events do not bubble, but the capture phase on the document sees them.
   for (const name of ["play", "playing", "pause", "seeking", "seeked", "ratechange", "loadedmetadata", "loadstart",
-                      "waiting", "stalled", "ended", "emptied"]) {
+                      "waiting", "stalled", "ended", "emptied", "encrypted"]) {
     document.addEventListener(name, follow, true);
   }
   // Back/forward restored this page from the browser's memory: it is a NEW document for Jarvis (the old one
@@ -200,11 +300,10 @@
   });
   // The page goes away (navigation, closed tab): its document is closed at once.
   window.addEventListener("pagehide", () => {
+    releaseOpening(false);
     trackResources(false);
-    if (liveOnly) {
-      want = false;
-      armBufferedAudio(true);
-    }
+    want = false;
+    armBufferedAudio(true);
     try {
       chrome.runtime.sendMessage({ type: "jarvis-bye", doc: doc }, () => void chrome.runtime.lastError);
     } catch (e) { /* extension reloaded */ }

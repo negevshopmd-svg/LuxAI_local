@@ -20,6 +20,8 @@ class BufferedCaptionsTests(unittest.TestCase):
         encode = lambda: json.dumps(report).encode()
         self.assertNotIn("buffer", fc.parse_report(encode()))
         self.assertEqual(fc.parse_report(encode(), with_audio=True)["buffer"], ("webm", 1, 0, b"fixture"))
+        report["page"] = "https://example.test/embedded/player"
+        self.assertIsNotNone(fc.parse_report(encode(), with_audio=True))
         report["visible"] = False
         self.assertIsNone(fc.parse_report(encode(), with_audio=True))
 
@@ -91,6 +93,22 @@ class BufferedCaptionsTests(unittest.TestCase):
         worker._prepare_audio = prepare
         worker._prepare_available({}, 10, np.zeros(12 * 16000, dtype=np.float32))
         self.assertEqual(timeline.covered_until(10), 22)
+
+    def test_a_cut_phrase_gets_a_longer_retry_before_playback_catches_up(self):
+        clock, timeline = fc.PlayerClock(), fc.CueTimeline()
+        clock.update(0, True)
+        worker = fc.BufferedFilmTranscriber([], "", clock, timeline, lambda: object())
+        windows = []
+
+        def prepare(_model, _audio, _begin, start, end, _final):
+            windows.append((start, end))
+            covered = 4.8 if len(windows) == 1 else end
+            timeline.add([], start, covered)
+            return covered
+
+        worker._prepare_audio = prepare
+        worker._prepare_available({}, 0, np.zeros(20 * 16000, dtype=np.float32))
+        self.assertEqual(windows, [(0, 8), (4.8, 20)])
 
     def test_transport_accepts_a_larger_audio_window_without_changing_state_limit(self):
         audio = b"\0" * (1024 * 1024)
