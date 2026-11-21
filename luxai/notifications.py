@@ -230,12 +230,24 @@ def in_quiet_hours(hour: int, start: int, end: int) -> bool:
 
 def microphone_in_use_by_other_app() -> bool:
     """True while another desktop app records or films (a call). Jarvis itself is ignored."""
+    return bool(call_app())
+
+
+def call_app() -> str:
+    """The program that records or films now («Discord»), or "" — told to the user when notifications wait."""
     if sys.platform != "win32":
-        return False
+        return ""
     return _device_in_use("microphone") or _device_in_use("webcam")
 
 
-def _device_in_use(device: str) -> bool:
+def _program_name(key_name: str) -> str:
+    """«C:#Users#…#Discord#app-1.0#Discord.exe» or «Microsoft.SkypeApp_…» → «Discord» / «Microsoft.SkypeApp»."""
+    tail = key_name.replace("#", "\\").rsplit("\\", 1)[-1]
+    tail = re.sub(r"\.exe$", "", tail, flags=re.I)
+    return re.sub(r"_[0-9a-z]{13}$", "", tail)[:40] or "?"
+
+
+def _device_in_use(device: str) -> str:
     import winreg
     base = r"Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore" + "\\" + device
     for sub in ("NonPackaged", ""):
@@ -262,8 +274,8 @@ def _device_in_use(device: str) -> bool:
                 except OSError:
                     continue
                 if stop == 0 and start:
-                    return True
-    return False
+                    return _program_name(name)
+    return ""
 
 
 class NotificationWatcher:

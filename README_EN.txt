@@ -1,4 +1,8 @@
-LUXAI LOCAL (JARVIS) 0.4.3m — UPDATE 2026-11-21
+LUXAI LOCAL (JARVIS) 0.4.3n — UPDATE 2026-11-21
+
+0.4.3n: The notification reader now says once why it is silent, e.g. «I'm not reading notifications while
+Discord uses the microphone (a call)» — with «Silent during calls» on, a Discord voice channel kept
+every notification only for «what came in», without a word.
 
 0.4.3m: Captions are no longer doubled (one sentence recognised twice shows once). After a jump
 in the film (or when YouTube moves to another minute) the video waits a little — usually 3–4 s,

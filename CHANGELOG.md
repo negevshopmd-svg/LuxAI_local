@@ -1,3 +1,14 @@
+## 0.4.3n — The notification reader says why it is silent (2026-11-21)
+
+- Reported: «the message reading plugin does not work». Checked live on the user's PC: the Windows
+  notification database is read correctly (a test toast was found and composed), but Discord had an ACTIVE
+  recording session on the microphone (a voice channel; confirmed through the WASAPI capture sessions, not only
+  the registry), so «Silent during calls» moved every notification to «what came in» without telling anyone.
+- When notifications are held because of a call or a full-screen app, Jarvis now says so once per episode,
+  naming the program («… while Discord uses the microphone (a call). Say “what came in” to hear them, or turn off
+  “Silent during calls”…»). The expected silences (Jarvis quiet mode, locked PC, own quiet hours, «don't
+  disturb») stay silent. `notifications.call_app()` names the program that records or films.
+
 ## 0.4.3m — One line per sentence; a short wait after a jump; the three small risks (2026-11-21)
 
 - Reported (screenshot): the same sentence twice on the bar («Броняо-британского марк первый…» /

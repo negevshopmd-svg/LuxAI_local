@@ -2738,10 +2738,38 @@ class ExtensionsRuntime(QObject):
         if reason or not settings.get("read_now", True):
             self.missed_notifications.extend(self._notif_pending)
             self._notif_pending = []
+            self._explain_held_notifications(reason)
             return
+        self._held_reason = ""
         pending, self._notif_pending = self._notif_pending, []
         for value in pending:
             self._speak_notification(value)
+
+    def _explain_held_notifications(self, reason: str):
+        """Say ONCE why notifications are kept instead of read (reported: «the plugin does not work» while a
+        Discord voice channel held the microphone). Expected reasons (Jarvis quiet mode, locked PC, the user's
+        own quiet hours or «don't disturb») stay silent; a call or a full-screen app are told, with the program."""
+        if reason == getattr(self, "_held_reason", "") or reason not in ("call", "fullscreen"):
+            self._held_reason = reason
+            return
+        self._held_reason = reason
+        app = ""
+        if reason == "call":
+            from luxai.notifications import call_app
+            app = call_app() or "?"
+        texts = {
+            "call": ("Не читаю уведомления, пока {app} использует микрофон (звонок). Скажите «что пришло», чтобы "
+                     "услышать их, или выключите «Молчать во время звонка» в Расширениях → Озвучка уведомлений.",
+                     "I'm not reading notifications while {app} uses the microphone (a call). Say “what came in” to "
+                     "hear them, or turn off “Silent during calls” in Extensions → Notification reader.",
+                     "Nu citesc notificările cât timp {app} folosește microfonul (apel). Spune „ce a venit” ca să le "
+                     "auzi, sau oprește „Tăcere în timpul apelurilor” în Extensii → Citirea notificărilor."),
+            "fullscreen": ("Не читаю уведомления, пока открыто полноэкранное приложение. Скажите «что пришло», "
+                           "чтобы услышать их.",
+                           "I'm not reading notifications while a full-screen app is open. Say “what came in” to hear them.",
+                           "Nu citesc notificările cât timp o aplicație e pe tot ecranul. Spune „ce a venit” ca să le auzi."),
+        }[reason]
+        self._notify(_tr3(*texts, self.language).format(app=app))
 
     def _speak_notification(self, value):
         if hasattr(self.host, "_queue_speech"):

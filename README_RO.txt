@@ -1,5 +1,9 @@
-LUXAI LOCAL 0.4.3m — ACTUALIZARE 2026-11-21
+LUXAI LOCAL 0.4.3n — ACTUALIZARE 2026-11-21
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.3n: Citirea notificărilor spune acum o dată de ce tace: de exemplu „Nu citesc notificările cât timp
+Discord folosește microfonul (apel)” — cu opțiunea „Tăcere în timpul apelurilor” pornită, un canal
+vocal Discord ținea toate notificările doar pentru „ce a venit”, fără niciun mesaj.
 
 0.4.3m: Subtitrările nu se mai dublează (aceeași frază recunoscută de două ori apare o singură dată).
 Când sari în film (sau YouTube trece la alt minut), video-ul așteaptă puțin, de obicei 3–4 s, cel
