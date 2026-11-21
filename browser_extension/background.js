@@ -96,6 +96,8 @@ function enqueue(tab, kind, value) {
     slot.closed = (slot.closed || []).concat(value);
     slot.state = null; // a state of the closed document must never arrive after the «closed»
   } else {
+    if (slot.state?.buffer && !value.buffer && slot.state.doc === value.doc
+        && slot.state.session === value.session) value.buffer = slot.state.buffer;
     slot.state = value;
   }
   waiting.set(tab, slot);
@@ -108,7 +110,7 @@ async function pump(tab) {
       const slot = waiting.get(tab);
       waiting.delete(tab);
       if (wanted && slot.closed) await post("state", { event: "closed", tab: tab, docs: slot.closed });
-      if (wanted && slot.state) await post("state", slot.state);
+      if (wanted && slot.state) await post(slot.state.buffer ? "audio" : "state", slot.state);
     }
   } finally {
     busy.delete(tab);
@@ -212,6 +214,10 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     closeDocs(tab, ([doc]) => doc === message.doc);
     return;
   }
+  if (message.type === "jarvis-buffer-check" && usesLiveAudio(sender.url)) {
+    askWant().then((active) => reply({ want: !!active && sender.tab.active }), () => reply({ want: false }));
+    return true;
+  }
   if (message.type !== "jarvis-video") return;
   (async () => {
     if (!(await askWant())) {
@@ -256,6 +262,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
       rate: message.rate,
       duration: message.duration,
       src: liveOnly ? "" : message.src || "",
+      buffer: liveOnly && sender.tab.active && message.visible ? message.buffer : undefined,
       media: own.map((item) => ({ url: item.url, type: item.type })),
     });
     reply({ want: true, needSeen: !liveOnly && !seen });

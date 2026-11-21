@@ -16,8 +16,10 @@ The local bridge listens on 127.0.0.1 only and accepts requests only from a brow
 """
 from __future__ import annotations
 
+import base64
 import bisect
 import hmac
+import io
 import json
 import os
 import re
@@ -38,6 +40,7 @@ FIRST_CHUNK_SECONDS = 10.0  # where nothing is prepared yet (start, a seek): the
 CATCH_UP_SECONDS = 20.0    # closer than this to the player, the fast model works (it must get ahead first)
 EDGE_SECONDS = 1.5         # a line ending this close to a piece's end is redone with the next piece
 MAX_BODY = 64 * 1024
+MAX_AUDIO_BODY = 432 * 1024
 MAX_URLS = 20
 STALE_SECONDS = 5.0        # no report for this long → prepared lines are not shown (heartbeat: 1 s / 3 s paused)
 GONE_SECONDS = 20.0        # no report for this long → the preparation stops (tab closed, browser gone)
@@ -99,6 +102,8 @@ class Cue:
 
         Words appear as they are spoken; the translation follows the same share of the line (its word
         order differs, so it is revealed by proportion, at word boundaries)."""
+        if position < self.start:
+            return 0, 0
         if position >= self.end or not self.words:
             return len(self.text), len(self.translation)
         spoken = 0
@@ -545,6 +550,9 @@ class FilmTranscriber:
             self._stop.wait(1.0)
             return start
         self._empty = 0
+        return self._prepare_audio(model, audio, begin, start, end, final)
+
+    def _prepare_audio(self, model, audio, begin: float, start: float, end: float, final: bool) -> float:
         if len(audio) < 16000 * 0.5:
             self.timeline.add([], start, end)  # decoded and (nearly) silent: really nothing said here
             return end
@@ -596,8 +604,109 @@ class FilmTranscriber:
         return next_start
 
 
+def decode_browser_audio(kind: str, offset: float, data: bytes):
+    """Yield contiguous 16 kHz audio with timestamps on the browser player's clock."""
+    import av
+
+    with av.open(io.BytesIO(data), format="matroska" if kind == "webm" else "mov") as container:
+        if not container.streams.audio:
+            return
+        stream = container.streams.audio[0]
+        resampler = av.AudioResampler(format="flt", layout="mono", rate=16000)
+        start = None
+        parts = []
+        count = 0
+        total = 0
+        try:
+            for frame in container.decode(stream):
+                if frame.time is None:
+                    continue
+                moment = frame.time + offset
+                if not -60 <= moment < 10 ** 7:
+                    continue
+                frame.pts = None
+                samples = np.concatenate([piece.to_ndarray().reshape(-1) for piece in resampler.resample(frame)]
+                                         or [np.empty(0, dtype=np.float32)])
+                if not len(samples):
+                    continue
+                total += len(samples)
+                if total > 60 * 16000:
+                    break
+                if start is None:
+                    start = moment
+                gap = round((moment - start) * 16000) - count
+                if abs(gap) > 1600:
+                    if parts:
+                        yield start, np.concatenate(parts)
+                    start, parts, count, gap = moment, [], 0, 0
+                if gap > 0:
+                    parts.append(np.zeros(gap, dtype=np.float32))
+                    count += gap
+                if gap < 0:
+                    samples = samples[-gap:]
+                parts.append(samples)
+                count += len(samples)
+        except av.FFmpegError:
+            pass  # the last fragment may end in the middle of a packet
+        if parts:
+            yield start, np.concatenate(parts)
+
+
+class BufferedFilmTranscriber(FilmTranscriber):
+    """Prepare cues from the browser's already loaded media instead of opening a remote source."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._packet_ready = threading.Event()
+        self._packet_lock = threading.Lock()
+        self._packet = None
+
+    def submit(self, packet):
+        with self._packet_lock:
+            self._packet = packet
+            self._packet_ready.set()
+
+    def stop(self):
+        super().stop()
+        self._packet_ready.set()
+
+    def _work(self):
+        import av
+
+        model = None
+        while not self._stop.is_set():
+            self._packet_ready.wait()
+            with self._packet_lock:
+                packet, self._packet = self._packet, None
+                self._packet_ready.clear()
+            if self._stop.is_set() or packet is None:
+                continue
+            kind, _track, offset, data = packet
+            try:
+                for begin, audio in decode_browser_audio(kind, offset, data):
+                    if not self._stop.is_set():
+                        model = self._prepare_available(model, begin, audio)
+            except av.FFmpegError:
+                continue
+
+    def _prepare_available(self, model, begin, audio):
+        position = self.clock.position()
+        first = max(0.0, begin, position - 0.8)
+        start = self.timeline.covered_until(first)
+        end = begin + len(audio) / 16000
+        if end - start < 0.6:
+            return model
+        if model is None:
+            model = (self.fast_model_provider or self.model_provider)()
+        start_sample = max(0, round((start - begin) * 16000))
+        final = bool(self.video_duration and end >= self.video_duration - 0.25)
+        self._prepare_audio(model, audio[start_sample:], begin + start_sample / 16000, start, end, final)
+        self.ready.set()
+        return model
+
+
 # -- the local bridge for the browser extension --------------------------------------------------------
-def parse_report(raw: bytes) -> dict | None:
+def parse_report(raw: bytes, *, with_audio: bool = False) -> dict | None:
     """A validated report from the extension, or None."""
     try:
         data = json.loads(raw.decode("utf-8"))
@@ -647,6 +756,23 @@ def parse_report(raw: bytes) -> dict | None:
         if safe_media_url(url):
             entries.append({"url": url, "type": kind})
     report["media"] = entries
+    if with_audio:
+        packet = data.get("buffer")
+        if (not uses_live_audio(report["page"]) or not report["active"] or not report["visible"]
+                or not isinstance(packet, dict) or packet.get("kind") not in ("webm", "mp4")):
+            return None
+        try:
+            offset = float(packet["offset"])
+            track = int(packet["track"])
+            encoded = packet["data"]
+            if not -10 ** 6 < offset < 10 ** 6 or not 0 < track < 10 ** 9 or not isinstance(encoded, str):
+                return None
+            audio = base64.b64decode(encoded, validate=True)
+        except (KeyError, TypeError, ValueError, OverflowError):
+            return None
+        if not 0 < len(audio) <= 312 * 1024:
+            return None
+        report["buffer"] = (packet["kind"], track, offset, audio)
     return report
 
 
@@ -741,7 +867,9 @@ class _Handler(BaseHTTPRequestHandler):
         except ValueError:
             self._answer(400, origin)
             return
-        if not origin or self.path not in ("/v1/state", "/v1/hello", "/v1/want") or not 0 < length <= MAX_BODY:
+        audio_request = self.path == "/v1/audio"
+        limit = MAX_AUDIO_BODY if audio_request else MAX_BODY
+        if not origin or self.path not in ("/v1/state", "/v1/hello", "/v1/want", "/v1/audio") or not 0 < length <= limit:
             self._answer(403)
             return
         if not self._paired():
@@ -756,12 +884,15 @@ class _Handler(BaseHTTPRequestHandler):
             # «Are captions on?» Nothing is sent about the page until Jarvis says yes (audit 4 #14).
             self._answer(200, origin, {"ok": True, "want": want})
             return
+        if audio_request and not want:
+            self._answer(200, origin, {"ok": True, "want": False})
+            return
         if self.path == "/v1/hello":
             report = parse_hello(raw)
             report["extension"] = origin.rsplit("/", 1)[-1]
             target = self.server.on_hello
         else:
-            report = parse_report(raw)
+            report = parse_report(raw, with_audio=audio_request)
             target = self.server.on_report
         if report is None or len(raw) != length:
             self._answer(400, origin)

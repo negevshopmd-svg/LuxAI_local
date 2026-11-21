@@ -59,6 +59,41 @@
   let href = location.href;
   let seq = 0;            // reports are numbered: Jarvis ignores a late one
   let session = 0;        // a new source in the player = a new media session
+  let audioPacket = null;
+
+  function armBufferedAudio(reset = false) {
+    if (!liveOnly) return;
+    window.postMessage({ type: "jarvis-buffer-control", active: want && !document.hidden,
+                         src: current?.currentSrc || "", reset }, location.origin);
+  }
+
+  if (liveOnly) {
+    function checkBufferedAudio() {
+      chrome.runtime.sendMessage({ type: "jarvis-buffer-check" }, (answer) => {
+        if (chrome.runtime.lastError || current) return;
+        want = !!answer?.want;
+        armBufferedAudio();
+      });
+    }
+    checkBufferedAudio();
+    window.addEventListener("message", (event) => {
+      const packet = event.data;
+      if (!want || document.hidden || event.source !== window || event.origin !== location.origin
+          || packet?.type !== "jarvis-buffer-audio" || !(packet.bytes instanceof ArrayBuffer)
+          || packet.bytes.byteLength > 312 * 1024 || !["webm", "mp4"].includes(packet.kind)
+          || !Number.isInteger(packet.track) || !Number.isFinite(packet.offset)) return;
+      const video = current || document.querySelector("video, audio");
+      if (!video || video.currentSrc !== packet.src) return;
+      adopt(video);
+      const bytes = new Uint8Array(packet.bytes);
+      let encoded = "";
+      for (let i = 0; i < bytes.length; i += 8192) encoded += String.fromCharCode(...bytes.subarray(i, i + 8192));
+      audioPacket = { src: packet.src, kind: packet.kind, track: packet.track, offset: packet.offset,
+                      data: btoa(encoded) };
+      soonReport();
+    });
+    document.addEventListener("visibilitychange", () => armBufferedAudio(document.hidden));
+  }
 
   function report() {
     soon = null;
@@ -75,6 +110,8 @@
     const reportDoc = doc;
     const reportSeq = seq;
     const seen = want && resourceSnapshot !== publishedResources ? resourceSnapshot : undefined;
+    const audio = liveOnly && want && !document.hidden && audioPacket?.src === src ? audioPacket : undefined;
+    audioPacket = null;
     try {
       chrome.runtime.sendMessage({
         type: "jarvis-video",
@@ -92,6 +129,7 @@
         duration: isFinite(video.duration) ? video.duration : 0,
         src: !liveOnly && /^https?:/i.test(src) ? src : "",
         seen: seen,
+        buffer: audio && { kind: audio.kind, track: audio.track, offset: audio.offset, data: audio.data },
       }, (answer) => {
         void chrome.runtime.lastError; // no answer (the extension restarted): nothing to do
         if (doc !== reportDoc || seq !== reportSeq) return;
@@ -99,6 +137,7 @@
         if (answer?.needSeen) publishedResources = null;
         else if (want && seen) publishedResources = seen;
         trackResources(want);
+        armBufferedAudio();
       });
     } catch (e) { /* the extension was reloaded: this page needs a refresh */ }
   }
@@ -112,6 +151,7 @@
       current = video;
       session += 1; // another player element
       stalled = false;
+      armBufferedAudio();
     }
   }
 
@@ -126,6 +166,10 @@
     else if (!current && video.readyState > 0) adopt(video);
     if (video !== current) return;
     if (event.type === "loadstart" || event.type === "emptied") session += 1; // a new source (blob players too)
+    if (event.type === "seeking") {
+      audioPacket = null;
+      armBufferedAudio(true);
+    }
     if (event.type === "waiting" || event.type === "stalled") stalled = true;
     if (event.type === "playing" || event.type === "seeked" || event.type === "pause") stalled = false;
     if (want || event.type === "playing") soonReport();
@@ -141,7 +185,7 @@
   }, true);
 
   // Media events do not bubble, but the capture phase on the document sees them.
-  for (const name of ["play", "playing", "pause", "seeked", "ratechange", "loadedmetadata", "loadstart",
+  for (const name of ["play", "playing", "pause", "seeking", "seeked", "ratechange", "loadedmetadata", "loadstart",
                       "waiting", "stalled", "ended", "emptied"]) {
     document.addEventListener(name, follow, true);
   }
@@ -157,6 +201,10 @@
   // The page goes away (navigation, closed tab): its document is closed at once.
   window.addEventListener("pagehide", () => {
     trackResources(false);
+    if (liveOnly) {
+      want = false;
+      armBufferedAudio(true);
+    }
     try {
       chrome.runtime.sendMessage({ type: "jarvis-bye", doc: doc }, () => void chrome.runtime.lastError);
     } catch (e) { /* extension reloaded */ }

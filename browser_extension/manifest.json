@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Jarvis Film Captions",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Tells Jarvis (LuxAI Local) which video plays and where, so it can prepare captions ahead. Talks only to 127.0.0.1, and only while Jarvis shows captions.",
   "permissions": [
     "webRequest",
@@ -15,6 +15,19 @@
     "service_worker": "background.js"
   },
   "content_scripts": [
+    {
+      "matches": ["*://*.youtube.com/*", "*://*.youtube-nocookie.com/*"],
+      "js": ["youtube_audio.js"],
+      "all_frames": true,
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["*://*.youtube.com/*", "*://*.youtube-nocookie.com/*"],
+      "js": ["content.js"],
+      "all_frames": true,
+      "run_at": "document_start"
+    },
     {
       "matches": [
         "<all_urls>"

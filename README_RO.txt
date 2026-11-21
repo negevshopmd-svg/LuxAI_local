@@ -1,5 +1,9 @@
-LUXAI LOCAL 0.4.3g — ACTUALIZARE 2026-11-21
+LUXAI LOCAL 0.4.3h — ACTUALIZARE 2026-11-21
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.3h: Jarvis pregătește și traduce în avans sunetul pe care YouTube l-a încărcat deja în browser.
+Textul pregătit apare la momentul rostirii. Dacă audio-ul din avans lipsește, continuă subtitrarea live.
+Reîncarcă extensia Jarvis 1.5.0 în pagina de extensii și reîmprospătează fila YouTube.
 
 0.4.3g: Subtitrările pregătite recunosc surse fără extensie, inclusiv după „Înapoi”, și închid
 conexiunile întrerupte. Mementourile acceptă „a.m.”, „p.m.” și durate precum „two and a half hours”.

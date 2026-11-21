@@ -1361,10 +1361,11 @@ class ExtensionsRuntime(QObject):
             active = report.get("active", looked_at) and report.get("visible", True)
             if active and not report.get("ended", False):
                 self._film_live_browser = (*key, now)
-                if self._film is not None:
-                    self._drop_film()  # re-enable audio transcription for the selected browser player
+                self._on_buffered_browser_audio(report, looked_at)
             elif selection is not None and selection[:3] == key:
                 self._film_live_browser = None
+                if self._film is not None and self._film[0][0] == key[0] and self._film_doc == key[2]:
+                    self._drop_film()
             return True
         if selection is not None:
             if now - selection[3] <= GONE_SECONDS and not looked_at:
@@ -1372,8 +1373,28 @@ class ExtensionsRuntime(QObject):
             self._film_live_browser = None
         return False
 
-    def _start_film(self, key, report, candidates):
-        from luxai.film_captions import CueTimeline, FilmTranscriber, PlayerClock
+    def _on_buffered_browser_audio(self, report, looked_at: bool):
+        from luxai.film_captions import BufferedFilmTranscriber
+
+        film = self._film
+        key = self._film_key(report)
+        packet = report.get("buffer")
+        if film is None or film[0] != key or not isinstance(film[3], BufferedFilmTranscriber) or film[3].stopped:
+            if film is not None:
+                self._drop_film()
+            if packet is None or self._film_waiting(key):
+                return  # no buffered audio yet: keep the ordinary live captions visible
+            self._start_film(key, report, [], buffered=True)
+            film = self._film
+        else:
+            film[1].update(report["time"], report["paused"], report["rate"], report["duration"],
+                           stalled=report.get("stalled", False), ended=report.get("ended", False))
+        self._film_looked_at = looked_at
+        if packet is not None:
+            film[3].submit(packet)
+
+    def _start_film(self, key, report, candidates, *, buffered: bool = False):
+        from luxai.film_captions import BufferedFilmTranscriber, CueTimeline, FilmTranscriber, PlayerClock
         from luxai.live_captions import caption_model
         self._drop_film()
         clock, timeline = PlayerClock(), CueTimeline()
@@ -1390,7 +1411,8 @@ class ExtensionsRuntime(QObject):
         fast = lambda: caption_model("small", threads=6)  # noqa: E731
         precise = fast if self.settings("live_captions").get("film_model", "precise") == "fast" \
             else (lambda: caption_model("large-v3-turbo", threads=8))
-        transcriber = FilmTranscriber(candidates, report["page"], clock, timeline, precise,
+        worker_type = BufferedFilmTranscriber if buffered else FilmTranscriber
+        transcriber = worker_type(candidates, report["page"], clock, timeline, precise,
                                       language=self._caption_language(), translate=translate,
                                       on_error=self._film_error.emit, video_duration=report["duration"],
                                       fast_model_provider=fast, ahead_seconds=self._film_ahead_seconds())

@@ -1,4 +1,8 @@
-LUXAI LOCAL (JARVIS) 0.4.3g — UPDATE 2026-11-21
+LUXAI LOCAL (JARVIS) 0.4.3h — UPDATE 2026-11-21
+
+0.4.3h: Jarvis prepares and translates audio already buffered by YouTube in the browser.
+Prepared text appears on the playback clock. Live captions fill in when buffered audio is unavailable.
+Reload Jarvis extension 1.5.0 on the extensions page and refresh the YouTube tab.
 
 0.4.3g: Film captions recognize extensionless media URLs, including after Back, and close interrupted
 connections. Reminders understand “a.m.”, “p.m.” and durations such as “two and a half hours”.

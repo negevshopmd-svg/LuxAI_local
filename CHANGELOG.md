@@ -1,3 +1,11 @@
+## 0.4.3h — Prepare and synchronize subtitles on YouTube (2026-11-21)
+
+- Extension 1.5.0 uses audio the selected YouTube player has already buffered. It sends small,
+  bounded WebM/MP4 windows to Jarvis only while captions are active. Jarvis recognizes and translates
+  the speech on the PC and shows the prepared words against the browser playback clock.
+- Live captions fill in while the player has no usable buffered audio or the first window is still
+  being prepared. No second download of the video is needed.
+
 ## 0.4.3g — Media and reminder reliability (2026-11-21)
 
 - The media gateway closes upstream connections on interrupted responses and registers the TLS socket

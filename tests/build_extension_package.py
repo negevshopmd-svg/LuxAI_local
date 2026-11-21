@@ -15,7 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "browser_extension"
-FILES = ("manifest.json", "background.js", "content.js", "icon128.png")
+FILES = ("manifest.json", "background.js", "content.js", "youtube_audio.js", "icon128.png")
 
 
 def main() -> int:
