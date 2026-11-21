@@ -1,3 +1,16 @@
+## 0.4.3o — Tests for the seven modules no test named (2026-11-21)
+
+- The module map showed 7 modules (orange) that no test named: `atomic_io`, `voice_presets`, `app_icons`,
+  `ui_convert_circle`, `ui_clipboard`, `ui_command_fields`, `ui_command_menu`. `tests/test_untested_modules_043o.py`
+  (32 tests) checks what a user would notice: a briefly locked file is retried and a locked one keeps its old
+  content with no temporary file left; each language's Piper voice is consistent and used by the voice engine;
+  every command-library tile draws (dark/light, cached, failing lookups); the converter circle picks by mouse,
+  arrows, Enter and digits, once; the region picker and crop give image pixels; clipboard search, keys
+  (Enter, Shift+Enter, Del, Ctrl+P), menus without text actions for pictures, no rebuild when nothing changed;
+  phrase chips drop duplicates, keep typed phrases and wrap; the command menu's red delete row.
+- Found and fixed: the converter's radial menu divided by zero on an arrow key when it had no items, and a
+  dragged screen region / crop was one pixel larger than dragged (QRect(p1, p2) counts both corners).
+
 ## 0.4.3n — The notification reader says why it is silent (2026-11-21)
 
 - Reported: «the message reading plugin does not work». Checked live on the user's PC: the Windows

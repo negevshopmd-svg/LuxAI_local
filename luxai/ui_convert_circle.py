@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import math
 
-from PySide6.QtCore import QPointF, QRect, QRectF, Qt, Signal
+from PySide6.QtCore import QPointF, QRect, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QCursor, QFont, QGuiApplication, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
@@ -148,6 +148,8 @@ class RadialMenu(QWidget):
         key = event.key()
         if key == Qt.Key.Key_Escape:
             self._cancel()
+        elif not self.items:
+            super().keyPressEvent(event)  # nothing to choose: arrows used to divide by zero
         elif key in (Qt.Key.Key_Right, Qt.Key.Key_Down):
             self.current = (self.current + 1) % len(self.items)
             self.update()
@@ -182,6 +184,12 @@ class RadialMenu(QWidget):
         self._done = True
         self.close()
         self.cancelled.emit()
+
+
+def _drag_rect(origin, point) -> QRect:
+    """The rectangle a drag covers: 10→110 is 100 px (QRect(p1, p2) would give 101)."""
+    return QRect(min(origin.x(), point.x()), min(origin.y(), point.y()),
+                 abs(point.x() - origin.x()), abs(point.y() - origin.y()))
 
 
 class RegionSelector(QWidget):
@@ -226,12 +234,12 @@ class RegionSelector(QWidget):
 
     def mousePressEvent(self, event):
         self.origin = event.position().toPoint()
-        self.rect_ = QRect(self.origin, self.origin)
+        self.rect_ = QRect(self.origin, QSize(0, 0))
         self.update()
 
     def mouseMoveEvent(self, event):
         if self.origin is not None:
-            self.rect_ = QRect(self.origin, event.position().toPoint()).normalized()
+            self.rect_ = _drag_rect(self.origin, event.position().toPoint())
             self.update()
 
     def mouseReleaseEvent(self, event):
@@ -313,11 +321,11 @@ class _CropCanvas(QLabel):
 
     def mousePressEvent(self, event):
         self.origin = event.position().toPoint()
-        self.rect_ = QRect(self.origin, self.origin)
+        self.rect_ = QRect(self.origin, QSize(0, 0))
 
     def mouseMoveEvent(self, event):
         if self.origin is not None:
-            self.rect_ = QRect(self.origin, event.position().toPoint()).normalized()
+            self.rect_ = _drag_rect(self.origin, event.position().toPoint())
             self.update()
 
     def image_box(self):

@@ -1,5 +1,9 @@
-LUXAI LOCAL 0.4.3n — ACTUALIZARE 2026-11-21
+LUXAI LOCAL 0.4.3o — ACTUALIZARE 2026-11-21
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.3o: Teste noi pentru cele 7 module care nu aveau niciunul. Au găsit două greșeli, acum reparate:
+cercul convertorului se bloca la săgeți când nu avea nicio opțiune, iar zona selectată pe ecran
+ieșea cu un pixel mai mare.
 
 0.4.3n: Citirea notificărilor spune acum o dată de ce tace: de exemplu „Nu citesc notificările cât timp
 Discord folosește microfonul (apel)” — cu opțiunea „Tăcere în timpul apelurilor” pornită, un canal

@@ -1,4 +1,8 @@
-LUXAI LOCAL (JARVIS) 0.4.3n — UPDATE 2026-11-21
+LUXAI LOCAL (JARVIS) 0.4.3o — UPDATE 2026-11-21
+
+0.4.3o: New tests for the 7 modules that had none. They found two mistakes, now fixed: the converter's
+circle crashed on the arrow keys when it had no items, and a selected screen region came out one
+pixel larger.
 
 0.4.3n: The notification reader now says once why it is silent, e.g. «I'm not reading notifications while
 Discord uses the microphone (a call)» — with «Silent during calls» on, a Discord voice channel kept
