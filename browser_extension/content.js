@@ -13,6 +13,11 @@
   const discoveryLimit = 7000;
   let preparationLimit = 10000;  // Jarvis says how long the video may wait (setting «Wait for captions»)
   let underrunLimit = 8000;
+  let seekLimit = 8000;          // after a jump: until the first phrase there is ready (Jarvis says when)
+  const SEEK_JUMP = 10;          // seconds; smaller skips (arrow keys) are never held
+  let seekAllowedAt = 0;         // rapid scrubbing holds once, not at every step
+  let seekPending = false;
+  let lastTime = 0;              // where the followed video was before a jump
   const resources = new Map();
   let observer = null;
   let resourceSnapshot = [];
@@ -89,8 +94,10 @@
     if (!opening) return;
     const held = opening;
     opening = null;
-    retryAfter = performance.now() + 30000;
-    heldMs += performance.now() - held.started;
+    if (held.kind !== "seek") {
+      retryAfter = performance.now() + 30000;
+      heldMs += performance.now() - held.started; // seeks have their own short limit, every time
+    }
     clearTimeout(held.timeout);
     clearInterval(held.poll);
     // Resumed also when the source changed during the hold: the user pressed Play, the video must go on.
@@ -100,20 +107,26 @@
     soonReport();
   }
 
-  function tryOpening(video, underrun = false) {
-    if (!video || video !== current || opening || (triedOpening && !(underrun && performance.now() >= retryAfter))
-        || !canPreroll || !want || !activeTab || document.hidden
+  function tryOpening(video, kind = "start") {
+    const underrun = kind === "underrun";
+    const seek = kind === "seek";
+    if (!video || video !== current || opening) return;
+    if (seek ? performance.now() < seekAllowedAt
+             : (triedOpening && !(underrun && performance.now() >= retryAfter))) return;
+    if (!canPreroll || !want || !activeTab || document.hidden
         || protectedSource || video.paused || video.seeking || video.ended
         || !(video.duration >= MIN_HELD_DURATION) || video.duration === Infinity
         || (!video.currentSrc && !video.src) || (video.muted && video.loop)) return;
     if (liveOnly && video.closest?.(".ad-showing")) return; // a YouTube ad: never held
-    const budget = Math.min(underrun ? underrunLimit : preparationLimit, preparationLimit - heldMs);
+    const budget = seek ? seekLimit
+      : Math.min(underrun ? underrunLimit : preparationLimit, preparationLimit - heldMs);
     if (budget < 500) return; // this page has waited enough
-    triedOpening = true;
+    if (seek) seekAllowedAt = performance.now() + 4000;
+    else triedOpening = true;
     gestureUntil = 0;
-    opening = { video, session, page: location.href, position: video.currentTime,
+    opening = { video, session, page: location.href, position: video.currentTime, kind,
                 started: performance.now(), limit: budget, preparing: false,
-                timeout: setTimeout(() => releaseOpening(true), Math.min(discoveryLimit, budget)),
+                timeout: setTimeout(() => releaseOpening(true), seek ? budget : Math.min(discoveryLimit, budget)),
                 poll: setInterval(() => {
                   if (opening && !opening.video.paused) opening.video.pause();
                   soonReport();
@@ -173,7 +186,8 @@
       }
       if (total > 2080 * 1024) return;
       const video = current || document.querySelector("video, audio");
-      if (!video || video.currentSrc !== packet.src) return;
+      // Only the followed player, playing from a MediaSource (blob:) whose buffer the hook really read.
+      if (!video || video.currentSrc !== packet.src || !/^blob:/i.test(packet.src)) return;
       adopt(video);
       const next = { src: packet.src, kind: packet.kind, track: packet.track, offset: packet.offset,
                      epoch: packet.epoch, full: packet.full === true, header: encode(packet.header),
@@ -228,6 +242,7 @@
         time: video.currentTime,
         paused: video.paused,
         preroll: opening?.video === video,
+        prerollKind: opening?.video === video ? opening.kind : undefined,
         stalled: stalled,
         ended: video.ended,
         rate: video.playbackRate,
@@ -244,6 +259,7 @@
         activeTab = !!answer?.active;
         if (Number.isFinite(answer?.holdMs)) preparationLimit = Math.max(0, Math.min(30000, answer.holdMs));
         if (Number.isFinite(answer?.underrunMs)) underrunLimit = Math.max(0, Math.min(15000, answer.underrunMs));
+        if (Number.isFinite(answer?.seekMs)) seekLimit = Math.max(0, Math.min(15000, answer.seekMs));
         if (opening && answer?.openingPreparing && !opening.preparing) {
           opening.preparing = true;
           clearTimeout(opening.timeout);
@@ -253,7 +269,7 @@
         if (opening && (answer?.openingReady || !want || !activeTab || video.duration === Infinity)) {
           releaseOpening(true);
         } else if (!opening) {
-          tryOpening(video, answer?.underrun === true);
+          tryOpening(video, answer?.underrun === true ? "underrun" : "start");
         }
         if (answer?.needFull) resync();
         if (answer?.needSeen) publishedResources = null;
@@ -322,7 +338,15 @@
         armBufferedAudio(true);
       }
       stalled = true;
+      // A real jump (the user or YouTube moved to another minute): once the player plays there, it waits a
+      // moment until Jarvis has the first phrase of the new place ready.
+      if (Math.abs(video.currentTime - lastTime) >= SEEK_JUMP) seekPending = true;
     }
+    if (seekPending && (event.type === "seeked" || event.type === "playing") && !video.paused && !video.seeking) {
+      seekPending = false;
+      tryOpening(video, "seek");
+    }
+    if (event.type === "pause" && !opening) seekPending = false; // paused by the user: nothing to wait for
     if (event.type === "waiting" || event.type === "stalled") stalled = true;
     if (event.type === "playing" || event.type === "seeked" || event.type === "pause") stalled = false;
     if (want || event.type === "playing") soonReport();
@@ -331,6 +355,7 @@
   // A video that started before this script loaded: adopted at its next time update (cheap: only while
   // nothing is followed yet).
   document.addEventListener("timeupdate", (event) => {
+    if (event.target === current && !current.seeking) lastTime = current.currentTime;
     if (!current && isPlayer(event.target) && !event.target.paused) {
       adopt(event.target);
       soonReport();

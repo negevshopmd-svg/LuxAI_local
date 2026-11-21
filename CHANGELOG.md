@@ -1,3 +1,25 @@
+## 0.4.3m — One line per sentence; a short wait after a jump; the three small risks (2026-11-21)
+
+- Reported (screenshot): the same sentence twice on the bar («Броняо-британского марк первый…» /
+  «Броня у британского марк 1…»). Since 0.4.3g only identical words counted as the same line, so the fast draft
+  and the precise line of one sentence both stayed. Every line now carries its recognition pass; a line of
+  ANOTHER pass that overlaps in time and shares most words (≥ 60 %, similar length; ≥ 85 % even with shifted
+  timing) replaces the old one. Lines of one pass never replace each other («You can watch now» / «You cannot
+  watch now»; «Go» / «Do not go» stay).
+- After a jump of 10 s or more (the user, or YouTube moving to another minute) the extension holds the playing
+  video until Jarvis has the first phrase there (at most 8 s; small skips and rapid scrubbing are not held).
+  The player clock counts jumps; the worker drops the rest of a piece the player jumped away from (no more
+  translations of the old place) and leaves it unprepared.
+- Risk 1: the player hook is permanent only on YouTube; on other sites it is registered (``scripting``) only
+  while captions are on, for pages opened then, and removed when they are turned off.
+- Risk 2: audio is accepted only from the followed player playing a MediaSource (``blob:``), and audio stamped
+  outside the film's length is ignored. A page can still post audio of its own while captions are on (it runs
+  where the hook runs); it can only affect the captions of that page.
+- Risk 3: closing a tab is reported again after the extension's background was restarted.
+- Measured on three films from the user's YouTube history (Edge, temporary profile):
+  per jump of 2 and 3+ minutes the video waited 3.6 s / 0.2 s, 5.6 s / 0.1 s and 7.9 s / 2.7 s; the first
+  phrase of the new place was on the bar when it played again; no sentence was shown twice.
+
 ## 0.4.3l — Review of the browser-caption work of 0.4.3g–k (2026-11-21)
 
 Measured with a real Edge (temporary profile, extension copy on another port) on a public YouTube talk:

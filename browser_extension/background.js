@@ -28,7 +28,7 @@ let pausedUntil = 0;
 let wanted = null;      // null until the first check after a worker restart
 let wantAskedAt = 0;
 let prerollSupported = false;
-let holdLimits = { holdMs: 10000, underrunMs: 8000 }; // how long Jarvis lets the video wait
+let holdLimits = { holdMs: 10000, underrunMs: 8000, seekMs: 8000 }; // how long Jarvis lets the video wait
 let wantPending = null;
 
 async function post(path, body) {
@@ -62,7 +62,9 @@ async function post(path, body) {
       if (data && "want" in data) {
         // Every answer says whether the video may wait (the setting can change at any time).
         prerollSupported = data.preroll === true;
-        if (Number.isFinite(data.hold_ms)) holdLimits = { holdMs: data.hold_ms, underrunMs: data.underrun_ms };
+        if (Number.isFinite(data.hold_ms)) {
+          holdLimits = { holdMs: data.hold_ms, underrunMs: data.underrun_ms, seekMs: data.seek_ms };
+        }
       }
       if (data && "want" in data) {
         setWanted(!!data.want);
@@ -128,7 +130,8 @@ async function pump(tab) {
     while (waiting.has(tab)) {
       const slot = waiting.get(tab);
       waiting.delete(tab);
-      if (wanted && slot.closed) await post("state", { event: "closed", tab: tab, docs: slot.closed });
+      // «wanted» is null right after a restart: the close is still sent (Jarvis ignores unknown tabs).
+      if (wanted !== false && slot.closed) await post("state", { event: "closed", tab: tab, docs: slot.closed });
       if (wanted && slot.state) {
         const state = slot.state;
         const result = await post(state.buffer ? "audio" : "state", state);
@@ -187,8 +190,30 @@ function setWanted(next) {
     docs.clear();
     waiting.clear();
   }
+  if (!!next !== !!wanted) setPlayerHook(!!next);
   wanted = next;
 }
+
+// The hook that reads a player's buffered audio is always present only on YouTube (it must see the start of
+// the audio track). On other sites it is registered only while Jarvis shows captions, for pages opened from
+// then on, and removed again when they are turned off: with captions off no other site is touched.
+const HOOK_ID = "jarvis-buffer-audio";
+let hookChange = Promise.resolve();
+function setPlayerHook(on) {
+  hookChange = hookChange.then(async () => {
+    const present = (await chrome.scripting.getRegisteredContentScripts({ ids: [HOOK_ID] })).length > 0;
+    if (on && !present) {
+      await chrome.scripting.registerContentScripts([{
+        id: HOOK_ID, js: ["youtube_audio.js"], matches: ["http://*/*", "https://*/*"],
+        excludeMatches: ["*://*.youtube.com/*", "*://*.youtube-nocookie.com/*"],
+        allFrames: true, runAt: "document_start", world: "MAIN", persistAcrossSessions: false,
+      }]);
+    } else if (!on && present) {
+      await chrome.scripting.unregisterContentScripts({ ids: [HOOK_ID] });
+    }
+  }).catch(() => { /* an older browser without dynamic MAIN-world scripts: YouTube still works */ });
+}
+setPlayerHook(false); // a restarted worker starts from «captions off» until Jarvis says otherwise
 
 function usesLiveAudio(url) {
   try {
@@ -230,6 +255,7 @@ chrome.webRequest.onHeadersReceived.addListener((details) => {
 chrome.tabs.onRemoved.addListener((tabId) => {
   if (wanted) update(tabId, () => null);
   if (docs.has(tabId)) closeDocs(tabId, () => true);
+  else if (wanted !== false) enqueue(tabId, "closed", []); // documents unknown (worker restarted): the whole tab
 });
 chrome.tabs.onUpdated.addListener((tabId, change) => {
   if (change.url) {
@@ -295,6 +321,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
       time: message.time,
       paused: message.paused,
       preroll: message.preroll === true && sender.tab.active && message.visible,
+      preroll_kind: message.prerollKind === "seek" ? "seek" : "start",
       stalled: message.stalled,
       ended: message.ended,
       rate: message.rate,

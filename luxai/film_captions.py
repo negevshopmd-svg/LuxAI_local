@@ -50,6 +50,10 @@ BROWSER_START_CHUNK = 8.0
 # the video 28 s before this limit).
 OPENING_RESERVE_SECONDS = 12.0
 OPENING_HOLD_MS = 10000
+# After a jump (a seek, YouTube moving to another minute) the video waits only for the first phrase there.
+SEEK_RESERVE_SECONDS = 6.0
+SEEK_HOLD_MS = 8000  # at most; it goes on as soon as the first phrase there is ready (3–4 s measured)
+_PASS_IDS = iter(range(1, 10 ** 12))
 UNDERRUN_HOLD_MS = 8000
 WAIT_MODES = ("start", "off", "always")
 MAX_URLS = 20
@@ -72,11 +76,19 @@ class PlayerClock:
         self.duration = 0.0
         self.reported = 0.0  # time.monotonic() of the last report, 0 = never
         self.preroll = False
+        self.jumps = 0       # seeks seen (a report far from where the player should be)
 
     def update(self, position: float, paused: bool, rate: float = 1.0, duration: float = 0.0, now=None,
                stalled: bool = False, ended: bool = False, preroll: bool = False):
         """``stalled`` (buffering) and ``ended`` freeze the clock like a pause (audit 3 #23)."""
         with self._lock:
+            moment = time.monotonic() if now is None else now
+            if self.reported:
+                expected = self.time if self.paused else self.time + max(0.0, moment - self.reported) * self.rate
+                # Far from where it should be AND from where it was: a player that stopped without a report
+                # (buffering) is not a jump.
+                if abs(float(position) - expected) > 5.0 and abs(float(position) - self.time) > 5.0:
+                    self.jumps += 1
             self.preroll = bool(preroll)
             self.time = max(0.0, float(position))
             self.paused = bool(paused or stalled or ended)
@@ -111,7 +123,7 @@ class Cue:
     words: tuple = ()
     provisional: bool = False
     translation_ready: bool = True
-
+    pass_id: int = 0  # the recognition pass (one Whisper run); 0 = unknown
     def shown(self, position: float) -> tuple[int, int]:
         """(characters of the text, characters of the translation) heard by ``position``.
 
@@ -167,15 +179,28 @@ class CueTimeline:
         self.covered: list[list[float]] = []  # merged [start, end) intervals
 
     @staticmethod
-    def same_line(old: Cue, cue: Cue, *, cut_at_edge: bool = False) -> bool:
-        """A repeat, or the completion of a line cut at a known chunk boundary."""
+    def same_line(old: Cue, cue: Cue, *, cut_at_edge: bool = False, other_pass: bool = False) -> bool:
+        """A repeat, the completion of a line cut at a known chunk boundary, or — from ANOTHER recognition
+        pass (the fast draft, then the precise model) — the same sentence heard a little differently.
+
+        Reported: «Броняо-британского марк первый была толщиной…» and «Броня у британского марк 1 была
+        толщиной…» were both shown, one above the other, because only identical words counted as the same
+        line. Lines of ONE pass are consecutive speech and never replace each other («You can watch now» /
+        «You cannot watch now» spoken one after the other both stay)."""
+        from difflib import SequenceMatcher
         overlap = min(old.end, cue.end) - max(old.start, cue.start)
         shorter = max(0.01, min(old.end - old.start, cue.end - cue.start))
-        if overlap <= 0.5 * shorter:
-            return False
         words = r"\w+(?:['’]\w+)*"
         a = re.findall(words, old.text.casefold().replace("’", "'"))
         b = re.findall(words, cue.text.casefold().replace("’", "'"))
+        if overlap <= 0:
+            return False
+        if other_pass and a and b and min(len(a), len(b)) / max(len(a), len(b)) >= 0.5:
+            similarity = SequenceMatcher(None, a, b, autojunk=False).ratio()
+            if similarity >= 0.85 or (similarity >= 0.6 and overlap > 0.5 * shorter):
+                return True
+        if overlap <= 0.5 * shorter:
+            return False
         if a == b:
             return bool(a) or old.text.strip() == cue.text.strip()
         return (cut_at_edge and 2 <= len(a) <= len(b) and len(a[-1]) >= 3
@@ -184,6 +209,7 @@ class CueTimeline:
 
     def add(self, cues, start: float, end: float) -> None:
         with self._lock:
+            batch = set()  # the lines of THIS pass (consecutive speech: never each other's duplicates)
             for cue in cues:
                 # Only the neighbours in time are looked at, and the index is kept up to date in place
                 # (audit 4 #19): a long film does not rescan every line for each new one.
@@ -196,12 +222,14 @@ class CueTimeline:
                         continue
                     stretch = self._stretch(old.start)
                     cut_at_edge = old.provisional or (stretch is not None and abs(stretch[1] - old.end) <= 0.05)
-                    if self.same_line(old, cue, cut_at_edge=cut_at_edge):
+                    other_pass = id(old) not in batch and (not old.pass_id or old.pass_id != cue.pass_id)
+                    if self.same_line(old, cue, cut_at_edge=cut_at_edge, other_pass=other_pass):
                         del self.cues[index]
                         del self._starts[index]
                     elif old.start < cue.start:
                         old.end = max(old.start + 0.01, min(old.end, cue.start))  # touching lines: both stay
                 position = bisect.bisect_right(self._starts, cue.start)
+                batch.add(id(cue))
                 self.cues.insert(position, cue)
                 self._starts.insert(position, cue.start)
                 self._longest = max(self._longest, cue.end - cue.start)
@@ -599,6 +627,18 @@ class FilmTranscriber:
                 language = None
         from luxai.live_captions import lone_filler, trustworthy
         from luxai.voice_rules import is_hallucinated_outro, is_repetitive_transcript
+
+        jumps = self.clock.jumps
+
+        def left_behind() -> bool:
+            # The player jumped (a seek) while this piece was being prepared: unless the new place is inside
+            # it, its remaining lines (and their translations) only delay the first phrase there, so they are
+            # dropped and the rest of the piece stays unprepared.
+            if self.clock.jumps == jumps:
+                return False
+            position = self.clock.position()
+            return not start - 1.0 <= position <= begin + len(audio) / 16000
+        pass_id = next(_PASS_IDS)
         segments, _info = model.transcribe(
             audio, language=language, beam_size=1 if self._urgent else 2, temperature=0.0, vad_filter=True,
             vad_parameters={"min_silence_duration_ms": 300, "speech_pad_ms": 200},
@@ -608,6 +648,9 @@ class FilmTranscriber:
         next_start = reached
         committed = max(start, begin)
         for segment in segments:
+            if left_behind():
+                next_start = committed  # only what was really prepared counts as prepared
+                break
             text = segment.text.strip()
             if not text or not trustworthy(segment) or lone_filler(text) \
                     or is_hallucinated_outro(text) or is_repetitive_transcript(text):
@@ -626,7 +669,7 @@ class FilmTranscriber:
                     last = float(words[-1].end)
                     stable_prefix = True
             cue = Cue(begin + first, min(reached, begin + max(last, first + 0.3)), text,
-                      words=word_marks(words, begin, text))
+                      words=word_marks(words, begin, text), pass_id=pass_id)
             if cue.end <= cue.start or self._stop.is_set():
                 continue
             if stable_prefix:
@@ -656,8 +699,11 @@ class FilmTranscriber:
         return next_start
 
 
-def decode_browser_audio(kind: str, offset: float, data: bytes, *, start_at: float | None = None):
-    """Yield contiguous 16 kHz audio with timestamps on the browser player's clock."""
+def decode_browser_audio(kind: str, offset: float, data: bytes, *, start_at: float | None = None,
+                         duration: float = 0.0):
+    """Yield contiguous 16 kHz audio with timestamps on the browser player's clock.
+    ``duration``: the player's film length; audio stamped outside it does not belong to this film (a page can
+    post its own «buffer» messages) and is ignored."""
     import av
 
     with av.open(io.BytesIO(data), format="matroska" if kind == "webm" else "mov") as container:
@@ -675,7 +721,7 @@ def decode_browser_audio(kind: str, offset: float, data: bytes, *, start_at: flo
                 if frame.time is None:
                     continue
                 moment = frame.time + offset
-                if not -60 <= moment < 10 ** 7:
+                if not -60 <= moment < 10 ** 7 or (duration and moment > duration + 5):
                     continue
                 if start_at is not None:
                     if moment + frame.samples / (frame.sample_rate or 16000) <= start_at:
@@ -762,7 +808,8 @@ class BufferedFilmTranscriber(FilmTranscriber):
             kind, _track, offset, data = snapshot
             self.waiting_for_audio = False
             try:
-                for begin, audio in decode_browser_audio(kind, offset, data, start_at=start_at):
+                for begin, audio in decode_browser_audio(kind, offset, data, start_at=start_at,
+                                                         duration=self.video_duration):
                     limit = min(BROWSER_AHEAD_SECONDS, self.ahead_seconds)
                     decoded_to_limit |= begin + len(audio) / 16000 >= start_at + limit - 0.1
                     self._prepare_available(models, begin, audio)
@@ -848,6 +895,7 @@ def parse_report(raw: bytes, *, with_audio: bool = False) -> dict | None:
             "visible": bool(data.get("visible", True)),   # the tab the user looks at (#6)
             "active": bool(data.get("active", data.get("focused", False))),
             "preroll": data.get("preroll") is True,
+            "preroll_kind": "seek" if data.get("preroll_kind") == "seek" else "start",
             "focused": bool(data.get("focused", False)),
         }
     except (TypeError, ValueError, OverflowError):
@@ -1072,6 +1120,7 @@ class _Handler(BaseHTTPRequestHandler):
         if self.server.on_preroll is not None and wait != "off":
             answer["preroll"] = True
             answer["hold_ms"] = OPENING_HOLD_MS
+            answer["seek_ms"] = SEEK_HOLD_MS
             answer["underrun_ms"] = UNDERRUN_HOLD_MS
         if self.path == "/v1/want":
             # «Are captions on?» Nothing is sent about the page until Jarvis says yes (audit 4 #14).

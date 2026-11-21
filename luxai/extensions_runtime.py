@@ -1460,11 +1460,13 @@ class ExtensionsRuntime(QObject):
         if film is None:
             return None
         timeline, worker = film
-        from luxai.film_captions import BROWSER_AHEAD_SECONDS, EDGE_SECONDS, OPENING_RESERVE_SECONDS
+        from luxai.film_captions import (BROWSER_AHEAD_SECONDS, EDGE_SECONDS, OPENING_RESERVE_SECONDS,
+                                         SEEK_RESERVE_SECONDS)
         position = report["time"]
         # The first lines and a short reserve are enough to start: the worker stays ahead while it plays.
-        target = min(position + BROWSER_AHEAD_SECONDS, position + worker.ahead_seconds,
-                     position + OPENING_RESERVE_SECONDS)
+        # After a jump only the first phrase of the new place is awaited.
+        reserve = SEEK_RESERVE_SECONDS if report.get("preroll_kind") == "seek" else OPENING_RESERVE_SECONDS
+        target = min(position + BROWSER_AHEAD_SECONDS, position + worker.ahead_seconds, position + reserve)
         if worker.video_duration:
             target = min(target, worker.video_duration)
         audio_range = getattr(worker, "audio_range", None)
@@ -1478,6 +1480,9 @@ class ExtensionsRuntime(QObject):
             # when the recognizer has exhausted this snapshot, even with a cut final phrase.
             target = min(target, position + 12 * min(4.0, max(1.0, report.get("rate", 1.0))))
         until = timeline.covered_until(position + 0.12)
+        if report.get("preroll_kind") == "seek" and until > position + 1.0 \
+                and timeline.opening_ready(position, allow_silence=True):
+            return True  # after a jump the first phrase is enough: the worker keeps ahead while it plays
         return until + 0.15 >= target and timeline.opening_ready(position, allow_silence=True)
 
     def _film_ahead_seconds(self) -> float:

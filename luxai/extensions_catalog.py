@@ -291,13 +291,17 @@ PLUGINS: tuple[Plugin, ...] = (
                           ("180", L("3 минуты", "3 minutes", "3 minute")),
                           ("60", L("1 минута", "1 minute", "1 minut")))),
          Setting("film_wait", "choice", L("Ждать субтитры", "Wait for captions", "Așteaptă subtitrările"), "start",
-                 hint=L("Расширение может ненадолго поставить видео на паузу, пока готовятся первые строки (до 10 с). "
+                 hint=L("Расширение может ненадолго поставить видео на паузу, пока готовятся первые строки (до 10 с), "
+                        "и после перемотки на 10 с и больше — пока не готова первая фраза (обычно 3–4 с, до 8 с). "
                         "«Также во время фильма»: короткие паузы до 8 с, если субтитры отстают.",
-                        "The extension may briefly pause the video while the first lines are prepared (up to 10 s). "
+                        "The extension may briefly pause the video while the first lines are prepared (up to 10 s), "
+                        "and after a jump of 10 s or more until the first phrase there is ready (usually 3–4 s, up to 8 s). "
                         "«Also during the film»: short holds of up to 8 s when the captions fall behind.",
-                        "Extensia poate pune scurt video pe pauză cât se pregătesc primele rânduri (până la 10 s). "
+                        "Extensia poate pune scurt video pe pauză cât se pregătesc primele rânduri (până la 10 s) "
+                        "și după o derulare de 10 s sau mai mult, până e gata prima frază (de obicei 3–4 s, cel mult 8 s). "
                         "„Și în timpul filmului”: pauze scurte de până la 8 s când subtitrările rămân în urmă."),
-                 options=(("start", L("Только в начале", "Only at the start", "Doar la început")),
+                 options=(("start", L("В начале и после перемотки", "At the start and after a seek",
+                                      "La început și după derulare")),
                           ("off", L("Никогда не останавливать", "Never pause the video", "Nu opri niciodată video")),
                           ("always", L("Также во время фильма", "Also during the film", "Și în timpul filmului")))),
          Setting("translate", "bool", L("Переводить", "Translate", "Tradu"), False,

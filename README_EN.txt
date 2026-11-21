@@ -1,4 +1,10 @@
-LUXAI LOCAL (JARVIS) 0.4.3l — UPDATE 2026-11-21
+LUXAI LOCAL (JARVIS) 0.4.3m — UPDATE 2026-11-21
+
+0.4.3m: Captions are no longer doubled (one sentence recognised twice shows once). After a jump
+in the film (or when YouTube moves to another minute) the video waits a little — usually 3–4 s,
+at most 8 s — until the first phrase there is ready. The extension (1.10.0) touches sites other
+than YouTube only while captions are on.
+IMPORTANT: after the update, click «Reload» on the Jarvis extension in chrome://extensions.
 
 0.4.3l: YouTube captions are lighter and faster. The extension (1.9.0) sends Jarvis only the new sound
 (about 6 times less traffic), never pauses ads or short videos, and the film starts after a few
