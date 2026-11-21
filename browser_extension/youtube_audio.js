@@ -1,5 +1,8 @@
 // Runs in the media page so we can read unencrypted audio chunks already appended by its player.
 // Nothing is copied from the audio track until the extension confirms that Jarvis wants captions.
+// Only NEW audio is sent (numbered pieces); Jarvis rebuilds the window and asks for the whole window again
+// only when a piece is missing. Before, the whole window (up to 2 MB) was resent every time: a real YouTube
+// test moved 34 MB to Jarvis in two minutes for about 2.4 MB of audio.
 (() => {
   if (!window.MediaSource || !window.SourceBuffer) return;
   const add = MediaSource.prototype.addSourceBuffer;
@@ -28,13 +31,16 @@
   function reset(state) {
     state.chunks = [];
     state.size = 0;
+    state.epoch = (state.epoch || 0) + 1; // Jarvis drops what it had for this track
+    state.full = true;
     captured.delete(state);
   }
 
   MediaSource.prototype.addSourceBuffer = function (type) {
     const buffer = add.call(this, type);
     const kind = /^audio\/(webm|mp4)(?:;|$)/i.exec(type)?.[1].toLowerCase();
-    if (kind) buffers.set(buffer, { source: this, kind, id: ++serial, header: null, chunks: [], size: 0 });
+    if (kind) buffers.set(buffer, { source: this, kind, id: ++serial, header: null, chunks: [], size: 0,
+                                    counter: 0, epoch: 0, full: true });
     return buffer;
   };
 
@@ -56,11 +62,23 @@
     const { state, offset } = item;
     const src = sources.get(state.source);
     if (!src || (selected && src !== selected)) return;
-    const bytes = join([state.header, ...state.chunks.flatMap(chunk => chunk.parts)],
-                       state.header.length + state.size);
+    const full = state.full;
+    const pieces = [];
+    for (const chunk of state.chunks) {
+      const from = full ? 0 : chunk.sent;
+      if (chunk.size <= from) continue;
+      const whole = join(chunk.parts, chunk.size);
+      const bytes = from ? whole.slice(from) : whole;
+      pieces.push({ n: chunk.n, from, bytes: bytes.buffer });
+      chunk.sent = chunk.size;
+    }
+    if (!pieces.length) return;
+    state.full = false;
+    const header = state.header.slice();
     lastPublished = performance.now();
-    window.postMessage({ type: "jarvis-buffer-audio", src, kind: state.kind, track: state.id,
-                         offset, bytes: bytes.buffer }, location.origin, [bytes.buffer]);
+    window.postMessage({ type: "jarvis-buffer-audio", src, kind: state.kind, track: state.id, offset,
+                         epoch: state.epoch, full, header: header.buffer, pieces },
+                       location.origin, [header.buffer, ...pieces.map((piece) => piece.bytes)]);
   }
 
   function collect(state, bytes, offset) {
@@ -86,7 +104,7 @@
     if (state.offset !== offset || state.generation !== generation) reset(state);
     state.offset = offset;
     state.generation = generation;
-    if (begins) state.chunks.push({ parts: [], size: 0 });
+    if (begins) state.chunks.push({ parts: [], size: 0, sent: 0, n: ++state.counter });
     const chunk = state.chunks.at(-1);
     if (!chunk) return;
     chunk.parts.push(bytes.slice());
@@ -116,7 +134,17 @@
 
   window.addEventListener("message", (event) => {
     const message = event.data;
-    if (event.source !== window || event.origin !== location.origin || message?.type !== "jarvis-buffer-control") return;
+    if (event.source !== window || event.origin !== location.origin) return;
+    if (message?.type === "jarvis-buffer-resync") {
+      // Jarvis missed a piece: the next packet carries the whole window again.
+      for (const state of captured) {
+        state.full = true;
+        pending = pending || { state, offset: state.offset };
+      }
+      if (pending && timer === null) timer = setTimeout(publish, 240);
+      return;
+    }
+    if (message?.type !== "jarvis-buffer-control") return;
     const next = message.active === true;
     const src = typeof message.src === "string" ? message.src : "";
     if ((!next && active) || message.reset || (selected && src && selected !== src)) {

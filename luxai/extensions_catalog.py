@@ -290,6 +290,16 @@ PLUGINS: tuple[Plugin, ...] = (
                  options=(("600", L("10 минут", "10 minutes", "10 minute")),
                           ("180", L("3 минуты", "3 minutes", "3 minute")),
                           ("60", L("1 минута", "1 minute", "1 minut")))),
+         Setting("film_wait", "choice", L("Ждать субтитры", "Wait for captions", "Așteaptă subtitrările"), "start",
+                 hint=L("Расширение может ненадолго поставить видео на паузу, пока готовятся первые строки (до 10 с). "
+                        "«Также во время фильма»: короткие паузы до 8 с, если субтитры отстают.",
+                        "The extension may briefly pause the video while the first lines are prepared (up to 10 s). "
+                        "«Also during the film»: short holds of up to 8 s when the captions fall behind.",
+                        "Extensia poate pune scurt video pe pauză cât se pregătesc primele rânduri (până la 10 s). "
+                        "„Și în timpul filmului”: pauze scurte de până la 8 s când subtitrările rămân în urmă."),
+                 options=(("start", L("Только в начале", "Only at the start", "Doar la început")),
+                          ("off", L("Никогда не останавливать", "Never pause the video", "Nu opri niciodată video")),
+                          ("always", L("Также во время фильма", "Also during the film", "Și în timpul filmului")))),
          Setting("translate", "bool", L("Переводить", "Translate", "Tradu"), False,
                  hint=L("Под субтитрами — перевод законченных фраз.", "Under the captions — the translation of finished phrases.",
                         "Sub subtitrări — traducerea frazelor terminate.")),
@@ -854,7 +864,7 @@ SECTIONS = {
         Section("sound", "headphones", L("Звук и язык", "Sound and language", "Sunet și limbă"),
                 L("На каком языке говорят и что слушать.", "Which language is spoken and what to listen to.",
                   "Ce limbă se vorbește și ce ascult."),
-                ("language", "quality", "@source", "browser_films", "film_model", "film_ahead", "@browser_extension")),
+                ("language", "quality", "@source", "browser_films", "film_model", "film_ahead", "film_wait", "@browser_extension")),
         Section("translate", "globe", L("Перевод", "Translation", "Traducere"),
                 L("Законченные фразы переводятся на ваш язык прямо на этом ПК.",
                   "Finished phrases are translated into your language right on this PC.",

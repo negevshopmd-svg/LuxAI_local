@@ -28,6 +28,7 @@ let pausedUntil = 0;
 let wanted = null;      // null until the first check after a worker restart
 let wantAskedAt = 0;
 let prerollSupported = false;
+let holdLimits = { holdMs: 10000, underrunMs: 8000 }; // how long Jarvis lets the video wait
 let wantPending = null;
 
 async function post(path, body) {
@@ -58,7 +59,11 @@ async function post(path, body) {
     }
     try {
       const data = await answer.json();
-      if (typeof data?.preroll === "boolean") prerollSupported = data.preroll;
+      if (data && "want" in data) {
+        // Every answer says whether the video may wait (the setting can change at any time).
+        prerollSupported = data.preroll === true;
+        if (Number.isFinite(data.hold_ms)) holdLimits = { holdMs: data.hold_ms, underrunMs: data.underrun_ms };
+      }
       if (data && "want" in data) {
         setWanted(!!data.want);
         wantAskedAt = Date.now();
@@ -101,8 +106,17 @@ function enqueue(tab, kind, value) {
     slot.closed = (slot.closed || []).concat(value);
     slot.state = null; // a state of the closed document must never arrive after the «closed»
   } else {
-    if (slot.state?.buffer && !value.buffer && slot.state.doc === value.doc
-        && slot.state.session === value.session) value.buffer = slot.state.buffer;
+    const old = slot.state?.buffer;
+    if (old && slot.state.doc === value.doc && slot.state.session === value.session) {
+      const next = value.buffer;
+      if (!next) {
+        value.buffer = old;
+      } else if (!next.full && old.kind === next.kind && old.track === next.track && old.epoch === next.epoch
+                 && old.offset === next.offset) {
+        // Two packets waiting for one request: both sets of pieces go, in order (none is lost).
+        value.buffer = { ...next, full: old.full, pieces: old.pieces.concat(next.pieces) };
+      }
+    }
     slot.state = value;
   }
   waiting.set(tab, slot);
@@ -121,6 +135,7 @@ async function pump(tab) {
         const document = docs.get(tab)?.get(state.doc);
         if (document?.session === state.session) {
           document.underrun = result?.underrun === true;
+          if (result?.need_full) document.needFull = true;
         }
         if (document?.session === state.session && typeof result?.opening_ready === "boolean") {
           document.openingReady = result.opening_ready;
@@ -231,7 +246,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     return;
   }
   if (message.type === "jarvis-buffer-check") {
-    askWant().then((active) => reply({ want: !!active && sender.tab.active, preroll: prerollSupported }),
+    askWant().then((active) => reply({ want: !!active && sender.tab.active, preroll: prerollSupported, ...holdLimits }),
                    () => reply({ want: false }));
     return true;
   }
@@ -288,8 +303,9 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
       buffer: sender.tab.active && message.visible ? message.buffer : undefined,
       media: own.map((item) => ({ url: item.url, type: item.type })),
     });
-    reply({ want: true, needSeen: !liveOnly && !seen, preroll: prerollSupported,
-            underrun: !!document.underrun, openingReady: !!document.openingReady, openingPreparing: !!document.openingPreparing, active: sender.tab.active });
+    reply({ want: true, needSeen: !liveOnly && !seen, preroll: prerollSupported, ...holdLimits,
+            underrun: !!document.underrun, openingReady: !!document.openingReady, openingPreparing: !!document.openingPreparing,
+            needFull: !!previous?.needFull && previous.session === message.session, active: sender.tab.active });
   })().catch(() => reply({ want: false }));
   return true; // the answer comes asynchronously
 });

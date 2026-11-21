@@ -11,7 +11,8 @@
   const MEDIA_TYPES = /mpegurl|video\/(mp4|webm|x-matroska|quicktime)|audio\/(mp4|mpeg|aac|webm)/i;
   const liveOnly = /(^|\.)(youtube\.com|youtube-nocookie\.com|youtu\.be)$/i.test(location.hostname);
   const discoveryLimit = 7000;
-  const preparationLimit = 60000;
+  let preparationLimit = 10000;  // Jarvis says how long the video may wait (setting «Wait for captions»)
+  let underrunLimit = 8000;
   const resources = new Map();
   let observer = null;
   let resourceSnapshot = [];
@@ -68,6 +69,11 @@
   let triedOpening = false;
   let opening = null;
   let retryAfter = 0;
+  // Holding the video is limited per page: at most «preparationLimit» in total, however often the player
+  // changes its source (a YouTube page plays one ad after another), and never for short videos (ads,
+  // previews). A real test held a page for 70 s before this budget.
+  const MIN_HELD_DURATION = 60;
+  let heldMs = 0;
   let protectedSource = false;
   let gestureUntil = 0;
 
@@ -84,10 +90,11 @@
     const held = opening;
     opening = null;
     retryAfter = performance.now() + 30000;
+    heldMs += performance.now() - held.started;
     clearTimeout(held.timeout);
     clearInterval(held.poll);
-    if (resume && held.video.isConnected && held.video.paused && held.session === session
-        && held.page === location.href) {
+    // Resumed also when the source changed during the hold: the user pressed Play, the video must go on.
+    if (resume && held.video.isConnected && held.video.paused && held.page === location.href) {
       held.video.play().catch(() => {}); // the native player still controls autoplay restrictions
     }
     soonReport();
@@ -97,13 +104,16 @@
     if (!video || video !== current || opening || (triedOpening && !(underrun && performance.now() >= retryAfter))
         || !canPreroll || !want || !activeTab || document.hidden
         || protectedSource || video.paused || video.seeking || video.ended
-        || video.duration === Infinity
+        || !(video.duration >= MIN_HELD_DURATION) || video.duration === Infinity
         || (!video.currentSrc && !video.src) || (video.muted && video.loop)) return;
+    if (liveOnly && video.closest?.(".ad-showing")) return; // a YouTube ad: never held
+    const budget = Math.min(underrun ? underrunLimit : preparationLimit, preparationLimit - heldMs);
+    if (budget < 500) return; // this page has waited enough
     triedOpening = true;
     gestureUntil = 0;
     opening = { video, session, page: location.href, position: video.currentTime,
-                started: performance.now(), limit: underrun ? 15000 : preparationLimit, preparing: false,
-                timeout: setTimeout(() => releaseOpening(true), discoveryLimit),
+                started: performance.now(), limit: budget, preparing: false,
+                timeout: setTimeout(() => releaseOpening(true), Math.min(discoveryLimit, budget)),
                 poll: setInterval(() => {
                   if (opening && !opening.video.paused) opening.video.pause();
                   soonReport();
@@ -129,6 +139,17 @@
     } catch (e) { /* extension was reloaded */ }
   }
 
+  function encode(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let encoded = "";
+    for (let i = 0; i < bytes.length; i += 8192) encoded += String.fromCharCode(...bytes.subarray(i, i + 8192));
+    return btoa(encoded);
+  }
+
+  function resync() {
+    window.postMessage({ type: "jarvis-buffer-resync" }, location.origin);
+  }
+
   function armBufferedAudio(reset = false) {
     const src = current?.currentSrc || current?.src || "";
     if (!/^blob:/i.test(src) && !liveOnly && !reset) return;
@@ -141,17 +162,33 @@
     window.addEventListener("message", (event) => {
       const packet = event.data;
       if (!want || document.hidden || protectedSource || event.source !== window || event.origin !== location.origin
-          || packet?.type !== "jarvis-buffer-audio" || !(packet.bytes instanceof ArrayBuffer)
-          || packet.bytes.byteLength > 2080 * 1024 || !["webm", "mp4"].includes(packet.kind)
-          || !Number.isInteger(packet.track) || !Number.isFinite(packet.offset)) return;
+          || packet?.type !== "jarvis-buffer-audio" || !(packet.header instanceof ArrayBuffer)
+          || packet.header.byteLength > 32 * 1024 || !Array.isArray(packet.pieces) || packet.pieces.length > 512
+          || !["webm", "mp4"].includes(packet.kind) || !Number.isInteger(packet.track)
+          || !Number.isInteger(packet.epoch) || !Number.isFinite(packet.offset)) return;
+      let total = 0;
+      for (const piece of packet.pieces) {
+        if (!(piece?.bytes instanceof ArrayBuffer) || !Number.isInteger(piece.n) || !Number.isInteger(piece.from)) return;
+        total += piece.bytes.byteLength;
+      }
+      if (total > 2080 * 1024) return;
       const video = current || document.querySelector("video, audio");
       if (!video || video.currentSrc !== packet.src) return;
       adopt(video);
-      const bytes = new Uint8Array(packet.bytes);
-      let encoded = "";
-      for (let i = 0; i < bytes.length; i += 8192) encoded += String.fromCharCode(...bytes.subarray(i, i + 8192));
-      audioPacket = { src: packet.src, kind: packet.kind, track: packet.track, offset: packet.offset,
-                      data: btoa(encoded) };
+      const next = { src: packet.src, kind: packet.kind, track: packet.track, offset: packet.offset,
+                     epoch: packet.epoch, full: packet.full === true, header: encode(packet.header),
+                     pieces: packet.pieces.map((piece) => [piece.n, piece.from, encode(piece.bytes)]), size: total };
+      // A packet not sent yet is merged, never dropped: every piece must reach Jarvis once.
+      const old = audioPacket;
+      if (old && !next.full && old.src === next.src && old.kind === next.kind && old.track === next.track
+          && old.epoch === next.epoch && old.offset === next.offset && old.size + next.size <= 2080 * 1024) {
+        next.full = old.full;
+        next.pieces = old.pieces.concat(next.pieces);
+        next.size += old.size;
+      } else if (old && !next.full) {
+        resync(); // cannot be merged: Jarvis will ask for (and get) the whole window
+      }
+      audioPacket = next;
       soonReport();
     });
     document.addEventListener("visibilitychange", () => {
@@ -169,6 +206,7 @@
       href = location.href;
       doc = newId();
       seq = 0;
+      heldMs = 0; // a new page (another film) gets its own short wait
     }
     last = Date.now();
     seq += 1;
@@ -196,13 +234,16 @@
         duration: isFinite(video.duration) ? video.duration : 0,
         src: !liveOnly && /^https?:/i.test(src) ? src : "",
         seen: seen,
-        buffer: audio && { kind: audio.kind, track: audio.track, offset: audio.offset, data: audio.data },
+        buffer: audio && { kind: audio.kind, track: audio.track, offset: audio.offset, epoch: audio.epoch,
+                           full: audio.full, header: audio.header, pieces: audio.pieces },
       }, (answer) => {
         void chrome.runtime.lastError; // no answer (the extension restarted): nothing to do
         if (doc !== reportDoc || seq !== reportSeq) return;
         want = !!(answer && answer.want);
         canPreroll = !!answer?.preroll;
         activeTab = !!answer?.active;
+        if (Number.isFinite(answer?.holdMs)) preparationLimit = Math.max(0, Math.min(30000, answer.holdMs));
+        if (Number.isFinite(answer?.underrunMs)) underrunLimit = Math.max(0, Math.min(15000, answer.underrunMs));
         if (opening && answer?.openingPreparing && !opening.preparing) {
           opening.preparing = true;
           clearTimeout(opening.timeout);
@@ -214,6 +255,7 @@
         } else if (!opening) {
           tryOpening(video, answer?.underrun === true);
         }
+        if (answer?.needFull) resync();
         if (answer?.needSeen) publishedResources = null;
         else if (want && seen) publishedResources = seen;
         trackResources(want);
@@ -228,7 +270,7 @@
 
   function adopt(video) {
     if (video !== current) {
-      releaseOpening(false);
+      releaseOpening(true);
       current = video;
       session += 1; // another player element
       triedOpening = false;
@@ -252,7 +294,7 @@
     if (event.type === "loadstart" || event.type === "emptied") {
       const starting = opening && event.type === "loadstart" && opening.page === location.href
           && Math.abs(video.currentTime - opening.position) < 0.8;
-      if (!starting) releaseOpening(false);
+      if (!starting) releaseOpening(true);
       session += 1; // a new source (blob players too)
       if (starting) opening.session = session; // play can arrive before the first loadstart
       triedOpening = !!starting;

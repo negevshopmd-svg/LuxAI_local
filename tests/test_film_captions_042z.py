@@ -298,7 +298,8 @@ class RuntimeTests(unittest.TestCase):
         timeline.add([], 125, 133)
         self.assertTrue(runtime._browser_opening_ready(report))
         worker.waiting_for_audio = False
-        self.assertFalse(runtime._browser_opening_ready(report))
+        # 12 s prepared is enough to start (OPENING_RESERVE_SECONDS); the worker stays ahead while it plays.
+        self.assertTrue(runtime._browser_opening_ready(report))
         timeline.add([], 133, 143)
         self.assertTrue(runtime._browser_opening_ready(report))
         self.assertIsNone(runtime._browser_opening_ready(dict(report, session=4)))

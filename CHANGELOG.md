@@ -1,3 +1,22 @@
+## 0.4.3l — Review of the browser-caption work of 0.4.3g–k (2026-11-21)
+
+Measured with a real Edge (temporary profile, extension copy on another port) on a public YouTube talk:
+the buffered-audio captions work (33 lines in 2 minutes), but the video was held 28 s before it started
+(70 s on a page with two ads: every source change started a new hold, and a hold ended by a source change did
+not resume the video), and 34 MB went to Jarvis for about 2.4 MB of audio (the whole window was resent).
+
+- New setting «Wait for captions»: only at the start (default) / never / also during the film. Jarvis tells the
+  extension the limits (10 s at the start, 8 s for a refill) in every answer, and «off» takes effect at once
+  (the background no longer keeps an old «may hold» value).
+- The opening is ready after a 12 s reserve, not the whole buffered minute; the worker stays ahead while it plays.
+- At most 10 s of holding per page in total; videos shorter than 60 s and YouTube ads (`.ad-showing`) are never
+  held; a hold ended by a source change resumes the video.
+- Extension 1.9.0 sends only NEW audio as numbered pieces; packets waiting in the page or the background queue
+  are merged, never dropped. Jarvis rebuilds the window (`BufferAssembly`, bounded) and asks for the whole
+  window once when a piece is missing. An older extension's whole-window packets are still accepted.
+- Result on the same video: 5.7 MB instead of 34 MB, largest packet 0.43 MB instead of 2.8 MB, the film held
+  2.6 + 2.2 s with the ad not held, first line after 9 s instead of 15 s, 38 different lines instead of 33.
+
 ## 0.4.3k — Keep translated browser captions ahead during sustained speech (2026-11-21)
 
 - Extension 1.8.0 waits for a reserve of translated speech at the beginning or when reopening

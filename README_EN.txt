@@ -1,4 +1,10 @@
-LUXAI LOCAL (JARVIS) 0.4.3k — UPDATE 2026-11-21
+LUXAI LOCAL (JARVIS) 0.4.3l — UPDATE 2026-11-21
+
+0.4.3l: YouTube captions are lighter and faster. The extension (1.9.0) sends Jarvis only the new sound
+(about 6 times less traffic), never pauses ads or short videos, and the film starts after a few
+seconds instead of half a minute. New setting «Wait for captions»: only at the start (default),
+never, or also during the film.
+IMPORTANT: after the update, click «Reload» on the Jarvis extension in chrome://extensions.
 
 0.4.3k — Extension 1.8.0 prepares translations ahead when starting or resuming a video. It can wait up to one minute at the start and up to 15 seconds when captions run low. Press Play again to skip a wait.
 

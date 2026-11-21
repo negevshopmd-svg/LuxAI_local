@@ -45,6 +45,13 @@ MAX_AUDIO_BODY = ((MAX_AUDIO_BYTES + 2) // 3) * 4 + MAX_BODY
 BROWSER_AHEAD_SECONDS = 60.0
 BROWSER_PRECISE_LEAD = 18.0  # reserve time for a cold CPU model and the first translated lines
 BROWSER_START_CHUNK = 8.0
+# Waiting for captions (setting «Wait for captions»): the extension may hold the video only this long, and
+# the opening is «ready» once this much is prepared — not the whole buffered minute (a real YouTube test held
+# the video 28 s before this limit).
+OPENING_RESERVE_SECONDS = 12.0
+OPENING_HOLD_MS = 10000
+UNDERRUN_HOLD_MS = 8000
+WAIT_MODES = ("start", "off", "always")
 MAX_URLS = 20
 STALE_SECONDS = 5.0        # no report for this long → prepared lines are not shown (heartbeat: 1 s / 3 s paused)
 GONE_SECONDS = 20.0        # no report for this long → the preparation stops (tab closed, browser gone)
@@ -871,8 +878,13 @@ def parse_report(raw: bytes, *, with_audio: bool = False) -> dict | None:
         try:
             offset = float(packet["offset"])
             track = int(packet["track"])
-            encoded = packet["data"]
-            if not -10 ** 6 < offset < 10 ** 6 or not 0 < track < 10 ** 9 or not isinstance(encoded, str):
+            if not -10 ** 6 < offset < 10 ** 6 or not 0 < track < 10 ** 9:
+                return None
+            if "pieces" in packet:
+                report["buffer"] = _parse_pieces(packet, track, offset)
+                return report if report["buffer"] is not None else None
+            encoded = packet["data"]  # an older extension: the whole window in one piece
+            if not isinstance(encoded, str):
                 return None
             audio = base64.b64decode(encoded, validate=True)
         except (KeyError, TypeError, ValueError, OverflowError):
@@ -881,6 +893,74 @@ def parse_report(raw: bytes, *, with_audio: bool = False) -> dict | None:
             return None
         report["buffer"] = (packet["kind"], track, offset, audio)
     return report
+
+
+MAX_PIECES = 512
+
+
+def _parse_pieces(packet: dict, track: int, offset: float) -> dict | None:
+    """Extension 1.9: only NEW audio, as numbered pieces (number, byte where it continues, data)."""
+    epoch = int(packet["epoch"])
+    header = base64.b64decode(str(packet["header"]), validate=True)
+    pieces_in = packet["pieces"]
+    if not 0 <= epoch < 10 ** 9 or not 0 < len(header) <= 32 * 1024 or not isinstance(pieces_in, list) \
+            or not 0 < len(pieces_in) <= MAX_PIECES:
+        return None
+    pieces, total = [], 0
+    for item in pieces_in:
+        if not isinstance(item, list) or len(item) != 3 or not isinstance(item[2], str):
+            return None
+        number, start = int(item[0]), int(item[1])
+        data = base64.b64decode(item[2], validate=True)
+        total += len(data)
+        if not 0 < number < 10 ** 9 or not 0 <= start <= MAX_AUDIO_BYTES or not data or total > MAX_AUDIO_BYTES:
+            return None
+        pieces.append((number, start, data))
+    return {"kind": packet["kind"], "track": track, "offset": offset, "epoch": epoch,
+            "full": packet.get("full") is True, "header": header, "pieces": pieces}
+
+
+class BufferAssembly:
+    """Rebuilds the browser's rolling audio window from the pieces the extension sends (only new bytes).
+
+    ``feed`` returns (whole window packet or None, the whole window is needed again). A piece that does not
+    continue what is here (lost on the way, the extension restarted) makes the window unusable: it is
+    dropped and the extension is asked for the whole window once."""
+
+    WINDOWS = 4  # players followed at once (tabs/frames); the oldest is forgotten
+
+    def __init__(self):
+        from collections import OrderedDict
+        self._lock = threading.Lock()
+        self._windows = OrderedDict()
+
+    def feed(self, owner, packet: dict):
+        from collections import OrderedDict
+        key = (owner, packet["kind"], packet["track"])
+        ident = (packet["offset"], packet["epoch"], packet["header"])
+        with self._lock:
+            window = self._windows.pop(key, None)
+            if packet["full"] or window is None or window["ident"] != ident:
+                if not packet["full"]:
+                    return None, True  # continuing a window Jarvis does not have
+                window = {"ident": ident, "chunks": OrderedDict()}
+            chunks = window["chunks"]
+            for number, start, data in packet["pieces"]:
+                if number in chunks and start == len(chunks[number]):
+                    chunks[number] += data
+                elif number not in chunks and start == 0 and (
+                        packet["full"] or not chunks or number == next(reversed(chunks)) + 1):
+                    chunks[number] = bytearray(data)
+                else:
+                    return None, True  # a gap: never decode a window with a hole in it
+            size = sum(len(chunk) for chunk in chunks.values())
+            while size > MAX_AUDIO_BYTES and len(chunks) > 1:
+                size -= len(chunks.popitem(last=False)[1])
+            self._windows[key] = window
+            while len(self._windows) > self.WINDOWS:
+                self._windows.popitem(last=False)
+            data = packet["header"] + b"".join(bytes(chunk) for chunk in chunks.values())
+        return (packet["kind"], packet["track"], packet["offset"], data), False
 
 
 def parse_hello(raw: bytes) -> dict:
@@ -988,8 +1068,11 @@ class _Handler(BaseHTTPRequestHandler):
             return  # timed out or closed: nothing more to answer
         want = bool(getattr(self.server, "want", False))
         answer = {"ok": True, "want": want}
-        if self.server.on_preroll is not None:
+        wait = getattr(self.server, "wait_mode", "start")
+        if self.server.on_preroll is not None and wait != "off":
             answer["preroll"] = True
+            answer["hold_ms"] = OPENING_HOLD_MS
+            answer["underrun_ms"] = UNDERRUN_HOLD_MS
         if self.path == "/v1/want":
             # «Are captions on?» Nothing is sent about the page until Jarvis says yes (audit 4 #14).
             self._answer(200, origin, answer)
@@ -1007,6 +1090,11 @@ class _Handler(BaseHTTPRequestHandler):
         if report is None or len(raw) != length:
             self._answer(400, origin)
             return
+        if isinstance(report.get("buffer"), dict):
+            owner = (report["tab"], report.get("frame", 0), report.get("doc", ""), report.get("session", 0))
+            report["buffer"], need_full = self.server.assembly.feed(owner, report["buffer"])
+            if need_full:
+                answer["need_full"] = True
         try:
             if target is not None:
                 target(report)
@@ -1016,7 +1104,8 @@ class _Handler(BaseHTTPRequestHandler):
             status = self.server.on_preroll(report)
             answer["opening_ready"] = bool(status)
             answer["opening_preparing"] = status is not None
-        elif want and not report.get("paused", True) and self.server.on_underrun is not None:
+        elif (want and wait == "always" and not report.get("paused", True)
+                and self.server.on_underrun is not None):
             answer["underrun"] = bool(self.server.on_underrun(report))
         self._answer(200, origin, answer)
 
@@ -1066,7 +1155,18 @@ class BridgeServer:
         self.on_preroll = on_preroll
         self.on_underrun = on_underrun
         self._want = False   # Jarvis shows captions and wants the player's state (audit 4 #14)
+        self._wait_mode = "start"  # «Wait for captions»: start / off / always
         self._server = None
+
+    @property
+    def wait_mode(self) -> str:
+        return self._wait_mode
+
+    @wait_mode.setter
+    def wait_mode(self, value: str) -> None:
+        self._wait_mode = value if value in WAIT_MODES else "start"
+        if self._server is not None:
+            self._server.wait_mode = self._wait_mode
 
     @property
     def want(self) -> bool:
@@ -1090,7 +1190,9 @@ class BridgeServer:
         self._server.on_underrun = self.on_underrun
         self._server.token = self.token
         self._server.gate = threading.BoundedSemaphore(8)
+        self._server.assembly = BufferAssembly()
         self._server.want = self._want
+        self._server.wait_mode = self._wait_mode
         # A short poll: stop() frees the port within ~0.1 s (audit 5 #3; the runtime also retries).
         threading.Thread(target=self._server.serve_forever, kwargs={"poll_interval": 0.1},
                          name="JarvisBrowserBridge", daemon=True).start()

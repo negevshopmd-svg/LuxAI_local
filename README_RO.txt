@@ -1,5 +1,11 @@
-LUXAI LOCAL 0.4.3k — ACTUALIZARE 2026-11-21
+LUXAI LOCAL 0.4.3l — ACTUALIZARE 2026-11-21
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.3l: Subtitrările pentru YouTube sunt mai ușoare și mai rapide. Extensia (1.9.0) trimite lui Jarvis
+doar sunetul nou (de ~6 ori mai puțin trafic), nu mai ține pe pauză reclamele și video-urile scurte,
+iar filmul pornește după câteva secunde, nu după jumătate de minut. Setare nouă „Așteaptă
+subtitrările”: doar la început (implicit), niciodată, sau și în timpul filmului.
+IMPORTANT: după actualizare, în chrome://extensions apasă „Reîncarcă” la extensia Jarvis.
 
 0.4.3k — Cu extensia 1.8.0, Jarvis pregătește în avans traducerile și la reluarea unui clip. Poate aștepta până la un minut la pornire și până la 15 secunde când se termină rezerva. Apasă din nou Play ca să continui imediat.
 

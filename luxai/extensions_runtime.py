@@ -1167,6 +1167,7 @@ class ExtensionsRuntime(QObject):
         if self._film_bridge is not None:
             # The extension sends the player's state only while Jarvis shows captions (audit 4 #14).
             self._film_bridge.want = self.captions_visible
+            self._film_bridge.wait_mode = str(self.settings("live_captions").get("film_wait", "start"))
         if self._film_bridge is not None and self.captions_visible and not self._film_timer.isActive():
             self._film_timer.start()
 
@@ -1459,9 +1460,11 @@ class ExtensionsRuntime(QObject):
         if film is None:
             return None
         timeline, worker = film
-        from luxai.film_captions import BROWSER_AHEAD_SECONDS, EDGE_SECONDS
+        from luxai.film_captions import BROWSER_AHEAD_SECONDS, EDGE_SECONDS, OPENING_RESERVE_SECONDS
         position = report["time"]
-        target = min(position + BROWSER_AHEAD_SECONDS, position + worker.ahead_seconds)
+        # The first lines and a short reserve are enough to start: the worker stays ahead while it plays.
+        target = min(position + BROWSER_AHEAD_SECONDS, position + worker.ahead_seconds,
+                     position + OPENING_RESERVE_SECONDS)
         if worker.video_duration:
             target = min(target, worker.video_duration)
         audio_range = getattr(worker, "audio_range", None)
