@@ -1,3 +1,39 @@
+## 0.4.3e — Fifth audit report (2026-11-21)
+
+P1
+- #1 HTTPS of the film decoder is verified. Measured first: FFmpeg's `tls_verify` (schannel) refuses a bad
+  certificate on the first address but is NOT passed on to HLS segments. So `luxai/media_proxy.py` is now a media
+  gateway: FFmpeg may open only `http,tcp,crypto` to 127.0.0.1; Jarvis makes every real request (public addresses
+  only, the checked address connected, Python `ssl` with the Windows store and host-name check, redirects
+  followed and checked) and rewrites HLS playlists (segments, keys, maps, variants) to gateway addresses.
+  Verified live: self-signed / wrong host / expired / untrusted root refused, also as a segment; a public HLS
+  stream plays; a redirect to localhost is refused.
+
+P2
+- #2 A page restored by Back (back/forward cache) is a new document and reports at once (verified in Edge).
+- #3 Turning film captions off and on quickly: the bridge stops within ~0.1 s and the start is retried from Qt.
+- #4 Media whose clock does not start at 0 (MPEG-TS / HLS): seek and frames use the player's time. Nothing
+  decoded is not «silence»: the stretch stays uncovered, three empty decodes in a row end the film.
+- #5 The extension keeps one media entry per (frame, address) and keeps the content type.
+- #6 The document id is part of the film key (a reload is a new session).
+- #7 Recovery of an interrupted update uses the installation's destination rules (inside the program folder, no
+  link or junction) and refuses staged files behind a link — before any move.
+- #8 «tomorrow» counts only next to the time or right after «remind me», as a whole word; the label is cut by the
+  same rules (also «seara», «вечера»).
+
+P3/P4
+- #9 One table of spoken durations for timers and reminders; every occurrence counts; «minus», «минус» and a sign
+  before a bare unit refuse. #10 «Go» is not the same line as «Do not go» (whole words; a word cut at a piece's
+  edge still matches). #11 Extension 1.3.0 records media only while Jarvis shows captions and clears the lists
+  when they are turned off; a frame's own resource list fills in. The setting hint says what is sent when.
+- #12 The process environment is no longer changed. #13 Stopping a film closes its gateway session: a decoder
+  waiting on the network returns at once. #14 One 8 s budget for all saves at exit. #15 A failed save of the
+  extension detection is retried on the next contact. #16 «Prepare ahead» defaults to 3 minutes; at most one
+  minute while paused. #17 Prepared stretches are inserted by bisection, merging only neighbours.
+  #18 The gateway keeps the last 20 refusals and a counter.
+- Verified in Edge (temporary profile, extension copy on another port): 73 of 73 bar updates in sync through the
+  gateway; 0 reports with captions off; Back restores the reports with a new document.
+
 ## 0.4.3d — Backgrounds that should not be there (2026-11-21)
 
 - Qt's own scroll bar holders (`qt_scrollarea_vcontainer` / `hcontainer`) were painted by the general

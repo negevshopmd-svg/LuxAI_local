@@ -196,7 +196,7 @@ class PrepareTests(unittest.TestCase):
 
     def test_choose_skips_ads_by_length(self):
         def opener(url, options, timeout):
-            seconds = 30 if "ad" in url else 5400
+            seconds = 30 if url.rsplit("/", 1)[-1] == "ad.mp4" else 5400  # the gateway keeps the file name
             return SimpleNamespace(duration=seconds * 1_000_000, close=lambda: None,
                                    streams=[SimpleNamespace(type="audio", bit_rate=64000)])
         worker = fc.FilmTranscriber(["https://c/ad.mp4", "https://c/film.m3u8"], "https://site/p", fc.PlayerClock(),

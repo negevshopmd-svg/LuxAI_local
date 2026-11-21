@@ -31,7 +31,8 @@ from urllib.parse import urlparse
 import numpy as np
 
 PORT = 47321
-AHEAD_SECONDS = 600.0      # prepare up to 10 minutes in front of the player
+AHEAD_SECONDS = 600.0      # prepare at most 10 minutes in front of the player (setting «Prepare ahead»)
+PAUSED_AHEAD_SECONDS = 60.0  # while the player is paused
 CHUNK_SECONDS = 30.0       # one Whisper pass (its natural window)
 FIRST_CHUNK_SECONDS = 10.0  # where nothing is prepared yet (start, a seek): the first lines come sooner
 CATCH_UP_SECONDS = 20.0    # closer than this to the player, the fast model works (it must get ahead first)
@@ -154,8 +155,20 @@ class CueTimeline:
         shorter = max(0.01, min(old.end - old.start, cue.end - cue.start))
         if overlap <= 0.5 * shorter:
             return False
-        a, b = old.text.casefold().strip(), cue.text.casefold().strip()
-        return not a or not b or a in b or b in a or SequenceMatcher(None, a, b).ratio() >= 0.5
+        # Compared as WHOLE words (audit 5 #10): «Go» is not the same line as «Do not go». A shorter version
+        # counts as the same line only when it is most of the longer one, in order.
+        a, b = re.findall(r"\w+", old.text.casefold()), re.findall(r"\w+", cue.text.casefold())
+        if not a or not b:
+            return True
+        short, long_ = (a, b) if len(a) <= len(b) else (b, a)
+
+        def inside(i: int) -> bool:  # the last word may be cut at a piece's edge («wor» of «words»)
+            window = long_[i:i + len(short)]
+            return window[:-1] == short[:-1] and window[-1].startswith(short[-1])
+
+        if len(short) / len(long_) >= 0.6 and any(inside(i) for i in range(len(long_) - len(short) + 1)):
+            return True
+        return SequenceMatcher(None, a, b).ratio() >= 0.6
 
     def add(self, cues, start: float, end: float) -> None:
         with self._lock:
@@ -181,28 +194,37 @@ class CueTimeline:
             self._cover(start, end)
 
     def _cover(self, start: float, end: float) -> None:
+        """Insert [start, end) into the sorted, disjoint stretches, merging only the neighbours it touches
+        (audit 5 #17: no full sort per piece, even after many seeks)."""
         if end <= start:
             return
-        intervals = sorted(self.covered + [[start, end]])
-        merged = [intervals[0]]
-        for a, b in intervals[1:]:
-            if a <= merged[-1][1] + 0.05:
-                merged[-1][1] = max(merged[-1][1], b)
-            else:
-                merged.append([a, b])
-        self.covered = merged
+        covered = self.covered
+        low = bisect.bisect_left(covered, [start - 0.05])
+        if low > 0 and covered[low - 1][1] + 0.05 >= start:
+            low -= 1
+        high = low
+        while high < len(covered) and covered[high][0] <= end + 0.05:
+            high += 1
+        if high > low:
+            start = min(start, covered[low][0])
+            end = max(end, covered[high - 1][1])
+        covered[low:high] = [[start, end]]
+
+    def _stretch(self, position: float):
+        index = bisect.bisect_right(self.covered, [position, float("inf")]) - 1
+        if index >= 0 and self.covered[index][0] <= position < self.covered[index][1]:
+            return self.covered[index]
+        return None
 
     def is_covered(self, position: float) -> bool:
         with self._lock:
-            return any(a <= position < b for a, b in self.covered)
+            return self._stretch(position) is not None
 
     def covered_until(self, position: float) -> float:
         """End of the prepared stretch that contains ``position`` (``position`` itself when none)."""
         with self._lock:
-            for a, b in self.covered:
-                if a <= position < b:
-                    return b
-            return position
+            stretch = self._stretch(position)
+            return stretch[1] if stretch else position
 
     def lines_at(self, position: float, keep: int = 2, linger: float = 3.0) -> list[Cue]:
         """The lines to show now: the current one and the ones that ended at most ``linger`` s ago."""
@@ -219,31 +241,35 @@ class CueTimeline:
 
 # -- media ---------------------------------------------------------------------------------------------
 # FFmpeg may open only network media: no files, pipes or other protocols, also inside playlists (audit 3 #2).
-PROTOCOLS = "http,https,tls,tcp,crypto,httpproxy"
+# FFmpeg talks ONLY to Jarvis's media gateway on 127.0.0.1 (plain http, plus «crypto» for AES-128 HLS); it has
+# no https/tls of its own: every real request, its certificate and its address are checked by the gateway.
+PROTOCOLS = "http,tcp,crypto"
 PLAYLIST_TYPES = re.compile(r"mpegurl", re.I)
 MEDIA_TYPES = re.compile(r"mpegurl|video/(mp4|webm|x-matroska|quicktime)|audio/(mp4|mpeg|aac|webm)", re.I)
 
 
-_PROXY = None
-_PROXY_LOCK = threading.Lock()
+_GATEWAY = None
+_GATEWAY_LOCK = threading.Lock()
 
 
-def media_proxy_url() -> str:
-    """The checking proxy every decoder connection goes through (audit 4 #2): redirects, playlist segments
-    and keys are checked at the address actually connected, not only the first media address."""
-    global _PROXY
-    from luxai.media_proxy import MediaProxy
-    with _PROXY_LOCK:
-        if _PROXY is None or _PROXY._server is None:
-            _PROXY = MediaProxy().start()
-        return _PROXY.url
+def media_gateway():
+    """The one media gateway of this Jarvis (luxai/media_proxy.py): checked addresses, verified HTTPS,
+    rewritten playlists (audit 4 #2, audit 5 #1)."""
+    global _GATEWAY
+    from luxai.media_proxy import MediaGateway
+    with _GATEWAY_LOCK:
+        if _GATEWAY is None or not _GATEWAY.running:
+            _GATEWAY = MediaGateway().start()
+        return _GATEWAY
 
 
-def media_options(referer: str, proxy: str = "") -> dict:
+def media_options(referer: str) -> dict:
     options = {"user_agent": USER_AGENT, "reconnect": "1", "reconnect_streamed": "1", "rw_timeout": "20000000",
-               "protocol_whitelist": PROTOCOLS}
-    if proxy:
-        options["http_proxy"] = proxy  # FFmpeg tunnels https with CONNECT and keeps it for every segment
+               "protocol_whitelist": PROTOCOLS,
+               # Never a proxy from the environment (the gateway is local), and nothing in os.environ is
+               # changed for it (audit 5 #12).
+               "http_proxy": "",
+               "allowed_extensions": "ALL"}
     if referer and safe_media_url(referer):  # never a header built from an unchecked value
         parsed = urlparse(referer)
         origin = f"{parsed.scheme}://{parsed.netloc}"
@@ -310,15 +336,16 @@ def rank_candidates(urls) -> list[str]:
     return playlists + files
 
 
-def open_media(url: str, referer: str, opener=None):
-    """(container, audio stream) or raises. The audio with the lowest bit rate is enough for speech."""
+def open_media(url: str, referer: str, opener=None, session=None):
+    """(container, audio stream) or raises. The audio with the lowest bit rate is enough for speech.
+    ``session``: the film's gateway session (a new one when omitted); the decoder opens its address."""
     import av
     if not safe_media_url(url) or not public_destination(url):
         raise PermissionError("media address not allowed")
-    os.environ.pop("no_proxy", None)  # FFmpeg would bypass the proxy for hosts listed there
-    os.environ.pop("NO_PROXY", None)
+    if session is None:
+        session = media_gateway().open_session()
     opener = opener or av.open
-    container = opener(url, options=media_options(referer, media_proxy_url()), timeout=20)
+    container = opener(session.url_for(url), options=media_options(referer), timeout=20)
     audio = [stream for stream in container.streams if stream.type == "audio"]
     if not audio:
         container.close()
@@ -331,10 +358,21 @@ def media_seconds(container) -> float:
     return float(container.duration) / 1_000_000 if container.duration else 0.0
 
 
+def media_offset(container) -> float:
+    """Where the media's own clock starts (seconds). MPEG-TS / HLS often start at 10 s, 30 s or more while
+    the player shows 0: player time = media time - offset (audit 5 #4)."""
+    start = getattr(container, "start_time", None)
+    if not isinstance(start, (int, float)) or not 0 < start < 10 ** 12:
+        return 0.0
+    return float(start) / 1_000_000
+
+
 def decode_audio(container, stream, start: float, end: float) -> tuple[np.ndarray, float]:
-    """16 kHz mono float32 audio of [start, end) and the film time where it really begins."""
+    """16 kHz mono float32 audio of [start, end) and the film time where it really begins (both in the
+    PLAYER's time: the media's own start offset is applied to the seek and taken off every frame)."""
     import av
-    container.seek(int(max(0.0, start) * 1_000_000), backward=True, any_frame=False)
+    offset = media_offset(container)
+    container.seek(int((max(0.0, start) + offset) * 1_000_000), backward=True, any_frame=False)
     resampler = av.AudioResampler(format="flt", layout="mono", rate=16000)
     parts = []
     begin = None
@@ -349,6 +387,7 @@ def decode_audio(container, stream, start: float, end: float) -> tuple[np.ndarra
             moment = frame.time
             if moment is None:
                 continue
+            moment -= offset
             length = frame.samples / float(frame.sample_rate or 16000)
             if moment + length <= start:
                 continue
@@ -403,6 +442,8 @@ class FilmTranscriber:
         self.ready = threading.Event()      # media opened and checked
         self._stop = threading.Event()
         self._thread = None
+        self._session = None                # this film's gateway session (closed by stop())
+        self._empty = 0                     # decodes in a row that returned no audio at all
         self._prompt = ""
 
     def start(self):
@@ -412,12 +453,22 @@ class FilmTranscriber:
 
     def stop(self):
         self._stop.set()
+        session = self._session
+        if session is not None:
+            session.close()  # a decoder waiting on the network returns at once (audit 5 #13)
 
     @property
     def stopped(self) -> bool:
         return self._stop.is_set()
 
     CHOOSE_SECONDS = 60.0  # all candidates together (each open has its own 20 s limit)
+
+    def _gateway_session(self):
+        if self._session is None:
+            self._session = media_gateway().open_session()
+            if self._stop.is_set():
+                self._session.close()
+        return self._session
 
     def _choose(self):
         """The candidate whose length matches the video in the page (a page loads ads and previews too).
@@ -428,7 +479,7 @@ class FilmTranscriber:
             if self._stop.is_set() or time.monotonic() > deadline:
                 raise RuntimeError("stopped while choosing the media")
             try:
-                container, stream = open_media(url, self.referer, self.opener)
+                container, stream = open_media(url, self.referer, self.opener, session=self._gateway_session())
             except Exception as error:  # refused, not media, no audio
                 last_error = error
                 continue
@@ -451,7 +502,7 @@ class FilmTranscriber:
             if self.on_error is not None:
                 self.on_error(f"{type(error).__name__}: {error}")
         finally:
-            self._stop.set()  # whatever happened, the runtime sees a finished worker
+            self.stop()  # whatever happened, the runtime sees a finished worker (and its connections end)
 
     def _work(self):
         try:
@@ -471,7 +522,9 @@ class FilmTranscriber:
                 frontier = self.timeline.covered_until(position)
                 if next_start is None or not (position - 2.0 <= next_start <= frontier + 0.5):
                     next_start = frontier  # a seek (or the start): work from where the film is now
-                if (total and next_start >= total - 0.2) or next_start - position >= self.ahead_seconds:
+                # Paused: at most a minute ahead (no download and CPU for a film nobody watches, audit 5 #16).
+                ahead = min(self.ahead_seconds, PAUSED_AHEAD_SECONDS) if self.clock.paused else self.ahead_seconds
+                if (total and next_start >= total - 0.2) or next_start - position >= ahead:
                     self._stop.wait(0.5)  # far enough ahead (or the end): wait for the player
                     continue
                 catching_up = self.fast_model_provider is not None and next_start - position < CATCH_UP_SECONDS
@@ -497,8 +550,17 @@ class FilmTranscriber:
     def _prepare(self, model, container, stream, start: float, end: float, final: bool) -> float:
         """Recognise and translate [start, end); returns where the next piece starts."""
         audio, begin = decode_audio(container, stream, start, end)
+        if not len(audio) and not final:
+            # Nothing decoded at all is NOT silence (audit 5 #4): the stretch stays uncovered (the live captions
+            # keep showing it) and the same place is tried again; three times in a row → this film fails.
+            self._empty += 1
+            if self._empty >= 3:
+                raise RuntimeError(f"no audio decoded at {start:.0f} s")
+            self._stop.wait(1.0)
+            return start
+        self._empty = 0
         if len(audio) < 16000 * 0.5:
-            self.timeline.add([], start, end)
+            self.timeline.add([], start, end)  # decoded and (nearly) silent: really nothing said here
             return end
         peak = float(np.max(np.abs(audio)))
         if 0.0 < peak < 0.1:
@@ -791,7 +853,9 @@ class BridgeServer:
         self._server.token = self.token
         self._server.gate = threading.BoundedSemaphore(8)
         self._server.want = self._want
-        threading.Thread(target=self._server.serve_forever, name="JarvisBrowserBridge", daemon=True).start()
+        # A short poll: stop() frees the port within ~0.1 s (audit 5 #3; the runtime also retries).
+        threading.Thread(target=self._server.serve_forever, kwargs={"poll_interval": 0.1},
+                         name="JarvisBrowserBridge", daemon=True).start()
         return True
 
     def stop(self):

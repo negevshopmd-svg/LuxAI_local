@@ -1138,6 +1138,10 @@ class ExtensionsRuntime(QObject):
         self._pairing_error = ""
         return token
 
+    def _retry_film_bridge(self, retry: int):
+        if self._film_bridge is None and self.enabled("live_captions") and not getattr(self, "_stopping", False):
+            self._start_film_bridge(retry)
+
     def _new_film_bridge(self):
         token = self._pairing_token()
         if not token:
@@ -1146,11 +1150,17 @@ class ExtensionsRuntime(QObject):
         bridge = BridgeServer(self._film_report.emit, on_hello=self._extension_hello.emit, token=token)
         return bridge if bridge.start() else None
 
-    def _start_film_bridge(self):
+    BRIDGE_RETRIES = 10  # × 300 ms: the previous bridge frees the port within about a second
+
+    def _start_film_bridge(self, retry: int = 0):
         if not self.settings("live_captions").get("browser_films", True):
             return
         if self._film_bridge is None:
             self._film_bridge = self._new_film_bridge()
+            if self._film_bridge is None and not getattr(self, "_pairing_error", "") and retry < self.BRIDGE_RETRIES:
+                # Switched off and on quickly: the old bridge may still hold the port (audit 5 #3).
+                QTimer.singleShot(300, lambda: self._retry_film_bridge(retry + 1))
+                return
         if self._film_bridge is not None:
             # The extension sends the player's state only while Jarvis shows captions (audit 4 #14).
             self._film_bridge.want = self.captions_visible
@@ -1204,8 +1214,13 @@ class ExtensionsRuntime(QObject):
         # The saved date changes only when it is written to disk, so «once a day» really adds up (audit 4 #10).
         if changed or stale:
             meta["browser_extension_seen"] = value
-            if hasattr(self.host, "save_extensions_meta"):
-                self.host.save_extensions_meta()
+            if hasattr(self.host, "save_extensions_meta") and self.host.save_extensions_meta() is False:
+                # Not written (disk full, locked): the old entry stays, so the next contact tries again
+                # instead of waiting a day (audit 5 #15).
+                if old:
+                    meta["browser_extension_seen"] = old
+                else:
+                    meta.pop("browser_extension_seen", None)
 
     def _note_extension_alive(self):
         self._remember_extension({})
@@ -1263,7 +1278,8 @@ class ExtensionsRuntime(QObject):
         settings = self.settings("live_captions")
         return (report["tab"], report["page"], report.get("frame", 0), round(report["duration"]),
                 report.get("src", ""), report.get("session", 0), self._caption_language(), self._caption_target(),
-                settings.get("film_model", "precise"), settings.get("film_ahead", "600"))
+                settings.get("film_model", "precise"), settings.get("film_ahead", "180"),
+                report.get("doc", ""))  # another document (a reload) is another session (audit 5 #6)
 
     def _film_report_late(self, report) -> bool:
         """A report of a closed document, or older than one already handled (audit 4 #4)."""
@@ -1358,9 +1374,9 @@ class ExtensionsRuntime(QObject):
     def _film_ahead_seconds(self) -> float:
         """How far ahead the film is prepared (audit 4 #17): less means less separate download and CPU."""
         try:
-            return float(self.settings("live_captions").get("film_ahead", "600"))
+            return float(self.settings("live_captions").get("film_ahead", "180"))
         except (TypeError, ValueError):
-            return 600.0
+            return 180.0
 
     def _drop_film(self):
         film, self._film = self._film, None
@@ -3535,16 +3551,29 @@ class ExtensionsRuntime(QObject):
             return
         self._clip_saver.submit(work)
 
+    CLIP_EXIT_BUDGET = 8.0  # seconds, for ALL saves still to do at exit together (audit 5 #14)
+
     def _finish_clip_saves_at_exit(self, work):
-        """On close: the saves finish on a NON-daemon thread (audit 4 #15). The window closes at once (no wait
-        on the Qt thread), and Python keeps the process alive after the event loop until the earlier save and
-        then ``work`` are done — at most 8 s; the file is replaced atomically, so a cut save keeps the old one."""
+        """On close the window goes at once (nothing waits on the Qt thread, audit 4 #15). A NON-daemon guard
+        thread keeps the process alive after the event loop for at most ``CLIP_EXIT_BUDGET`` seconds in total:
+        first the save already running, then the last snapshot ``work`` on a daemon thread with the time that is
+        left. When the budget ends the process exits anyway; the file is replaced atomically, so a cut save
+        leaves the previous history whole, and the miss is written to the log."""
+        import time as _time
+        deadline = _time.monotonic() + self.CLIP_EXIT_BUDGET
+
         def finish():
-            if not self._clip_saver.wait(8.0):
+            if not self._clip_saver.wait(max(0.0, deadline - _time.monotonic())):
                 self._clip_error(RuntimeError("clipboard history save still running at exit (previous file kept)"))
                 return
-            if work is not None:
-                work()
+            if work is None:
+                return
+            last = threading.Thread(target=work, name="JarvisClipboardLastSnapshot", daemon=True)
+            last.start()
+            last.join(max(0.0, deadline - _time.monotonic()))
+            if last.is_alive():
+                self._clip_error(RuntimeError("last clipboard snapshot not written within the exit budget "
+                                              "(previous file kept)"))
 
         threading.Thread(target=finish, name="JarvisClipboardFinalSave", daemon=False).start()
 

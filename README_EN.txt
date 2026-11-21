@@ -1,4 +1,12 @@
-LUXAI LOCAL (JARVIS) 0.4.3d — UPDATE 2026-11-21
+LUXAI LOCAL (JARVIS) 0.4.3e — UPDATE 2026-11-21
+
+0.4.3e: Fixes from the fifth audit (18 points). Jarvis now downloads the film sound itself, with full
+HTTPS certificate checks for every piece of the film. Captions keep working after «Back» in the
+browser, for films with shifted timestamps and after a page reload. The extension (1.3.0) records
+nothing while captions are off. Reminders with «tomorrow forecast» / «seara» / «un sfert de oră» are
+read correctly; «minus 5 minutes» is refused. «Prepare ahead» is now 3 minutes by default, and at
+most one minute while paused.
+IMPORTANT: after the update, click «Reload» on the Jarvis extension in chrome://extensions.
 
 0.4.3d: Scroll bars no longer have a dark stripe behind them, and the section icons in the
 extension settings no longer have a square background.

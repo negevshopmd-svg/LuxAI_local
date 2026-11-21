@@ -7,6 +7,21 @@
   if (window.__jarvisFilmCaptions) return;
   window.__jarvisFilmCaptions = true;
 
+  const MEDIA = /\.(m3u8|mp4|webm|m4v|mov|mkv)$/i;
+
+  // Media this frame loaded (playlists, files), from the page's own resource list: available when captions are
+  // turned on in the middle of a film, without recording anything beforehand.
+  function seenMedia() {
+    try {
+      return performance.getEntriesByType("resource")
+        .map((entry) => entry.name)
+        .filter((name) => { try { return MEDIA.test(new URL(name).pathname); } catch (e) { return false; } })
+        .slice(-10);
+    } catch (e) {
+      return [];
+    }
+  }
+
   function newId() {
     return crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2) + String(Date.now());
   }
@@ -49,6 +64,7 @@
         rate: video.playbackRate,
         duration: isFinite(video.duration) ? video.duration : 0,
         src: /^https?:/i.test(src) ? src : "",
+        seen: want ? seenMedia() : [],
       }, (answer) => {
         void chrome.runtime.lastError; // no answer (the extension restarted): nothing to do
         want = !!(answer && answer.want);
@@ -94,6 +110,15 @@
                       "waiting", "stalled", "ended", "emptied"]) {
     document.addEventListener(name, follow, true);
   }
+  // Back/forward restored this page from the browser's memory: it is a NEW document for Jarvis (the old one
+  // was closed when the page was hidden), and the player's state is sent again at once (audit 5 #2).
+  window.addEventListener("pageshow", (event) => {
+    if (!event.persisted) return;
+    doc = newId();
+    seq = 0;
+    href = location.href;
+    soonReport();
+  });
   // The page goes away (navigation, closed tab): its document is closed at once.
   window.addEventListener("pagehide", () => {
     try {

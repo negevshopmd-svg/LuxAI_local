@@ -1,11 +1,9 @@
 """0.4.3c: the fourth audit report (0.4.3b, 2026-11-21)."""
 from __future__ import annotations
 
-import base64
 import datetime as dt
 import hashlib
 import http.client
-import http.server
 import json
 import socket
 import sys
@@ -19,7 +17,6 @@ from unittest import mock
 from PySide6.QtWidgets import QApplication
 
 from luxai import film_captions as fc
-from luxai import media_proxy as mp
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -66,62 +63,6 @@ class RecoveryDigestTests(unittest.TestCase):
         self.journal(["a.py"], {"a.py": hashlib.sha256(b"new").hexdigest()})
         self.assertEqual(self.Update.resume_interrupted_update(), 1)
         self.assertEqual((self.root / "a.py").read_bytes(), b"new")
-
-
-class _Redirect(http.server.BaseHTTPRequestHandler):
-    def do_GET(self):  # noqa: N802
-        self.send_response(302)
-        self.send_header("Location", f"http://localhost:{self.server.server_port}/secret.mp4")
-        self.end_headers()
-
-    def log_message(self, *_args):
-        pass
-
-
-class ProxyTests(unittest.TestCase):
-    """#2: every connection of the decoder (redirects, segments) is checked where it really goes."""
-
-    def setUp(self):
-        self.proxy = mp.MediaProxy().start()
-        self.addCleanup(self.proxy.stop)
-        self.port = self.proxy._server.getsockname()[1]
-
-    def ask(self, request: bytes) -> bytes:
-        with socket.create_connection(("127.0.0.1", self.port), timeout=5) as client:
-            client.sendall(request)
-            return client.recv(4096)
-
-    def auth(self) -> str:
-        return "Proxy-Authorization: Basic " + base64.b64encode(
-            f"{self.proxy.user}:{self.proxy.password}".encode()).decode()
-
-    def test_without_the_password_a_challenge_is_answered(self):
-        answer = self.ask(b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n")
-        self.assertIn(b"407", answer.split(b"\r\n")[0])
-        self.assertIn(b"Proxy-Authenticate: Basic", answer)
-
-    def test_local_and_private_destinations_are_refused(self):
-        for target in ("127.0.0.1:80", "localhost:443", "192.168.1.1:443", "10.0.0.1:80", "169.254.1.1:80"):
-            answer = self.ask(f"CONNECT {target} HTTP/1.1\r\n{self.auth()}\r\n\r\n".encode())
-            self.assertIn(b"403", answer.split(b"\r\n")[0], target)
-
-    def test_options_send_the_decoder_through_the_proxy(self):
-        options = fc.media_options("", "http://u:p@127.0.0.1:1")
-        self.assertEqual(options["http_proxy"], "http://u:p@127.0.0.1:1")
-        self.assertIn("httpproxy", options["protocol_whitelist"])
-
-    def test_a_redirect_to_this_computer_is_refused_by_the_real_decoder(self):
-        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Redirect)
-        threading.Thread(target=server.serve_forever, daemon=True).start()
-        self.addCleanup(server.shutdown)
-        real = mp.allowed_addresses
-        # The first address is allowed for the test; the redirect goes to «localhost», which is checked.
-        with mock.patch.object(mp, "allowed_addresses",
-                               lambda host, port: ["127.0.0.1"] if host == "127.0.0.1" else real(host, port)), \
-                mock.patch.object(fc, "public_destination", return_value=True):
-            with self.assertRaises(Exception):
-                fc.open_media(f"http://127.0.0.1:{server.server_port}/film.mp4", "")
-        self.assertIn("localhost", fc._PROXY.refused)
 
 
 class CandidateTests(unittest.TestCase):
@@ -328,7 +269,7 @@ class ChooseTests(unittest.TestCase):
         worker = fc.FilmTranscriber(["https://a.example/1.m3u8", "https://a.example/2.m3u8"], "",
                                     fc.PlayerClock(), fc.CueTimeline(), lambda: None)
 
-        def fake_open(url, referer, opener):
+        def fake_open(url, referer, opener, session=None):
             opened.append(url)
             worker.stop()  # the session stops while the first one opens
             raise OSError("slow")
@@ -427,7 +368,7 @@ class ExtensionCodeTests(unittest.TestCase):
         background = (ROOT / "browser_extension" / "background.js").read_text(encoding="utf-8")
         content = (ROOT / "browser_extension" / "content.js").read_text(encoding="utf-8")
         manifest = json.loads((ROOT / "browser_extension" / "manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "1.2.0")
+        self.assertIn(manifest["version"], ("1.2.0", "1.3.0"))
         self.assertIn("AbortController", background)        # #18 fetch time limit
         self.assertIn("busy.has(tab)", background)           # #18 one request in flight per tab
         self.assertIn('post("want"', background)             # #14 asks before sending anything

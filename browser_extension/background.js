@@ -1,7 +1,8 @@
 // Jarvis film captions - background (service worker).
-// Remembers which media each tab and frame requested (HLS playlists, mp4/webm, with the content type) in the
-// browser's session storage, and forwards the player's state from content.js to Jarvis on this computer
-// (127.0.0.1 only) — and ONLY while Jarvis shows captions and asks for it.
+// While Jarvis shows captions (and only then) it remembers which media each tab and frame requests (HLS
+// playlists, mp4/webm, with the content type) in the browser's session storage and forwards the player's
+// state from content.js to Jarvis on this computer (127.0.0.1 only). With captions off nothing is recorded,
+// the lists are cleared, and only a «hello» (installed, version) is sent once a minute.
 const JARVIS = "http://127.0.0.1:47321/v1/";
 const MEDIA_PATH = /\.(m3u8|mp4|webm|m4v|mov|mkv)$/i;
 const MEDIA_TYPES = /mpegurl|video\/(mp4|webm|x-matroska|quicktime)|audio\/(mp4|mpeg|aac|webm)/i;
@@ -55,6 +56,7 @@ async function post(path, body) {
     try {
       const data = await answer.json();
       if (data && "want" in data) {
+        if (wanted && !data.want) forgetMedia(); // captions turned off: nothing stays recorded
         wanted = !!data.want;
         wantAskedAt = Date.now();
       }
@@ -137,10 +139,22 @@ function update(tabId, change) {
   return queue;
 }
 
+function forgetMedia() {
+  chrome.storage.session.clear().catch(() => {});
+}
+
 function remember(details, type) {
-  if (details.tabId < 0 || !/^https?:/i.test(details.url)) return;
+  // Only while Jarvis shows captions (audit 5 #11).
+  if (!wanted || details.tabId < 0 || !/^https?:/i.test(details.url)) return;
   const item = { url: details.url, type: type || "", frame: details.frameId };
-  update(details.tabId, (stored) => [item].concat(stored.filter((old) => old.url !== item.url)).slice(0, KEEP));
+  // One entry per (frame, address): two frames loading the same playlist both keep it, and a type seen
+  // before is not lost (audit 5 #5).
+  const same = (old) => old.url === item.url && old.frame === item.frame;
+  update(details.tabId, (stored) => {
+    const before = stored.find(same);
+    if (before && !item.type) item.type = before.type;
+    return [item].concat(stored.filter((old) => !same(old))).slice(0, KEEP);
+  });
 }
 
 chrome.webRequest.onBeforeRequest.addListener((details) => {
@@ -189,6 +203,10 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     // Only what the player's own frame loaded (an ad iframe has its own frame id), plus an address the
     // player itself names; never other frames' media at random (audit 4 #6).
     const own = all.filter((item) => item.frame === sender.frameId || (message.src && item.url === message.src));
+    // What this frame itself loaded before captions were turned on (its own resource list, sent by content.js).
+    for (const url of message.seen || []) {
+      if (/^https?:/i.test(url) && !own.some((item) => item.url === url)) own.push({ url: url, type: "" });
+    }
     enqueue(tab, "state", {
       tab: tab,
       frame: sender.frameId,

@@ -1,5 +1,13 @@
-LUXAI LOCAL 0.4.3d — ACTUALIZARE 2026-11-21
+LUXAI LOCAL 0.4.3e — ACTUALIZARE 2026-11-21
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.3e: Corecturile celui de-al cincilea audit (18 puncte). Sunetul filmelor e descărcat acum
+de Jarvis însuși, cu verificarea completă a certificatului HTTPS pentru fiecare bucată a filmului.
+Subtitrările merg și după „Înapoi” în browser, la filme cu timpul decalat și la reîncărcarea
+paginii. Extensia (1.3.0) nu înregistrează nimic cât timp subtitrările sunt oprite. Mementourile
+„tomorrow forecast” / „seara” / „un sfert de oră” sunt înțelese corect; „minus 5 minute” e refuzat.
+„Pregătește înainte” e acum 3 minute implicit, iar pe pauză cel mult un minut.
+IMPORTANT: după actualizare, în chrome://extensions apasă „Reîncarcă” la extensia Jarvis.
 
 0.4.3d: Bara de derulare nu mai are o bandă închisă în spate, iar iconițele secțiunilor din
 setările extensiilor nu mai au pătrat de fundal.

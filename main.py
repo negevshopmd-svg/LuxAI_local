@@ -897,11 +897,13 @@ class MainWindow(QMainWindow):
             view.external_update(key, value)
         page._commit()
 
-    def save_extensions_meta(self):
+    def save_extensions_meta(self) -> bool:
+        """True when written; False lets the caller keep its «not saved yet» state (audit 5 #15)."""
         try:
             save_config(self.cfg)
         except OSError:
-            pass
+            return False
+        return True
 
     def _refresh_extension_errors(self):
         if not self._closed and hasattr(self, "extensions_page"):

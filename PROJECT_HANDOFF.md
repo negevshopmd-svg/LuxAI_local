@@ -90,8 +90,8 @@ key is built into `Update.py` and `scripts/release_signature.py`. `.bat/.cmd` ar
   Working: smart dictation (`dictation.py`), notification reader (`notifications.py`), read aloud
   (`translation.py`), live captions (`live_captions.py`, `loopback_audio.py`; «Hybrid»: fast draft + translation,
   precise correction on its own thread), film captions in advance (`film_captions.py` + the Chrome/Edge
-  extension in `browser_extension/`, local bridge on 127.0.0.1:47321; the decoder connects only through the
-  checking proxy `media_proxy.py`, public addresses only), clipboard history
+  extension in `browser_extension/`, local bridge on 127.0.0.1:47321; FFmpeg talks only to the media
+  gateway `media_proxy.py`: public addresses, verified HTTPS, rewritten HLS playlists, per-film sessions), clipboard history
   (`clipboard_store.py`, `clipboard_native.py`, `ui_clipboard.py`), quick inserts, visual avatar
   (`avatar.py`), breaks, PC Control via Telegram bot (`telegram_control.py`), media keys, timers and
   alarms (`timers.py`), converter (`converter.py`, `ui_convert_circle.py`), screenshots, downloads cleanup.

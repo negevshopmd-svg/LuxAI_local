@@ -814,6 +814,22 @@ def _finish_journal() -> None:
         shutil.rmtree(_staging_root() / name, ignore_errors=True)
 
 
+def _staged_source(staging: Path, rel: PurePosixPath) -> Path:
+    """A staged file of the journal, refused when it (or a folder above it) is a link or lies elsewhere."""
+    staged = staging.joinpath(*rel.parts)
+    root = staging.resolve()
+    if root not in staged.resolve().parents:
+        raise RuntimeError(f"Fișier pregătit în afara folderului actualizării: {rel}")
+    for path in (staged, *staged.parents):
+        if path == staging:
+            break
+        if path.exists() and _is_link(path):
+            raise RuntimeError(f"Fișier pregătit printr-o legătură: {rel}")
+    if staging.exists() and _is_link(staging):
+        raise RuntimeError("Folderul actualizării este o legătură")
+    return staged
+
+
 def resume_interrupted_update() -> int:
     """Finish the file moves of an update the PC did not finish (power cut, forced close).
 
@@ -857,8 +873,15 @@ def resume_interrupted_update() -> int:
         if path.is_absolute() or ".." in path.parts:
             unconfirmed.append(rel)
             continue
-        staged = staging.joinpath(*path.parts)
-        target = ROOT.joinpath(*path.parts)
+        # The same destination rules as a normal installation (audit 5 #7): inside the program folder,
+        # never through a link or junction, never over a folder — and the staged file itself must lie in
+        # this update's staging folder, not behind a link.
+        try:
+            target = _destination(Path(*path.parts))
+            staged = _staged_source(staging, path)
+        except (RuntimeError, OSError, ValueError):
+            unconfirmed.append(rel)
+            continue
         if staged.is_file():
             if digest(staged) == digests[rel]:
                 to_move.append((staged, target))

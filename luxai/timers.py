@@ -67,28 +67,38 @@ def _number(value: str) -> float:
     return float(value.replace(",", "."))
 
 
+# Spoken durations with their own words. The SAME table serves timers and reminders (audit 5 #9).
+_SPECIAL_DURATIONS = {
+    r"полчаса|пол\s*часа|o\s+jum[aă]tate\s+de\s+or[aă]|half\s+an\s+hour": 1800,
+    r"полтора\s+часа": 5400,
+    r"полторы\s+минуты": 90,
+    r"четверть\s+часа|(?:un|într-un|intr-un)\s+sfert\s+de\s+or[aă]|quarter\s+of\s+an\s+hour": 900,
+}
+# A sign in front refuses the duration: «-5 minutes», «minus five minutes», «минус час» (audit 5 #9).
+_NEGATIVE = re.compile(r"(?:[-−–]|(?<!\w)(?:minus|минус))\s*$", re.I)
+
+
 def parse_duration(text: str) -> int | None:
     """Total seconds from phrases like "1 час 20 минут", "полчаса", "90 sec"."""
     value = " " + str(text or "").casefold().replace("ё", "е") + " "
-    special = {r"полчаса|пол\s*часа|o\s+jum[aă]tate\s+de\s+or[aă]|half\s+an\s+hour": 1800,
-               r"полтора\s+часа": 5400, r"полторы\s+минуты": 90, r"четверть\s+часа|un\s+sfert\s+de\s+or[aă]|quarter\s+of\s+an\s+hour": 900}
     total = 0
-    for pattern, seconds in special.items():
+    for pattern, seconds in _SPECIAL_DURATIONS.items():
         for match in re.finditer(pattern, value):
-            if re.search(r"[-−–]\s*$", value[:match.start()]):
+            if _NEGATIVE.search(value[:match.start()]):
                 return None  # «-half an hour» is refused like «-5 minutes» (audit 4 #12)
-        if re.search(pattern, value):
-            total += seconds
-            value = re.sub(pattern, " ", value)
+            total += seconds  # every occurrence: «half an hour and half an hour» is an hour
+        value = re.sub(pattern, " ", value)
     for unit, unit_pattern in _UNITS.items():
         for match in re.finditer(r"(?<![\w:])" + _NUMBER + r"\s*" + unit_pattern + r"(?!\w)", value, re.I):
-            if re.search(r"[-−–]\s*$", value[:match.start()]):
+            if _NEGATIVE.search(value[:match.start()]):
                 return None  # «-5 minutes» is not five minutes (audit #16)
             total += int(round(_number(match.group(1)) * _FACTOR[unit]))
     if total == 0:
         # A bare unit means one: «на минуту», «на час», «на секунду».
         bare = re.search(r"(?<!\w)(минуту|час|секунду)(?!\w)", value)
         if bare:
+            if _NEGATIVE.search(value[:bare.start()]):
+                return None  # «таймер -час»
             total = {"минуту": 60, "час": 3600, "секунду": 1}[bare.group(1)]
     if total <= 0:
         return None
@@ -111,6 +121,24 @@ _AM = r"(?:ночи|утра|am|a\.m\.|dimineața|dimineata)"
 _DAY = r"(?:завтра|mâine|maine|tomorrow)"
 
 
+_DAY_BEFORE_TIME = re.compile(r"(?<!\w)" + _DAY + r"\s*,?\s*(?:в|во|на|к|la|pe|at|on|ora)?\s*$", re.I)
+_DAY_AFTER = re.compile(r"\s*,?\s*" + _DAY + r"(?!\w)", re.I)
+_MARK_AFTER = re.compile(r"\s*(?:" + _PM + "|" + _AM + r")(?!\w)", re.I)
+
+
+def _day_next_to_time(value: str, match) -> bool:
+    """«tomorrow» belongs to the time only right before it («tomorrow at 8»), right after it («at 8 tomorrow»)
+    or right after «remind me» — never from inside the message («check tomorrow forecast», «tomorrowland»;
+    audit 5 #8). The label is cut by the same rules (``_clock_label``)."""
+    after = value[match.end():]
+    marker = _MARK_AFTER.match(after)
+    rest = after[marker.end():] if marker else after
+    if _DAY_BEFORE_TIME.search(value[:match.start()]) or _DAY_AFTER.match(rest):
+        return True
+    remind = _REMIND_WORDS.search(value)
+    return bool(remind and remind.end() <= match.start() and _DAY_AFTER.match(value, remind.end()))
+
+
 def parse_clock(text: str, now: dt.datetime, *, near_only: bool = False) -> dt.datetime | None:
     """Next occurrence of a clock time: "7:30", "в 7 утра", "la 6", "at 6 pm".
 
@@ -131,9 +159,9 @@ def parse_clock(text: str, now: dt.datetime, *, near_only: bool = False) -> dt.d
         marker = re.match(r"\s*(" + _PM + "|" + _AM + r")\b", after)
         marks = marker.group(1) if marker else ""
         rest = after[marker.end():] if marker else after
-        day = bool(re.search(_DAY, value[:match.start()]) or re.match(r"\s*,?\s*" + _DAY, rest))
+        day = _day_next_to_time(value, match)
     else:
-        marks, day = value, bool(re.search(_DAY, value))
+        marks, day = value, bool(re.search(r"(?<!\w)" + _DAY + r"(?!\w)", value))
     if re.search(_PM, marks) and hour < 12:
         hour += 12
     if re.search(r"(?:ночи|am|a\.m\.)", marks) and hour == 12:
@@ -147,8 +175,8 @@ def parse_clock(text: str, now: dt.datetime, *, near_only: bool = False) -> dt.d
 
 
 _DURATION_PART = re.compile(
-    r"(?<![\w:])" + _NUMBER + r"\s*(?:" + "|".join(_UNITS.values()) + r")(?!\w)|полчаса|пол\s*часа|полтора\s+часа|"
-    r"half\s+an\s+hour|quarter\s+of\s+an\s+hour|четверть\s+часа|o\s+jum[aă]tate\s+de\s+or[aă]", re.I)
+    r"(?<![\w:])" + _NUMBER + r"\s*(?:" + "|".join(_UNITS.values()) + r")(?!\w)|"
+    + "|".join(f"(?:{pattern})" for pattern in _SPECIAL_DURATIONS), re.I)
 _JOIN = re.compile(r"^\s*(?:,|и|and|și|si)?\s*$", re.I)
 
 
@@ -171,7 +199,7 @@ def _first_duration(text: str) -> tuple[str, str]:
     if not matches:
         return "", ""
     end = matches[0].end()
-    sign = "-" if re.search(r"[-−–]\s*$", value[:matches[0].start()]) else ""
+    sign = "-" if _NEGATIVE.search(value[:matches[0].start()]) else ""
     parts = [sign + matches[0].group(0)]
     for match in matches[1:]:
         if _JOIN.match(value[end:match.start()]):
@@ -199,6 +227,9 @@ def _body_before(text: str, start: int) -> str:
     if not remind or start <= remind.end():
         return ""
     body = _TIME_PREPOSITION.sub("", value[remind.end():start])
+    body = re.sub(r"^\s*,?\s*" + _DAY + r"(?!\w)", "", body, flags=re.I)        # «remind me tomorrow to …»
+    body = re.sub(r"(?<!\w)" + _DAY + r"\s*,?\s*$", "", body, flags=re.I)        # «… call Ana tomorrow at 9»
+    body = _TIME_PREPOSITION.sub("", body)
     return _clean_label(body)
 
 
@@ -215,11 +246,12 @@ def _clock_label(text: str) -> str:
     if not match:
         return ""
     end = match.end()
-    suffix = _CLOCK_SUFFIX.match(value, end)
+    # AM/PM words of every language («seara», «вечера», «pm») and the day word right after the time belong to
+    # the time, not to the message — the same lists the parser uses (audit 4 #11, audit 5 #8).
+    suffix = _CLOCK_SUFFIX.match(value, end) or _MARK_AFTER.match(value, end)
     if suffix:
         end = suffix.end()
-    # The day word right after the time belongs to the time, not to the message (audit 4 #11).
-    day = re.compile(r"\s*,?\s*" + _DAY + r"(?!\w)", re.I).match(value, end)
+    day = _DAY_AFTER.match(value, end)
     if day:
         end = day.end()
     return _clean_label(value[end:]) or _body_before(value, match.start())
