@@ -1,3 +1,60 @@
+## 0.4.3r — Seventh audit report (0.4.3q, 47 findings, 2026-11-22)
+
+Every finding has a test in `tests/test_audit7_fixes_043r.py` (50 tests); all 50 fail on 0.4.3q and pass now.
+
+P2
+- #1 «translate …» drops a label only when it is explicit («this: …», «textul — …», «это "…"»): «thistle»,
+  «This is a test» and «textul nostru» are no longer cut. #2 A scheduled command checks every day the poll
+  interval touches: 23:58:55 → 00:00:05 fires a 23:59 reminder. #3 Saving a command whose exact phrase another
+  enabled command uses shows which one (only one of them can run; `CommandRegistry.phrase_conflicts`).
+- #4/#5 New `luxai/command_outcome.py`: only Jarvis' own cancel replies clear a command chain («This order was
+  cancelled last week» does not); a remote command failed only when its answer STARTS with an error («No errors
+  found» is a success).
+- #7 Grouped notifications: sender lines go through the link/code filters. #9 A translation that finishes after
+  the reader was turned off is dropped (session number). #11 `extensions_meta.notification_apps` = null no longer
+  breaks turning the reader on (and is dropped by `validate_config`). #13 The ✕ of a timer whose removal cannot be
+  saved shows the reason instead of raising out of the Qt slot. #17 Turning «keep after restart» off deletes the
+  saved clipboard history at once. #29 PC Control with «start with the app» off is no longer started by a later
+  apply; only turning the plugin on starts it.
+- #34 Live captions keep at most 8 s of waiting speech; a slow PC drops older audio instead of falling 28 s
+  behind. #37 Every caption engine has a number; lines of a stopped engine (source changed) are dropped.
+- #38 After finishing an interrupted update's file moves, the «interrupted» marker stays until a whole update
+  succeeds (new code with old libraries never starts silently). #39 Ctrl+C after the library step also restores
+  the libraries. #41 A failed llama-cpp-python upgrade reinstalls the exact version that worked.
+
+P3/P4
+- #6 Cloud replies are read piece by piece within the SAME deadline (a 0.25 s budget took 1.2 s on a slow
+  server). #8 The final notification pass keeps the user's «links» choice. #10 «What came in» consumes only the
+  five lines it reads; the rest waits for the next request. #12 Phrase lists set to null get their defaults.
+  #14 A failed config.json write puts the old values back on the plugin page and says «not saved». #15 A pinned
+  saved clipboard item stays pinned when the same content was copied during loading. #16 A picture encoded before
+  «clear» does not come back. #18 The notification watcher follows a database Windows recreated with a lower
+  counter. #19 Downloads cleanup re-checks each file (same file, not a link) right before moving it. #20 «Save a
+  copy» writes beside the target and renames when complete (no partial file blocking a retry).
+- #21 GIF times count from the first frame (a clip whose clock starts at 40 s gave an empty GIF). #22 Portrait
+  phone videos are turned upright (display matrix) for MP4/compress/GIF. #23 One broken Windows audio session no
+  longer stops the program list (also for per-app volume). #24 A Telegram reply queued after the bot stopped is
+  reported, not lost. #25 Only a request that never left is retried; a lost answer is reported as «maybe
+  delivered», not sent twice. #26 At most two Fish prefetches run at once. #27 «Stop» ends the wait for a prefetched
+  piece at once (was up to 30 s). #28 The prefetch key includes voice and speed.
+- #31 Extension 1.12.0: the newest audio (≤ 2 MB) is kept IN THE PAGE while captions are off, so turning captions
+  on mid-video sends what YouTube already loaded (nothing leaves the page before Jarvis asks). #32 A SourceBuffer
+  the player removed is never sent again on a resync. Both proved in Node (`tests/js/activation_harness.js`).
+- #33 The film decoder takes the dialogue track: never commentary / audio description when another exists, the
+  captions language first, then the default track. #35 The same words said twice stay two lines; only an echo of
+  the prompt is dropped (the phrase is read again without it). #36 Film cues are kept per line (text + start): two
+  identical lines keep their own timing.
+- #40 install_windows.ps1 takes the same OS lock as Update.py (byte 0 of `.luxai_data\updater.lock`; proved:
+  PowerShell's lock blocks Python's). #42 config.json, shared_vocabulary.txt and special_tokens_map.json of the
+  translator are SHA-256 checked too (hashes measured at the pinned revision; the installed copy matches).
+  #43 A failed optional part (GGUF / OCR) stays «warn» in the setup window and the final message names it.
+  #44 One log line longer than the window's buffer no longer freezes it. #45 The quick start check includes
+  every package's RECORD. #46 A damaged first Tesseract no longer hides a working one after it. #47 A verified
+  OCR engine is not hashed again before every recognition.
+- Not tested live: a real slow PC with captions, YouTube in a browser with the new extension, a real Telegram
+  bot, a real interrupted update, a real broken COM audio session, a real portrait phone video file (the turn
+  itself was tested on frames).
+
 ## 0.4.3q — No extension error in sandboxed frames (2026-11-22)
 
 - Reported from Chrome's extension errors page on chatgpt.com: «Failed to execute 'postMessage' on 'DOMWindow':

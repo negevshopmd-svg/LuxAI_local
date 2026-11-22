@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import queue
+import socket
 import re
 import threading
 import urllib.error
@@ -136,6 +137,14 @@ class TelegramError(RuntimeError):
     pass
 
 
+class TelegramNotSent(TelegramError):
+    """The request certainly never reached Telegram (refused connection, unknown host): safe to retry.
+
+    Audit 7 #25: any other lost connection may have delivered the message before the answer was lost,
+    so it is not sent again.
+    """
+
+
 def call(token, method, params=None, timeout=15, opener=None):
     """POST one Bot API method. Errors never include the token."""
     if not valid_token(token):
@@ -154,6 +163,9 @@ def call(token, method, params=None, timeout=15, opener=None):
         except Exception:
             raise TelegramError(f"HTTP {error.code}") from None
     except (urllib.error.URLError, TimeoutError, OSError) as error:
+        reason = getattr(error, "reason", None) if isinstance(error, urllib.error.URLError) else error
+        if isinstance(reason, (ConnectionRefusedError, socket.gaierror)):
+            raise TelegramNotSent(f"Нет связи с Telegram ({type(reason).__name__}).") from None
         raise TelegramError(f"Нет связи с Telegram ({type(error).__name__}).") from None
     except (ValueError, UnicodeDecodeError):
         raise TelegramError("Telegram ответил не в формате JSON.") from None
@@ -181,6 +193,7 @@ class TelegramBot:
         self.call = caller
         self.outbox: queue.Queue = queue.Queue(maxsize=200)
         self._stop = threading.Event()
+        self._send_lock = threading.Lock()  # audit 7 #24: «stopped?» and «queue it» are one step
         self.me: dict = {}
         self._threads = []
         self.undelivered = 0  # replies that could not be sent (queue full or Telegram error)
@@ -193,7 +206,8 @@ class TelegramBot:
 
     def stop(self, wait: float = 0.0):
         """Every way out (user, error, crash) ends BOTH threads (audit #22)."""
-        self._stop.set()
+        with self._send_lock:
+            self._stop.set()
         while True:  # make room for the wake-up item even when the queue is full
             try:
                 self.outbox.put_nowait(None)
@@ -215,12 +229,18 @@ class TelegramBot:
         return not self._stop.is_set() and poll is not None and poll.is_alive()
 
     def send(self, method, params) -> bool:
-        try:
-            self.outbox.put_nowait((method, params))
-            return True
-        except queue.Full:
-            self._undelivered(method, "queue full")
-            return False
+        with self._send_lock:
+            if self._stop.is_set():
+                # audit 7 #24: a reply queued after stop() would never be sent — say so instead
+                self._undelivered(method, "bot stopped")
+                return False
+            try:
+                self.outbox.put_nowait((method, params))
+                return True
+            except queue.Full:
+                pass
+        self._undelivered(method, "queue full")
+        return False
 
     def _undelivered(self, method, reason):
         # Never silent (audit #24): the status line shows it, and the command is not resent automatically,
@@ -241,11 +261,18 @@ class TelegramBot:
                 try:
                     self.call(self.token, method, params, timeout=15)
                     break
-                except TelegramError as error:
-                    # Only a lost connection is retried once; a refused message is reported, not repeated.
-                    if attempt == 1 and "связи" in str(error) and not self._stop.wait(2):
+                except TelegramNotSent as error:
+                    # The request never left: one retry cannot duplicate the message.
+                    if attempt == 1 and not self._stop.wait(2):
                         continue
                     self._undelivered(method, str(error))
+                    break
+                except TelegramError as error:
+                    # A lost answer may follow a delivered message (audit 7 #25): report, never resend.
+                    reason = str(error)
+                    if "связи" in reason:
+                        reason += " — может быть, уже доставлено / maybe delivered"
+                    self._undelivered(method, reason)
                     break
                 except Exception as error:
                     self._undelivered(method, type(error).__name__)

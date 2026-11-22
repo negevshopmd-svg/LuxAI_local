@@ -58,7 +58,7 @@ class TranslationTests(unittest.TestCase):
     def test_broken_model_is_retried_after_repair(self):
         from luxai import offline_translate as ot
         with tempfile.TemporaryDirectory() as folder:
-            for name in ("model.bin", "tokenizer.json", "config.json"):
+            for name in ot.SHA256:
                 Path(folder, name).write_text("x")
             with mock.patch.object(ot, "_loaded", None), mock.patch.object(ot, "_failed", None), \
                     mock.patch.object(ot, "OfflineTranslator", side_effect=RuntimeError("bad")) as load, \

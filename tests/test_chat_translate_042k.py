@@ -101,14 +101,15 @@ class UpdateTests(unittest.TestCase):
 
     def test_download_is_pinned_and_checked(self):
         self.assertRegex(ot.REVISION, r"^[0-9a-f]{40}$")
-        self.assertEqual(set(ot.SHA256), {"model.bin", "tokenizer.json"})
+        self.assertEqual(set(ot.SHA256), {"model.bin", "tokenizer.json", "config.json", "shared_vocabulary.txt",
+                                          "special_tokens_map.json"})
         with mock.patch("huggingface_hub.snapshot_download") as download, \
                 mock.patch.object(ot, "installed", side_effect=[False, False]), \
                 mock.patch.object(ot, "verified", return_value=False), \
                 mock.patch("pathlib.Path.unlink") as unlink:
             self.assertFalse(ot.ensure_downloaded(Path("nowhere")))
         self.assertEqual(download.call_args.kwargs["revision"], ot.REVISION)
-        self.assertEqual(unlink.call_count, 2)  # a damaged file is removed, never loaded
+        self.assertEqual(unlink.call_count, len(ot.SHA256))  # a damaged file is removed, never loaded
 
     def test_main_reports_installed(self):
         with mock.patch.object(ot, "installed", return_value=True):

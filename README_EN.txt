@@ -1,4 +1,11 @@
-LUXAI LOCAL (JARVIS) 0.4.3q — UPDATE 2026-11-21
+LUXAI LOCAL (JARVIS) 0.4.3r — UPDATE 2026-11-22
+
+0.4.3r: Fixes from the seventh audit (47 points). Among them: «translate …» no longer cuts the start of the
+text; a 23:59 reminder is no longer lost at midnight; two commands with the same phrase are reported when
+saved; live captions no longer fall behind on a slow PC; portrait phone videos no longer come out turned;
+an interrupted update no longer leaves new code with old libraries; the Fish voice stops at once on
+«stop». The extension (1.12.0) starts captions with the audio the page has already loaded.
+IMPORTANT: after the update, click «Reload» on the Jarvis extension in chrome://extensions.
 
 0.4.3q: The extension (1.11.1) no longer reports «Failed to execute 'postMessage' … origin ('null')» on
 sites with sandboxed frames (e.g. chatgpt.com).

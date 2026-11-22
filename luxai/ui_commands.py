@@ -357,6 +357,15 @@ class CommandsPage(QWidget):
         return [entry for entry in self.registry.entries()
                 if is_agent_command(entry) == self._agent_mode]
 
+    def _warn_phrase_conflicts(self, identifier):
+        """Audit 7 #3: a second command with the same exact phrase can never run — say so."""
+        conflicts = self.registry.phrase_conflicts(identifier)
+        if conflicts:
+            QMessageBox.warning(
+                self, tr("Одинаковая фраза", self.interface_language),
+                tr("Эту же фразу уже использует другая команда; сработает только одна из них. Измените фразу:",
+                   self.interface_language) + "\n\n" + "\n".join("• " + title for title in conflicts[:8]))
+
     def _show_error(self, error):
         source = _ERROR_SOURCES.get(str(error), str(error))
         QMessageBox.warning(self, tr("Ошибка", self.interface_language), tr(source, self.interface_language))
@@ -1069,9 +1078,10 @@ class CommandsPage(QWidget):
             group = selected.data(0, GROUP_ROLE) if selected is not None else None
             data["category"] = (group["name"] if group and group.get("kind")
                                 else "Команды агента" if self._agent_mode else "Мои команды")
-            self.registry.save_custom(data)
+            saved = self.registry.save_custom(data)
             self.refresh()
             self.changed.emit()
+            self._warn_phrase_conflicts(saved["id"])
 
         return self._open_editor(self._configure_editor(CommandEditor(parent=self)), save)
 
@@ -1081,9 +1091,10 @@ class CommandsPage(QWidget):
             return None
 
         def save(dialog):
-            self.registry.save_command(dialog.get_data())
+            saved = self.registry.save_command(dialog.get_data())
             self.refresh()
             self.changed.emit()
+            self._warn_phrase_conflicts(saved["id"])
 
         return self._open_editor(self._configure_editor(CommandEditor(entry, parent=self)), save)
 

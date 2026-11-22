@@ -1,5 +1,12 @@
-LUXAI LOCAL 0.4.3q — ACTUALIZARE 2026-11-21
+LUXAI LOCAL 0.4.3r — ACTUALIZARE 2026-11-22
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.3r: Corecturile celui de-al șaptelea audit (47 de puncte). Printre ele: „tradu …” nu mai taie începutul
+textului; un memento de la 23:59 nu se mai pierde la miezul nopții; două comenzi cu aceeași frază sunt
+semnalate la salvare; subtitrările live nu mai rămân în urmă pe un PC lent; filmările portret din telefon
+nu mai ies rotite; un update întrerupt nu mai lasă cod nou cu biblioteci vechi; vocea Fish se oprește
+imediat la „stop”. Extensia (1.12.0) pornește subtitrările și cu sunetul încărcat deja în pagină.
+IMPORTANT: după actualizare, în chrome://extensions apasă „Reîncarcă” la extensia Jarvis.
 
 0.4.3q: Extensia (1.11.1) nu mai dă eroarea „Failed to execute 'postMessage' … origin ('null')” pe
 site-uri cu cadre izolate (de exemplu chatgpt.com).

@@ -6,6 +6,7 @@ not retried. These calls propose actions; they never execute local actions.
 """
 from __future__ import annotations
 
+import http.client
 import json
 import time
 import urllib.error
@@ -39,6 +40,39 @@ def _retry_delay(error: urllib.error.HTTPError) -> float | None:
     return max(0.0, delay) if delay <= 2 else None
 
 
+def _set_socket_timeout(response, seconds: float) -> None:
+    raw = getattr(getattr(response, "fp", None), "raw", None)
+    sock = getattr(raw, "_sock", None)
+    if sock is not None:
+        try:
+            sock.settimeout(max(0.05, seconds))
+        except OSError:
+            pass
+
+
+def _read_body(response, limit: int, deadline: float) -> bytes:
+    """The body within the SAME deadline (audit 7 #6).
+
+    ``read(n)`` waited for every byte of a slow server (a 0.25 s budget took 1.2 s): each wait of the
+    socket counted separately. The body is read piece by piece now, the socket waits only for the time
+    left, and the read stops at the deadline."""
+    if not isinstance(response, http.client.HTTPResponse):
+        return response.read(limit + 1)  # test doubles / other transports
+    chunks, total = [], 0
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("The cloud response took longer than its time limit.")
+        _set_socket_timeout(response, remaining)
+        chunk = response.read1(min(65536, limit + 1 - total))
+        if not chunk:
+            return b"".join(chunks)
+        chunks.append(chunk)
+        total += len(chunk)
+        if total > limit:
+            return b"".join(chunks)
+
+
 def read_json_response(opener, request, timeout: float, limit: int = 1024 * 1024):
     """Read one JSON response, with at most one retry inside the time budget."""
     budget = max(0.1, float(timeout))
@@ -49,7 +83,7 @@ def read_json_response(opener, request, timeout: float, limit: int = 1024 * 1024
             with opener.open(request, timeout=min(budget, remaining)) as response:
                 if response.status != 200:
                     raise ValueError("Unexpected API response status")
-                raw = response.read(limit + 1)
+                raw = _read_body(response, limit, deadline)
                 if len(raw) > limit:
                     raise ValueError("API response exceeds size limit")
             return json.loads(raw)

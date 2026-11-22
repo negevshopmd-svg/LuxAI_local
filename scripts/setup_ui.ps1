@@ -345,7 +345,7 @@ $state = @{
     steps = [ordered]@{}; current = $null; started = [DateTime]::Now; stepStarted = [DateTime]::Now
     bytesDone = 0.0; bytesTotal = 0.0; finished = $false; ok = $false; shownProgress = 0.0
     lastRx = -1.0; lastRxAt = [DateTime]::Now; speed = 0.0; downloaded = 0.0; samples = New-Object System.Collections.ArrayList
-    position = 0L; log = New-Object System.Text.StringBuilder; countdown = -1; plannedOnce = $false
+    position = 0L; log = New-Object System.Text.StringBuilder; countdown = -1; plannedOnce = $false; skipLine = $false
 }
 
 function Get-ReceivedBytes {
@@ -506,9 +506,26 @@ function Read-Events {
         $count = $reader.Read($buffer, 0, $buffer.Length)
         $chunk = New-Object string($buffer, 0, $count)
         $last = $chunk.LastIndexOf("`n")
-        if ($last -lt 0) { return }
+        if ($last -lt 0) {
+            # Audit 7 #44: one line longer than the whole buffer used to be read again on every tick (the
+            # window looked frozen). Its start is skipped now; the rest is dropped up to its line end.
+            if ($count -eq $buffer.Length) {
+                $keep = $count
+                if ([char]::IsHighSurrogate($chunk[$count - 1])) { $keep -= 1 }
+                $state.position += [Text.Encoding]::UTF8.GetByteCount($chunk.Substring(0, $keep))
+                $state.skipLine = $true
+                Add-Log '[a very long log line was skipped]'
+            }
+            return
+        }
         $state.position += [Text.Encoding]::UTF8.GetByteCount($chunk.Substring(0, $last + 1))
-        foreach ($line in $chunk.Substring(0, $last).Split("`n")) {
+        $first = 0
+        if ($state.skipLine) {
+            $first = $chunk.IndexOf("`n") + 1  # the end of the skipped line
+            $state.skipLine = $false
+        }
+        if ($first -gt $last) { return }
+        foreach ($line in $chunk.Substring($first, $last - $first).Split("`n")) {
             $line = $line.Trim(); if (-not $line) { continue }
             try { $e = $line | ConvertFrom-Json } catch { continue }
             switch ([string]$e.t) {

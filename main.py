@@ -111,6 +111,10 @@ _TEXT_FIELDS = (
     "command_chain_words", "command_stop_phrases", "confirm_no_words", "confirm_yes_words",
     "microphone_off_phrases", "prefix_mode_phrases", "quiet_mode_phrases", "microphone_hostapi",
 )
+_PHRASE_LIST_FIELDS = frozenset((
+    "command_chain_words", "command_stop_phrases", "confirm_no_words", "confirm_yes_words",
+    "microphone_off_phrases", "prefix_mode_phrases", "quiet_mode_phrases",
+))
 _NUMBER_FIELDS = {  # name: (kind, lowest, highest)
     "voice_volume": (int, 0, 100), "voice_speed": (float, 0.7, 1.4), "confirmation_timeout": (int, 5, 180),
     "whisper_beam_size": (int, 1, 10), "recognition_sensitivity": (int, 0, 100),
@@ -129,7 +133,9 @@ def validate_config(data: dict) -> list[str]:
             data.pop(name)
             fixed.append(name)
     for name in _TEXT_FIELDS:
-        if name in data and data[name] is not None and not isinstance(data[name], str):
+        # audit 7 #12: a phrase list set to null passed and later crashed on .split(); its default applies
+        null_list = data.get(name, "") is None and name in _PHRASE_LIST_FIELDS
+        if name in data and (null_list or data[name] is not None and not isinstance(data[name], str)):
             data.pop(name)
             fixed.append(name)
     for name, (kind, lowest, highest) in _NUMBER_FIELDS.items():
@@ -159,6 +165,10 @@ def validate_config(data: dict) -> list[str]:
         if name in data and data[name] not in choices:
             data.pop(name)
             fixed.append(name)
+    meta = data.get("extensions_meta")
+    if isinstance(meta, dict) and "notification_apps" in meta and not isinstance(meta["notification_apps"], list):
+        meta.pop("notification_apps")  # audit 7 #11: nested lists are checked too
+        fixed.append("extensions_meta.notification_apps")
     return fixed
 
 
@@ -837,9 +847,14 @@ class MainWindow(QMainWindow):
             else:
                 self.cfg["extensions"] = previous
             self.append_message("Jarvis", tr("Ошибка сохранения config.json."), "#a5b9dc")
-            return
+            # audit 7 #14: the page must not keep showing «saved» values that were rolled back
+            page = getattr(self, "extensions_page", None)
+            if page is not None and hasattr(page, "report_save_failed"):
+                page.report_save_failed(previous)
+            return False
         self.extensions_runtime.apply(state)
         QTimer.singleShot(800, self._refresh_extension_errors)
+        return True
 
     def _saved_command_matches(self, text):
         try:
@@ -2426,8 +2441,8 @@ class MainWindow(QMainWindow):
                "давай", "так", "так, да", "так пожалуйста", "da", "да", "sigur", "confirm", "confirmă", "permite", "desigur", "ok", "okay"]
         no = ["no", "nope", "нет", "не надо", "отмена", "отмени", "не разрешаю",
               "nu", "nu permite", "anulează", "anuleaza", "refuz", "stop"]
-        yes.extend(word.strip().lower() for word in self.cfg.get("confirm_yes_words", "").split(",") if word.strip())
-        no.extend(word.strip().lower() for word in self.cfg.get("confirm_no_words", "").split(",") if word.strip())
+        yes.extend(word.strip().lower() for word in str(self.cfg.get("confirm_yes_words") or "").split(",") if word.strip())
+        no.extend(word.strip().lower() for word in str(self.cfg.get("confirm_no_words") or "").split(",") if word.strip())
         normalized = re.sub(r"[.!?,;:]+", "", t).strip()
         if normalized in yes:
             return True
@@ -5002,7 +5017,8 @@ class MainWindow(QMainWindow):
         self._current_route = ""
         self._processing = False
         self._active_text = None
-        if any(word in str(answer).lower() for word in ("отмен", "anulat", "cancelled")):
+        from luxai.command_outcome import is_cancelled
+        if is_cancelled(answer):  # audit 7 #4: Jarvis' own cancel reply, not any «cancelled» word
             group["parts"].clear()
         QTimer.singleShot(0, self._dispatch_command)
 
@@ -5028,7 +5044,9 @@ class MainWindow(QMainWindow):
             self.mic_status.setText("")
         if group.get("origin") and getattr(self, "extensions_runtime", None) is not None:
             status = group.get("outcome_status")
-            failed = any(word in result.lower() for word in ("ошибк", "не удалось", "отмен", "error", "failed", "eroare"))
+            from luxai.command_outcome import is_failed
+            # audit 7 #5: «No errors found» is a success; only answers that START with an error count
+            failed = any(is_failed(answer) for answer in group["answers"] if answer)
             self.extensions_runtime.remote_command_finished(
                 group["origin"], result, ok=not failed and status in (None, "completed"))
         QTimer.singleShot(0, self._dispatch_command)

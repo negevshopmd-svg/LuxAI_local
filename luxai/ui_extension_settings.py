@@ -174,6 +174,11 @@ W = {
     "not_saved": L("Не сохранено — исправьте значение выше.", "Not saved — fix the value above.",
                    "Nesalvat — corectează valoarea de mai sus."),
     "unsaved": L("Есть несохранённые изменения.", "There are unsaved changes.", "Există modificări nesalvate."),
+    "write_failed": L("Не сохранено — не удалось записать config.json. Прежние значения возвращены.",
+                      "Not saved — config.json could not be written. The previous values are back.",
+                      "Nesalvat — config.json nu a putut fi scris. Valorile anterioare au revenit."),
+    "timer_save_failed": L("Не удалось сохранить таймеры на диск.", "Could not save the timers to disk.",
+                           "Cronometrele nu au putut fi salvate pe disc."),
 }
 
 
@@ -1958,6 +1963,22 @@ class PluginSettingsView(QWidget):
         if hasattr(self, "save_state"):
             self.save_state.setText(w("saved_auto", self.language))
         return True
+
+    def save_failed(self, enabled, settings):
+        """Audit 7 #14: config.json could not be written — show the restored values, not «saved»."""
+        self._autosave_timer.stop()
+        self.saved_enabled = bool(enabled)
+        self.saved_settings = dict(settings or {})
+        self.enable_switch.blockSignals(True)
+        self.enable_switch.setChecked(self.saved_enabled)
+        self.enable_switch.blockSignals(False)
+        for key, value in self.saved_settings.items():
+            if key in self.fields:
+                self._set_value(key, value)
+        self.message.setText(w("write_failed", self.language))
+        self.message.setStyleSheet("color:#e26675;")
+        if hasattr(self, "save_state"):
+            self.save_state.setText(w("write_failed", self.language))
 
     def external_update(self, key, value):
         """A value changed outside the page (e.g. the avatar was dragged): keep it, do not overwrite it."""

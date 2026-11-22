@@ -310,11 +310,12 @@ def video_convert(source, *, mode="mp4", out_dir=None, progress=None) -> Path:
     if mode == "gif":
         with _removed_on_error(target):
             return _video_to_gif(source, target, progress)
+    rotation = _video_rotation(source)
     with _removed_on_error(target), av.open(str(source)) as inp:
         if not inp.streams.video:
             raise ValueError("В файле нет видео.")
         vin = inp.streams.video[0]
-        width, height = vin.codec_context.width, vin.codec_context.height
+        width, height = _shown_size(vin, rotation)
         limit = {"compress": 1280}.get(mode, 0)
         if limit and max(width, height) > limit:
             scale = limit / float(max(width, height))
@@ -345,7 +346,7 @@ def video_convert(source, *, mode="mp4", out_dir=None, progress=None) -> Path:
                 for frame in inp.decode(*streams):
                     if isinstance(frame, av.VideoFrame):
                         _progress_from(inp, vin, frame, progress)
-                        image = frame.reformat(width=width, height=height, format="yuv420p")
+                        image = _upright(frame, rotation).reformat(width=width, height=height, format="yuv420p")
                         seconds = (frame.time if frame.time is not None else 0.0) - start
                         pts = max(0, int(round(seconds / float(video_base))))
                         if last_pts is not None and pts <= last_pts:
@@ -385,6 +386,42 @@ def video_convert(source, *, mode="mp4", out_dir=None, progress=None) -> Path:
             target.unlink(missing_ok=True)
             raise
     return target
+
+
+def _video_rotation(path) -> int:
+    """Degrees (counter-clockwise) the first video frame must be turned to be seen upright (audit 7 #22).
+
+    Phones store portrait video sideways plus a display matrix; the encoder writes plain pixels, so
+    without turning them the result came out rotated."""
+    import av
+    try:
+        with av.open(str(path)) as probe:
+            if not probe.streams.video:
+                return 0
+            for frame in probe.decode(probe.streams.video[0]):
+                value = int(round(float(getattr(frame, "rotation", 0) or 0)))
+                return value % 360 if value % 90 == 0 else 0
+    except Exception:
+        return 0
+    return 0
+
+
+def _shown_size(stream, rotation: int) -> tuple[int, int]:
+    """Width and height as the video is SEEN: a portrait phone video is stored sideways."""
+    width, height = stream.codec_context.width, stream.codec_context.height
+    return (height, width) if rotation % 180 else (width, height)
+
+
+def _upright(frame, rotation: int):
+    """The frame turned upright (a new frame); the frame itself when no turn is needed."""
+    if not rotation:
+        return frame
+    import av
+    turned = av.VideoFrame.from_image(frame.to_image().rotate(rotation, expand=True))
+    turned.pts = frame.pts
+    if frame.time_base is not None:
+        turned.time_base = frame.time_base
+    return turned
 
 
 def _media_seconds(path) -> float:
@@ -428,8 +465,20 @@ def _video_to_gif(source, target, progress=None, fps=12, max_side=480):
         step = 1.0 / float(rate) if rate else 1.0 / fps
         last = -1.0
         end = 0.0
+        first = None
+        previous = None
+        rotation = _video_rotation(source)
         for frame in inp.decode(vin):
-            moment = frame.time or 0.0
+            # Audit 7 #21: times count from the FIRST frame. A file whose clock starts at, say, 30 s
+            # (cut from a stream) used to have every frame «after 20 s» and gave an empty GIF; a frame
+            # without a time follows the one before it.
+            if frame.time is None:
+                moment = (previous + step) if previous is not None else 0.0
+            else:
+                if first is None:
+                    first = frame.time
+                moment = max(0.0, frame.time - first)
+            previous = moment
             if moment > GIF_MAX_SECONDS:
                 break
             end = moment + step  # this decoded frame is shown until the next one
@@ -437,6 +486,8 @@ def _video_to_gif(source, target, progress=None, fps=12, max_side=480):
                 continue
             last = moment
             image = frame.to_image()
+            if rotation:
+                image = image.rotate(rotation, expand=True)
             image.thumbnail((max_side, max_side), Image.Resampling.LANCZOS)
             frames.append(image.convert("P", palette=Image.Palette.ADAPTIVE, colors=256))
             moments.append(moment)

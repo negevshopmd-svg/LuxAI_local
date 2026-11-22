@@ -89,6 +89,26 @@ def validate_event(value):
     raise ValueError("Выберите поддерживаемое приложение или подключение наушников.")
 
 
+def _due_times(schedule, previous, now):
+    """Every scheduled moment in (previous, now], on each calendar day the interval touches.
+
+    Audit 7 #2: only today's time used to be checked, so a poll from 23:58:55 to 00:00:05 missed a
+    23:59 reminder (today's 23:59 lies in the future, yesterday's was never looked at).
+    """
+    hours, minutes = map(int, schedule["time"].split(":"))
+    days = [previous.date()] if previous.date() == now.date() else [previous.date(), now.date()]
+    result = []
+    for day in days:
+        due = now.replace(year=day.year, month=day.month, day=day.day, hour=hours, minute=minutes,
+                          second=0, microsecond=0)
+        eligible = (schedule["mode"] == "daily"
+                    or schedule["mode"] == "once" and schedule["date"] == day.isoformat()
+                    or schedule["mode"] == "weekly" and day.weekday() in schedule["weekdays"])
+        if eligible and previous < due <= now:
+            result.append(due)
+    return result
+
+
 def running_applications():
     """Read process names, not window text or application/document contents."""
     import psutil
@@ -251,12 +271,7 @@ class CommandTriggerEngine:
         for entry in entries:
             schedule = entry.get("schedule", {})
             if schedule and continuous:
-                hours, minutes = map(int, schedule["time"].split(":"))
-                due = now.replace(hour=hours, minute=minutes, second=0, microsecond=0)
-                eligible = (schedule["mode"] == "daily"
-                            or schedule["mode"] == "once" and schedule["date"] == now.date().isoformat()
-                            or schedule["mode"] == "weekly" and now.weekday() in schedule["weekdays"])
-                if eligible and previous < due <= now:
+                for due in _due_times(schedule, previous, now):
                     signature = hashlib.sha256(json.dumps(schedule, sort_keys=True).encode()).hexdigest()[:16]
                     key = entry["id"] + ":" + signature + ":" + due.strftime("%Y-%m-%dT%H:%M")
                     if key not in self._fired:

@@ -11,6 +11,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import threading
@@ -174,9 +175,41 @@ def install_backend(python: str | Path = sys.executable) -> bool:
         return _install_backend(runtime_python(python))
 
 
+def _installed_version(executable: str) -> str:
+    """The installed llama-cpp-python version ("" when unknown), read in a child process."""
+    try:
+        probe = subprocess.run(
+            [executable, "-c", "import importlib.metadata as m; print(m.version('llama-cpp-python'))"],
+            cwd=str(ROOT), capture_output=True, text=True, errors="replace", timeout=PROBE_TIMEOUT,
+            check=False, **_quiet_process_options())
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    output = str(probe.stdout or "").strip()
+    version = output.splitlines()[-1].strip() if probe.returncode == 0 and output else ""
+    return version if re.fullmatch(r"[0-9A-Za-z.+!-]{1,40}", version) else ""
+
+
+def _restore_version(executable: str, version: str) -> bool:
+    """Put back the exact backend that worked before a failed upgrade (audit 7 #41)."""
+    command = [executable, "-m", "pip", "install", "--disable-pip-version-check", "--only-binary=:all:",
+               "--retries", "2", "--timeout", "35", "--extra-index-url", OFFICIAL_CPU_WHEELS,
+               f"llama-cpp-python=={version}"]
+    try:
+        with LOG_FILE.open("a", encoding="utf-8") as output:
+            subprocess.run(command, cwd=str(ROOT), stdout=output, stderr=subprocess.STDOUT,
+                           timeout=INSTALL_TIMEOUT, check=False, **_quiet_process_options())
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        _append_log(f"Restore of {version} failed: {type(exc).__name__}.")
+        return False
+    return check_backend(executable)
+
+
 def _install_backend(executable: str, *, previously_working: bool | None = None) -> bool:
     if previously_working is None:
         previously_working = check_backend(executable)
+    # Audit 7 #41: pip removes the working wheel before the new one is proven to load. The version that
+    # worked is noted first and installed again when the upgrade leaves a backend that does not import.
+    working_version = _installed_version(executable) if previously_working else ""
     _write_status("installing")
     _append_log(f"Checking newest compatible llama-cpp-python for {executable}.")
     print("LuxAI local AI: checking latest compatible official CPU wheel...", flush=True)
@@ -201,6 +234,10 @@ def _install_backend(executable: str, *, previously_working: bool | None = None)
             _write_status("ready")
             print("LuxAI local AI: current backend works, but its latest version could not be checked.")
             return True
+        if working_version and _restore_version(executable, working_version):
+            _write_status("ready")
+            _append_log(f"RESTORED: the previous working backend {working_version} is back.")
+            return True
         _write_status("unavailable")
         print("LuxAI local AI: installation could not complete. Check logs/local_ai_install.log.")
         return False
@@ -215,6 +252,11 @@ def _install_backend(executable: str, *, previously_working: bool | None = None)
         _write_status("ready")
         _append_log(f"WARNING: update failed (code={result.returncode}), existing backend works.")
         print("LuxAI local AI: update unavailable; existing verified backend remains usable.")
+        return True
+    if working_version and _restore_version(executable, working_version):
+        _write_status("ready")
+        _append_log(f"RESTORED after a failed upgrade (code={result.returncode}): {working_version} works again.")
+        print("LuxAI local AI: upgrade failed; the previous working backend was restored.", flush=True)
         return True
     _append_log(f"FAILED: pip code={result.returncode}, native import did not pass.")
     _write_status("unavailable")

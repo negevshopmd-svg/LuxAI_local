@@ -21,9 +21,14 @@ REPO = "JustFrederik/nllb-200-distilled-600M-ct2-int8"
 FOLDER = "nllb-200-600M-ct2-int8"
 FILES = ["config.json", "model.bin", "shared_vocabulary.txt", "tokenizer.json", "special_tokens_map.json"]
 REVISION = "302d78f00e6fdb50a1064059df7c392b735e9d05"  # pinned commit: a changed repo is never picked up
-SHA256 = {  # Git LFS hashes of that commit
+SHA256 = {  # SHA-256 of every file of that commit (LFS objects and the small files)
     "model.bin": "ed1beaf75134de7505315a5223162f56acff397eff6b50638a500d3936fe707b",
     "tokenizer.json": "e316b82de11d0f951f370943b3c438311629547285129b0b81dadabd01bca665",
+    # Audit 7 #42: the configuration and vocabulary are checked too — a damaged config.json made the
+    # translator fail while the repair still called the installation good. (Measured at REVISION.)
+    "config.json": "0c2f6fa2057c7264d052fb4a62ba3476eeae70487acddfa8e779a53a00cbf44c",
+    "shared_vocabulary.txt": "a132a83330f45514c2476eb81d1d69b3c41762264d16ce0a7ea982e5d6c728e5",
+    "special_tokens_map.json": "992bd4ed610d644d6823081937bcc91bb8878dd556cea4ae5327f2480361330e",
 }
 CODES = {"en": "eng_Latn", "ro": "ron_Latn", "ru": "rus_Cyrl", "uk": "ukr_Cyrl", "de": "deu_Latn",
          "fr": "fra_Latn", "es": "spa_Latn", "it": "ita_Latn", "pt": "por_Latn", "pl": "pol_Latn"}
@@ -101,7 +106,7 @@ def model_dir(directory: Path | None = None) -> Path:
 
 def installed(directory: Path | None = None) -> bool:
     folder = model_dir(directory)
-    return all((folder / name).is_file() for name in ("model.bin", "tokenizer.json", "config.json"))
+    return all((folder / name).is_file() for name in SHA256)
 
 
 def supports(source: str, target: str) -> bool:

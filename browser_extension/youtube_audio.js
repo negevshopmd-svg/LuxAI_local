@@ -1,5 +1,6 @@
 // Runs in the media page so we can read unencrypted audio chunks already appended by its player.
-// Nothing is copied from the audio track until the extension confirms that Jarvis wants captions.
+// Nothing leaves the page until the extension confirms that Jarvis wants captions; until then only the newest
+// audio (at most ``limit``) is kept here, so captions turned on mid-video start with what is already loaded.
 // Only NEW audio is sent (numbered pieces); Jarvis rebuilds the window and asks for the whole window again
 // only when a piece is missing. Before, the whole window (up to 2 MB) was resent every time: a real YouTube
 // test moved 34 MB to Jarvis in two minutes for about 2.4 MB of audio.
@@ -21,6 +22,7 @@
   let serial = 0;
   let generation = 0;
   let lastPublished = -Infinity;
+  let lastStored = null; // the track that received audio last (sent first when captions are turned on)
 
   URL.createObjectURL = function (object) {
     const url = createURL.call(this, object);
@@ -39,10 +41,37 @@
   MediaSource.prototype.addSourceBuffer = function (type) {
     const buffer = add.call(this, type);
     const kind = /^audio\/(webm|mp4)(?:;|$)/i.exec(type)?.[1].toLowerCase();
-    if (kind) buffers.set(buffer, { source: this, kind, id: ++serial, header: null, chunks: [], size: 0,
+    if (kind) buffers.set(buffer, { source: this, buffer, kind, id: ++serial, header: null, chunks: [], size: 0,
                                     counter: 0, epoch: 0, full: true });
     return buffer;
   };
+
+  // Audit 7 #32: a SourceBuffer the player removed (a new audio track, quality switch) is no longer
+  // captured; a resync never sends the old track again.
+  const remove = MediaSource.prototype.removeSourceBuffer;
+  if (remove) {
+    MediaSource.prototype.removeSourceBuffer = function (buffer) {
+      const state = buffers.get(buffer);
+      if (state) {
+        captured.delete(state);
+        state.detached = true;
+        if (pending?.state === state) pending = null;
+        if (lastStored === state) lastStored = null;
+      }
+      return remove.call(this, buffer);
+    };
+  }
+
+  function attached(state) {
+    if (state.detached) return false;
+    try {
+      const list = state.source.sourceBuffers;
+      if (state.source.readyState === "closed") return false;
+      return !list || Array.prototype.includes.call(list, state.buffer);
+    } catch (error) {
+      return false;
+    }
+  }
 
   function join(parts, size) {
     const result = new Uint8Array(size);
@@ -60,6 +89,10 @@
     pending = null;
     if (!active || !item || !item.state.header || item.state.size === 0) return;
     const { state, offset } = item;
+    if (!attached(state)) {
+      captured.delete(state);
+      return;
+    }
     const src = sources.get(state.source);
     if (!src || (selected && src !== selected)) return;
     const full = state.full;
@@ -131,7 +164,10 @@
   }
 
   function store(state, bytes, offset, begins) {
-    if (!active || !state.header || bytes.length > limit) return;
+    // Audit 7 #31: the newest audio (at most ``limit``) is also kept while captions are off, in this page
+    // only — nothing is posted until Jarvis asks. Turning captions on mid-video then sends what the player
+    // already loaded, instead of waiting for its next append (YouTube may wait a minute for that).
+    if (!state.header || bytes.length > limit || state.detached) return;
     const src = sources.get(state.source);
     if (!src || (selected && src !== selected)) return;
     if (state.offset !== offset || state.generation !== generation) reset(state);
@@ -145,6 +181,8 @@
     chunk.size += bytes.length;
     state.size += bytes.length;
     while (state.size > limit && state.chunks.length) state.size -= state.chunks.shift().size;
+    lastStored = state;
+    if (!active) return; // kept, not sent
     pending = { state, offset };
     if (timer === null) {
       const delay = Math.max(240, minimumInterval - (performance.now() - lastPublished));
@@ -186,7 +224,11 @@
     if (event.source !== window || event.origin !== self.origin) return;
     if (message?.type === "jarvis-buffer-resync") {
       // Jarvis missed a piece: the next packet carries the whole window again.
-      for (const state of captured) {
+      for (const state of [...captured]) {
+        if (!attached(state)) {
+          captured.delete(state); // audit 7 #32: never the removed track
+          continue;
+        }
         state.full = true;
         pending = pending || { state, offset: state.offset };
       }
@@ -204,7 +246,14 @@
       timer = null;
       lastPublished = -Infinity;
     }
+    const turnedOn = next && !active;
     active = next;
     selected = src;
+    if (turnedOn && lastStored && captured.has(lastStored) && attached(lastStored)) {
+      // audit 7 #31: send the audio the player loaded before captions were turned on
+      lastStored.full = true;
+      pending = { state: lastStored, offset: lastStored.offset };
+      if (timer === null) timer = setTimeout(publish, 240);
+    }
   });
 })();

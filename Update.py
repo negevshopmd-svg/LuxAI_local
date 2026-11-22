@@ -1651,12 +1651,51 @@ def cleanup_retired_fish_local() -> bool:
     return success
 
 
-def perform_update() -> int:
+def _resume_before_update() -> tuple[int, bool]:
+    """(journal result, an interrupted update is still not complete).
+
+    Audit 7 #38: finishing the journal moves FILES only; their libraries were never installed. Until a
+    whole update succeeds, the «interrupted» marker stays, so the launcher warns instead of starting a
+    mix of new code and old libraries."""
     try:
         resumed = resume_interrupted_update()  # a half-applied update is finished first (audit #29)
     except OSError as exc:
         resumed = -1
         report(f"Nu am putut termina actualizarea întreruptă: {exc}")
+    interrupted_before = resumed != 0 or PENDING_FILE.exists()
+    if resumed > 0:
+        write_pending("")
+    return resumed, interrupted_before
+
+
+def _report_failed_update(error, interrupted_before: bool) -> None:
+    """The last words of a failed update — true to what is on disk now."""
+    report(f"Actualizarea a eșuat: {error}", f"Обновление не удалось: {error}", f"The update failed: {error}")
+    report("Datele personale au fost păstrate. Verifică mesajele de restaurare de mai sus.",
+           "Личные данные сохранены. Смотрите сообщения о восстановлении выше.",
+           "Personal data was kept. See the restore messages above.")
+    if "Restaurare incompletă" in str(error):
+        # Say what is true: the old files are NOT all back (audit #30).
+        ui_finish(False, f"{error}\nRestaurarea NU este completă. Nu porni Jarvis; rulează din nou Update.bat.",
+                  f"{error}\nВосстановление НЕ завершено. Не запускайте Jarvis; запустите Update.bat ещё раз.",
+                  f"{error}\nThe restore is NOT complete. Do not start Jarvis; run Update.bat again.")
+    elif interrupted_before:
+        # The earlier interrupted update is still not complete (audit 7 #38): keep its marker.
+        ui_finish(False, f"{error}\nActualizarea întreruptă anterior nu este încă completă. Rulează din nou "
+                         f"Update.bat înainte de a porni Jarvis.",
+                  f"{error}\nПрерванное ранее обновление ещё не завершено. Запустите Update.bat ещё раз, "
+                  f"прежде чем запускать Jarvis.",
+                  f"{error}\nThe earlier interrupted update is still not complete. Run Update.bat again "
+                  f"before starting Jarvis.")
+    else:
+        clear_pending()
+        ui_finish(False, f"{error}\nFișierele anterioare au fost restaurate, datele tale sunt neatinse.",
+                  f"{error}\nПрежние файлы восстановлены, ваши данные не тронуты.",
+                  f"{error}\nThe previous files were restored; your data is untouched.")
+
+
+def perform_update() -> int:
+    resumed, interrupted_before = _resume_before_update()
     translator_weight = 5 if (ROOT / "models" / "nllb-200-600M-ct2-int8" / "model.bin").is_file() else 70
     plan = [("check", 2), ("download", 8), ("apply", 3), ("libs", 25), ("gguf", 8), ("ocr", 4),
             ("translator", translator_weight), ("cleanup", 2)]
@@ -1803,11 +1842,15 @@ def perform_update() -> int:
                     run_step("translator", ensure_offline_translator)
 
                     write_update_state(latest_sha, files)
-            except Exception as failure:
+            except BaseException as failure:
                 # Any failure after the library step (state file included) brings the old code back,
-                # so the old libraries must come back with it (audit 2 #4).
+                # so the old libraries must come back with it (audit 2 #4). Audit 7 #39: also an
+                # interruption (Ctrl+C, KeyboardInterrupt / SystemExit are BaseException): the files are
+                # restored by the transaction, so the libraries must be too; the marker stays.
                 if libraries_touched and packages:
                     restored = restore_packages(packages)
+                    if not isinstance(failure, Exception):
+                        raise
                     raise RuntimeError(
                         f"{failure} "
                         + ("Bibliotecile au revenit la versiunile anterioare." if restored else
@@ -1830,20 +1873,7 @@ def perform_update() -> int:
                       f"Jarvis {version} is installed. Your settings and models were kept.")
             return 0
         except Exception as e:
-            report(f"Actualizarea a eșuat: {e}", f"Обновление не удалось: {e}", f"The update failed: {e}")
-            report("Datele personale au fost păstrate. Verifică mesajele de restaurare de mai sus.",
-                   "Личные данные сохранены. Смотрите сообщения о восстановлении выше.",
-                   "Personal data was kept. See the restore messages above.")
-            if "Restaurare incompletă" in str(e):
-                # Say what is true: the old files are NOT all back (audit #30).
-                ui_finish(False, f"{e}\nRestaurarea NU este completă. Nu porni Jarvis; rulează din nou Update.bat.",
-                          f"{e}\nВосстановление НЕ завершено. Не запускайте Jarvis; запустите Update.bat ещё раз.",
-                          f"{e}\nThe restore is NOT complete. Do not start Jarvis; run Update.bat again.")
-            else:
-                clear_pending()
-                ui_finish(False, f"{e}\nFișierele anterioare au fost restaurate, datele tale sunt neatinse.",
-                          f"{e}\nПрежние файлы восстановлены, ваши данные не тронуты.",
-                          f"{e}\nThe previous files were restored; your data is untouched.")
+            _report_failed_update(e, interrupted_before)
             return 1
 
 

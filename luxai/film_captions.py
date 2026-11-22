@@ -389,9 +389,48 @@ def rank_candidates(urls) -> list[str]:
     return ([primary] if primary else []) + [url for url in playlists + files if url != primary]
 
 
-def open_media(url: str, referer: str, opener=None, *, session):
-    """(container, audio stream) or raises. The audio with the lowest bit rate is enough for speech.
-    The caller owns the film's gateway session. Address resolution and filtering are done there."""
+# FFmpeg stream dispositions of tracks that are not the film's dialogue: commentary, lyrics, karaoke,
+# for the hearing / visually impaired (audio description), descriptions.
+_SIDE_TRACKS = 0x8 | 0x10 | 0x20 | 0x80 | 0x100 | 0x20000
+_DEFAULT_TRACK = 0x1
+
+
+def _track_language(stream) -> str:
+    language = getattr(stream, "language", None)
+    if not language:
+        metadata = getattr(stream, "metadata", None) or {}
+        language = metadata.get("language", "") if isinstance(metadata, dict) else ""
+    return str(language or "").casefold()[:3]
+
+
+_LANGUAGE_CODES = {"ru": ("ru", "rus"), "en": ("en", "eng"), "ro": ("ro", "ron", "rum")}
+
+
+def choose_audio_track(streams, language=None):
+    """The dialogue track (audit 7 #33): never commentary / audio description when another exists, the
+    wanted language first, then the player's default, then the lowest bit rate (enough for speech)."""
+    wanted = _LANGUAGE_CODES.get(str(language or ""), ())
+
+    def disposition(stream) -> int:
+        try:
+            return int(getattr(stream, "disposition", 0) or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    def rank(stream):
+        flags = disposition(stream)
+        return (1 if flags & _SIDE_TRACKS else 0,
+                0 if wanted and _track_language(stream) in wanted else 1,
+                0 if flags & _DEFAULT_TRACK else 1,
+                stream.bit_rate or 0)
+
+    return min(streams, key=rank)
+
+
+def open_media(url: str, referer: str, opener=None, *, session, language=None):
+    """(container, audio stream) or raises. The dialogue track in ``language`` when there is a choice
+    (``choose_audio_track``). The caller owns the film's gateway session. Address resolution and
+    filtering are done there."""
     import av
     if not safe_media_url(url):
         raise PermissionError("media address not allowed")
@@ -401,7 +440,7 @@ def open_media(url: str, referer: str, opener=None, *, session):
     if not audio:
         container.close()
         raise ValueError("no audio in this media")
-    stream = min(audio, key=lambda item: item.bit_rate or 0)
+    stream = choose_audio_track(audio, language)
     return container, stream
 
 
@@ -531,7 +570,8 @@ class FilmTranscriber:
             if self._stop.is_set() or time.monotonic() > deadline:
                 raise RuntimeError("stopped while choosing the media")
             try:
-                container, stream = open_media(url, self.referer, self.opener, session=self._gateway_session())
+                container, stream = open_media(url, self.referer, self.opener, session=self._gateway_session(),
+                                               language=self.language)
             except Exception as error:  # refused, not media, no audio
                 last_error = error
                 continue

@@ -153,7 +153,7 @@ class BundledOCRTests(unittest.TestCase):
             with mock.patch.object(ocr_setup, "DATA_DIR", data), mock.patch(
                 "luxai.ocr_setup.language_data_ready", return_value=True
             ), mock.patch(
-                "luxai.ocr_setup.find_tesseract", return_value=exe
+                "luxai.ocr_setup.tesseract_candidates", return_value=[exe]
             ), mock.patch(
                 "luxai.ocr_setup.subprocess.run", return_value=mock.Mock(
                     returncode=0, stdout="List of available languages (2):\neng\nrus\n",

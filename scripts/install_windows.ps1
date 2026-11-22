@@ -9,6 +9,8 @@ $script:VenvPython = Join-Path $script:Venv 'Scripts\python.exe'
 $script:VenvPythonw = Join-Path $script:Venv 'Scripts\pythonw.exe'
 $script:LogDir = Join-Path $script:Root 'logs'
 $script:LogFile = Join-Path $script:LogDir 'install_windows.log'
+$script:SetupLock = $null
+$script:OptionalMissing = @()  # optional parts that could not be installed (audit 7 #43)
 
 if (-not $CheckVenv) {
     # The quick check before every start is read-only: no log folder needed (audit #34).
@@ -324,6 +326,30 @@ function Test-UsableVenv {
     return (Test-CompatiblePython $script:VenvPython)
 }
 
+function Lock-Installation {
+    $lockDir = Join-Path $script:Root '.luxai_data'
+    New-Item -ItemType Directory -Path $lockDir -Force | Out-Null
+    $lockPath = Join-Path $lockDir 'updater.lock'
+    $stream = [System.IO.File]::Open($lockPath, [System.IO.FileMode]::OpenOrCreate,
+                                     [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::ReadWrite)
+    if ($stream.Length -eq 0) { $stream.WriteByte(0); $stream.Flush() }
+    try {
+        $stream.Lock(0, 1)
+    } catch {
+        $stream.Dispose()
+        throw 'Another LuxAI update or setup is running in this folder. Wait until it finishes, then run install_windows.bat again.'
+    }
+    return $stream
+}
+
+function Unlock-Installation {
+    if ($null -ne $script:SetupLock) {
+        try { $script:SetupLock.Unlock(0, 1) } catch { }
+        $script:SetupLock.Dispose()
+        $script:SetupLock = $null
+    }
+}
+
 function Get-VenvReadyKey {
     # Changes when the interpreter, the venv configuration or the installed packages change.
     $parts = @()
@@ -334,6 +360,29 @@ function Get-VenvReadyKey {
         if (-not $item.PSIsContainer) { $length = $item.Length }
         $parts += ('{0}:{1}' -f $item.LastWriteTimeUtc.Ticks, $length)
     }
+    # Audit 7 #45: installing, upgrading or removing a package inside site-packages does not always change
+    # the folder's own time. Every package's RECORD (its file list, rewritten by pip) is part of the key.
+    try {
+        $records = @(Get-ChildItem -LiteralPath (Join-Path $script:Venv 'Lib\site-packages') -Directory -Filter '*.dist-info' -ErrorAction Stop |
+            ForEach-Object {
+                $record = Join-Path $_.FullName 'RECORD'
+                if (Test-Path -LiteralPath $record) {
+                    $info = Get-Item -LiteralPath $record
+                    '{0}={1}:{2}' -f $_.Name, $info.LastWriteTimeUtc.Ticks, $info.Length
+                } else {
+                    '{0}=none' -f $_.Name
+                }
+            } | Sort-Object)
+    } catch {
+        return ''
+    }
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $digest = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes(($records -join "`n")))
+    } finally {
+        $sha.Dispose()
+    }
+    $parts += ([BitConverter]::ToString($digest) -replace '-', '')
     return ($parts -join '|')
 }
 
@@ -462,7 +511,12 @@ try {
     }
     Write-Status '=== LuxAI Local | Windows setup ==='
     Assert-ProjectFiles
-    if (-not ($SelfTest -or $CheckVenv -or $InventoryOnly)) { Stop-RunningJarvis }
+    if (-not ($SelfTest -or $CheckVenv -or $InventoryOnly)) {
+        # Audit 7 #40: the SAME OS lock as Update.py (byte 0 of .luxai_data\updater.lock, LockFile), so an
+        # installer and an updater never change the same .venv at once. Released when this process ends.
+        $script:SetupLock = Lock-Installation
+        Stop-RunningJarvis
+    }
     if ($InventoryOnly) {
         Show-PythonCompatibility
         exit 0
@@ -576,10 +630,11 @@ try {
         } catch {
             Write-Status "WARNING: Local GGUF engine could not be installed: $($_.Exception.Message)"
             Write-Status 'Jarvis can still run. Automatic setup retries on launch; see logs\local_ai_install.log or retry Update.bat online.'
-            Set-UiStep 'gguf' 'warn'
+            $script:OptionalMissing += 'gguf'
         }
     }
-    Set-UiStep 'gguf' 'done'
+    # A warning stays a warning: it was overwritten by «done» right after (audit 7 #43).
+    if ($script:OptionalMissing -contains 'gguf') { Set-UiStep 'gguf' 'warn' } else { Set-UiStep 'gguf' 'done' }
     Set-UiStep 'ocr' 'active'
 
     if ($SkipOcr) {
@@ -590,10 +645,10 @@ try {
         } catch {
             Write-Status "WARNING: OCR could not be installed: $($_.Exception.Message)"
             Write-Status 'Jarvis can start; OCR setup will be retried when needed.'
-            Set-UiStep 'ocr' 'warn'
+            $script:OptionalMissing += 'ocr'
         }
     }
-    Set-UiStep 'ocr' 'done'
+    if ($script:OptionalMissing -contains 'ocr') { Set-UiStep 'ocr' 'warn' } else { Set-UiStep 'ocr' 'done' }
 
     # The offline translator (captions, read aloud, notifications, chat): pinned and hash-checked.
     Set-UiStep 'translator' 'active'
@@ -604,6 +659,7 @@ try {
         } catch {
             Write-Status "WARNING: the offline translator could not be downloaded now: $($_.Exception.Message)"
             Write-Status 'Jarvis downloads it by itself on the first translation.'
+            $script:OptionalMissing += 'translator'
             Set-UiStep 'translator' 'warn'
         }
     } else {
@@ -613,12 +669,24 @@ try {
     Set-UiStep 'cleanup' 'active'
     Invoke-PythonStep $script:VenvPython @('Update.py', '--clean-installation') 'Removing unchanged bundled development files'
     Set-UiStep 'cleanup' 'done'
+    Unlock-Installation  # before «Launch Jarvis» can be pressed: the launcher refuses while it is held
+    if ($script:OptionalMissing.Count -gt 0) {
+        $missing = $script:OptionalMissing -join ', '
+        Write-Status "SUCCESS with warnings: the base installation works; not installed now: $missing."
+        Send-Ui @{ t = 'done'; ok = $true
+            # Single quotes + -f: PowerShell reads „ ” “ as double quotes and would end the string there.
+            message = ('Jarvis e instalat, dar unele părți opționale nu ({0}): se reîncearcă singure mai târziu. Apasă „Pornește Jarvis”.' -f $missing)
+            ru = ('Jarvis установлен, но часть дополнительных компонентов нет ({0}): они повторятся сами позже. Нажмите «Запустить Jarvis».' -f $missing)
+            en = ('Jarvis is installed, but some optional parts are not ({0}): they retry by themselves later. Press “Launch Jarvis”.' -f $missing) }
+        exit 0
+    }
     Write-Status 'SUCCESS: LuxAI installation completed. Launch run_windows.bat.'
     Write-Status 'Note: voice models may download on first use; internet access may be required.'
     Send-Ui @{ t = 'done'; ok = $true; message = 'Jarvis e instalat. Apasă „Pornește Jarvis”.'
         ru = 'Jarvis установлен. Нажмите «Запустить Jarvis».'; en = 'Jarvis is installed. Press “Launch Jarvis”.' }
     exit 0
 } catch {
+    Unlock-Installation
     Write-Status "ERROR: $($_.Exception.Message)"
     Write-Status "Installation incomplete. Details: $script:LogFile"
     $reason = $_.Exception.Message

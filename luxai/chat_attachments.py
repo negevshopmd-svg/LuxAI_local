@@ -553,11 +553,25 @@ def save_text_copy(proposal: EditProposal, chosen_path: str | Path) -> EditResul
         data = proposal.new_content
     else:
         raise AttachmentError("Choose .txt for a plain-text export, or the supported original document format.")
+    # Audit 7 #20: written beside the destination first and renamed only when complete — a failure
+    # (full disk, unplugged drive) no longer leaves a partial file that blocks the next attempt.
+    # os.rename never replaces an existing file on Windows, so «never overwrite» still holds.
+    staging = destination.with_name(f".{destination.name}.{uuid.uuid4().hex[:8]}.partial")
     try:
-        with destination.open("xb") as output:
+        with staging.open("xb") as output:
             output.write(data)
             output.flush()
             os.fsync(output.fileno())
+        if destination.exists():
+            raise FileExistsError(str(destination))
+        os.rename(staging, destination)
+    except FileExistsError as exc:
+        raise AttachmentError("The copy destination already exists. Choose a new filename.") from exc
     except OSError as exc:
         raise AttachmentError(f"Cannot save this copy: {type(exc).__name__}.") from exc
+    finally:
+        try:
+            staging.unlink(missing_ok=True)
+        except OSError:
+            pass
     return EditResult(destination, None, hashlib.sha256(data).hexdigest())

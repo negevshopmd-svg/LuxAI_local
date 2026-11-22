@@ -403,13 +403,15 @@ def audio_apps() -> list[tuple[str, int]]:
     except Exception:
         sessions = []
     for session in sessions:
-        process = getattr(session, "Process", None)
-        if process is None or process.pid == own:
-            continue
+        # Audit 7 #23: one broken session (a COM error from .Process, a process that just ended) is
+        # skipped; the rest of the list and the windowed programs below are still read.
         try:
+            process = session.Process
+            if process is None or process.pid == own:
+                continue
             root = _root(process)
             playing.setdefault(root.name(), root.pid)
-        except (psutil.Error, OSError):
+        except Exception:
             continue
     try:
         pids = _window_pids()

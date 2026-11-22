@@ -498,6 +498,26 @@ class CommandRegistry:
                 return dict(best)
         return None
 
+    def phrase_conflicts(self, identifier):
+        """Other enabled commands that answer one of this command's exact phrases (audit 7 #3).
+
+        ``match`` takes the first exact match, so a second command with the same phrase can
+        never run. The editor shows these titles right after a save.
+        """
+        entries = self.entries()
+        own = next((item for item in entries if item["id"] == identifier), None)
+        if own is None or not own.get("enabled", True):
+            return []
+        phrases = {normalize_phrase(value) for value in own.get("phrases", []) if isinstance(value, str)} - {""}
+        conflicts = []
+        for item in entries:
+            if item["id"] == identifier or not item.get("enabled", True):
+                continue
+            other = {normalize_phrase(value) for value in item.get("phrases", []) if isinstance(value, str)}
+            if phrases & other:
+                conflicts.append(str(item.get("title") or item["id"]))
+        return conflicts
+
     def match_chain(self, spoken, prefix="Jarvis", connectors=("и затем", "потом", "and then", "apoi"),
                     *, sensitivity=100, paraphrases=False):
         """Resolve an entire saved-command chain before running any member."""

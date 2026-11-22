@@ -416,9 +416,15 @@ class VoiceManager:
         if not text or str(config.get("voice_engine", "piper")).lower() != "fish" or not self._fish_usable():
             return
         language = (language or config.get("language", "ru") or "ru").lower()
-        key = (text, language, _cancel_generation)
+        # Audit 7 #28: the voice and its speed are part of the key — a piece prepared before the user
+        # changed them is never played with the old voice.
+        key = (text, language) + _fish_voice_identity(config) + (_cancel_generation,)
         with _prefetch_lock:
             if key in _prefetched:
+                return
+            # Audit 7 #26: at most two syntheses at once; a burst no longer starts a thread per piece
+            # (the piece is then synthesized when it is spoken).
+            if sum(1 for slot in _prefetched.values() if not slot["done"].is_set()) >= _PREFETCH_WORKERS:
                 return
             while len(_prefetched) >= 3:
                 _prefetched.pop(next(iter(_prefetched)))
@@ -435,7 +441,7 @@ class VoiceManager:
                     slot["wav"] = fish_tts.synthesize(
                         text, api_key, voice_id=config.get("fish_voice_id") or fish_tts.DEFAULT_FISH_VOICE,
                         speed=speed, language=language,
-                        is_cancelled=lambda: key[2] != _cancel_generation)
+                        is_cancelled=lambda: key[-1] != _cancel_generation)
             except Exception:
                 slot["wav"] = None
             finally:
@@ -444,13 +450,18 @@ class VoiceManager:
         threading.Thread(target=work, daemon=True, name="JarvisFishPrefetch").start()
 
     def _take_prefetched(self, text: str, language: str, cancel_token: int):
-        key = (text, language, cancel_token)
+        config = getattr(self, "config", None) or {}
+        key = (text, language) + _fish_voice_identity(config) + (cancel_token,)
         with _prefetch_lock:
             slot = _prefetched.pop(key, None)
         if slot is None:
             return None
-        # Started while the previous piece played: usually ready already.
-        slot["done"].wait(30)
+        # Started while the previous piece played: usually ready already. Audit 7 #27: «stop» ends the
+        # wait at once (it used to block up to 30 s before the next command could speak).
+        deadline = time.monotonic() + 30
+        while not slot["done"].wait(0.1):
+            if _was_cancelled(cancel_token) or time.monotonic() >= deadline:
+                return None
         return slot["wav"]
 
     # How long Fish Audio is skipped after a failure (None = until the key changes). Meanwhile the local
@@ -743,6 +754,16 @@ def warm_up_voice(settings: dict) -> bool:
 
 _prefetched: dict = {}
 _prefetch_lock = threading.Lock()
+_PREFETCH_WORKERS = 2
+
+
+def _fish_voice_identity(config) -> tuple:
+    """(voice id, speed) that a Fish piece is synthesized with."""
+    try:
+        speed = round(max(0.7, min(1.4, float(config.get("voice_speed", 1.0)))), 3)
+    except (TypeError, ValueError):
+        speed = 1.0
+    return (str(config.get("fish_voice_id") or ""), speed)
 
 
 def prefetch(text: str, language: str | None = None) -> None:

@@ -821,6 +821,8 @@ Windows не удалось зарегистрировать сочетание.
 config.json был повреждён — настройки сброшены, копия сохранена: |||config.json was damaged — settings were reset, a copy was kept: |||config.json era deteriorat — setările au fost resetate, copia a fost păstrată: 
 В config.json были неверные значения — они заменены значениями по умолчанию: |||config.json had wrong values — they were replaced by the defaults: |||config.json avea valori greșite — au fost înlocuite cu valorile implicite: 
 Не удалось вернуть прежний ключ API — проверьте ключи в настройках.|||Could not put the previous API key back — check the keys in Settings.|||Nu am putut pune la loc cheia API anterioară — verifică cheile în Setări.
+Одинаковая фраза|||Same phrase|||Aceeași frază
+Эту же фразу уже использует другая команда; сработает только одна из них. Измените фразу:|||Another command already uses this phrase; only one of them will run. Change the phrase:|||Altă comandă folosește deja această frază; va rula doar una dintre ele. Schimbă fraza:
 """
 
 # Every entry is a Russian source string and an English/Romanian translation.

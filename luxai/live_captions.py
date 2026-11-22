@@ -22,6 +22,9 @@ CUT_SEARCH_SECONDS = 1.5    # look for the quietest moment in the last 1.5 s
 MIN_PARTIAL_GROWTH = 0.25   # re-read only when at least this much new audio came
 KEEP_FINAL = 12
 REDETECT_SECONDS = 30.0     # re-check the spoken language after this much speech
+# Audit 7 #34: while a slow PC is still reading, new audio piled up (28.5 s behind in a probe) and came
+# out late in huge pieces. At most this much waits; older audio is dropped and counted.
+MAX_BACKLOG_SECONDS = MAX_PHRASE_SECONDS + 3.0
 
 
 _FILLERS = frozenset({"you", "you.", "thank you.", "thanks.", "bye.", "спасибо.", "мне.", "и", "а", "ну"})
@@ -108,6 +111,7 @@ class PhraseSegmenter:
         self.heard_speech = False
         self.quiet_frames = 0
         self._pending = np.zeros(0, dtype=np.float32)
+        self.dropped_seconds = 0.0  # audio skipped because recognition could not keep up
 
     def feed(self, audio: np.ndarray) -> None:
         audio = np.asarray(audio, dtype=np.float32)
@@ -125,6 +129,11 @@ class PhraseSegmenter:
                 self.quiet_frames += 1
         if self.heard_speech:
             self.buffer = np.concatenate([self.buffer, chunk])
+            limit = int(SAMPLE_RATE * MAX_BACKLOG_SECONDS) // FRAME * FRAME
+            if len(self.buffer) > limit:
+                extra = len(self.buffer) - limit
+                self.buffer = self.buffer[extra:]
+                self.dropped_seconds += extra / SAMPLE_RATE
         else:
             # Keep a little lead-in so the first word is not cut.
             self.buffer = np.concatenate([self.buffer, chunk])[-int(SAMPLE_RATE * 0.3):]
@@ -287,15 +296,22 @@ class CaptionEngine:
             # The last partial already read (almost) this audio: no second pass.
             extra = frame_rms(audio[self._partial_len:]) if self._partial_len <= len(audio) else None
             only_quiet_added = extra is not None and (not len(extra) or float(extra.max()) < self.segmenter.active_threshold)
+            prompted = False
             if self._partial_text and self._partial_len <= len(audio) and (
                     only_quiet_added or len(audio) - self._partial_len <= SAMPLE_RATE * MIN_PARTIAL_GROWTH):
                 text = self._partial_text
             else:
+                prompted = bool(self._prompt)
                 text = self._transcribe(model, audio, final=True)
+            if text and prompted and text.casefold() == self._last_final.casefold():
+                # Audit 7 #35: the same words twice are kept when they were really said twice («Yes.» /
+                # «Yes.»); only an echo of the previous line, given as the prompt, is dropped. Without the
+                # prompt Whisper no longer echoes it.
+                text = self._transcribe(model, audio)
             self._partial_len, self._partial_text = 0, ""
             self._speech_since_detect += len(audio) / SAMPLE_RATE
             self.on_partial("")
-            if text and text.casefold() != self._last_final.casefold():  # no doubled lines
+            if text:  # each final comes from its own audio (taken out of the buffer)
                 prompt = self._prompt
                 self._last_final = text
                 self._prompt = text[-160:]
@@ -449,6 +465,9 @@ class CaptionBar(QWidget):
         # Film mode: original text -> (characters shown, translation characters shown). The rest of the
         # line is drawn invisible, so words appear where they belong and nothing jumps.
         self.reveal: dict[str, tuple[int, int]] = {}
+        # The same per line of ``lines`` (film mode, audit 7 #36): two lines with the same words keep
+        # their own progress. Used only while it has one entry per line.
+        self.line_reveal: list[tuple[int, int]] = []
         self.placeholder = ""
         row = QHBoxLayout(self)
         row.setContentsMargins(6, 8, 6, 8)
@@ -550,7 +569,13 @@ class CaptionBar(QWidget):
         import html
         small = max(10, int(self.font_size * 0.8))
         blocks = []
-        for original, translation in self.visible_lines():
+        lines = list(self.lines)
+        per_line = list(self.line_reveal) if len(self.line_reveal) == len(lines) else None
+        cuts = per_line if per_line is not None else [self.reveal.get(original) for original, _t in lines]
+        if self.partial or self.partial_translation:
+            lines.append((self.partial, self.partial_translation))
+            cuts.append(self.reveal.get(self.partial))
+        for (original, translation), cut in list(zip(lines, cuts))[-self.max_lines:]:
             parts = []
             if translation == PENDING:
                 if self.show_original:
@@ -558,7 +583,6 @@ class CaptionBar(QWidget):
                 else:
                     blocks.append(f"<div style='margin:0; font-size:{small}px; color:rgba(255,255,255,0.5);'>…</div>")
                     continue
-            cut = self.reveal.get(original)
             if self.show_original or not translation:
                 body = _revealed(original, cut[0] if cut else None)
                 parts.append(f"<div style='margin:0; font-size:{self.font_size}px; color:white;'>{body}</div>")

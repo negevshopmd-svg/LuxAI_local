@@ -269,7 +269,7 @@ class ChooseTests(unittest.TestCase):
         worker = fc.FilmTranscriber(["https://a.example/1.m3u8", "https://a.example/2.m3u8"], "",
                                     fc.PlayerClock(), fc.CueTimeline(), lambda: None)
 
-        def fake_open(url, referer, opener, session=None):
+        def fake_open(url, referer, opener, session=None, language=None):
             opened.append(url)
             worker.stop()  # the session stops while the first one opens
             raise OSError("slow")

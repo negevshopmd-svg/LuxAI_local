@@ -140,7 +140,8 @@ def compose(app: str, texts: list[str], *, say_app=True, mode="text", skip_codes
     if app and title.casefold() == app.casefold() and body:
         title, body = body, ""
     message = f"{title} — {body}" if body else title
-    message = clean_for_speech(message, skip_codes=False, limit=limit)
+    # audit 7 #8: the final pass keeps the user's link choice (it used the default «skip links»)
+    message = clean_for_speech(message, skip_codes=False, skip_links=skip_links, limit=limit, language=language)
     return f"{app}: {message}" if say_app and app else message
 
 
@@ -315,6 +316,12 @@ class NotificationWatcher:
                     "LEFT JOIN NotificationHandler h ON h.RecordId = n.HandlerId "
                     "WHERE n.[Order] > ? AND n.Type = 'toast' ORDER BY n.[Order] LIMIT 20",
                     (self.last_order,)).fetchall()
+                if not rows:
+                    # audit 7 #18: Windows may recreate the database with a lower counter; a cursor above
+                    # its highest Order would hide every new toast. Start again from what exists now.
+                    highest = connection.execute("SELECT COALESCE(MAX([Order]), 0) FROM Notification").fetchone()[0]
+                    if int(highest or 0) < self.last_order:
+                        self.last_order = int(highest or 0)
             self.error = ""
         except sqlite3.Error as error:
             self.error = str(error)

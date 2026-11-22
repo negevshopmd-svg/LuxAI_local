@@ -622,6 +622,17 @@ class ExtensionsPage(QWidget):
         self.state[plugin_id]["settings"] = settings
         self._commit()
 
+    def report_save_failed(self, previous):
+        """Audit 7 #14: main could not write config.json and put the old state back — show that state."""
+        self.state = normalize_state(previous)
+        self._render_cards()
+        for card in self.connection_cards:
+            card.render(self.state, self.language)
+        view = self.settings_view
+        if view is not None and hasattr(view, "save_failed"):
+            entry = self.state.get(view.plugin.id, {})
+            view.save_failed(entry.get("enabled", False), entry.get("settings", {}))
+
     def _commit(self):
         self.state = normalize_state(self.state)
         self._render_cards()

@@ -250,13 +250,29 @@ class QualityTests(unittest.TestCase):
         self.assertEqual([lc.trustworthy(s) for s in (good, silence, looped, unsure)], [True, False, False, False])
 
     def test_doubled_final_line_is_not_repeated(self):
+        """An echo of the previous line (given as the prompt) is dropped (audit 7 #35 keeps real repeats)."""
         finals = []
         engine = lc.CaptionEngine(lambda: object(), "en", lambda _: None, finals.append)
-        with mock.patch.object(engine, "_transcribe", return_value="Hello there."):
+
+        def transcribe(model, audio, final=False):
+            # With the prompt Whisper repeats the previous line; without it the audio has no words.
+            return "Hello there." if final or not finals else ""
+
+        with mock.patch.object(engine, "_transcribe", side_effect=transcribe):
             for _ in range(2):
                 engine.feed(tone(1.0)); engine.feed(quiet(0.6))
                 engine.step(object())
         self.assertEqual(finals, ["Hello there."])
+
+    def test_a_line_really_said_twice_stays_twice(self):
+        """Audit 7 #35: «Yes.» / «Yes.» — the same words in two phrases of speech are two lines."""
+        finals = []
+        engine = lc.CaptionEngine(lambda: object(), "en", lambda _: None, finals.append)
+        with mock.patch.object(engine, "_transcribe", return_value="Yes."):
+            for _ in range(2):
+                engine.feed(tone(1.0)); engine.feed(quiet(0.6))
+                engine.step(object())
+        self.assertEqual(finals, ["Yes.", "Yes."])
 
     def test_auto_means_detect_not_the_voice_command_language(self):
         from luxai.extensions_runtime import ExtensionsRuntime

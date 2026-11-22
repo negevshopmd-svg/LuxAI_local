@@ -102,12 +102,8 @@ def _valid_binary(path: Path) -> bool:
     return path.is_file() and path.stat().st_size >= 10_000
 
 
-def find_tesseract(configured_path: str = "") -> Path | None:
-    """Prefer bundled OCR, then a valid user-provided or system installation.
-
-    An old, invalid path from config.json should NOT override a now-bundled
-    working executable, and no internet is used during lookup.
-    """
+def tesseract_candidates(configured_path: str = "") -> list[Path]:
+    """Every plausible executable, best first: bundled, configured, PATH, the usual folders."""
     candidates: list[Path] = [WINDOWS_EXECUTABLE]
     if configured_path:
         candidates.append(
@@ -126,13 +122,24 @@ def find_tesseract(configured_path: str = "") -> Path | None:
                 candidates.append(
                     Path(directory) / "Tesseract-OCR" / "tesseract.exe"
                 )
+    result = []
     for path in candidates:
         try:
-            if _valid_binary(path):
-                return path
+            if _valid_binary(path) and path not in result:
+                result.append(path)
         except (OSError, ValueError):
             continue
-    return None
+    return result
+
+
+def find_tesseract(configured_path: str = "") -> Path | None:
+    """Prefer bundled OCR, then a valid user-provided or system installation.
+
+    An old, invalid path from config.json should NOT override a now-bundled
+    working executable, and no internet is used during lookup.
+    """
+    candidates = tesseract_candidates(configured_path)
+    return candidates[0] if candidates else None
 
 
 def _model_is_verified(file: Path, language: str) -> bool:
@@ -342,18 +349,26 @@ def ensure_tesseract(configured_path: str = "", *, allow_download=True) -> tuple
     on first use. Installation is process-locked and repeat-safe.
     """
     with _LOCK, _process_lock():
-        binary = find_tesseract(configured_path)
-        if binary and language_data_ready():
-            # Audit 2 #50: a positive check is reused for the SAME executable and language files,
-            # instead of starting «tesseract --list-langs» before every recognition.
+        candidates = tesseract_candidates(configured_path)
+        # Audit 7 #47: the cache is asked FIRST. Its identity includes the size and time of both language
+        # files, so a changed model still gets its full SHA check; an unchanged one is not hashed again
+        # (about 8 MB read before every screen recognition).
+        for binary in candidates:
             identity = _identity(binary)
             if identity is not None and identity in _VERIFIED:
                 return binary, DATA_DIR
-            ok, _ = verify_tesseract(binary)
-            if ok:
-                if identity is not None:
-                    _VERIFIED.add(identity)
-                return binary, DATA_DIR
+        broken = []
+        if candidates and language_data_ready():
+            # Audit 7 #46: a damaged first candidate no longer hides a working installation after it.
+            for binary in candidates:
+                identity = _identity(binary)
+                ok, _ = verify_tesseract(binary)
+                if ok:
+                    if identity is not None:
+                        _VERIFIED.add(identity)
+                    return binary, DATA_DIR
+                broken.append(str(binary))
+        binary = None if broken and len(broken) == len(candidates) else (candidates[0] if candidates else None)
         if not allow_download:
             raise OCRInstallError(
                 "Tesseract OCR ещё не установлен или языки rus/eng отсутствуют."
@@ -363,7 +378,7 @@ def ensure_tesseract(configured_path: str = "", *, allow_download=True) -> tuple
                 "Автоустановка Tesseract поддерживается только на Windows."
             )
         if binary is None:
-            binary = _install_binary()
+            binary = _install_binary()  # every candidate found was broken (or none exists)
         try:
             _install_languages()
         except (OSError, urllib.error.URLError) as exc:
@@ -372,6 +387,8 @@ def ensure_tesseract(configured_path: str = "", *, allow_download=True) -> tuple
             ) from exc
         valid, reason = verify_tesseract(binary)
         if not valid:
+            if broken:
+                reason = f"{reason} Не работают: {'; '.join(broken[:4])}"
             raise OCRInstallError(reason)
         return binary, DATA_DIR
 

@@ -40,9 +40,19 @@ def _language(match) -> str:
     return ""
 
 
+_LABEL = r"(?:это|эту\s+фразу|этот\s+текст|текст|фразу|this(?:\s+text)?|the\s+text|the\s+phrase|textul(?:\s+acesta)?|asta|fraza)"
+
+
 def _clean(text: str) -> str:
+    """Drop only an EXPLICIT label: «это: …», «textul — …», «this "…"».
+
+    Audit 7 #1: the label used to be removed whenever the text merely started with it, so
+    «thistle» became «tle», «This is a test» «is a test» and «textul nostru» «nostru».
+    """
     value = str(text or "").strip()
-    value = re.sub(r"^(?:это|this|asta|textul|текст|the\s+text|фразу|the\s+phrase)\s*[:\-—]?\s*", "", value, flags=re.I)
+    if re.fullmatch(rf"{_LABEL}\s*[.!?:]*", value, flags=re.I):
+        return ""  # «tradu-mi asta» / «переведи это»: the label alone, nothing to translate yet
+    value = re.sub(rf"^{_LABEL}(?:\s*[:\-—–]\s*|\s*(?=[«\"“„'`]))", "", value, flags=re.I)
     value = value.strip().strip("«»\"“”„'`").strip()
     return value
 

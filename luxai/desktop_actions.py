@@ -190,7 +190,7 @@ def _app_volume(target: str):
                 if session.Process and session.Process.name().casefold() in processes[app]:
                     session.SimpleAudioVolume.SetMasterVolume(int(value) / 100, None)
                     matched += 1
-            except (OSError, AttributeError):
+            except Exception:  # COMError / psutil errors of one session (audit 7 #23)
                 continue
         if matched == 0:
             raise OSError("Приложение не запущено или нет активного аудиопотока")

@@ -50,6 +50,30 @@ class CleanupStep:
     source: Path
     target: Path | None  # None means "send to Recycle Bin"
     group: str
+    identity: tuple = ()  # (device, inode, size, mtime) seen when planned — audit 7 #19
+
+
+def _file_identity(path: Path) -> tuple:
+    info = os.lstat(path)
+    return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)
+
+
+def _still_planned_file(step: CleanupStep) -> bool:
+    """Right before moving / trashing: the SAME regular file, not a link or junction put there since the
+    plan was confirmed (audit 7 #19, TOCTOU)."""
+    import stat as _stat
+    try:
+        info = os.lstat(step.source)
+    except OSError:
+        return False
+    if not _stat.S_ISREG(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:  # reparse point
+        return False
+    if step.identity and (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns) != step.identity:
+        return False
+    try:
+        return step.source.parent.resolve(strict=True) == Path(os.path.realpath(step.source)).parent
+    except OSError:
+        return False
 
 
 def downloads_folder() -> Path:
@@ -98,6 +122,7 @@ def plan_cleanup(folder: Path, *, min_age_days: int, installer_trash_days: int,
             if suffix in _PARTIAL:
                 continue
             age_days = (now - entry.stat().st_mtime) / 86400
+            identity = _file_identity(entry)
         except OSError:
             continue
         if age_days < min_age_days:
@@ -106,10 +131,10 @@ def plan_cleanup(folder: Path, *, min_age_days: int, installer_trash_days: int,
         if not group:
             continue
         if group == "installers" and installer_trash_days > 0 and age_days >= installer_trash_days:
-            steps.append(CleanupStep(entry, None, group))
+            steps.append(CleanupStep(entry, None, group, identity))
             continue
         label = CLEANUP_GROUPS[group][1].get(language) or CLEANUP_GROUPS[group][1]["ru"]
-        steps.append(CleanupStep(entry, folder / label / name, group))
+        steps.append(CleanupStep(entry, folder / label / name, group, identity))
     return steps
 
 
@@ -132,6 +157,9 @@ def run_cleanup(steps: list[CleanupStep], *, trash=None) -> tuple[int, int, list
     for step in steps:
         try:
             if not step.source.is_file():
+                continue
+            if not _still_planned_file(step):
+                errors.append(f"{step.source.name}: changed after confirmation — skipped")
                 continue
             if step.target is None:
                 trash(str(step.source))
@@ -619,7 +647,7 @@ class ExtensionsRuntime(QObject):
     dictation_done = Signal(str)  # last dictated text, for the settings page
     _read_chunk = Signal(str, str, int)  # text, language, reading generation
     _read_notice = Signal(str)
-    _notif_ready = Signal(str)  # a (translated) notification sentence
+    _notif_ready = Signal(str, int)  # a (translated) notification sentence + its reader session
     pc_status_changed = Signal(str, dict)  # state, details (bot name, error)
     timers_changed = Signal()
     notification_apps_changed = Signal()
@@ -636,13 +664,18 @@ class ExtensionsRuntime(QObject):
     _cap_translated = Signal(str, str)
     _cap_partial_translated = Signal(str, str, int)  # draft text, its translation, phrase number
     _cap_corrected = Signal(str, str)  # hybrid: draft line, precise text
+    # Audit 7 #37: what the recognition thread reports carries its engine number; a result of an engine
+    # that was stopped (source changed, captions off) is dropped instead of landing on the new captions.
+    _cap_engine_partial = Signal(str, int)
+    _cap_engine_final = Signal(str, int)
+    _cap_engine_corrected = Signal(str, str, int)
     _film_report = Signal(object)  # a player report from the Chrome extension (film captions in advance)
     _film_error = Signal(str)
     _cap_notice = Signal(str)  # «system» (fell back to all PC sound) / «recovered»
     _extension_hello = Signal(object)  # the browser extension says it is installed
     _cap_error = Signal(str)
     _clip_ai_ready = Signal(str, str)  # mode, result ("" = failed)
-    _clip_image_ready = Signal(bytes, bytes, int, int, str)  # png, thumb, width, height, app
+    _clip_image_ready = Signal(bytes, bytes, int, int, str, int)  # png, thumb, width, height, app, clear gen
     _clip_native_ready = Signal(object)  # what the worker read from the clipboard (audit 2 #14)
     _auto_cleanup_done = Signal(object, str)  # (moved, trashed, errors), day (audit 2 #19)
     _screenshot_done = Signal(str, bool, str)  # saved path ("" = not saved), copied, error
@@ -683,6 +716,8 @@ class ExtensionsRuntime(QObject):
         self._clip_images = LatestWorker("JarvisClipboardImage")
         self._clip_saver = LatestWorker("JarvisClipboardSave")
         self._clip_load_generation = 0
+        self._clip_clear_generation = 0  # audit 7 #16: pictures encoded before «clear» are dropped
+        self._clip_persist_seen = None  # audit 7 #17: «keep after restart» turned off deletes the file
         self._stopping = False
         self._clip_ai_ready.connect(self._on_clip_ai_ready)
         self.captions_visible = False
@@ -705,6 +740,13 @@ class ExtensionsRuntime(QObject):
         self._cap_partial.connect(self._on_cap_partial)
         self._cap_partial_translated.connect(self._on_cap_partial_translated)
         self._cap_corrected.connect(self._on_cap_corrected)
+        self._cap_engine_gen = 0
+        self._cap_engine_partial.connect(
+            lambda text, gen: self._on_cap_partial(text) if gen == self._cap_engine_gen else None)
+        self._cap_engine_final.connect(
+            lambda text, gen: self._on_cap_final(text) if gen == self._cap_engine_gen else None)
+        self._cap_engine_corrected.connect(
+            lambda draft, precise, gen: self._on_cap_corrected(draft, precise) if gen == self._cap_engine_gen else None)
         self._film_report.connect(self._on_film_report)
         self._film_error.connect(self._on_film_error)
         self._cap_notice.connect(self._on_cap_notice)
@@ -760,7 +802,7 @@ class ExtensionsRuntime(QObject):
         self._reading_generation = 0
         self._read_chunk.connect(self._on_read_chunk)
         self._read_notice.connect(self._notify)
-        self._notif_ready.connect(self._accept_notification)
+        self._notif_ready.connect(self._on_notification_translated)
         self._dictation_timer = QTimer(self)
         self._dictation_timer.setInterval(60)
         self._dictation_timer.timeout.connect(self._dictation_tick)
@@ -793,6 +835,7 @@ class ExtensionsRuntime(QObject):
         self._notif_reader = _LatestWorker("JarvisNotificationRead")
         self.notification_memory = deque(maxlen=20)  # composed texts, memory only
         self.missed_notifications = deque(maxlen=20)
+        self._notif_session = 0  # audit 7 #9: turning the reader off drops translations still running
         self._notif_pending = []
         self.dnd_until = 0.0
         self.seen_notification_apps: set[str] = set()
@@ -855,10 +898,16 @@ class ExtensionsRuntime(QObject):
                     pass
                 self._clipboard_connected = False
         if self.enabled("clipboard_history"):
+            persist = bool(self.settings("clipboard_history").get("persist", True))
             if not self._clip_loaded:
                 self._clip_loaded = True
-                if self.settings("clipboard_history").get("persist", True):
+                if persist:
                     self._load_clip_history_async()
+            if not persist and self._clip_persist_seen is not False:
+                # audit 7 #17: «keep after restart» off removes the saved (encrypted) file now, not later
+                self._clip_load_generation += 1
+                self._save_clip_history()
+            self._clip_persist_seen = persist
             self._trim_clipboard()
         if self.enabled("smart_dictation") and self.settings("smart_dictation").get("trigger") == "right_ctrl_double" \
                 and sys.platform == "win32":
@@ -1093,9 +1142,13 @@ class ExtensionsRuntime(QObject):
             return caption_model(hybrid_precise_model(language), threads=8)
 
         hybrid = quality == "hybrid"
-        engine = CaptionEngine(model, language, self._cap_partial.emit, self._cap_final.emit,
+        self._cap_engine_gen += 1
+        gen = self._cap_engine_gen
+        engine = CaptionEngine(model, language, lambda text: self._cap_engine_partial.emit(text, gen),
+                               lambda text: self._cap_engine_final.emit(text, gen),
                                on_error=self._cap_error.emit, precise_provider=precise if hybrid else None,
-                               on_correct=self._cap_corrected.emit if hybrid else None)
+                               on_correct=(lambda draft, text: self._cap_engine_corrected.emit(draft, text, gen))
+                               if hybrid else None)
         self._cap_phrase += 1
         source = str(settings.get("source") or "")
         pid = app_pid(source) if source else 0
@@ -1543,14 +1596,19 @@ class ExtensionsRuntime(QObject):
             return
         self._set_film_active(True)
         # Words appear as they are spoken in the film (the rest of the line waits invisible).
-        cues = [cue for cue in cues if position < cue.end or cue.text in bar.reveal]
-        reveal = {cue.text: cue.shown(position) for cue in cues}
-        cues = [cue for cue in cues if reveal[cue.text][0] or reveal[cue.text][1]]
-        shown = [(cue.text, cue.translation, reveal[cue.text]) for cue in cues]
+        # Audit 7 #36: two lines with the same words (a repeated «Yes.») are two cues; each keeps its own
+        # progress, keyed by (text, start) — a dict by text merged them and mixed up their timing.
+        kept = getattr(self, "_film_shown_keys", set())
+        cues = [cue for cue in cues if position < cue.end or (cue.text, cue.start) in kept]
+        pairs = [(cue, cue.shown(position)) for cue in cues]
+        pairs = [(cue, cut) for cue, cut in pairs if cut[0] or cut[1]]
+        shown = [(cue.text, cue.start, cue.translation, cut) for cue, cut in pairs]
         if shown != self._film_shown:
             self._film_shown = shown
-            bar.reveal = reveal
-            bar.lines = [(cue.text, cue.translation) for cue in cues]
+            self._film_shown_keys = {(cue.text, cue.start) for cue, _cut in pairs}
+            bar.reveal = {cue.text: cut for cue, cut in pairs}
+            bar.line_reveal = [cut for _cue, cut in pairs]
+            bar.lines = [(cue.text, cue.translation) for cue, _cut in pairs]
             bar.partial = ""
             bar.partial_translation = ""
             bar.render()
@@ -1565,8 +1623,10 @@ class ExtensionsRuntime(QObject):
         self._cap_phrase += 1
         self._cap_last_draft = ("", "")
         self._film_shown = None
+        self._film_shown_keys = set()
         if self._captions_bar is not None:
             self._captions_bar.reveal = {}
+            self._captions_bar.line_reveal = []
         bar = self._captions_bar
         if bar is not None:
             bar.lines = []
@@ -1621,6 +1681,7 @@ class ExtensionsRuntime(QObject):
             dialog.port_unavailable()
 
     def _stop_caption_audio(self):
+        self._cap_engine_gen += 1  # late lines of the stopped engine are dropped (audit 7 #37)
         capture, self._captions_capture = self._captions_capture, None
         engine, self._captions_engine = self._captions_engine, None
         if capture is not None:
@@ -2344,15 +2405,26 @@ class ExtensionsRuntime(QObject):
         first = not self._pc_applied_once
         self._pc_applied_once = True
         settings = self.settings("pc_control")
+        was_enabled = getattr(self, "_pc_was_enabled", False)
         if not self.enabled("pc_control"):
+            self._pc_was_enabled = False
+            self._pc_user_started = False
             self._stop_bot()
             self._set_pc_status("stopped", {})
             return
-        if first and not settings.get("autostart", True):
-            self._set_pc_status("stopped", {"message": _tr3("Не запускается вместе с программой.",
-                                                            "Not started with the app.", "Nu pornește odată cu aplicația.",
-                                                            self.language)})
-            return
+        self._pc_was_enabled = True
+        # Audit 7 #29: «autostart» off used to be checked only on the very first apply; any later apply
+        # (another plugin's setting, a saved token) started the bot anyway. Now the bot starts without
+        # autostart only after the user turned the plugin on in this session.
+        if not settings.get("autostart", True):
+            if not first and not was_enabled:
+                self._pc_user_started = True
+            if not getattr(self, "_pc_user_started", False):
+                self._stop_bot()
+                self._set_pc_status("stopped", {"message": _tr3("Не запускается вместе с программой.",
+                                                                "Not started with the app.", "Nu pornește odată cu aplicația.",
+                                                                self.language)})
+                return
         token = self._token()
         if not token:
             self._stop_bot()
@@ -2392,6 +2464,9 @@ class ExtensionsRuntime(QObject):
         details = dict(details or {})
         if self._from_old_bot(details):
             return
+        check = details.pop("_check_gen", None)
+        if check is not None and check != getattr(self, "_pc_check_generation", 0):
+            return
         if state == "undelivered":
             # A reply to the phone was lost: say so here, so the command is not sent twice blindly (audit #24).
             self.notice.emit(_tr3("Telegram: ответ на телефон не доставлен — ", "Telegram: the reply to the phone was not delivered — ",
@@ -2411,14 +2486,18 @@ class ExtensionsRuntime(QObject):
             return
         from luxai.telegram_control import TelegramError, call
         self._set_pc_status("checking", {})
+        # audit 7 #30: an older check that answers last must not overwrite the result for the new token
+        self._pc_check_generation = getattr(self, "_pc_check_generation", 0) + 1
+        check = self._pc_check_generation
 
         def work():
             try:
                 me = call(token, "getMe") or {}
                 self._pc_status.emit("connected" if self._bot is not None and self._bot.running else "checked",
-                                     {"name": me.get("first_name", ""), "username": me.get("username", "")})
+                                     {"name": me.get("first_name", ""), "username": me.get("username", ""),
+                                      "_check_gen": check})
             except TelegramError as error:
-                self._pc_status.emit("error", {"message": str(error)})
+                self._pc_status.emit("error", {"message": str(error), "_check_gen": check})
 
         threading.Thread(target=work, daemon=True, name="JarvisTelegramCheck").start()
 
@@ -2590,13 +2669,20 @@ class ExtensionsRuntime(QObject):
         from luxai.notifications import NotificationWatcher
         if not self.enabled("notification_reader"):
             self._notif_timer.stop()
+            if self._notif_watcher is not None or self._notif_pending:
+                self._notif_session += 1
             self._notif_watcher = None
+            self._notif_pending = []
             return
         if self._notif_watcher is None:
             self._notif_watcher = NotificationWatcher(getattr(self, "notifications_db", None))
             self._notif_watcher.prime()  # never read what was already there
-        meta = (getattr(self.host, "cfg", {}) or {}).get("extensions_meta", {})
-        self.seen_notification_apps.update(str(name)[:40] for name in meta.get("notification_apps", [])[:100])
+        # audit 7 #11: extensions_meta or its notification_apps may be null / another type in config.json
+        meta = (getattr(self.host, "cfg", {}) or {}).get("extensions_meta")
+        apps = meta.get("notification_apps") if isinstance(meta, dict) else None
+        if isinstance(apps, (list, tuple)):
+            self.seen_notification_apps.update(str(name)[:40] for name in apps[:100]
+                                               if isinstance(name, str) and name)
         if not self._notif_timer.isActive():
             self._notif_timer.start()
 
@@ -2606,7 +2692,9 @@ class ExtensionsRuntime(QObject):
         self.seen_notification_apps.add(app)
         cfg = getattr(self.host, "cfg", None)
         if isinstance(cfg, dict):
-            meta = cfg.setdefault("extensions_meta", {})
+            meta = cfg.get("extensions_meta")
+            if not isinstance(meta, dict):
+                meta = cfg["extensions_meta"] = {}
             meta["notification_apps"] = sorted(self.seen_notification_apps)[:100]
             if hasattr(self.host, "save_extensions_meta"):
                 self.host.save_extensions_meta()
@@ -2648,7 +2736,11 @@ class ExtensionsRuntime(QObject):
         result = []
         for app, entries in by_app.items():
             if len(entries) > 1 and settings.get("group", True):
-                result.append(n.group_message(app, [texts[0] for texts in entries], len(entries), self.language,
+                # audit 7 #7: the sender lines go through the same link / code filters as single messages
+                senders = [n.clean_for_speech(texts[0], skip_codes=options["skip_codes"],
+                                              skip_links=options["skip_links"], limit=60, language=self.language)
+                           for texts in entries]
+                result.append(n.group_message(app, senders, len(entries), self.language,
                                               say_app=options["say_app"]))
             else:
                 result.extend(filter(None, (n.compose(app, texts, **options) for texts in entries)))
@@ -2706,6 +2798,7 @@ class ExtensionsRuntime(QObject):
     def _translate_notification(self, value: str, *, wait: bool = False):
         prefix, body = self._split_app(value)
         target = self.reading_target()
+        session = self._notif_session
 
         def work():
             translated = None
@@ -2714,12 +2807,20 @@ class ExtensionsRuntime(QObject):
                 translated = translate_offline(body, target)
             except Exception:
                 translated = None
-            self._notif_ready.emit(prefix + translated if translated else value)
+            self._notif_ready.emit(prefix + translated if translated else value, session)
 
         if wait:
             work()
         elif not self._translations.submit(work):
-            self._notif_ready.emit(value)  # the queue is full: read it untranslated rather than lose it
+            self._notif_ready.emit(value, session)  # the queue is full: read it untranslated rather than lose it
+
+    def _on_notification_translated(self, value: str, session: int):
+        """Audit 7 #9: a translation that finishes after the reader was turned off is dropped."""
+        if session != self._notif_session or not self.enabled("notification_reader"):
+            return
+        if getattr(self, "_stopping", False):
+            return
+        self._accept_notification(value)
 
     def _accept_notification(self, value: str, flush: bool = True):
         self.notification_memory.append(value)
@@ -2801,7 +2902,8 @@ class ExtensionsRuntime(QObject):
             "disabled": ("Озвучка уведомлений выключена. Включите её в Расширениях.",
                          "Notification reader is off. Turn it on in Extensions.",
                          "Citirea notificărilor e oprită. Pornește-o în Extensii."),
-            "more": ("И ещё {n}.", "And {n} more.", "Și încă {n}."),
+            "more": ("И ещё {n} — скажите «что пришло» ещё раз.", "And {n} more — say “what came in” again.",
+                     "Și încă {n} — spune „ce a venit” din nou."),
         }[key]
         return _tr3(*words, self.language).format(**values)
 
@@ -2814,13 +2916,14 @@ class ExtensionsRuntime(QObject):
             return self._nw("disabled")
         if request == "missed":
             items = list(self.missed_notifications) + self._notif_pending
-            self.missed_notifications.clear()
             self._notif_pending = []
             if not items:
                 return self._nw("none")
-            shown = items[-5:]
-            extra = len(items) - len(shown)
-            return "\n".join(shown) + (("\n" + self._nw("more", n=extra)) if extra else "")
+            # audit 7 #10: only the five read now are consumed; the rest wait for the next «what came in»
+            shown, rest = items[:5], items[5:]
+            self.missed_notifications.clear()
+            self.missed_notifications.extend(rest)
+            return "\n".join(shown) + (("\n" + self._nw("more", n=len(rest))) if rest else "")
         if request == "last":
             return self.notification_memory[-1] if self.notification_memory else self._nw("no_last")
         if request == "dnd":
@@ -3240,9 +3343,17 @@ class ExtensionsRuntime(QObject):
             return self._words("remind_set", d=format_duration(seconds, self.language), label=label)
         return self._words("timer_set", d=format_duration(seconds, self.language))
 
-    def cancel_timer(self, identifier: str):
-        if self.timer_store.remove(identifier):
+    def cancel_timer(self, identifier: str) -> bool:
+        """Remove one timer. Audit 7 #13: a failed save (locked / full disk) never escapes the Qt slot of
+        the ✕ button; the timer stays in the list and the reason is shown. Returns True when removed."""
+        try:
+            removed = self.timer_store.remove(identifier)
+        except OSError:
+            self.notice.emit(self._words("save_failed"))
+            return False
+        if removed:
             self.timers_changed.emit()
+        return removed
 
     def handle_timer_request(self, text: str) -> str | None:
         """Reply text when ``text`` is a timer/alarm request, else None."""
@@ -3279,7 +3390,11 @@ class ExtensionsRuntime(QObject):
             self.timers_changed.emit()
             return self._words("cancel_n", n=removed)
         first = targets[0]
-        self.cancel_timer(first.id)
+        try:
+            self.timer_store.remove(first.id)
+        except OSError:
+            return self._words("save_failed")
+        self.timers_changed.emit()
         return self._words("cancel_one", what=self._describe(first))
 
     def _check_timers(self):
@@ -3554,6 +3669,7 @@ class ExtensionsRuntime(QObject):
         from luxai import clipboard_store as store
         if store.suppressed() or getattr(self, "_stopping", False):
             return
+        generation = self._clip_clear_generation
         try:
             snapshot = native.read_clipboard()
         except Exception as error:
@@ -3574,7 +3690,7 @@ class ExtensionsRuntime(QObject):
                 if not image.loadFromData(native.dib_to_bmp(snapshot["dib"]), "BMP") or image.isNull():
                     self._clip_native_ready.emit({"fallback": True})
                     return
-                self._encode_clip_image(image, app)
+                self._encode_clip_image(image, app, generation)
             return
         self._clip_native_ready.emit({"text": snapshot["text"], "html": snapshot["html"], "app": app})
 
@@ -3646,9 +3762,10 @@ class ExtensionsRuntime(QObject):
         if image is None or image.isNull():
             return
         picture = image.copy()  # QImage is safe to use on another thread once copied
-        self._clip_images.submit(lambda: self._encode_clip_image(picture, app))
+        generation = self._clip_clear_generation
+        self._clip_images.submit(lambda: self._encode_clip_image(picture, app, generation))
 
-    def _encode_clip_image(self, image, app: str = ""):
+    def _encode_clip_image(self, image, app: str = "", generation: int | None = None):
         """Worker thread. One picture at a time; a picture still waiting is replaced by a newer copy
         (audit 2 #16), so fast copies of big images cannot pile up encoders and memory."""
         from PySide6.QtCore import QBuffer, QByteArray, QIODevice
@@ -3667,13 +3784,18 @@ class ExtensionsRuntime(QObject):
                 image = image.scaled(4096, 4096, Qt.AspectRatioMode.KeepAspectRatio,
                                      Qt.TransformationMode.SmoothTransformation)
             thumb = image.scaled(96, 64, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-            self._clip_image_ready.emit(png(image), png(thumb), width, height, app)
+            if generation is None:
+                generation = self._clip_clear_generation
+            self._clip_image_ready.emit(png(image), png(thumb), width, height, app, generation)
         except Exception as error:
             self._clip_error(error)
 
-    def _on_clip_image_ready(self, data: bytes, thumb: bytes, width: int, height: int, app: str):
+    def _on_clip_image_ready(self, data: bytes, thumb: bytes, width: int, height: int, app: str,
+                             generation: int = -1):
         if getattr(self, "_stopping", False) or not self.enabled("clipboard_history"):
             return
+        if generation != -1 and generation != self._clip_clear_generation:
+            return  # copied before the history was cleared
         self.clip_history.add_image(data, thumb=thumb, size=(width, height), app=app)
         self._clip_changed()
 
@@ -3768,9 +3890,12 @@ class ExtensionsRuntime(QObject):
         if generation != self._clip_load_generation or getattr(self, "_stopping", False):
             return
         # Copies made while the file was loading stay on top; saved items follow (same content once).
-        known = {item.get("key") for item in self.clip_history.items}
+        known = {item.get("key"): item for item in self.clip_history.items}
         for item in loaded.items:
-            if item.get("key") in known:
+            current = known.get(item.get("key"))
+            if current is not None:
+                if item.get("pinned"):
+                    current["pinned"] = True  # audit 7 #15: a pinned saved item stays pinned
                 continue
             item["id"] = self.clip_history._new_id()
             self.clip_history.items.append(item)
@@ -3779,11 +3904,13 @@ class ExtensionsRuntime(QObject):
 
     def clear_clipboard(self):
         self._clip_load_generation += 1  # a history still loading never brings items back (audit 3 #4)
+        self._clip_clear_generation += 1
         self.clip_history.clear()
         self._clip_changed()
 
     def clear_clipboard_all(self):
         self._clip_load_generation += 1
+        self._clip_clear_generation += 1
         self.clip_history.clear_all()
         self._clip_changed()
 
