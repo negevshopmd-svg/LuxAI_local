@@ -1,3 +1,22 @@
+## 0.4.3s — Recheck of 0.4.3r (3 findings, P3, 2026-11-24)
+
+Tests: `tests/test_recheck_043s.py` (12; 10 fail on 0.4.3r, the other 2 keep the normal path).
+
+- #1 `_due_times` walks EVERY day of the interval (at most the last 31): a pause from 21.11 11:00 to 24.11
+  12:00 gave only the 21st and the 24th, and a «once» schedule on the 22nd was never seen. The policy stays
+  «no catch-up» — a late «shut down at 23:00» next morning would be harmful — but what came due during a pause
+  (sleep, PC off, Jarvis closed) is now remembered and said once in the chat (`on_missed`,
+  `MainWindow._report_missed_schedules`), with its time; it is never run late and never reported twice.
+- #2 First OCR setup: after the language data is installed, EVERY Tesseract candidate is tried
+  (`_first_working`); a damaged preferred executable no longer fails the setup next to a working one, and the
+  error names every executable that does not work.
+- #3 Downloads cleanup: type, age and identity come from ONE `lstat` (two reads let a file swapped in between
+  be planned with the old file's age and its own identity). The move itself is bound to that identity: the file
+  is renamed atomically (into its folder, or a private folder beside it for the Recycle Bin, which keeps its
+  name), checked, and put back when it is not the confirmed one. A refused Recycle Bin puts the file back.
+- The complexity warnings of the recheck (11 functions) are long-standing functions not touched here; none of
+  the functions changed in 0.4.3r/0.4.3s grew above its earlier size.
+
 ## 0.4.3r — Seventh audit report (0.4.3q, 47 findings, 2026-11-22)
 
 Every finding has a test in `tests/test_audit7_fixes_043r.py` (50 tests); all 50 fail on 0.4.3q and pass now.

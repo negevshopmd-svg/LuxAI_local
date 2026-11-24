@@ -716,6 +716,21 @@ class MainWindow(QMainWindow):
     def run_saved_command(self, entry):
         self.run_command_entry(entry)
 
+    def _report_missed_schedules(self, missed):
+        """Scheduled commands that came due while the PC slept or Jarvis was closed: said, never run late."""
+        if self._closed or not missed:
+            return
+        lines = ", ".join(f"«{title}» ({due:%d.%m %H:%M})" for title, due in missed[:8])
+        if len(missed) > 8:
+            lines += f" +{len(missed) - 8}"
+        text = {
+            "ru": "Пока компьютер спал или Jarvis был закрыт, пропущены команды по расписанию (не запущены позже): ",
+            "en": "While the PC slept or Jarvis was closed, these scheduled commands were missed (not run late): ",
+            "ro": "Cât timp PC-ul a dormit sau Jarvis a fost închis, aceste comenzi programate au fost ratate "
+                  "(nu au rulat mai târziu): ",
+        }[reply_language(self.cfg)]
+        self.append_message("Jarvis", text + lines, "#a5b9dc")
+
     def run_command_entry(self, entry, *, triggered=False, origin=None):
         """Manual/global triggers execute the validated entry, independent of voice.
 
@@ -750,7 +765,8 @@ class MainWindow(QMainWindow):
     def _setup_command_triggers(self):
         from luxai.command_triggers import CommandTriggerEngine, WindowsHotkeyListener
         self._trigger_engine = CommandTriggerEngine(
-            self.command_registry, lambda entry: self.run_command_entry(entry, triggered=True))
+            self.command_registry, lambda entry: self.run_command_entry(entry, triggered=True),
+            on_missed=self._report_missed_schedules)
         self._hotkey_listener = WindowsHotkeyListener(self.command_hotkey.emit)
         self.command_hotkey.connect(self._on_command_hotkey)
         self._trigger_timer = QTimer(self)

@@ -1,4 +1,9 @@
-LUXAI LOCAL (JARVIS) 0.4.3r — UPDATE 2026-11-22
+LUXAI LOCAL (JARVIS) 0.4.3s — UPDATE 2026-11-24
+
+0.4.3s: Three fixes after the recheck of 0.4.3r. When the PC slept or Jarvis was closed for days, Jarvis
+says in the chat which scheduled commands were missed (they are not run late — e.g. a PC shutdown planned
+for the evening does not happen next morning). The first OCR setup finds a working Tesseract even when
+the first one found is damaged. The Downloads cleanup can no longer move a new file with the same name.
 
 0.4.3r: Fixes from the seventh audit (47 points). Among them: «translate …» no longer cuts the start of the
 text; a 23:59 reminder is no longer lost at midnight; two commands with the same phrase are reported when

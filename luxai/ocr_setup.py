@@ -342,6 +342,20 @@ def _identity(binary: Path):
     return tuple(parts)
 
 
+def _first_working(candidates) -> tuple[Path | None, list[tuple[str, str]]]:
+    """The first candidate that passes ``verify_tesseract`` (remembered), and the (path, reason) of the rest."""
+    broken = []
+    for binary in candidates:
+        ok, reason = verify_tesseract(binary)
+        if ok:
+            identity = _identity(binary)
+            if identity is not None:
+                _VERIFIED.add(identity)
+            return binary, broken
+        broken.append((str(binary), str(reason or "")))
+    return None, broken
+
+
 def ensure_tesseract(configured_path: str = "", *, allow_download=True) -> tuple[Path, Path]:
     """Return (executable, tessdata dir); install on first call if missing.
 
@@ -360,15 +374,9 @@ def ensure_tesseract(configured_path: str = "", *, allow_download=True) -> tuple
         broken = []
         if candidates and language_data_ready():
             # Audit 7 #46: a damaged first candidate no longer hides a working installation after it.
-            for binary in candidates:
-                identity = _identity(binary)
-                ok, _ = verify_tesseract(binary)
-                if ok:
-                    if identity is not None:
-                        _VERIFIED.add(identity)
-                    return binary, DATA_DIR
-                broken.append(str(binary))
-        binary = None if broken and len(broken) == len(candidates) else (candidates[0] if candidates else None)
+            binary, broken = _first_working(candidates)
+            if binary is not None:
+                return binary, DATA_DIR
         if not allow_download:
             raise OCRInstallError(
                 "Tesseract OCR ещё не установлен или языки rus/eng отсутствуют."
@@ -377,19 +385,23 @@ def ensure_tesseract(configured_path: str = "", *, allow_download=True) -> tuple
             raise OCRInstallError(
                 "Автоустановка Tesseract поддерживается только на Windows."
             )
-        if binary is None:
-            binary = _install_binary()  # every candidate found was broken (or none exists)
+        if not candidates or broken and len(broken) == len(candidates):
+            installed = _install_binary()  # every candidate found was broken (or none exists)
+            if installed not in candidates:
+                candidates.append(installed)
         try:
             _install_languages()
         except (OSError, urllib.error.URLError) as exc:
             raise OCRInstallError(
                 f"Не удалось скачать языки rus/eng для OCR: {exc}"
             ) from exc
-        valid, reason = verify_tesseract(binary)
-        if not valid:
-            if broken:
-                reason = f"{reason} Не работают: {'; '.join(broken[:4])}"
-            raise OCRInstallError(reason)
+        # Recheck 0.4.3r #2: with the language data just installed, EVERY candidate is tried — before, only
+        # the first one was, so a damaged preferred executable failed the first setup next to a working one.
+        binary, broken = _first_working(candidates)
+        if binary is None:
+            reason = broken[0][1] if broken else "Tesseract не найден."
+            names = "; ".join(path for path, _reason in broken[:4])
+            raise OCRInstallError(f"{reason} Не работают: {names}" if names else reason)
         return binary, DATA_DIR
 
 

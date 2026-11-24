@@ -1,5 +1,11 @@
-LUXAI LOCAL 0.4.3r — ACTUALIZARE 2026-11-22
+LUXAI LOCAL 0.4.3s — ACTUALIZARE 2026-11-24
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.3s: Trei corecturi după reverificarea versiunii 0.4.3r. Dacă PC-ul a dormit sau Jarvis a fost închis
+câteva zile, Jarvis spune în chat ce comenzi programate au fost ratate (nu le mai rulează târziu — de
+exemplu o oprire a PC-ului programată seara nu se face dimineața). Prima configurare OCR găsește un
+Tesseract funcțional chiar dacă primul găsit e deteriorat. Curățarea „Descărcări” nu mai poate muta un
+fișier nou apărut cu același nume.
 
 0.4.3r: Corecturile celui de-al șaptelea audit (47 de puncte). Printre ele: „tradu …” nu mai taie începutul
 textului; un memento de la 23:59 nu se mai pierde la miezul nopții; două comenzi cu aceeași frază sunt

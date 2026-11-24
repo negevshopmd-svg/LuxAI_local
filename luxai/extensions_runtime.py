@@ -19,6 +19,7 @@ import shutil
 import sys
 import threading
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -53,9 +54,20 @@ class CleanupStep:
     identity: tuple = ()  # (device, inode, size, mtime) seen when planned — audit 7 #19
 
 
-def _file_identity(path: Path) -> tuple:
+def _identity_now(path: Path) -> tuple:
     info = os.lstat(path)
     return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)
+
+
+def _bound_rename(step: CleanupStep, destination: Path) -> None:
+    """Rename the source (one atomic step, same volume) and confirm that what moved IS the planned file;
+    otherwise put it back. Recheck 0.4.3r #3: the move itself is bound to the confirmed identity, so a
+    file swapped in after the last check is never moved or trashed."""
+    os.rename(step.source, destination)
+    if step.identity and _identity_now(destination) != step.identity:
+        if not step.source.exists():
+            os.rename(destination, step.source)
+        raise OSError("changed after confirmation — skipped")
 
 
 def _still_planned_file(step: CleanupStep) -> bool:
@@ -112,19 +124,22 @@ def plan_cleanup(folder: Path, *, min_age_days: int, installer_trash_days: int,
     except OSError:
         return []
     for entry in entries:
+        name = entry.name
+        suffix = entry.suffix.casefold()
+        if name.startswith(".") or name.casefold() in _SKIP_NAMES or suffix in _PARTIAL:
+            continue
         try:
-            if not entry.is_file() or entry.is_symlink():
-                continue
-            name = entry.name
-            if name.startswith(".") or name.casefold() in _SKIP_NAMES:
-                continue
-            suffix = entry.suffix.casefold()
-            if suffix in _PARTIAL:
-                continue
-            age_days = (now - entry.stat().st_mtime) / 86400
-            identity = _file_identity(entry)
+            # Recheck 0.4.3r #3: ONE lstat gives the type, the age AND the identity. Two separate reads let a
+            # file swapped in between be planned with the old file's age and its own identity, so the check
+            # right before the move passed for a new file.
+            info = os.lstat(entry)
         except OSError:
             continue
+        import stat as _stat
+        if not _stat.S_ISREG(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
+            continue  # not a regular file: a folder, a link or a junction
+        age_days = (now - info.st_mtime) / 86400
+        identity = (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)
         if age_days < min_age_days:
             continue
         group = next((key for key, (suffixes, _) in CLEANUP_GROUPS.items() if suffix in suffixes), "")
@@ -162,11 +177,27 @@ def run_cleanup(steps: list[CleanupStep], *, trash=None) -> tuple[int, int, list
                 errors.append(f"{step.source.name}: changed after confirmation — skipped")
                 continue
             if step.target is None:
-                trash(str(step.source))
-                trashed += 1
+                # Into a private folder beside it first (the Recycle Bin keeps the original name).
+                holding = step.source.parent / f".jarvis-cleanup-{uuid.uuid4().hex[:8]}"
+                holding.mkdir()
+                staged = holding / step.source.name
+                try:
+                    _bound_rename(step, staged)
+                    try:
+                        trash(str(staged))
+                    except Exception:
+                        if staged.exists() and not step.source.exists():
+                            os.rename(staged, step.source)  # the Recycle Bin refused: back where it was
+                        raise
+                    trashed += 1
+                finally:
+                    try:
+                        holding.rmdir()  # only when empty
+                    except OSError:
+                        pass
             else:
                 step.target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.move(str(step.source), str(unique_path(step.target)))
+                _bound_rename(step, unique_path(step.target))
                 moved += 1
         except Exception as error:  # one locked file must not stop the rest
             errors.append(f"{step.source.name}: {error}")

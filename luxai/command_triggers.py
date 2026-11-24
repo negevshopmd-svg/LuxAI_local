@@ -89,14 +89,21 @@ def validate_event(value):
     raise ValueError("Выберите поддерживаемое приложение или подключение наушников.")
 
 
+MISSED_LOOKBACK_DAYS = 31  # a longer pause is not searched day by day
+
+
 def _due_times(schedule, previous, now):
-    """Every scheduled moment in (previous, now], on each calendar day the interval touches.
+    """Every scheduled moment in (previous, now], on EVERY calendar day the interval touches.
 
     Audit 7 #2: only today's time used to be checked, so a poll from 23:58:55 to 00:00:05 missed a
-    23:59 reminder (today's 23:59 lies in the future, yesterday's was never looked at).
+    23:59 reminder. Recheck 0.4.3r #1: only the first and the last day were checked, so after a pause
+    of several days the days in between (a «once» schedule on one of them) were never seen. At most
+    the last ``MISSED_LOOKBACK_DAYS`` days are walked.
     """
+    from datetime import timedelta
     hours, minutes = map(int, schedule["time"].split(":"))
-    days = [previous.date()] if previous.date() == now.date() else [previous.date(), now.date()]
+    first = max(previous.date(), now.date() - timedelta(days=MISSED_LOOKBACK_DAYS))
+    days = [first + timedelta(days=offset) for offset in range((now.date() - first).days + 1)]
     result = []
     for day in days:
         due = now.replace(year=day.year, month=day.month, day=day.day, hour=hours, minute=minutes,
@@ -153,10 +160,15 @@ class CommandTriggerEngine:
     """Poll schedules/event transitions and dispatch each occurrence once.
 
     Call poll on a Qt timer and marshal global-hotkey IDs onto that same UI
-    thread before calling handle_hotkey. No catch-up work runs after downtime.
+    thread before calling handle_hotkey. No catch-up work runs after downtime: schedules that came due
+    during a pause are only reported (``on_missed``).
     """
-    def __init__(self, registry, callback, *, state_path=STATE_PATH):
+    def __init__(self, registry, callback, *, state_path=STATE_PATH, on_missed=None):
         self.registry, self.callback = registry, callback
+        # Recheck 0.4.3r #1: schedules that fell into a pause (sleep, PC off, Jarvis closed) are never
+        # RUN late — a «shut down at 23:00» must not happen next morning — but they are reported once:
+        # on_missed([(title, due datetime), ...]) on the same thread as poll().
+        self.on_missed = on_missed
         self.state_path = Path(state_path) if state_path else None
         self._last_poll = None
         self._apps = None
@@ -268,12 +280,13 @@ class CommandTriggerEngine:
                 dispatched.add(entry["id"])
                 self._dispatch(entry)
 
+        if previous is not None and not continuous and now > previous:
+            self._report_missed(entries, previous, now)
         for entry in entries:
             schedule = entry.get("schedule", {})
             if schedule and continuous:
                 for due in _due_times(schedule, previous, now):
-                    signature = hashlib.sha256(json.dumps(schedule, sort_keys=True).encode()).hexdigest()[:16]
-                    key = entry["id"] + ":" + signature + ":" + due.strftime("%Y-%m-%dT%H:%M")
+                    key = self._schedule_key(entry, due)
                     if key not in self._fired:
                         self._remember(key, now)
                         dispatch_once(entry)
@@ -286,6 +299,29 @@ class CommandTriggerEngine:
         self._last_poll = now
         self._apps = apps
         self._headphones = bool(headphones) if headphones is not None else None
+
+    def _schedule_key(self, entry, due):
+        signature = hashlib.sha256(json.dumps(entry["schedule"], sort_keys=True).encode()).hexdigest()[:16]
+        return entry["id"] + ":" + signature + ":" + due.strftime("%Y-%m-%dT%H:%M")
+
+    def _report_missed(self, entries, previous, now):
+        """The schedules that came due during a pause: remembered (never reported twice), not run."""
+        missed = []
+        for entry in entries:
+            schedule = entry.get("schedule", {})
+            if not schedule:
+                continue
+            fresh = [due for due in _due_times(schedule, previous, now)
+                     if self._schedule_key(entry, due) not in self._fired]
+            for due in fresh:
+                self._remember(self._schedule_key(entry, due), now)
+            if fresh:
+                missed.append((str(entry.get("title") or entry["id"]), fresh[-1]))
+        if missed and callable(self.on_missed):
+            try:
+                self.on_missed(missed)
+            except Exception as exc:
+                self.last_error = f"Missed schedules: {type(exc).__name__}"
 
     def handle_hotkey(self, identifier):
         now = time.monotonic()
