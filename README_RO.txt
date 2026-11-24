@@ -1,5 +1,10 @@
-LUXAI LOCAL 0.4.3s — ACTUALIZARE 2026-11-24
+LUXAI LOCAL 0.4.3t — ACTUALIZARE 2026-11-24
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.3t: AI-ul local funcționează din nou. Actualizarea motorului (llama-cpp-python 0.3.38) nu pornește
+pe unele procesoare (eroarea „instrucțiune ilegală”), deși verificarea spunea că e în regulă. Jarvis
+pornește acum efectiv motorul la verificare; o versiune care nu merge pe PC-ul tău e ținută minte și
+înlocuită automat cu ultima care merge (0.3.36).
 
 0.4.3s: Trei corecturi după reverificarea versiunii 0.4.3r. Dacă PC-ul a dormit sau Jarvis a fost închis
 câteva zile, Jarvis spune în chat ce comenzi programate au fost ratate (nu le mai rulează târziu — de

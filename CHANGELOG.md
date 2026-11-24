@@ -1,3 +1,18 @@
+## 0.4.3t — The local AI starts again (llama-cpp-python wheel vs. this processor, 2026-11-24)
+
+- Reported (screenshot): «Локальный AI: последний запрос завершился ошибкой». Reproduced on the user's PC:
+  the isolated worker stopped after 0.2 s with `OSError: [WinError -1073741795] 0xc000001d` (illegal
+  instruction) in `llama_backend_init`. The update of 2026-11-24 had upgraded llama-cpp-python 0.3.36 → 0.3.38;
+  the 0.3.38 CPU wheel imports on the Ryzen 7 5800X but does not start. Measured in a separate folder: 0.3.36
+  starts and the Qwen3-8B model answers in 12 s through Jarvis' worker; 0.3.38 fails.
+- `check_backend` now STARTS the engine (`llama_backend_init`) instead of only importing it — the import-only
+  check had reported «verified» for a backend that failed every request.
+- A version that does not start is remembered per PC (`.luxai_data/local_ai_bad_versions.json`, user data) and
+  excluded from every later upgrade (`llama-cpp-python>=0.3.20,!=0.3.38`); the newest wheel that starts is
+  installed instead (at most 3 tries, no endless loop). The launcher's background check and Update.bat repair a
+  broken engine this way by themselves.
+- Tests: `tests/test_local_ai_cpu_043t.py` (5).
+
 ## 0.4.3s — Recheck of 0.4.3r (3 findings, P3, 2026-11-24)
 
 Tests: `tests/test_recheck_043s.py` (12; 10 fail on 0.4.3r, the other 2 keep the normal path).

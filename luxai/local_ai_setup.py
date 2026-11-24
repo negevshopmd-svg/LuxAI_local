@@ -20,7 +20,13 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 LOG_FILE = ROOT / "logs" / "local_ai_install.log"
 OFFICIAL_CPU_WHEELS = "https://abetlen.github.io/llama-cpp-python/whl/cpu"
-BACKEND_IMPORT = "from llama_cpp import Llama; print('LuxAI local GGUF backend OK')"
+# The engine is STARTED, not only imported (0.4.3t): llama-cpp-python 0.3.38's CPU wheel imports fine on a
+# Ryzen 7 5800X but stops with 0xc000001d (illegal instruction) in llama_backend_init, so an import-only check
+# reported «verified» while every request failed.
+BACKEND_IMPORT = ("import llama_cpp; from llama_cpp import Llama; llama_cpp.llama_backend_init(); "
+                  "print('LuxAI local GGUF backend OK')")
+BAD_VERSIONS_FILE = ROOT / ".luxai_data" / "local_ai_bad_versions.json"
+MAX_BAD_VERSIONS = 12
 INSTALL_TIMEOUT = 420
 PROBE_TIMEOUT = 35
 LOCK_MAX_AGE = INSTALL_TIMEOUT + PROBE_TIMEOUT * 2 + 120
@@ -204,61 +210,97 @@ def _restore_version(executable: str, version: str) -> bool:
     return check_backend(executable)
 
 
-def _install_backend(executable: str, *, previously_working: bool | None = None) -> bool:
-    if previously_working is None:
-        previously_working = check_backend(executable)
-    # Audit 7 #41: pip removes the working wheel before the new one is proven to load. The version that
-    # worked is noted first and installed again when the upgrade leaves a backend that does not import.
-    working_version = _installed_version(executable) if previously_working else ""
-    _write_status("installing")
-    _append_log(f"Checking newest compatible llama-cpp-python for {executable}.")
-    print("LuxAI local AI: checking latest compatible official CPU wheel...", flush=True)
+def bad_versions() -> list[str]:
+    """Versions whose engine did not start on THIS PC (its processor); never installed again here."""
+    try:
+        data = json.loads(BAD_VERSIONS_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    if not isinstance(data, list):
+        return []
+    return [str(item) for item in data if isinstance(item, str) and re.fullmatch(r"[0-9A-Za-z.+!-]{1,40}", item)]
+
+
+def _remember_bad_version(version: str) -> None:
+    versions = [item for item in bad_versions() if item != version] + [version]
+    try:
+        BAD_VERSIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        BAD_VERSIONS_FILE.write_text(json.dumps(versions[-MAX_BAD_VERSIONS:]), encoding="utf-8")
+    except OSError as exc:
+        _append_log(f"Could not remember the broken version {version}: {type(exc).__name__}.")
+
+
+def requirement() -> str:
+    """``llama-cpp-python>=0.3.20`` without the versions that do not start on this PC."""
+    return "llama-cpp-python>=0.3.20" + "".join(f",!={version}" for version in bad_versions())
+
+
+def _pip_upgrade(executable: str) -> int | None:
+    """pip's exit code, or None when pip itself could not run / finish (network, timeout)."""
     command = [
         executable, "-m", "pip", "install", "--upgrade",
         "--disable-pip-version-check", "--prefer-binary",
         "--only-binary=:all:", "--retries", "2", "--timeout", "35",
         "--extra-index-url", OFFICIAL_CPU_WHEELS,
-        "llama-cpp-python>=0.3.20",
+        requirement(),
     ]
     try:
         LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
         with LOG_FILE.open("a", encoding="utf-8") as output:
-            result = subprocess.run(
+            return subprocess.run(
                 command, cwd=str(ROOT), stdout=output, stderr=subprocess.STDOUT,
                 timeout=INSTALL_TIMEOUT, check=False,
                 **_quiet_process_options(),
-            )
+            ).returncode
     except (OSError, subprocess.TimeoutExpired) as exc:
         _append_log(f"Version check/install failed: {type(exc).__name__}.")
-        if previously_working and check_backend(executable):
-            _write_status("ready")
-            print("LuxAI local AI: current backend works, but its latest version could not be checked.")
-            return True
-        if working_version and _restore_version(executable, working_version):
-            _write_status("ready")
-            _append_log(f"RESTORED: the previous working backend {working_version} is back.")
-            return True
-        _write_status("unavailable")
-        print("LuxAI local AI: installation could not complete. Check logs/local_ai_install.log.")
-        return False
+        return None
 
-    verified = check_backend(executable)
-    if result.returncode == 0 and verified:
+
+def _upgrade_until_it_starts(executable: str, working_version: str) -> tuple[bool, int | None]:
+    """Install the newest wheel that STARTS here (at most 3 tries). (works, last pip code)."""
+    code = None
+    for _attempt in range(3):
+        code = _pip_upgrade(executable)
+        if code is None:
+            return False, None
+        if check_backend(executable):
+            return True, code
+        broken = _installed_version(executable)
+        if not broken or broken == working_version or broken in bad_versions():
+            return False, code
+        # The newest wheel does not start on this processor: never again here, and try the one before it.
+        _remember_bad_version(broken)
+        _append_log(f"BROKEN on this PC: llama-cpp-python {broken} does not start; trying an older wheel.")
+    return False, code
+
+
+def _install_backend(executable: str, *, previously_working: bool | None = None) -> bool:
+    if previously_working is None:
+        previously_working = check_backend(executable)
+    # Audit 7 #41: pip removes the working wheel before the new one is proven to load. The version that
+    # worked is noted first and installed again when the upgrade leaves a backend that does not start.
+    working_version = _installed_version(executable) if previously_working else ""
+    _write_status("installing")
+    _append_log(f"Checking newest compatible llama-cpp-python for {executable}.")
+    print("LuxAI local AI: checking latest compatible official CPU wheel...", flush=True)
+    works, code = _upgrade_until_it_starts(executable, working_version)
+    if works:
         _write_status("ready")
-        _append_log("SUCCESS: newest compatible backend installed and import verified.")
-        print("LuxAI local AI: newest compatible CPU wheel checked and import verified.", flush=True)
+        _append_log("SUCCESS: newest compatible backend installed and its engine started.")
+        print("LuxAI local AI: newest compatible CPU wheel checked and its engine started.", flush=True)
         return True
-    if previously_working and verified:
+    if previously_working and check_backend(executable):
         _write_status("ready")
-        _append_log(f"WARNING: update failed (code={result.returncode}), existing backend works.")
+        _append_log(f"WARNING: update failed (code={code}), existing backend works.")
         print("LuxAI local AI: update unavailable; existing verified backend remains usable.")
         return True
     if working_version and _restore_version(executable, working_version):
         _write_status("ready")
-        _append_log(f"RESTORED after a failed upgrade (code={result.returncode}): {working_version} works again.")
+        _append_log(f"RESTORED after a failed upgrade (code={code}): {working_version} works again.")
         print("LuxAI local AI: upgrade failed; the previous working backend was restored.", flush=True)
         return True
-    _append_log(f"FAILED: pip code={result.returncode}, native import did not pass.")
+    _append_log(f"FAILED: pip code={code}, the native engine did not start.")
     _write_status("unavailable")
     print("LuxAI local AI: no working compatible prebuilt wheel. See logs/local_ai_install.log.")
     return False

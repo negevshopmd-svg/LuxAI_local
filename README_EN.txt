@@ -1,4 +1,9 @@
-LUXAI LOCAL (JARVIS) 0.4.3s — UPDATE 2026-11-24
+LUXAI LOCAL (JARVIS) 0.4.3t — UPDATE 2026-11-24
+
+0.4.3t: The local AI works again. The engine update (llama-cpp-python 0.3.38) does not start on some
+processors («illegal instruction»), although the check said it was fine. Jarvis now really starts the
+engine when it checks it; a version that does not run on your PC is remembered and replaced
+automatically by the last one that works (0.3.36).
 
 0.4.3s: Three fixes after the recheck of 0.4.3r. When the PC slept or Jarvis was closed for days, Jarvis
 says in the chat which scheduled commands were missed (they are not run late — e.g. a PC shutdown planned

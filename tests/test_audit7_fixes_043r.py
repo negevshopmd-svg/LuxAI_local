@@ -418,9 +418,10 @@ class GgufTests(unittest.TestCase):
                 return subprocess.CompletedProcess(command, 0, stdout="0.3.20\n")
             return subprocess.CompletedProcess(command, 1)
 
-        # works before, broken after the failed upgrade, works again after the restore
+        # works before, broken after the failed upgrade (and still), works again after the restore
         with mock.patch.object(local_ai_setup, "LOG_FILE", folder / "install.log"), \
-                mock.patch.object(local_ai_setup, "check_backend", side_effect=[True, False, True]), \
+                mock.patch.object(local_ai_setup, "BAD_VERSIONS_FILE", folder / "bad.json"), \
+                mock.patch.object(local_ai_setup, "check_backend", side_effect=[True, False, False, True]), \
                 mock.patch("luxai.local_ai_setup.subprocess.run", side_effect=run):
             self.assertTrue(local_ai_setup.install_backend("python.exe"))
         self.assertIn("llama-cpp-python==0.3.20", calls[-1])
