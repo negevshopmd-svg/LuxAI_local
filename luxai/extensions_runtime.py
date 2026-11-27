@@ -665,7 +665,10 @@ class AsyncReply(str):
     """Returned by a chat handler that answers later through ``ExtensionsRuntime.chat_reply``."""
 
 
-class ExtensionsRuntime(QObject):
+from luxai.runtime_island import IslandMixin  # noqa: E402
+
+
+class ExtensionsRuntime(IslandMixin, QObject):
     """Starts/stops ready plugins. ``host`` is the MainWindow-like object.
 
     The host may provide: ``cfg`` (dict), ``tray_icon``, ``_queue_speech(text, lang)``,
@@ -714,6 +717,8 @@ class ExtensionsRuntime(QObject):
     _screenshot_done = Signal(str, bool, str)  # saved path ("" = not saved), copied, error
     _notif_items = Signal(object, object)  # new notifications, the watcher that read them (audit 2 #27)
     _clip_history_loaded = Signal(object, int)  # loaded ClipboardHistory, load generation (audit 2 #17)
+    _island_probe_report = Signal(object)  # media / volume / battery snapshot from the island probe thread
+    _island_toasts = Signal(object)  # new Windows notifications for the island
 
     def __init__(self, host, parent=None):
         super().__init__(parent)
@@ -886,6 +891,8 @@ class ExtensionsRuntime(QObject):
         self._ring_beeper.setInterval(1400)
         self._ring_beeper.timeout.connect(self._ring_beep)
         self._pc_status.connect(self._on_pc_status)
+        self._break_card_test = False
+        self._island_init()
 
     # -- helpers --
     @property
@@ -961,6 +968,7 @@ class ExtensionsRuntime(QObject):
         self._apply_avatar()
         self._apply_timers()
         self._apply_notifications()
+        self._apply_island()
         if self.enabled("downloads_cleanup") and self.settings("downloads_cleanup").get("auto"):
             if not self._cleanup_timer.isActive():
                 self._cleanup_timer.start()
@@ -2081,6 +2089,7 @@ class ExtensionsRuntime(QObject):
         else:
             self._finish_clip_saves_at_exit(None)  # a save that already started finishes first (audit 2 #15)
         self._close_avatar()
+        self._close_island()
         self.hide_captions()
         self._notif_timer.stop()
         self._timer_tick.stop()
@@ -2113,6 +2122,8 @@ class ExtensionsRuntime(QObject):
             self.open_text_helper()
         elif plugin_id == "quick_circle":
             self.open_action_circle()
+        elif plugin_id == "status_island":
+            self.toggle_island()
         elif plugin_id == "media_keys" and key in MEDIA_KEYS:
             press_virtual_key(MEDIA_KEYS[key])
         elif plugin_id == "screenshots":
@@ -2143,6 +2154,7 @@ class ExtensionsRuntime(QObject):
             ("live_captions", "browser_extension"): self.open_browser_extension,
             ("quick_inserts", "open"): lambda: self.open_snippets(paste=False),
             ("breaks", "test"): lambda: self.remind_break(force=True),
+            ("status_island", "demo"): self.show_island_demo,
             ("breaks", "try_eyes"): lambda: self.show_break_card("eyes", test=True),
             ("breaks", "try_stretch"): lambda: self.show_break_card("stretch", test=True),
             ("breaks", "try_water"): lambda: self.show_break_card("water", test=True),
@@ -3307,11 +3319,13 @@ class ExtensionsRuntime(QObject):
         return True
 
     def _on_convert_progress(self, value):
+        self._island_convert = max(0.0, min(1.0, float(value or 0)))
         if self._converting and self._convert_overlay is not None:
             self._convert_overlay.show_text(self._cw("working", p=int(value * 100)))
 
     def _on_convert_done(self, results, errors):
         self._converting = False
+        self._island_convert = None
         if self._convert_overlay is not None:
             self._convert_overlay.hide()
         self.last_conversion = (list(results), list(errors))
@@ -3663,6 +3677,7 @@ class ExtensionsRuntime(QObject):
         card.answered.connect(lambda answer, k=kind, t=test: self._break_answer(k, answer, t))
         self._break_card = card
         self._break_card_kind = kind
+        self._break_card_test = bool(test)
         card.show_in_corner()
         if settings.get("voice") and hasattr(self.host, "_queue_speech"):
             self.host._queue_speech(break_message(kind, self.language), self.language)

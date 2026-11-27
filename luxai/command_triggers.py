@@ -373,10 +373,13 @@ class WindowsHotkeyListener:
         self._post(0x8001)
 
     def _post(self, message):
-        if self._thread_id:
+        # Read once (0.4.3x): the pump thread sets _thread_id to None when it exits, which happened between
+        # the check and the call and raised ctypes.ArgumentError from stop().
+        thread_id = self._thread_id
+        if thread_id:
             user32 = ctypes.windll.user32
             user32.PostThreadMessageW.argtypes = [wintypes.DWORD, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
-            user32.PostThreadMessageW(self._thread_id, message, 0, 0)
+            user32.PostThreadMessageW(thread_id, message, 0, 0)
 
     def stop(self):
         self._stopping = True

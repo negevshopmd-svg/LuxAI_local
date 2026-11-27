@@ -5046,6 +5046,8 @@ class MainWindow(QMainWindow):
         routes = list(dict.fromkeys(route for route in group["routes"] if route))
         if result:
             self.append_message("Jarvis", result, "#a5b9dc")
+            if getattr(self, "extensions_runtime", None) is not None:
+                self.extensions_runtime.island_reply(result)
             status = group.get("outcome_status")
             if status and status != "completed":
                 self.mic_status.setText({"ru": "Ожидаю ответ." if status == "waiting" else "Выполнение не подтверждено.",

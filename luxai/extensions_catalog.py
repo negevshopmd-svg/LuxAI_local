@@ -15,6 +15,7 @@ others are visible with their settings but their switch is locked and marked
 from __future__ import annotations
 
 import copy
+import math
 import re
 from dataclasses import dataclass, field
 
@@ -562,16 +563,91 @@ PLUGINS: tuple[Plugin, ...] = (
     Plugin(
         "status_island", "desktop", "panels-top-left", "#2a3f9e",
         L("Островок", "Status island", "Insula de stare"),
-        L("Плашка у края экрана: что происходит сейчас — голос, команды, задачи агента, таймер, музыка — "
-          "и быстрые действия.",
-          "A pill at the screen edge showing what is happening now — voice, commands, agent tasks, timer, music — "
-          "with quick actions.",
-          "O bandă la marginea ecranului cu ce se întâmplă acum — voce, comenzi, sarcini, cronometru, muzică — "
-          "și acțiuni rapide."),
-        False,
-        (Setting("edge", "choice", L("Край экрана", "Screen edge", "Marginea ecranului"), "top",
+        L("Плашка у края экрана, как Dynamic Island: что происходит сейчас — голос, команды, агент, "
+          "таймер, музыка — и быстрые действия.",
+          "A pill at the screen edge, like Dynamic Island: what is happening now — voice, commands, agent, "
+          "timer, music — and quick actions.",
+          "O bandă la marginea ecranului, ca Dynamic Island: ce se întâmplă acum — voce, comenzi, agent, "
+          "cronometru, muzică — și acțiuni rapide."),
+        True,
+        (Setting("style", "choice", L("Форма", "Shape", "Formă"), "island",
+                 options=(("island", L("Островок — парит у края", "Island — floats at the edge", "Insulă — plutește la margine")),
+                          ("notch", L("Вырез — прилип к верху экрана", "Notch — glued to the top", "Decupaj — lipit de sus"))),
+                 hint=L("«Вырез» работает только сверху.", "“Notch” works only at the top.", "„Decupaj” merge doar sus.")),
+         Setting("edge", "choice", L("Край экрана", "Screen edge", "Marginea ecranului"), "top",
                  options=(("top", L("Сверху", "Top", "Sus")), ("bottom", L("Снизу", "Bottom", "Jos")))),
-         Setting("auto_hide", "bool", L("Скрывать, когда ничего не происходит", "Hide when idle", "Ascunde când nu se întâmplă nimic"), True)),
+         Setting("monitor", "choice", L("Монитор", "Monitor", "Monitor"), "primary",
+                 options=(("primary", L("Основной", "Main", "Principal")),
+                          ("cursor", L("Где мышь", "Where the mouse is", "Unde e mouse-ul")),
+                          ("1", L("Второй", "Second", "Al doilea")), ("2", L("Третий", "Third", "Al treilea")))),
+         Setting("offset", "int", L("Отступ от края", "Distance from the edge", "Distanța de la margine"), 8,
+                 minimum=0, maximum=80, suffix=L(" пикс.", " px", " px")),
+         Setting("size", "choice", L("Размер", "Size", "Mărime"), "100",
+                 options=(("85", L("Маленький", "Small", "Mic")), ("100", L("Обычный", "Normal", "Normal")),
+                          ("115", L("Крупный", "Large", "Mare")), ("130", L("Очень крупный", "Extra large", "Foarte mare")))),
+         Setting("background", "choice", L("Фон", "Background", "Fundal"), "black",
+                 options=(("black", L("Чёрный, как на телефоне", "Black, as on a phone", "Negru, ca pe telefon")),
+                          ("graphite", L("Графит", "Graphite", "Grafit")), ("midnight", L("Тёмно-синий", "Midnight blue", "Albastru închis")),
+                          ("glass", L("Стекло", "Glass", "Sticlă")), ("theme", L("Цвет темы Jarvis", "Jarvis theme colour", "Culoarea temei Jarvis")))),
+         Setting("opacity", "int", L("Непрозрачность", "Opacity", "Opacitate"), 100, minimum=40, maximum=100,
+                 suffix=L(" %", " %", " %")),
+         Setting("accent", "choice", L("Цвета событий", "Event colours", "Culorile evenimentelor"), "activity",
+                 options=(("activity", L("Свой цвет у каждого события", "Each event its own colour", "Fiecare eveniment cu culoarea lui")),
+                          ("theme", L("Один — цвет темы", "One — the theme colour", "Una — culoarea temei")))),
+         Setting("glow", "bool", L("Свечение вокруг", "Glow around it", "Strălucire în jur"), True),
+         Setting("idle", "choice", L("Когда ничего не происходит", "When nothing happens", "Când nu se întâmplă nimic"), "dot",
+                 options=(("dot", L("Маленькая плашка", "A small pill", "O bandă mică")), ("clock", L("Часы", "Clock", "Ceas")),
+                          ("clock_date", L("Часы и дата", "Clock and date", "Ceas și dată")),
+                          ("hide", L("Спрятать", "Hide", "Ascunde")))),
+         Setting("expand", "choice", L("Открывать карточку", "Open the card", "Deschide cardul"), "hover",
+                 options=(("hover", L("Наведением мыши", "On hover", "La trecerea mouse-ului")),
+                          ("click", L("Щелчком", "On click", "La clic")))),
+         Setting("hover_delay", "int", L("Задержка наведения", "Hover delay", "Întârzierea la trecere"), 300,
+                 minimum=0, maximum=1500, suffix=L(" мс", " ms", " ms")),
+         Setting("animation", "choice", L("Анимация", "Animation", "Animație"), "smooth",
+                 options=(("smooth", L("Плавная, с пружинкой", "Smooth, springy", "Lină, cu arc")),
+                          ("fast", L("Быстрая", "Fast", "Rapidă")), ("off", L("Без анимации", "None", "Fără animație")))),
+         Setting("fps", "choice", L("Плавность", "Frame rate", "Fluiditate"), "60",
+                 options=(("30", L("30 к/с", "30 fps", "30 fps")), ("60", L("60 к/с", "60 fps", "60 fps"))),
+                 hint=L("Кадры рисуются только пока что-то движется.", "Frames are drawn only while something moves.",
+                        "Cadrele se desenează doar cât ceva se mișcă.")),
+         Setting("hide_fullscreen", "bool", L("Прятать в играх и видео на весь экран", "Hide in games and full-screen video",
+                                              "Ascunde în jocuri și video pe tot ecranul"), True),
+         Setting("second", "bool", L("Второй пузырёк", "A second bubble", "A doua bulă"), True,
+                 hint=L("Когда идут два дела сразу (например, музыка и таймер), второе — кружком рядом.",
+                        "When two things run at once (say music and a timer), the second is a circle beside it.",
+                        "Când merg două lucruri deodată (de exemplu muzică și cronometru), al doilea e un cerc alături.")),
+         _hotkey("ctrl+alt+i", L("Открыть / закрепить", "Open / pin", "Deschide / fixează")),
+         Setting("show_voice", "bool", L("Jarvis: выполняет, говорит, ждёт", "Jarvis: working, speaking, waiting",
+                                         "Jarvis: lucrează, vorbește, așteaptă"), True),
+         Setting("show_hearing", "bool", L("Слышит речь", "Hears speech", "Aude vorbire"), False),
+         Setting("show_reply", "bool", L("Ответы Jarvis", "Jarvis' answers", "Răspunsurile lui Jarvis"), True),
+         Setting("show_timers", "bool", L("Таймеры и будильники", "Timers and alarms", "Cronometre și alarme"), True),
+         Setting("show_media", "bool", L("Музыка и видео", "Music and video", "Muzică și video"), True),
+         Setting("paused_media", "bool", L("Музыка на паузе", "Paused music", "Muzica pe pauză"), True),
+         Setting("show_volume", "bool", L("Громкость", "Volume", "Volum"), True),
+         Setting("show_tools", "bool", L("Диктовка, субтитры, конвертер", "Dictation, captions, converter",
+                                         "Dictare, subtitrări, convertor"), True),
+         Setting("show_breaks", "bool", L("Перерывы", "Breaks", "Pauze"), True),
+         Setting("show_battery", "bool", L("Батарея ноутбука", "Laptop battery", "Bateria laptopului"), True),
+         Setting("show_notifications", "bool", L("Уведомления Windows", "Windows notifications", "Notificări Windows"), False),
+         Setting("notification_text", "bool", L("Показывать текст уведомления", "Show the notification text",
+                                                "Arată textul notificării"), True,
+                 hint=L("Выключено — только имя программы: удобно, когда экран видят другие.",
+                        "Off — only the app name: handy when others see your screen.",
+                        "Oprit — doar numele programului: util când alții îți văd ecranul.")),
+         Setting("notification_seconds", "int", L("Уведомление видно", "A notification stays", "Notificarea rămâne"), 5,
+                 minimum=2, maximum=15, suffix=L(" с", " s", " s")),
+         Setting("flash_seconds", "int", L("Громкость видна", "Volume stays", "Volumul rămâne"), 3,
+                 minimum=1, maximum=10, suffix=L(" с", " s", " s")),
+         Setting("qa_mic", "bool", L("Микрофон", "Microphone", "Microfon"), True),
+         Setting("qa_quiet", "bool", L("Тихий режим", "Quiet mode", "Mod silențios"), True),
+         Setting("qa_captions", "bool", L("Субтитры", "Captions", "Subtitrări"), True),
+         Setting("qa_screenshot", "bool", L("Снимок экрана", "Screenshot", "Captură de ecran"), True),
+         Setting("qa_timer", "bool", L("Таймер на 5 минут", "5-minute timer", "Cronometru de 5 minute"), False),
+         Setting("qa_clipboard", "bool", L("История буфера", "Clipboard history", "Istoric clipboard"), False),
+         Setting("qa_jarvis", "bool", L("Открыть Jarvis", "Open Jarvis", "Deschide Jarvis"), True)),
+        (("demo", L("Показать пример", "Show an example", "Arată un exemplu")),),
     ),
     Plugin(
         "breaks", "desktop", "coffee", "#3aa05a",
@@ -988,6 +1064,38 @@ SECTIONS = {
         Section("appearance", "palette", L("Оформление", "Appearance", "Aspect"),
                 L("Как выглядит круг.", "How the circle looks.", "Cum arată cercul."), ("circle_theme",)),
     ),
+    "status_island": (
+        Section("look", "palette", L("Внешний вид", "Look", "Aspect"),
+                L("Форма, место, размер и цвета островка.", "Shape, place, size and colours of the island.",
+                  "Forma, locul, mărimea și culorile insulei."),
+                ("style", "edge", "monitor", "offset", "size", "background", "opacity", "accent", "glow")),
+        Section("behaviour", "mouse-pointer-click", L("Поведение", "Behaviour", "Comportament"),
+                L("Что видно в покое, как открывается карточка и как он двигается.",
+                  "What shows when idle, how the card opens and how it moves.",
+                  "Ce se vede în repaus, cum se deschide cardul și cum se mișcă."),
+                ("idle", "expand", "hover_delay", "animation", "fps", "hide_fullscreen", "second", "hotkey")),
+        Section("show", "layers", L("Что показывать", "What to show", "Ce să arate"),
+                L("Важное всегда впереди: будильник, потом Jarvis, потом остальное.",
+                  "The important comes first: an alarm, then Jarvis, then the rest.",
+                  "Importantul e primul: alarma, apoi Jarvis, apoi restul."),
+                ("show_voice", "show_hearing", "show_reply", "show_timers", "show_media", "paused_media", "show_volume",
+                 "show_tools", "show_breaks", "show_battery", "show_notifications"),
+                groups=((L("Jarvis", "Jarvis", "Jarvis"), ("show_voice", "show_hearing", "show_reply")),
+                        (L("Компьютер", "Computer", "Calculator"), ("show_timers", "show_media", "paused_media", "show_volume",
+                                                                     "show_tools", "show_breaks", "show_battery",
+                                                                     "show_notifications")))),
+        Section("flash", "bell", L("Всплывающие события", "Pop-up events", "Evenimente scurte"),
+                L("Уведомления и громкость появляются на несколько секунд.",
+                  "Notifications and volume appear for a few seconds.",
+                  "Notificările și volumul apar pentru câteva secunde."),
+                ("notification_text", "notification_seconds", "flash_seconds")),
+        Section("quick", "zap", L("Быстрые действия", "Quick actions", "Acțiuni rapide"),
+                L("Круглые кнопки внизу открытой карточки.", "Round buttons at the bottom of the open card.",
+                  "Butoane rotunde jos în cardul deschis."),
+                ("qa_mic", "qa_quiet", "qa_captions", "qa_screenshot", "qa_timer", "qa_clipboard", "qa_jarvis"),
+                groups=((L("Кнопки", "Buttons", "Butoane"),
+                         ("qa_mic", "qa_quiet", "qa_captions", "qa_screenshot", "qa_timer", "qa_clipboard", "qa_jarvis")),)),
+    ),
     "breaks": (
         Section("reminders", "bell", L("Напоминания", "Reminders", "Mementouri"),
                 L("Включите нужные и выберите, как часто.", "Turn on the ones you need and choose how often.",
@@ -1031,6 +1139,10 @@ SECTIONS = {
 # A setting is editable only while another setting has one of these values.
 ENABLED_IF = {
     "quick_circle": {"search_engine": ("show_search", (True,))},
+    "status_island": {"notification_text": ("show_notifications", (True,)),
+                      "notification_seconds": ("show_notifications", (True,)),
+                      "flash_seconds": ("show_volume", (True,)), "paused_media": ("show_media", (True,)),
+                      "hover_delay": ("expand", ("hover",))},
     "read_aloud": {"translate_to": ("translate", (True,))},
     "notification_reader": {"quiet_from": ("quiet_enabled", (True,)), "quiet_to": ("quiet_enabled", (True,))},
     "converter": {"folder": ("destination", ("folder",))},
@@ -1071,6 +1183,16 @@ BASIC_NOTE = {
                              "Notificările sunt mesajele tale. Jarvis păstrează doar ultimele 20 în memorie și nu scrie nimic pe "
                              "disc sau în jurnale. Traducerea se face pe acest PC — textul notificărilor nu pleacă nicăieri. Cât "
                              "PC-ul e blocat, nu se citește nimic."),
+    "status_island": L("Наведите мышь на островок — откроется карточка с кнопками. Щелчок по плашке — главное действие "
+                       "(пауза музыки, «Сделал» для перерыва, стоп будильника), правый щелчок — закрыть, двойной — открыть "
+                       "Jarvis. Ctrl+Alt+I — открыть и закрепить. Названия песен и уведомления не сохраняются никуда.",
+                       "Hover the island — a card with buttons opens. A click on the pill does the main thing (pause the "
+                       "music, “Done” for a break, stop an alarm), a right click closes, a double click opens Jarvis. "
+                       "Ctrl+Alt+I opens and pins it. Song titles and notifications are never saved anywhere.",
+                       "Treci cu mouse-ul peste insulă — se deschide un card cu butoane. Un clic pe bandă face acțiunea "
+                       "principală (pauză la muzică, „Gata” pentru pauză, oprește alarma), clic dreapta închide, dublu clic "
+                       "deschide Jarvis. Ctrl+Alt+I o deschide și o fixează. Titlurile pieselor și notificările nu se salvează "
+                       "nicăieri."),
     "quick_circle": L("Нажмите клавишу — у курсора откроется круг. Выбор: мышью, стрелками и Enter или цифрами 1–9; "
                       "Esc или щелчок в центре закрывает. Действия окна относятся к окну, которое было активным; "
                       "«Закрыть окно» работает как крестик — программа может спросить о сохранении.",
@@ -1348,13 +1470,15 @@ def validate_value(setting: Setting, value):
     if kind == "int":
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise ValueError("number expected")
+        if isinstance(value, float) and not math.isfinite(value):
+            raise ValueError("finite number expected")  # «Infinity» in config.json crashed the page (0.4.3x)
         number = int(value)
         if not setting.minimum <= number <= setting.maximum:
             raise ValueError("out of range")
         return number
     if kind == "choice":
         allowed = {option for option, _ in setting.options}
-        if value not in allowed:
+        if not isinstance(value, str) or value not in allowed:  # a list here crashed the page (0.4.3x)
             raise ValueError("unknown option")
         return value
     if kind == "hotkey":

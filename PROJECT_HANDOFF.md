@@ -86,7 +86,7 @@ key is built into `Update.py` and `scripts/release_signature.py`. `.bat/.cmd` ar
   `discord_*` (visual, verified flows), `steam_games.py`, `steam_profile_visual.py`, `websites.py`,
   `web_research.py`, `research_notepad.py`, `weather_service.py`.
 - **Extensions (plugins page):** `extensions_catalog.py` (22 plugins, settings schema),
-  `extensions_runtime.py` (behaviour of the 17 working ones), UI `ui_extensions.py`, `ui_extension_settings.py`.
+  `extensions_runtime.py` (behaviour of the 18 working ones), UI `ui_extensions.py`, `ui_extension_settings.py`.
   Working: smart dictation (`dictation.py`), notification reader (`notifications.py`), read aloud
   (`translation.py`), live captions (`live_captions.py`, `loopback_audio.py`; «Hybrid»: fast draft + translation,
   precise correction on its own thread), film captions in advance (`film_captions.py` + the Chrome/Edge
@@ -98,8 +98,10 @@ key is built into `Update.py` and `scripts/release_signature.py`. `.bat/.cmd` ar
   text helper (`text_helper.py` + `ui_text_helper.py`: selection → fix / improve / shorten / translate / reply /
   own request → replace; cloud AI or the local GGUF model, offline NLLB for translation), action circle
   (`action_circle.py`: radial menu with your commands, window actions, media keys, search of the selection;
-  drawn by `ui_convert_circle.RadialMenu`).
-  «Soon»: meeting notes, ask documents, desktop pet, status island,
+  drawn by `ui_convert_circle.RadialMenu`), status island (`status_island.py` activities + `IslandProbe` thread for
+  media session / volume / battery / toasts via WinRT in MTA, `ui_status_island.py` painted morphing window,
+  `runtime_island.py` mixin of the runtime).
+  «Soon»: meeting notes, ask documents, desktop pet,
   smart home, streamer helper.
 - **Translation:** `offline_translate.py` (NLLB-200 600M CTranslate2 int8, pinned revision + SHA-256,
   repair in background), `chat_translate.py` («translate …» in the chat).

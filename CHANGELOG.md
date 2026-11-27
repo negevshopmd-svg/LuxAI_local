@@ -1,3 +1,36 @@
+## 0.4.3x — Status island plugin, like Dynamic Island (2026-11-27)
+
+New working plugin «Островок / Status island / Insula de stare» (Extensions → Desktop), researched against the
+Windows island apps (Notchify, DynamicWin, Yata Notch, Isle Notch):
+- `luxai/status_island.py` (no Qt): activities and their priority (alarm > error > Jarvis listening / speaking /
+  working / waiting > break > dictation > converter > notification > volume > answer > timer > music > captions >
+  battery), a second «bubble» for a long-running thing (timer / music / captions), wording in ru/en/ro, and
+  `IslandProbe`: one background thread reads the Windows media session (title, artist, cover, position, which
+  buttons the player allows), the master volume (pycaw), the battery and — only when turned on — new Windows
+  notifications (read-only, as the notification reader). Nothing is saved or logged.
+- `luxai/ui_status_island.py`: one painted, translucent, never-focused window; the pill morphs with a spring between
+  idle (small pill / clock / clock+date / hidden), compact (icon or cover, text, waves / countdown / spinner) and an
+  expanded card on hover or click (progress, media / timer / alarm / break / dictation buttons, quick actions: mic,
+  quiet mode, captions, screenshot, 5-minute timer, clipboard, open Jarvis). «Island» or «notch» shape, top or bottom,
+  main / mouse / 2nd / 3rd monitor, 4 sizes, 5 backgrounds, opacity, colours per event or theme, glow, speed,
+  30/60 fps (frames only while something moves), hidden in full-screen games/video, Ctrl+Alt+I opens and pins.
+- `luxai/runtime_island.py`: mixin of `ExtensionsRuntime` (state → activities 5×/s from memory only, buttons).
+  Main window reports finished answers (`island_reply`). A screenshot from the island hides the island first.
+- New dependency (Windows media API, ~300 KB): `winrt-runtime`, `winrt-Windows.Foundation`,
+  `winrt-Windows.Foundation.Collections`, `winrt-Windows.Media.Control`, `winrt-Windows.Storage.Streams`.
+
+Found while probing live:
+- WinRT calls from a worker thread never completed: comtypes made the thread single-threaded (STA). The probe thread
+  now enters the multi-threaded apartment before any COM import, and every WinRT call has a deadline.
+- `extensions_catalog.validate_value`: a list for a «choice» setting or `Infinity` for a number in config.json raised
+  TypeError / OverflowError and broke the Extensions page (all plugins); now they fall back to the default.
+
+- `WindowsHotkeyListener._post` / `CommandRecorder.stop`: the thread id was read twice; the exiting pump thread
+  cleared it in between and `stop()` raised ctypes.ArgumentError (a flaky test, also on 0.4.3w). Read once now.
+
+Tests: `tests/test_status_island_043x.py` (50). Live: the island on the real desktop showed a YouTube video from
+Chrome with its real cover, title, author and time; not pressed live: play/pause (would start the user's video).
+
 ## 0.4.3w — Live captions: every line corrected, measured before/after (2026-11-27)
 
 New benchmark `tests/captions_bench/` (dev only): `make_corpus.py` builds ~50–60 s «news» streams per language from

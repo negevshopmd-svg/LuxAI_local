@@ -1,5 +1,14 @@
-LUXAI LOCAL 0.4.3w — ACTUALIZARE 2026-11-27
+LUXAI LOCAL 0.4.3x — ACTUALIZARE 2026-11-27
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.3x: Plugin nou — „Insula de stare” (Extensii → Desktop), ca Dynamic Island de pe iPhone. O bandă neagră
+sus (sau jos) pe ecran care arată ce se întâmplă acum: ce face Jarvis și ce răspunde, cronometrul cu timpul
+rămas, muzica sau video-ul care cântă (cu copertă și timp), volumul când îl schimbi, pauzele, dictarea,
+subtitrările și, dacă vrei, notificările. Treci cu mouse-ul — se deschide un card cu butoane (pauză / următorul,
++1 min la cronometru, „Gata” la pauză, oprește alarma) și acțiuni rapide (microfon, mod silențios, subtitrări,
+captură de ecran, Jarvis). Multe setări: formă de insulă sau decupaj, sus/jos, monitorul, mărimea, fundalul,
+culorile, animația. Ctrl+Alt+I o deschide și o fixează. Actualizarea instalează o mică bibliotecă Windows
+pentru muzică (~300 KB).
 
 0.4.3w: Subtitrări live mult mai exacte. Modelul precis corectează acum FIECARE rând (înainte multe rânduri
 rămâneau ciorne), citind într-o singură trecere toate frazele terminate între timp. Măsurat pe vorbire de

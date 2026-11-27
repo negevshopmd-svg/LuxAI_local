@@ -1,4 +1,12 @@
-LUXAI LOCAL (JARVIS) 0.4.3w — UPDATE 2026-11-27
+LUXAI LOCAL (JARVIS) 0.4.3x — UPDATE 2026-11-27
+
+0.4.3x: New plugin “Status island” (Extensions → Desktop), like the iPhone's Dynamic Island. A black pill at
+the top (or bottom) of the screen shows what is happening now: what Jarvis does and answers, a timer with
+the time left, the music or video playing (with its cover and time), the volume when you change it, breaks,
+dictation, captions and, if you want, notifications. Hover it — a card opens with buttons (pause / next,
++1 min on a timer, “Done” for a break, stop an alarm) and quick actions (microphone, quiet mode, captions,
+screenshot, Jarvis). Many settings: island or notch shape, top/bottom, monitor, size, background, colours,
+animation. Ctrl+Alt+I opens and pins it. The update installs a small Windows library for music (~300 KB).
 
 0.4.3w: Much more accurate live captions. The precise model now corrects EVERY line (before, many stayed
 drafts), reading all phrases finished meanwhile in one pass. Measured on test speech in real time: errors

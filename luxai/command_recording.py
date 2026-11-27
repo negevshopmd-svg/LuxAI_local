@@ -152,10 +152,11 @@ class ActionRecorder:
     def stop(self):
         self._cancelled.set()
         steps = self._buffer.stop()
-        if self._thread_id and sys.platform == "win32":
+        thread_id = self._thread_id  # read once: the hook thread clears it when it exits (0.4.3x)
+        if thread_id and sys.platform == "win32":
             user32 = ctypes.windll.user32
             user32.PostThreadMessageW.argtypes = [wintypes.DWORD, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
-            user32.PostThreadMessageW(self._thread_id, 0x0012, 0, 0)
+            user32.PostThreadMessageW(thread_id, 0x0012, 0, 0)
         if self._thread and self._thread is not threading.current_thread():
             self._thread.join(timeout=1.0)
         return steps
