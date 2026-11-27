@@ -1,4 +1,11 @@
-LUXAI LOCAL (JARVIS) 0.4.3x — UPDATE 2026-11-27
+LUXAI LOCAL (JARVIS) 0.4.3y — UPDATE 2026-11-27
+
+0.4.3y: The status island does more. Games: the game's icon and name (from Steam — with its banner), how
+long you have played and the total today; it opens by itself for 4 s when a game starts and says “You played
+1 h 05 min” when it ends. Steam: what downloads or installs, percent, GB, speed and time left; “Installed” at
+the end. Discord: in a call — where / with whom, how long, buttons for the mic, sound and Discord's volume
+(louder / quieter). New settings “What to show and what matters more”: for each source Off / Low / Normal /
+High / Always first — e.g. keep only Discord.
 
 0.4.3x: New plugin “Status island” (Extensions → Desktop), like the iPhone's Dynamic Island. A black pill at
 the top (or bottom) of the screen shows what is happening now: what Jarvis does and answers, a timer with

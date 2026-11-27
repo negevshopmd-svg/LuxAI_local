@@ -1,5 +1,12 @@
-LUXAI LOCAL 0.4.3x — ACTUALIZARE 2026-11-27
+LUXAI LOCAL 0.4.3y — ACTUALIZARE 2026-11-27
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.3y: Insula de stare știe mai mult. Jocuri: iconița și numele jocului (din Steam — cu bannerul lui), cât
+timp ești în joc și cât azi; la pornire se deschide singură pentru 4 s, la ieșire spune „Ai jucat 1 h 05 min”.
+Steam: ce se descarcă sau se instalează, procentul, GB, viteza și cât a mai rămas; „Instalat” la final.
+Discord: când ești în apel — unde / cu cine, cât durează, butoane pentru microfon, căști și volumul Discord
+(mai tare / mai încet). Setări noi „Ce să arate și ce e mai important”: pentru fiecare sursă alegi Oprit /
+Scăzut / Normal / Ridicat / Mereu primul — de exemplu poți lăsa doar Discord.
 
 0.4.3x: Plugin nou — „Insula de stare” (Extensii → Desktop), ca Dynamic Island de pe iPhone. O bandă neagră
 sus (sau jos) pe ecran care arată ce se întâmplă acum: ce face Jarvis și ce răspunde, cronometrul cu timpul

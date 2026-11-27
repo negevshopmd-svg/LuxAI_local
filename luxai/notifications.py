@@ -249,7 +249,16 @@ def _program_name(key_name: str) -> str:
 
 
 def _device_in_use(device: str) -> str:
+    found = devices_in_use(device)
+    return found[0] if found else ""
+
+
+def devices_in_use(device: str) -> list[str]:
+    """Every program that uses the microphone / webcam right now (Windows privacy registry, read-only)."""
+    if sys.platform != "win32":
+        return []
     import winreg
+    found = []
     base = r"Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore" + "\\" + device
     for sub in ("NonPackaged", ""):
         try:
@@ -275,8 +284,8 @@ def _device_in_use(device: str) -> str:
                 except OSError:
                     continue
                 if stop == 0 and start:
-                    return _program_name(name)
-    return ""
+                    found.append(_program_name(name))
+    return found
 
 
 class NotificationWatcher:

@@ -719,6 +719,7 @@ class ExtensionsRuntime(IslandMixin, QObject):
     _clip_history_loaded = Signal(object, int)  # loaded ClipboardHistory, load generation (audit 2 #17)
     _island_probe_report = Signal(object)  # media / volume / battery snapshot from the island probe thread
     _island_toasts = Signal(object)  # new Windows notifications for the island
+    _island_discord_done = Signal(str)  # what Discord's mic / headphones button did (from a worker thread)
 
     def __init__(self, host, parent=None):
         super().__init__(parent)

@@ -36,7 +36,7 @@ class ChooseTests(unittest.TestCase):
         self.assertEqual(second.kind, "media")
 
     def test_a_switched_off_kind_is_never_shown(self):
-        main, second = si.choose([si.Activity("media", "Song")], dict(DEFAULTS, show_media=False))
+        main, second = si.choose([si.Activity("media", "Song")], dict(DEFAULTS, p_media="off"))
         self.assertIsNone(main)
         self.assertIsNone(second)
 
@@ -390,7 +390,7 @@ class RuntimeTests(unittest.TestCase):
         host.stop_speaking.assert_called_once()
 
     def test_notifications_respect_privacy(self):
-        engine, _host, _probe = self.make(show_notifications=True, notification_text=False)
+        engine, _host, _probe = self.make(p_notifications="normal", notification_text=False)
         engine._on_island_toasts([{"app": "Telegram", "texts": ["Ana", "secret"]}])
         main = engine._island.main
         self.assertEqual(main.title, "Telegram")
@@ -417,6 +417,346 @@ class RuntimeTests(unittest.TestCase):
     def test_main_window_reports_answers(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
         self.assertIn("self.extensions_runtime.island_reply(result)", source)
+
+
+class GameDetectTests(unittest.TestCase):
+    """0.4.3y: which game runs, with its Steam name and pictures, read from the local Steam folders only."""
+
+    def steam(self):
+        from luxai.game_detect import SteamIndex
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        root = Path(folder.name) / "Steam"
+        other = Path(folder.name) / "SteamLibrary"
+        (root / "steamapps").mkdir(parents=True)
+        (other / "steamapps").mkdir(parents=True)
+        (root / "steamapps" / "libraryfolders.vdf").write_text(
+            '"libraryfolders"\n{\n "0"\n {\n  "path"  "%s"\n }\n "1"\n {\n  "path"  "%s"\n }\n}\n'
+            % (str(root).replace("\\", "\\\\"), str(other).replace("\\", "\\\\")), encoding="utf-8")
+        (other / "steamapps" / "appmanifest_730.acf").write_text(
+            '"AppState"\n{\n "appid" "730"\n "name" "Counter-Strike 2"\n "installdir" "Counter-Strike Global Offensive"\n}\n',
+            encoding="utf-8")
+        cache = root / "appcache" / "librarycache" / "730"
+        (cache / "162664aa5da85f418105350c5d67ca565f6c3713").mkdir(parents=True)
+        (cache / ("8dbc71957312bbd3baea65848b545be9eae2a355" + ".jpg")).write_bytes(b"icon")
+        (cache / "162664aa5da85f418105350c5d67ca565f6c3713" / "header.jpg").write_bytes(b"banner")
+        exe = other / "steamapps" / "common" / "Counter-Strike Global Offensive" / "game" / "bin" / "win64" / "cs2.exe"
+        return SteamIndex(str(root)), str(exe)
+
+    def test_a_steam_game_gets_its_real_name_and_pictures(self):
+        steam, exe = self.steam()
+        self.assertEqual(steam.find(exe), ("730", "Counter-Strike 2"))
+        self.assertEqual(steam.pictures("730"), (b"icon", b"banner"))
+        self.assertEqual(steam.pictures("../../etc"), (b"", b""))  # only a number is a Steam app
+
+    def detector(self, exe, steam=None, created=100.0):
+        from luxai.game_detect import GameDetector
+        info = {"exe": exe, "created": created}
+        detector = GameDetector(steam or mock.Mock(find=lambda _e: None, pictures=lambda _a: (b"", b"")),
+                                process_info=lambda pid: dict(info) if info else None)
+        return detector, info
+
+    def test_a_game_is_found_and_stays_while_alt_tabbed(self):
+        steam, exe = self.steam()
+        detector, info = self.detector(exe, steam)
+        with mock.patch("luxai.game_detect.foreground_pid", return_value=4242), \
+                mock.patch("luxai.game_detect.fullscreen_state", return_value=0):
+            game = detector.poll()
+        self.assertEqual((game["name"], game["appid"], game["icon"]), ("Counter-Strike 2", "730", b"icon"))
+        with mock.patch("luxai.game_detect.foreground_pid", return_value=0):
+            self.assertIs(detector.poll(), game)  # another window in front: still playing
+        info["created"] = 555.0  # the pid was reused by another program: the game ended
+        with mock.patch("luxai.game_detect.foreground_pid", return_value=0):
+            self.assertIsNone(detector.poll())
+
+    def test_what_counts_as_a_game(self):
+        from luxai import game_detect as gd
+        self.assertTrue(gd.in_game_folder(r"C:\Program Files\Epic Games\Fortnite\FortniteClient-Win64-Shipping.exe"))
+        self.assertFalse(gd.in_game_folder(r"C:\Program Files\Notepad++\notepad++.exe"))
+        self.assertEqual(gd.readable_name("HogwartsLegacy-Win64-Shipping.exe"), "HogwartsLegacy")
+        cases = [(r"C:\Program Files\Google\Chrome\Application\chrome.exe", 3, {}, False),  # a full-screen video
+                 (r"C:\Tools\emulator.exe", 3, {}, True),  # any other full-screen 3D program
+                 (r"C:\Tools\emulator.exe", 3, {"use_fullscreen": False}, False),
+                 (r"C:\Tools\mygame.exe", 0, {"user_games": "MyGame.exe"}, True),
+                 (r"C:\Games\Witcher3\witcher3.exe", 0, {"ignored": "witcher3"}, False),
+                 (r"C:\Program Files (x86)\Steam\steam.exe", 3, {}, False)]  # the launcher itself
+        for exe, state, options, expected in cases:
+            detector, _info = self.detector(exe)
+            detector.configure(**options)
+            with mock.patch("luxai.game_detect.file_description", return_value=""):
+                self.assertEqual(detector.identify(7, state) is not None, expected, exe)
+
+    def test_a_program_that_is_not_a_game_is_looked_at_once(self):
+        detector, _info = self.detector(r"C:\Tools\editor.exe")
+        calls = []
+        original = detector.process_info
+        detector.process_info = lambda pid: calls.append(pid) or original(pid)
+        detector.identify(9, 0)
+        detector.identify(9, 0)
+        self.assertEqual(calls, [9])
+
+    def test_played_time_wording(self):
+        self.assertEqual(si.format_played(3900, "ru"), "1 ч 05 мин")
+        self.assertEqual(si.format_played(720, "en"), "12 min")
+        self.assertEqual(si.format_played(40, "ro"), "40 s")
+
+    def test_the_game_activity(self):
+        game = {"pid": 1, "created": time.time() - 4985, "name": "Counter-Strike 2", "icon": b"i", "banner": b"b"}
+        activity = si.game_activity(game, time.time(), 3600, "ro")
+        self.assertEqual(activity.kind, "game")
+        self.assertTrue(activity.data["elapsed"].startswith("1:23:0"))
+        self.assertIn("azi 2 h 23 min", activity.subtitle)
+        self.assertIsNone(si.game_activity(None, time.time(), 0, "ro"))
+
+
+class GameRuntimeTests(RuntimeTests.__mro__[0]):
+    """Sessions: the card opens when a game starts, «You played …» when it ends, hide until quit."""
+
+    def game(self, pid=1, created=None, name="Counter-Strike 2"):
+        return {"pid": pid, "created": created or time.time() - 600, "name": name, "exe": "", "icon": b"", "banner": b""}
+
+    def test_start_play_and_end(self):
+        engine, _host, _probe = self.make()
+        game = self.game()
+        with mock.patch.object(engine._island, "peek") as peek, \
+                mock.patch("PySide6.QtCore.QTimer.singleShot", side_effect=lambda _ms, call: call()):
+            engine._on_island_probe({"game": game})
+        peek.assert_called_once_with(4.0)
+        self.assertEqual(engine._island.main.kind, "game")
+        engine._on_island_probe({"game": None})
+        main = engine._island.main
+        self.assertEqual(main.kind, "played")
+        self.assertIn("10 min", main.title)
+        self.assertGreater(engine._island_play_today["Counter-Strike 2"], 590)
+
+    def test_a_short_start_says_nothing_when_it_ends(self):
+        engine, _host, _probe = self.make()
+        engine._on_island_probe({"game": self.game(created=time.time() - 5)})
+        engine._on_island_probe({"game": None})
+        self.assertIsNone(engine._island.main)
+
+    def test_hide_until_quit_and_back_with_the_next_game(self):
+        engine, _host, _probe = self.make()
+        engine._on_island_probe({"game": self.game()})
+        engine._on_island_action("game:hide")
+        self.assertIsNone(engine._island.main)
+        engine._on_island_probe({"game": self.game(pid=2, name="Dota 2")})
+        self.assertEqual(engine._island.main.kind, "played")  # first «You played 10 min» of the last game
+        engine._on_island_action("dismiss")
+        self.assertEqual(engine._island.main.title, "Dota 2")
+
+    def test_the_island_stays_over_a_game_but_not_over_a_film(self):
+        engine, _host, _probe = self.make()
+        engine._island_ticks = 4
+        with mock.patch("luxai.avatar.fullscreen_app_running", return_value=True):
+            engine._on_island_probe({"game": self.game()})
+            for _ in range(12):
+                engine._tick_island()
+            self.assertFalse(engine._island.suppressed)
+            engine._on_island_probe({"game": None})
+            for _ in range(12):
+                engine._tick_island()
+            self.assertTrue(engine._island.suppressed)
+
+    def test_discord_call_buttons(self):
+        engine, _host, probe = self.make()
+        engine._on_island_probe({"discord": {"since": time.time() - 30, "where": "@Ana", "mic_muted": False,
+                                             "deafened": False, "volume": 0.7}})
+        self.assertEqual(engine._island.main.kind, "discord")
+        engine._on_island_action("discord:up")
+        probe.command.assert_called_with("discord_up")
+        done = threading.Event()
+        replies = []
+        engine._island_discord_done.connect(lambda reply: (replies.append(reply), done.set()))
+        with mock.patch("luxai.discord_island.toggle_discord", return_value="Microfon oprit.") as toggled:
+            engine._on_island_action("discord:mic")
+            for _ in range(100):
+                QCoreApplication.processEvents()
+                if done.is_set():
+                    break
+                time.sleep(0.01)
+        toggled.assert_called_once_with("mic", "ro")
+        self.assertEqual(replies, ["Microfon oprit."])
+        self.assertFalse(engine._island_discord_busy)
+
+    def test_steam_download_and_finish(self):
+        engine, _host, _probe = self.make()
+        download = {"appid": "1222140", "phase": "downloading", "downloaded": 2e10, "total": 5.5e10, "rate": 3e7,
+                    "eta": 1000, "name": "Detroit: Become Human", "icon": b""}
+        engine._on_island_probe({"steam": download})
+        self.assertEqual(engine._island.main.kind, "steam")
+        with mock.patch("os.startfile", create=True) as opened:
+            engine._on_island_action("tap:steam")
+        opened.assert_called_once_with("steam://open/downloads")
+        engine._on_island_probe({"steam": None, "steam_done": {"appid": "1222140", "at": time.time(),
+                                                                "name": "Detroit: Become Human"}})
+        self.assertEqual((engine._island.main.kind, engine._island.main.title), ("steam_done", "Detroit: Become Human"))
+
+    def test_games_off_stops_detection(self):
+        from luxai import status_island as module
+        with mock.patch.object(module, "IslandProbe") as made:
+            engine, _host, _probe = self.make(p_games="off")
+            engine._island_probe = None
+            engine._apply_island()
+        self.assertFalse(made.call_args.kwargs["games"])
+        self.assertFalse(made.call_args.kwargs["notifications"])  # off by default
+        self.assertTrue(made.call_args.kwargs["discord"] and made.call_args.kwargs["steam"])
+
+
+STEAM_LOG = """[2026-11-27 20:54:14] AppID 1222140 update canceled : Priority (Suspended)
+[2026-11-27 20:54:17] AppID 1222140 state changed : Update Required,Update Queued,Update Running,Update Started,
+[2026-11-27 20:54:17] AppID 1222140 update started : download 14309456/54953473904, store 0/0, reuse 0/0, delta 0/0, stage 15878289/63077578235
+[2026-11-27 20:54:17] AppID 1222140 App update changed : Running Update,Downloading,Staging,
+[2026-11-27 20:55:17] Current download rate: 240.000 Mbps
+[2026-11-27 20:56:17] Current download rate: 240.000 Mbps
+"""
+
+
+class SteamDownloadTests(unittest.TestCase):
+    """0.4.3y: Steam downloads from Steam's own content log (progress, speed, time left, paused, finished)."""
+
+    def feed(self, text):
+        from luxai.steam_activity import SteamDownloads
+        downloads = SteamDownloads()
+        for line in text.splitlines():
+            downloads.feed(line)
+        return downloads
+
+    def stamp(self, text):
+        import datetime as dt
+        return dt.datetime.strptime(text, "%Y-%m-%d %H:%M:%S").timestamp()
+
+    def test_progress_speed_and_time_left(self):
+        downloads = self.feed(STEAM_LOG)
+        state = downloads.state(self.stamp("2026-11-27 20:56:17"))
+        self.assertEqual((state["appid"], state["phase"]), ("1222140", "downloading"))
+        self.assertAlmostEqual(state["rate"], 30e6)
+        self.assertAlmostEqual(state["downloaded"], 14309456 + 30e6 * 60, delta=1)  # one minute at the last rate
+        self.assertAlmostEqual(state["eta"], (54953473904 - state["downloaded"]) / 30e6, delta=1)
+        later = downloads.state(self.stamp("2026-11-27 20:57:17"))  # estimated between the log lines
+        self.assertGreater(later["downloaded"], state["downloaded"])
+
+    def test_paused_and_finished(self):
+        downloads = self.feed(STEAM_LOG + "[2026-11-27 21:00:00] AppID 1222140 App update changed : None\n")
+        self.assertEqual(downloads.state()["phase"], "paused")
+        downloads.feed("[2026-11-27 21:30:00] AppID 1222140 finished update, 1 mounted depots (BuildID 1)")
+        self.assertIsNone(downloads.state())
+        self.assertEqual(downloads.take_done()[0]["appid"], "1222140")
+        self.assertEqual(downloads.take_done(), [])
+
+    def test_a_silent_log_is_not_a_running_download(self):
+        downloads = self.feed(STEAM_LOG)
+        state = downloads.state(self.stamp("2026-11-27 21:30:00"))
+        self.assertEqual(state["phase"], "paused")
+        self.assertIsNone(state["eta"])
+
+    def test_the_log_is_followed_from_its_end_and_after_rotation(self):
+        from luxai.steam_activity import SteamDownloads
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        log = Path(folder.name) / "content_log.txt"
+        log.write_text("[2026-11-27 10:00:00] old line\n" + STEAM_LOG, encoding="utf-8")
+        downloads = SteamDownloads(log)
+        downloads.poll()
+        self.assertEqual(downloads.state()["appid"], "1222140")
+        with open(log, "a", encoding="utf-8") as handle:
+            handle.write("[2026-11-27 20:57:00] AppID 1222140 App update changed : Running Update,Verifying,\n")
+        downloads.poll()
+        self.assertEqual(downloads.state()["phase"], "verifying")
+        log.write_text("[2026-11-27 22:00:00] AppID 1222140 finished update\n", encoding="utf-8")  # Steam rotated
+        downloads.poll()
+        self.assertIsNone(downloads.state())
+
+    def test_words_and_units(self):
+        from luxai.steam_activity import human_bytes, human_eta, human_rate
+        self.assertEqual(human_bytes(21.8e9, "ro"), "21,8 GB")
+        self.assertEqual(human_bytes(21.8e9, "en"), "21.8 GB")
+        self.assertEqual(human_rate(33e6, "ru"), "33 МБ/с")
+        self.assertEqual(human_eta(997, "ro"), "16 min")
+        self.assertEqual(human_eta(3900, "en"), "1 h 05 min")
+        activity = si.steam_activity({"appid": "1222140", "phase": "downloading", "downloaded": 21.8e9, "total": 55e9,
+                                      "rate": 33e6, "eta": 997, "name": "Detroit: Become Human"}, "ro")
+        self.assertEqual(activity.title, "Detroit: Become Human")
+        self.assertIn("Se descarcă", activity.subtitle)
+        self.assertEqual(activity.data["percent"], "40%")
+
+
+class DiscordCallTests(unittest.TestCase):
+    """0.4.3y: a Discord voice call — Windows says Discord holds the mic; the panel says where."""
+
+    def test_a_call_with_where_mic_and_duration(self):
+        from luxai.discord_island import DiscordCall
+        holds = {"value": True}
+        panel = mock.Mock(return_value={"connected": True, "where": "@Ana", "mic_muted": True, "deafened": False})
+        call = DiscordCall(holds_microphone=lambda: holds["value"], panel_reader=panel, window_finder=lambda: 77)
+        with mock.patch("luxai.discord_island.discord_volume", return_value=0.8):
+            state = call.poll(1000.0)
+            self.assertEqual((state["where"], state["mic_muted"], state["volume"]), ("@Ana", True, 0.8))
+            call.poll(1001.0)
+            self.assertEqual(panel.call_count, 1)  # the window is read every 3 s, not every second
+            activity = si.discord_activity(call.poll(1065.0), 1065.0, "ro")
+        self.assertEqual(activity.title, "Apel Discord")
+        self.assertEqual(activity.data["elapsed"], "1:05")
+        self.assertIn("microfon oprit", activity.subtitle)
+        holds["value"] = False
+        self.assertIsNone(call.poll(1070.0))
+
+    def test_an_unreadable_window_still_shows_the_call(self):
+        from luxai.discord_island import DiscordCall
+        call = DiscordCall(holds_microphone=lambda: True, panel_reader=mock.Mock(side_effect=OSError("elevated")),
+                           window_finder=lambda: 77)
+        with mock.patch("luxai.discord_island.discord_volume", return_value=None):
+            state = call.poll(1000.0)
+        self.assertEqual(state["where"], "")
+        self.assertEqual(si.discord_activity(state, 1000.0, "en").subtitle, "Voice channel")
+
+    def test_volume_steps_stay_between_0_and_100(self):
+        from luxai import discord_island as di
+        volume = SimpleNamespace(level=0.95)
+        session = SimpleNamespace(SimpleAudioVolume=SimpleNamespace(
+            GetMasterVolume=lambda: volume.level, SetMasterVolume=lambda value, _ctx: setattr(volume, "level", value)))
+        with mock.patch.object(di, "_discord_sessions", return_value=[session, session]):
+            self.assertEqual(di.change_discord_volume(0.1), 1.0)
+            self.assertEqual(di.change_discord_volume(-0.1), 0.9)
+        with mock.patch.object(di, "_discord_sessions", return_value=[]):
+            self.assertIsNone(di.change_discord_volume(0.1))
+
+    def test_the_island_never_presses_discords_shortcut(self):
+        from luxai import discord_island as di
+        with mock.patch("luxai.discord_audio.set_discord_audio", return_value=None), \
+                mock.patch("luxai.discord_audio.force_toggle") as forced:
+            reply = di.toggle_discord("mic", "ro")
+        forced.assert_not_called()  # it would bring Discord to the front, out of a game
+        self.assertIn("Discord", reply)
+
+
+class PriorityTests(unittest.TestCase):
+    """0.4.3y: every source has a priority (or «Off»): e.g. only Discord, or Discord before Jarvis."""
+
+    def test_only_discord(self):
+        settings = dict(DEFAULTS, **{f"p_{source}": "off" for source in si.SOURCES if source != "discord"})
+        activities = [si.Activity("media", "Song"), si.Activity("speaking", "Jarvis"), si.Activity("discord", "Call"),
+                      si.Activity("timer", "Timer"), si.Activity("ring", "Ring")]
+        main, second = si.choose(activities, settings)
+        self.assertEqual(main.kind, "discord")
+        self.assertIsNone(second)
+
+    def test_a_higher_priority_wins_and_equal_ones_keep_the_natural_order(self):
+        activities = [si.Activity("speaking", "Jarvis"), si.Activity("discord", "Call")]
+        self.assertEqual(si.choose(activities, DEFAULTS)[0].kind, "speaking")
+        self.assertEqual(si.choose(activities, dict(DEFAULTS, p_discord="high"))[0].kind, "discord")
+        self.assertEqual(si.choose(activities, dict(DEFAULTS, p_jarvis="low"))[0].kind, "discord")
+
+    def test_a_ringing_alarm_beats_high_but_not_first(self):
+        activities = [si.Activity("ring", "Ring"), si.Activity("discord", "Call")]
+        self.assertEqual(si.choose(activities, dict(DEFAULTS, p_discord="high"))[0].kind, "ring")
+        self.assertEqual(si.choose(activities, dict(DEFAULTS, p_discord="top", p_timers="low"))[0].kind, "discord")
+
+    def test_the_reply_switch_still_works(self):
+        self.assertIsNone(si.choose([si.Activity("reply", "Jarvis")], dict(DEFAULTS, show_reply=False))[0])
+
+    def test_a_damaged_level_falls_back(self):
+        self.assertEqual(si.level("media", {"p_media": "loud"}), si.LEVELS["normal"])
 
 
 class CatalogTests(unittest.TestCase):

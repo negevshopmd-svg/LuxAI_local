@@ -29,7 +29,9 @@ QUICK_ICONS = {"mic": "mic", "quiet": "volume-x", "captions": "captions", "scree
                "timer": "clock", "clipboard": "clipboard", "jarvis": "jarvis"}
 KIND_ICONS = {"listening": "mic", "speaking": "audio-lines", "working": "sparkles", "waiting": "message-circle",
               "error": "x", "reply": "jarvis", "break": "coffee", "dictation": "mic", "convert": "download",
-              "notification": "bell", "captions": "captions", "demo": "sparkles", "timer": "clock", "ring": "bell"}
+              "notification": "bell", "captions": "captions", "demo": "sparkles", "timer": "clock", "ring": "bell",
+              "game": "gamepad-2", "played": "gamepad-2", "discord": "headphones", "steam": "download",
+              "steam_done": "check"}
 DAYS = {"ru": ("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"), "en": ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"),
         "ro": ("Lu", "Ma", "Mi", "Jo", "Vi", "Sâ", "Du")}
 
@@ -38,6 +40,8 @@ def compact_text(activity: Activity) -> str:
     """One line for the small pill: what is said / asked / received, not only its kind."""
     if activity.kind in ("reply", "working") and activity.subtitle:
         return activity.subtitle
+    if activity.kind == "discord" and activity.data.get("where"):
+        return activity.data["where"]
     if activity.kind in ("notification", "error", "break") and activity.subtitle:
         return f"{activity.title}: {activity.subtitle}"
     return activity.title
@@ -90,6 +94,14 @@ class IslandWindow(QWidget):
         self._last_shape_key = None
         self._thumb_key = None
         self._thumb = None
+        self._game_key = None
+        self._steam_key = None
+        self._steam_icon = None
+        self._game_icon = None
+        self._game_banner = None
+        self._peek_timer = QTimer(self)
+        self._peek_timer.setSingleShot(True)
+        self._peek_timer.timeout.connect(self._end_peek)
         self._phase = 0.0
         self._screen_name = ""
         self._hover_timer = QTimer(self)
@@ -178,6 +190,16 @@ class IslandWindow(QWidget):
             self._set_thumb(main.data.get("thumb") or b"")
         elif second is not None and second.kind == "media":
             self._set_thumb(second.data.get("thumb") or b"")
+        game = next((a for a in (main, second) if a is not None and a.kind == "game"), None)
+        if game is not None:
+            self._set_game_pictures(game)
+        steam = next((a for a in (main, second) if a is not None and a.kind == "steam"), None)
+        if steam is not None and steam.key != self._steam_key:
+            self._steam_key = steam.key
+            self._steam_icon = None
+            if steam.data.get("icon"):
+                pixmap = QPixmap()
+                self._steam_icon = pixmap if pixmap.loadFromData(steam.data["icon"]) else None
         self._retarget()
         self.update()
 
@@ -185,6 +207,43 @@ class IslandWindow(QWidget):
         if value != self.suppressed:
             self.suppressed = value
             self._retarget()
+
+    def peek(self, seconds: float):
+        """Open the card for a moment by itself (a game just started), then close it again."""
+        if self.suppressed or self.pinned:
+            return
+        self.expanded = True
+        self._retarget()
+        self._peek_timer.start(int(seconds * 1000))
+
+    def _end_peek(self):
+        if not self._hover and not self.pinned:
+            self.expanded = False
+            self._retarget()
+
+    def _set_game_pictures(self, game: Activity):
+        """Steam's own icon and banner; without them the .exe's icon (read once per game)."""
+        if game.key == self._game_key:
+            return
+        self._game_key = game.key
+        self._game_icon = self._game_banner = None
+        icon, banner = game.data.get("icon") or b"", game.data.get("banner") or b""
+        if icon:
+            pixmap = QPixmap()
+            if pixmap.loadFromData(icon):
+                self._game_icon = pixmap
+        if self._game_icon is None and game.data.get("exe"):
+            try:
+                from PySide6.QtCore import QFileInfo, QSize
+                from PySide6.QtWidgets import QFileIconProvider
+                picture = QFileIconProvider().icon(QFileInfo(game.data["exe"])).pixmap(QSize(64, 64))
+                self._game_icon = None if picture.isNull() else picture
+            except Exception:
+                self._game_icon = None
+        if banner:
+            pixmap = QPixmap()
+            if pixmap.loadFromData(banner):
+                self._game_banner = pixmap
 
     def toggle_pinned(self):
         self.pinned = not self.pinned
@@ -225,14 +284,19 @@ class IslandWindow(QWidget):
         if main.kind == "volume":
             return self.s(240)
         text = compact_text(main)
-        indicator = 64 if main.kind in ("timer", "media", "listening", "speaking", "volume", "working", "convert") else 16
+        if main.kind in ("timer", "game", "discord", "steam"):
+            indicator = 92
+        elif main.kind in ("media", "listening", "speaking", "volume", "working", "convert"):
+            indicator = 64
+        else:
+            indicator = 24
         width = self.s(44 + indicator) + min(metrics.horizontalAdvance(text), self.s(200))
         return max(self.s(150), min(self.s(340), width))
 
     def _expanded_height(self) -> float:
         height = 18 + 50
         main = self.main
-        if main is not None and (main.progress is not None or main.kind in ("media",)):
+        if main is not None and (main.progress is not None or main.kind in ("media", "discord")):
             height += 26
         if main is not None and self._controls(main):
             height += 50
@@ -514,6 +578,10 @@ class IslandWindow(QWidget):
         inner = rect.adjusted(self.s(5), self.s(5), -self.s(5), -self.s(5))
         if activity.kind == "media" and self._thumb is not None:
             self._paint_thumb(painter, inner, round_=True)
+        elif activity.kind == "game" and self._game_icon is not None:
+            self._paint_thumb(painter, inner, round_=True, pixmap=self._game_icon)
+        elif activity.kind == "steam" and self._steam_icon is not None:
+            self._paint_thumb(painter, inner, round_=True, pixmap=self._steam_icon)
         else:
             self._paint_glyph(painter, inner.adjusted(self.s(3), self.s(3), -self.s(3), -self.s(3)), activity)
         if activity.progress is not None:
@@ -525,15 +593,24 @@ class IslandWindow(QWidget):
         if activity.kind == "media" and self._thumb is not None:
             self._paint_thumb(painter, rect)
             return
+        if activity.kind == "game" and self._game_icon is not None:
+            self._paint_thumb(painter, rect, pixmap=self._game_icon)
+            return
+        if activity.kind == "steam" and self._steam_icon is not None:
+            self._paint_thumb(painter, rect.adjusted(self.s(3), self.s(3), -self.s(3), -self.s(3)), pixmap=self._steam_icon)
+            if activity.progress is not None:
+                self._paint_ring(painter, rect.adjusted(self.s(0.5), self.s(0.5), -self.s(0.5), -self.s(0.5)),
+                                 activity.progress, self.color_of(activity))
+            return
         color = self.color_of(activity)
         back = QColor(color)
         back.setAlphaF(0.2)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(back)
         painter.drawEllipse(rect)
-        if activity.kind == "timer" and activity.progress is not None:
+        if activity.kind in ("timer", "steam") and activity.progress is not None:
             self._paint_ring(painter, rect.adjusted(self.s(1.5), self.s(1.5), -self.s(1.5), -self.s(1.5)),
-                             1 - activity.progress, color)
+                             1 - activity.progress if activity.kind == "timer" else activity.progress, color)
         self._paint_glyph(painter, rect.adjusted(rect.width() * 0.24, rect.height() * 0.24,
                                                  -rect.width() * 0.24, -rect.height() * 0.24), activity)
 
@@ -556,7 +633,7 @@ class IslandWindow(QWidget):
             painter.setPen(QPen(QColor(color), self.s(1.6)))
             painter.drawEllipse(rect.adjusted(2, 2, -2, -2))
 
-    def _paint_thumb(self, painter: QPainter, rect: QRectF, round_: bool = False):
+    def _paint_thumb(self, painter: QPainter, rect: QRectF, round_: bool = False, pixmap: QPixmap | None = None):
         path = QPainterPath()
         if round_:
             path.addEllipse(rect)
@@ -564,7 +641,7 @@ class IslandWindow(QWidget):
             path.addRoundedRect(rect, rect.width() * 0.24, rect.height() * 0.24)
         painter.save()
         painter.setClipPath(path)
-        pixmap = self._thumb
+        pixmap = pixmap if pixmap is not None else self._thumb
         ratio = max(rect.width() / max(1, pixmap.width()), rect.height() / max(1, pixmap.height()))
         w, h = pixmap.width() * ratio, pixmap.height() * ratio
         painter.drawPixmap(QRectF(rect.center().x() - w / 2, rect.center().y() - h / 2, w, h), pixmap, QRectF(pixmap.rect()))
@@ -584,10 +661,15 @@ class IslandWindow(QWidget):
         """Right side of the compact pill; returns the width it used."""
         color = self.color_of(activity)
         kind = activity.kind
-        if kind == "timer":
-            painter.setFont(self._font(15, True))
-            painter.setPen(color)
-            painter.drawText(rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight, activity.data.get("left", ""))
+        if kind in ("timer", "game", "discord", "steam"):
+            painter.setFont(self._font(15 if kind == "timer" else 13.5, True))
+            painter.setPen(color if kind != "discord" else QColor(255, 255, 255, 220))
+            value = {"timer": "left", "game": "elapsed", "discord": "elapsed", "steam": "percent"}[kind]
+            painter.drawText(rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight, activity.data.get(value, ""))
+            if kind == "discord" and activity.data.get("mic_muted"):
+                width = QFontMetricsF(painter.font()).horizontalAdvance(activity.data.get("elapsed", ""))
+                dot = QRectF(rect.right() - width - self.s(22), rect.center().y() - self.s(8), self.s(16), self.s(16))
+                self._icon(painter, dot, "mic-off", "#ff453a")
             return rect.width()
         if kind in ("listening", "speaking", "dictation") or (kind == "media" and activity.data.get("playing")):
             self._paint_waves(painter, QRectF(rect.right() - self.s(30), rect.top(), self.s(30), rect.height()), color,
@@ -716,7 +798,16 @@ class IslandWindow(QWidget):
             return [("dictation:stop", t("Готово", "Done", "Gata")), ("dictation:cancel", t("Отмена", "Cancel", "Anulează"))]
         if kind == "captions":
             return [("captions:hide", t("Скрыть субтитры", "Hide captions", "Ascunde subtitrările"))]
-        if kind in ("notification", "reply", "error", "volume", "battery", "demo"):
+        if kind == "discord":
+            return [("discord:mic", "@icon:mic-off" if activity.data.get("mic_muted") else "@icon:mic"),
+                    ("discord:deaf", "@icon:volume-x" if activity.data.get("deafened") else "@icon:headphones"),
+                    ("discord:down", "@icon:minus"), ("discord:up", "@icon:plus")]
+        if kind == "steam":
+            return [("steam:open", t("Открыть загрузки Steam", "Open Steam downloads", "Deschide descărcările Steam"))]
+        if kind == "game":
+            return [("quick:screenshot", t("Снимок экрана", "Screenshot", "Captură")),
+                    ("game:hide", t("Скрыть до выхода", "Hide until I quit", "Ascunde până ies"))]
+        if kind in ("notification", "reply", "error", "volume", "battery", "demo", "played", "steam_done"):
             return [("dismiss", t("Закрыть", "Close", "Închide"))]
         return []
 
@@ -728,6 +819,8 @@ class IslandWindow(QWidget):
         y = rect.top() + self.s(14)
         main = self.main
         if main is not None:
+            if main.kind == "game" and self._game_banner is not None:
+                self._paint_banner(painter, QRectF(rect.left(), rect.top(), rect.width(), self.s(76)))
             icon_rect = QRectF(rect.left() + pad, y, self.s(46), self.s(46))
             self._paint_icon(painter, icon_rect, main)
             right = rect.right() - pad
@@ -737,7 +830,7 @@ class IslandWindow(QWidget):
             text_width = max(0.0, right - indicator - self.s(10) - text_left)
             self._paint_texts(painter, QRectF(text_left, y, text_width, self.s(46)), main)
             y += self.s(54)
-            if main.progress is not None or main.kind == "media":
+            if main.progress is not None or main.kind in ("media", "discord"):
                 self._paint_progress_row(painter, QRectF(rect.left() + pad, y, rect.width() - 2 * pad, self.s(20)), main)
                 y += self.s(26)
             controls = self._controls(main)
@@ -755,6 +848,25 @@ class IslandWindow(QWidget):
             y += self.s(34)
         if self.quick:
             self._paint_quick(painter, QRectF(rect.left() + pad, y, rect.width() - 2 * pad, self.s(38)))
+
+    def _paint_banner(self, painter: QPainter, rect: QRectF):
+        """The game's Steam banner behind the card's top, fading into the black below."""
+        from PySide6.QtGui import QLinearGradient
+        pixmap = self._game_banner
+        ratio = max(rect.width() / max(1, pixmap.width()), rect.height() / max(1, pixmap.height()))
+        w, h = pixmap.width() * ratio, pixmap.height() * ratio
+        painter.save()
+        painter.setClipRect(rect)
+        painter.setOpacity(painter.opacity() * 0.55)
+        painter.drawPixmap(QRectF(rect.center().x() - w / 2, rect.center().y() - h / 2, w, h), pixmap, QRectF(pixmap.rect()))
+        painter.restore()
+        fade = QLinearGradient(rect.topLeft(), rect.bottomLeft())
+        back = self._background()
+        clear = QColor(back)
+        clear.setAlphaF(0.15)
+        fade.setColorAt(0.0, clear)
+        fade.setColorAt(1.0, back)
+        painter.fillRect(rect, fade)
 
     def _paint_texts(self, painter: QPainter, rect: QRectF, activity: Activity):
         title, subtitle = activity.title, activity.subtitle
@@ -792,6 +904,22 @@ class IslandWindow(QWidget):
             bar = QRectF(rect.left() + label_w, rect.center().y() - self.s(2.5), rect.width() - 2 * label_w, self.s(5))
             self._paint_bar(painter, bar, activity.progress or 0.0, QColor(255, 255, 255, 230))
             return
+        if activity.kind == "discord":
+            volume = activity.data.get("volume")
+            label_w = self.s(96)
+            text = self._label("Громкость", "Volume", "Volum") + (f" {round(volume * 100)}%" if volume is not None else " —")
+            painter.drawText(QRectF(rect.left(), rect.top(), label_w, rect.height()),
+                             Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, text)
+            bar = QRectF(rect.left() + label_w, rect.center().y() - self.s(2.5), rect.width() - label_w, self.s(5))
+            self._paint_bar(painter, bar, volume or 0.0, color)
+            return
+        if activity.kind == "steam" and activity.data.get("eta"):
+            label_w = self.s(92)
+            from luxai.status_island import word
+            painter.drawText(QRectF(rect.right() - label_w, rect.top(), label_w, rect.height()),
+                             Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight,
+                             word("eta", self.language, t=activity.data["eta"]))
+            rect = QRectF(rect.left(), rect.top(), rect.width() - label_w - self.s(8), rect.height())
         if activity.progress is not None:
             bar = QRectF(rect.left(), rect.center().y() - self.s(2.5), rect.width(), self.s(5))
             self._paint_bar(painter, bar, activity.progress, color)
@@ -808,7 +936,15 @@ class IslandWindow(QWidget):
                 self._button_back(painter, button, name, round_=True)
                 inner = button.adjusted(side * 0.3, side * 0.3, -side * 0.3, -side * 0.3)
                 white = QColor(255, 255, 255, 235)
-                if glyph == "@play":
+                if glyph.startswith("@icon:"):
+                    alert = glyph in ("@icon:mic-off", "@icon:volume-x")
+                    if alert:
+                        painter.setPen(Qt.PenStyle.NoPen)
+                        painter.setBrush(QColor(255, 69, 58, 70))
+                        painter.drawEllipse(button)
+                    self._icon(painter, inner.adjusted(-side * 0.04, -side * 0.04, side * 0.04, side * 0.04),
+                               glyph[6:], "#ff453a" if alert else "#ffffff")
+                elif glyph == "@play":
                     self._paint_play(painter, inner.adjusted(self.s(1.5), 0, self.s(1.5), 0), white)
                 elif glyph == "@pause":
                     self._paint_pause(painter, inner, white)

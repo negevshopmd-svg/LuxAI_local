@@ -37,11 +37,18 @@ class IslandMixin:
         self._island_dismissed: set = set()
         self._island_convert = None
         self._island_hold_until = 0.0  # hidden on purpose (a screenshot is being taken)
+        self._island_game = None          # the game session now: {key, name, created}
+        self._island_game_hidden = ""     # «hide until I quit» for this session key
+        self._island_play_today: dict = {}  # game name → seconds played today (memory only)
+        self._island_play_day = ""
+        self._island_steam_done_at = 0.0
+        self._island_discord_busy = False
         self._island_timer = QTimer(self)
         self._island_timer.setInterval(200)
         self._island_timer.timeout.connect(self._tick_island)
         self._island_probe_report.connect(self._on_island_probe)
         self._island_toasts.connect(self._on_island_toasts)
+        self._island_discord_done.connect(self._on_island_discord_done)
 
     # -- lifecycle --------------------------------------------------------------------------------
     def _island_accent(self) -> str:
@@ -57,9 +64,12 @@ class IslandMixin:
             self._island = IslandWindow()
             self._island.action.connect(self._on_island_action)
         self._island.apply(settings, self.language, self._island_accent())
-        wants = {"media": bool(settings.get("show_media", True)), "volume": bool(settings.get("show_volume", True)),
-                 "battery": bool(settings.get("show_battery", True)),
-                 "notifications": bool(settings.get("show_notifications", False))}
+        on = lambda source: si.source_on(source, settings)  # noqa: E731
+        wants = {"media": on("media"), "volume": on("volume"), "battery": on("battery"),
+                 "notifications": on("notifications"), "games": on("games"), "discord": on("discord"),
+                 "steam": on("steam"),
+                 "game_options": {"user_games": settings.get("my_games", ""), "ignored": settings.get("not_games", ""),
+                                  "use_fullscreen": bool(settings.get("game_fullscreen", True))}}
         if self._island_probe is None:
             self._island_probe = si.IslandProbe(self._island_probe_report.emit, toasts=self._island_toasts.emit, **wants)
             self._island_probe.start()
@@ -136,11 +146,52 @@ class IslandMixin:
             self._island_flashes["battery"] = flash
         if battery is not None:
             self._island_prev_battery = battery
+        self._island_game_session(snapshot.get("game"), settings)
+        done = snapshot.get("steam_done")
+        if done and done.get("at", 0) > self._island_steam_done_at:
+            self._island_steam_done_at = done["at"]
+            name = done.get("name") or f"Steam {done.get('appid', '')}"
+            self.island_flash("steam_done", name, si.word("steam_done", self.language), 8.0)
         self._tick_island()
+
+    # -- games --------------------------------------------------------------------------------------
+    def _island_today(self) -> dict:
+        import datetime as _dt
+        day = _dt.date.today().isoformat()
+        if day != self._island_play_day:
+            self._island_play_day, self._island_play_today = day, {}
+        return self._island_play_today
+
+    def _island_game_session(self, game, settings):
+        """A game started → the card opens for a moment; it ended → «You played 1 h 05 min»."""
+        key = f"{game.get('pid')}:{game.get('created')}" if game else ""
+        current = self._island_game
+        if current is not None and current["key"] != key:
+            played = max(0.0, time.time() - float(current["created"]))
+            today = self._island_today()
+            today[current["name"]] = today.get(current["name"], 0.0) + played
+            self._island_game = None
+            if settings.get("game_summary", True) and played >= 60:
+                total = si.format_played(today[current["name"]], self.language)
+                sub = current["name"] + (" · " + si.word("today", self.language, t=total)
+                                         if today[current["name"]] > played + 59 else "")
+                self.island_flash("played", si.word("played", self.language, t=si.format_played(played, self.language)),
+                                  sub, 6.0)
+        if game and (current is None or current["key"] != key):
+            self._island_game = {"key": key, "name": game.get("name", ""), "created": game.get("created") or time.time()}
+            if settings.get("game_peek", True) and self._island is not None and si.source_on("games", settings):
+                QTimer.singleShot(300, lambda: self._island is not None and self._island.peek(4.0))
+
+    def _island_game_activity(self) -> si.Activity | None:
+        game = self._island_snapshot.get("game")
+        if not game or self._island_game is None or self._island_game["key"] == self._island_game_hidden:
+            return None
+        today = self._island_today().get(self._island_game["name"], 0.0)
+        return si.game_activity(game, time.time(), today, self.language)
 
     def _on_island_toasts(self, items):
         settings = self.settings("status_island")
-        if self._island is None or not settings.get("show_notifications", False):
+        if self._island is None or not si.source_on("notifications", settings):
             return
         seconds = float(si.clamp_int(settings.get("notification_seconds", 5), 2, 15, 5))
         item = items[-1]
@@ -221,6 +272,13 @@ class IslandMixin:
         timer = self._island_timer_activity()
         if timer is not None:
             activities.append(timer)
+        game = self._island_game_activity()
+        if game is not None:
+            activities.append(game)
+        for activity in (si.discord_activity(self._island_snapshot.get("discord"), time.time(), self.language),
+                         si.steam_activity(self._island_snapshot.get("steam"), self.language)):
+            if activity is not None:
+                activities.append(activity)
         activities.extend(self._island_tools())
         media = si.media_activity(self._island_snapshot.get("media"), self.language)
         if media is not None and (media.data.get("playing") or settings.get("paused_media", True)):
@@ -236,7 +294,9 @@ class IslandMixin:
         if self._island_ticks % 5 == 0:  # once a second
             from luxai.avatar import fullscreen_app_running
             full = bool(settings.get("hide_fullscreen", True)) and fullscreen_app_running()
-            self._island_full_seconds = self._island_full_seconds + 1 if full else 0
+            # A game is the one full-screen program the island stays for (when «Games» is on).
+            playing = si.source_on("games", settings) and self._island_game_activity() is not None
+            self._island_full_seconds = self._island_full_seconds + 1 if full and not playing else 0
             window.follow_cursor_screen()
         window.set_suppressed(self._island_full_seconds >= 2 or time.monotonic() < self._island_hold_until)
         if self._island_ticks % 5 == 0:
@@ -257,10 +317,53 @@ class IslandMixin:
                    "break": self._island_break, "quick": self._island_quick, "tap": self._island_tap,
                    "voice": lambda _w: self._island_stop_voice(), "dictation": self._island_dictation,
                    "captions": lambda _w: self.hide_captions(), "dismiss": lambda _w: self._island_dismiss(),
-                   "open": lambda _w: self._island_open()}.get(group)
+                   "open": lambda _w: self._island_open(), "game": self._island_game_button,
+                   "discord": self._island_discord, "steam": self._island_steam}.get(group)
         if handler is not None:
             handler(what)
         self._tick_island()
+
+    def _island_discord(self, what: str):
+        """Volume in the probe thread; mic / headphones with Discord's own buttons on a short worker thread."""
+        if what in ("up", "down"):
+            if self._island_probe is not None:
+                self._island_probe.command(f"discord_{what}")
+            return
+        if what not in ("mic", "deaf") or self._island_discord_busy:
+            return
+        self._island_discord_busy = True
+        language = self.language
+
+        def work():
+            try:
+                from luxai.discord_island import toggle_discord
+                reply = toggle_discord(what, language)
+            except Exception:
+                reply = ""
+            self._island_discord_done.emit(reply)
+        import threading
+        threading.Thread(target=work, daemon=True, name="JarvisIslandDiscord").start()
+
+    def _on_island_discord_done(self, reply: str):
+        self._island_discord_busy = False
+        if self._island_probe is not None:
+            self._island_probe.command("discord_refresh")
+        if reply and self._island is not None:
+            self.island_flash("reply", si.word("discord", self.language), reply, 3.0)
+
+    def _island_steam(self, what: str):
+        if what == "open":
+            try:
+                import os
+                os.startfile("steam://open/downloads")  # Steam's own link: its downloads page
+            except OSError:
+                pass
+
+    def _island_game_button(self, what: str):
+        if what == "hide" and self._island_game is not None:
+            self._island_game_hidden = self._island_game["key"]  # back by itself with the next game
+            if self._island is not None:
+                self._island.expanded = self._island.pinned = False
 
     def _island_media(self, what: str):
         if self._island_probe is not None:
@@ -337,7 +440,10 @@ class IslandMixin:
                    "speaking": self._island_stop_voice, "media": lambda: self._island_media("play_pause"),
                    "dictation": lambda: self._island_dictation("stop"), "captions": self._island_open_captions,
                    "notification": self._island_dismiss, "reply": self._island_open, "error": self._island_open,
-                   "volume": self._island_dismiss, "battery": self._island_dismiss, "demo": self._island_dismiss}
+                   "volume": self._island_dismiss, "battery": self._island_dismiss, "demo": self._island_dismiss,
+                   "played": self._island_dismiss, "game": lambda: self._island.peek(5.0) if self._island else None,
+                   "discord": lambda: self._island_discord("mic"), "steam": lambda: self._island_steam("open"),
+                   "steam_done": self._island_dismiss}
         action = actions.get(kind, self._island_open)
         action()
 

@@ -1,3 +1,30 @@
+## 0.4.3y — Status island: games, Steam downloads, Discord calls, priorities (2026-11-27)
+
+- Games (`luxai/game_detect.py`, on the probe thread): the foreground program is a game when its .exe is in a
+  Steam / Epic / GOG / Riot / Ubisoft / EA / Battle.net / Xbox games folder, in «My games», or a Direct3D program runs
+  full screen (browsers, players, launchers excepted; «Not games» list). Steam games get their real name from the
+  local `appmanifest_*.acf` and the icon + header banner from Steam's own `appcache/librarycache`; other games the
+  .exe's File description and icon. The island shows icon, name, time in the game, «since 21:02 · today 2 h 23 min»,
+  opens the card with the banner for 4 s when a game starts, says «You played 1 h 05 min» when it ends (today's
+  totals in memory only), «Screenshot» and «Hide until I quit». It stays over a game (borderless) instead of hiding.
+- Steam downloads (`luxai/steam_activity.py`): followed in Steam's `logs/content_log.txt` (the manifest is written
+  only at start/stop): game, downloading / verifying / installing / paused, ≈GB of GB, MB/s, time left, a ring around
+  the game icon; «Installed» when it finishes; «Open Steam downloads» (`steam://open/downloads`).
+- Discord calls (`luxai/discord_island.py`): in a call = Windows says Discord holds the microphone; where / with whom
+  from the «Voice Connected» panel via UI Automation (every 3 s); call time; mic and headphones with Discord's own
+  buttons (never its keyboard shortcut — that would pull Discord in front of a game); Discord's volume in the Windows
+  mixer (−/+ 10 %). `notifications.devices_in_use()` lists every program using the mic.
+- Priorities: «What to show» switches became one level per source (Jarvis, Discord, games, Steam, music, timers,
+  notifications, volume, tools, breaks, battery): Off / Low / Normal / High / Always first — e.g. only Discord.
+  A ringing alarm is two steps above its source.
+
+Verified live: Steam's real download of «Detroit: Become Human» (57 %, ≈31.2 / 55.0 GB, 21 MB/s, 18 min left);
+a Notepad listed as «my game» detected in 0.8 s with its icon and time; CS2's real Steam icon and banner rendered.
+NOT verified live: a Discord call (none was running; the Discord window here is elevated, so only an elevated Jarvis
+reads its panel), a real game session start/end, Discord mute from the island.
+
+Tests: `tests/test_status_island_043x.py` (89).
+
 ## 0.4.3x — Status island plugin, like Dynamic Island (2026-11-27)
 
 New working plugin «Островок / Status island / Insula de stare» (Extensions → Desktop), researched against the

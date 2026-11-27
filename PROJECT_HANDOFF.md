@@ -100,7 +100,8 @@ key is built into `Update.py` and `scripts/release_signature.py`. `.bat/.cmd` ar
   (`action_circle.py`: radial menu with your commands, window actions, media keys, search of the selection;
   drawn by `ui_convert_circle.RadialMenu`), status island (`status_island.py` activities + `IslandProbe` thread for
   media session / volume / battery / toasts via WinRT in MTA, `ui_status_island.py` painted morphing window,
-  `runtime_island.py` mixin of the runtime).
+  `runtime_island.py` mixin of the runtime; `game_detect.py` games + Steam names/pictures, `steam_activity.py`
+  Steam downloads from content_log, `discord_island.py` Discord call / mute / volume; per-source priorities `p_*`).
   «Soon»: meeting notes, ask documents, desktop pet,
   smart home, streamer helper.
 - **Translation:** `offline_translate.py` (NLLB-200 600M CTranslate2 int8, pinned revision + SHA-256,

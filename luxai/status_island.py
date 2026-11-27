@@ -17,23 +17,33 @@ from dataclasses import dataclass, field
 
 # Kinds in the order they win when several are active at once (first = most important).
 PRIORITY = ("ring", "error", "listening", "speaking", "working", "waiting", "break", "dictation", "convert",
-            "notification", "volume", "reply", "timer", "media", "captions", "battery", "demo")
+            "notification", "played", "steam_done", "volume", "reply", "discord", "game", "steam", "timer", "media",
+            "captions", "battery", "demo")
 # Kinds that only flash for a few seconds.
-TRANSIENT = {"error", "notification", "volume", "reply", "battery", "demo"}
+TRANSIENT = {"error", "notification", "volume", "reply", "battery", "demo", "played", "steam_done"}
 # Colour of each kind (the «activity» accent mode).
 COLORS = {
     "ring": "#ff9f0a", "error": "#ff453a", "listening": "#30d158", "speaking": "#0a84ff", "working": "#bf5af2",
     "waiting": "#ffd60a", "break": "#32d74b", "dictation": "#ff375f", "convert": "#64d2ff", "notification": "#0a84ff",
     "volume": "#ffffff", "reply": "#5e9cff", "timer": "#ff9f0a", "media": "#ff375f", "captions": "#64d2ff",
-    "battery": "#30d158", "demo": "#bf5af2",
+    "battery": "#30d158", "demo": "#bf5af2", "game": "#30d158", "played": "#30d158",
+    "discord": "#5865f2", "steam": "#66c0f4", "steam_done": "#66c0f4",
 }
-# Settings switch that allows each kind (None = always allowed).
-SWITCH = {
-    "ring": "show_timers", "timer": "show_timers", "listening": "show_voice", "speaking": "show_voice",
-    "working": "show_voice", "waiting": "show_voice", "error": "show_voice", "reply": "show_reply",
-    "break": "show_breaks", "dictation": "show_tools", "convert": "show_tools", "captions": "show_tools",
-    "notification": "show_notifications", "volume": "show_volume", "media": "show_media", "battery": "show_battery",
+# Which source each kind belongs to: every source has its own priority in the settings (or «Off»).
+SOURCE = {
+    "ring": "timers", "timer": "timers", "listening": "jarvis", "speaking": "jarvis", "working": "jarvis",
+    "waiting": "jarvis", "error": "jarvis", "reply": "jarvis", "break": "breaks", "dictation": "tools",
+    "convert": "tools", "captions": "tools", "notification": "notifications", "volume": "volume", "media": "media",
+    "battery": "battery", "game": "games", "played": "games", "discord": "discord", "steam": "steam",
+    "steam_done": "steam",
 }
+SOURCES = ("jarvis", "discord", "games", "steam", "media", "timers", "notifications", "volume", "tools", "breaks",
+           "battery")
+LEVELS = {"off": -1, "low": 0, "normal": 1, "high": 2, "top": 3}
+DEFAULT_LEVELS = {"jarvis": "normal", "discord": "normal", "games": "normal", "steam": "normal", "media": "normal",
+                  "timers": "normal", "notifications": "off", "volume": "normal", "tools": "normal", "breaks": "normal",
+                  "battery": "low"}
+BUBBLE_KINDS = ("timer", "media", "captions", "dictation", "convert", "game", "discord", "steam")
 SIZES = {"85": 0.85, "100": 1.0, "115": 1.15, "130": 1.3}
 BACKGROUNDS = {"black": "#000000", "graphite": "#1c1c1e", "midnight": "#0b1530", "glass": "#10131a"}
 
@@ -56,23 +66,40 @@ class Activity:
             return len(PRIORITY)
 
 
+def level(kind: str, settings: dict) -> int:
+    """The priority of a kind from its source's setting: -1 = never shown, 0 low … 3 always first.
+    A ringing alarm is one step above its source, so it beats everything that is not «first»."""
+    source = SOURCE.get(kind)
+    if source is None:
+        return LEVELS["normal"]
+    value = LEVELS.get(str(settings.get(f"p_{source}", DEFAULT_LEVELS[source])), LEVELS[DEFAULT_LEVELS[source]])
+    if kind == "reply" and not settings.get("show_reply", True):
+        return -1
+    if kind == "ring" and value >= 0:
+        return min(LEVELS["top"], value + 2)
+    return value
+
+
 def allowed(kind: str, settings: dict) -> bool:
-    switch = SWITCH.get(kind)
-    return switch is None or bool(settings.get(switch, True))
+    return level(kind, settings) >= 0
+
+
+def source_on(source: str, settings: dict) -> bool:
+    return str(settings.get(f"p_{source}", DEFAULT_LEVELS.get(source, "normal"))) != "off"
 
 
 def choose(activities, settings: dict, now: float | None = None) -> tuple[Activity | None, Activity | None]:
     """The main activity and a second one shown as a small bubble beside it (like two live activities)."""
     now = time.monotonic() if now is None else now
     alive = [a for a in activities if a is not None and allowed(a.kind, settings) and (not a.until or a.until > now)]
-    alive.sort(key=lambda a: a.rank)
+    alive.sort(key=lambda a: (-level(a.kind, settings), a.rank))
     if not alive:
         return None, None
     main = alive[0]
     second = None
     if settings.get("second", True):
         # The bubble shows a long-running thing (timer / media / captions), never a second flash.
-        second = next((a for a in alive[1:] if a.kind in ("timer", "media", "captions", "dictation", "convert")
+        second = next((a for a in alive[1:] if a.kind in BUBBLE_KINDS
                        and a.kind != main.kind), None)
     return main, second
 
@@ -124,10 +151,14 @@ class IslandProbe:
     on the same thread, the only one that touches WinRT/COM.
     """
 
-    def __init__(self, report, *, media=True, volume=True, battery=True, notifications=False, toasts=None):
+    def __init__(self, report, *, media=True, volume=True, battery=True, notifications=False, toasts=None,
+                 games=False, game_options=None, discord=False, steam=False):
         self.report = report
         self.toasts = toasts  # called with a list of new Windows notifications (app, texts)
-        self.want = {"media": media, "volume": volume, "battery": battery, "notifications": notifications}
+        self.want = {"media": media, "volume": volume, "battery": battery, "notifications": notifications, "games": games,
+                     "discord": discord, "steam": steam}
+        self.game_options = dict(game_options or {})
+        self._game_options_seen = None
         self._stop = threading.Event()
         self._commands: list[str] = []
         self._lock = threading.Lock()
@@ -143,11 +174,14 @@ class IslandProbe:
     def stop(self):
         self._stop.set()
 
-    def configure(self, *, media=True, volume=True, battery=True, notifications=False):
-        self.want = {"media": media, "volume": volume, "battery": battery, "notifications": notifications}
+    def configure(self, *, media=True, volume=True, battery=True, notifications=False, games=False, game_options=None,
+                  discord=False, steam=False):
+        self.want = {"media": media, "volume": volume, "battery": battery, "notifications": notifications, "games": games,
+                     "discord": discord, "steam": steam}
+        self.game_options = dict(game_options or {})
 
     def command(self, name: str):
-        if name in ("play_pause", "next", "previous"):
+        if name in ("play_pause", "next", "previous", "discord_up", "discord_down", "discord_refresh"):
             with self._lock:
                 if len(self._commands) < 8:
                     self._commands.append(name)
@@ -164,14 +198,22 @@ class IslandProbe:
         media_reader = MediaReader(loop) if loop is not None else None
         volume_reader = VolumeReader()
         watcher = None
+        detector = None
+        discord_tracker = None
+        steam_tracker = None
         last = {}
         ticks = 0
         while not self._stop.is_set():
             snapshot = dict(last)
             with self._lock:
                 commands, self._commands = self._commands, []
-            if media_reader is not None:
-                for name in commands:
+            for name in commands:
+                if name.startswith("discord_"):
+                    from luxai.discord_island import change_discord_volume
+                    if name != "discord_refresh":
+                        change_discord_volume(0.1 if name == "discord_up" else -0.1)
+                    discord_tracker = self._poll_discord(discord_tracker, snapshot, force=True)
+                elif media_reader is not None:
                     media_reader.command(name)
             if self.want["volume"]:
                 snapshot["volume"] = volume_reader.read()
@@ -188,6 +230,12 @@ class IslandProbe:
                 snapshot["battery"] = read_battery() if self.want["battery"] else None
             if ticks % 8 == 0:
                 watcher = self._poll_toasts(watcher)
+            if ticks % 4 == 2:
+                detector = self._poll_game(detector, snapshot)
+            if ticks % 4 == 1:
+                discord_tracker = self._poll_discord(discord_tracker, snapshot)
+            if ticks % 8 == 3:
+                steam_tracker = self._poll_steam(steam_tracker, snapshot)
             ticks += 1
             if snapshot != last:
                 last = snapshot
@@ -202,6 +250,66 @@ class IslandProbe:
             except Exception:
                 pass
 
+
+    def _poll_game(self, detector, snapshot):
+        """The running game (name, Steam icon / banner, since when) — once a second, on this thread."""
+        if not self.want.get("games"):
+            snapshot.pop("game", None)
+            return None
+        try:
+            if detector is None:
+                from luxai.game_detect import GameDetector
+                detector = GameDetector()
+            if self.game_options != self._game_options_seen:
+                self._game_options_seen = dict(self.game_options)
+                detector.configure(**self.game_options)
+            snapshot["game"] = detector.poll()
+        except Exception:
+            snapshot["game"] = None
+        return detector
+
+    def _poll_discord(self, tracker, snapshot, force: bool = False):
+        """A Discord voice call: where, mic / sound, the Discord volume."""
+        if not self.want.get("discord"):
+            snapshot.pop("discord", None)
+            return None
+        try:
+            if tracker is None:
+                from luxai.discord_island import DiscordCall
+                tracker = DiscordCall()
+            if force:
+                tracker._panel_at = 0.0
+            snapshot["discord"] = tracker.poll()
+        except Exception:
+            snapshot["discord"] = None
+        return tracker
+
+    def _poll_steam(self, tracker, snapshot):
+        """A Steam download / install: how far, how fast, how long still; and the one that just finished."""
+        if not self.want.get("steam"):
+            snapshot.pop("steam", None)
+            return None
+        try:
+            if tracker is None:
+                from luxai.game_detect import SteamIndex
+                from luxai.steam_activity import SteamDownloads
+                tracker = SteamDownloads()
+                tracker.index = SteamIndex()
+                tracker.pictures = {}
+            tracker.poll()
+            state = tracker.state()
+            if state is not None:
+                appid = state["appid"]
+                if appid not in tracker.pictures:
+                    tracker.pictures[appid] = (tracker.index.name_of(appid), tracker.index.pictures(appid)[0])
+                state["name"], state["icon"] = tracker.pictures[appid]
+            snapshot["steam"] = state
+            done = tracker.take_done()
+            if done:
+                snapshot["steam_done"] = dict(done[-1], at=time.time(), name=tracker.index.name_of(done[-1]["appid"]))
+        except Exception:
+            snapshot["steam"] = None
+        return tracker
 
     def _poll_toasts(self, watcher):
         """New toasts since the island started (read-only, as the notification reader does)."""
@@ -430,6 +538,21 @@ WORDS = {
     "queue": ("ещё {n} в очереди", "{n} more queued", "încă {n} în așteptare"),
     "mic_off": ("Микрофон выключен", "Microphone off", "Microfon oprit"),
     "ends": ("до {t}", "until {t}", "până la {t}"),
+    "since": ("в игре с {t}", "playing since {t}", "în joc de la {t}"),
+    "today": ("сегодня {t}", "today {t}", "azi {t}"),
+    "played": ("Вы играли {t}", "You played {t}", "Ai jucat {t}"),
+    "game_started": ("Игра запущена", "Game started", "Joc pornit"),
+    "discord": ("Звонок Discord", "Discord call", "Apel Discord"),
+    "discord_sub": ("Голосовой канал", "Voice channel", "Canal vocal"),
+    "mic_muted": ("микрофон выключен", "mic muted", "microfon oprit"),
+    "deafened": ("звук выключен", "sound off", "sunet oprit"),
+    "steam_downloading": ("Загрузка", "Downloading", "Se descarcă"),
+    "steam_installing": ("Установка", "Installing", "Se instalează"),
+    "steam_verifying": ("Проверка файлов", "Verifying files", "Verific fișierele"),
+    "steam_preparing": ("Подготовка", "Preparing", "Pregătire"),
+    "steam_paused": ("Пауза", "Paused", "Pauză"),
+    "steam_done": ("Установлено", "Installed", "Instalat"),
+    "eta": ("осталось {t}", "{t} left", "mai rămân {t}"),
 }
 LANG_INDEX = {"ru": 0, "en": 1, "ro": 2}
 
@@ -477,6 +600,73 @@ def timer_activity(timers, now_wall: float, language: str, ringing: list) -> Act
     ends = word("ends", language, t=_dt.datetime.fromtimestamp(timer.due).strftime("%H:%M"))
     return Activity("timer", title, sub, progress=progress, key=timer.id,
                     data={"left": format_left(left), "count": len(pending), "ends": ends})
+
+
+def format_played(seconds: float, language: str) -> str:
+    """«1 h 05 min» / «12 min» / «40 s» in the island's language."""
+    seconds = max(0, int(seconds))
+    hours, rest = divmod(seconds, 3600)
+    minutes = rest // 60
+    h, m, s_ = {"ru": ("ч", "мин", "с"), "en": ("h", "min", "s"), "ro": ("h", "min", "s")}.get(language, ("h", "min", "s"))
+    if hours:
+        return f"{hours} {h} {minutes:02d} {m}"
+    if minutes:
+        return f"{minutes} {m}"
+    return f"{seconds} {s_}"
+
+
+def game_activity(game: dict | None, now_wall: float, today_seconds: float, language: str) -> Activity | None:
+    """The game you play: its icon and name, how long this session runs, the total for today."""
+    if not game or not game.get("name"):
+        return None
+    import datetime as _dt
+    elapsed = max(0.0, now_wall - float(game.get("created") or now_wall))
+    started = _dt.datetime.fromtimestamp(float(game.get("created") or now_wall)).strftime("%H:%M")
+    sub = word("since", language, t=started)
+    if today_seconds + elapsed >= 60 and today_seconds > 0:
+        sub += " · " + word("today", language, t=format_played(today_seconds + elapsed, language))
+    return Activity("game", short(game["name"], 60), sub, key=f"{game.get('pid')}:{game.get('created')}",
+                    data={"elapsed": format_left(elapsed), "icon": game.get("icon") or b"", "banner": game.get("banner") or b"",
+                          "exe": game.get("exe", ""), "seconds": elapsed})
+
+
+def discord_activity(call: dict | None, now_wall: float, language: str) -> Activity | None:
+    """In a Discord call: where / with whom, for how long, mic and sound state, the Discord volume."""
+    if not call:
+        return None
+    where = call.get("where") or ""
+    elapsed = format_left(max(0.0, now_wall - float(call.get("since") or now_wall)))
+    states = []
+    if call.get("mic_muted"):
+        states.append(word("mic_muted", language))
+    if call.get("deafened"):
+        states.append(word("deafened", language))
+    sub = " · ".join([where] + states if where else states) or word("discord_sub", language)
+    volume = call.get("volume")
+    return Activity("discord", word("discord", language), sub, key="discord",
+                    progress=None, data={"elapsed": elapsed, "where": where, "mic_muted": call.get("mic_muted"),
+                                         "deafened": call.get("deafened"), "volume": volume})
+
+
+def steam_activity(download: dict | None, language: str) -> Activity | None:
+    """A Steam download / install / verification with its progress, speed and time left."""
+    if not download:
+        return None
+    from luxai.steam_activity import human_bytes, human_eta, human_rate
+    appid = str(download.get("appid", ""))
+    name = download.get("name") or f"Steam {appid}"
+    total = float(download.get("total") or 0)
+    progress = min(1.0, float(download.get("downloaded") or 0) / total) if total > 0 else None
+    phase = str(download.get("phase", "downloading"))
+    parts = [word(f"steam_{phase}", language) if f"steam_{phase}" in WORDS else word("steam_downloading", language)]
+    if total > 0:
+        parts.append(f"≈{human_bytes(float(download.get('downloaded') or 0), language)} / {human_bytes(total, language)}")
+    if phase == "downloading" and download.get("rate"):
+        parts.append(human_rate(float(download["rate"]), language))
+    eta = human_eta(download.get("eta"), language) if phase == "downloading" else ""
+    return Activity("steam", short(name, 60), " · ".join(parts), progress=progress, key=appid,
+                    data={"percent": f"{round((progress or 0) * 100)}%", "eta": eta, "appid": appid, "phase": phase,
+                          "icon": download.get("icon") or b""})
 
 
 def media_activity(media: dict | None, language: str) -> Activity | None:
