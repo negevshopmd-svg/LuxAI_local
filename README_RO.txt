@@ -1,5 +1,11 @@
-LUXAI LOCAL 0.4.3u — ACTUALIZARE 2026-11-27
+LUXAI LOCAL 0.4.3v — ACTUALIZARE 2026-11-27
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.3v: Plugin nou — „Cerc de acțiuni” (Extensii → Control PC și casă). Apasă Ctrl+Alt+C: lângă cursor
+se deschide un cerc cu comenzile tale (dintr-un clic), căutarea textului selectat, acțiuni pentru
+fereastra activă (minimizează, maximizează, deasupra tuturor, închide) și media (pauză/redă, piesa
+următoare, fără sunet). Alegi cu mouse-ul, cu săgețile și Enter sau cu cifrele 1–9; Esc îl închide.
+În setări alegi ce comenzi apar și câte elemente are cercul (4–12).
 
 0.4.3u: Plugin nou — „Asistent de text” (Extensii → Text și clipboard). Selectează text în orice program
 și apasă Ctrl+Alt+T: lângă cursor apar acțiunile 1 Corectează · 2 Îmbunătățește · 3 Scurtează ·

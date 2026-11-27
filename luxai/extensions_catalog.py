@@ -626,9 +626,28 @@ PLUGINS: tuple[Plugin, ...] = (
         L("Круговое меню у курсора: ваши команды в один щелчок, действия для активного окна, медиа и поиск.",
           "A radial menu at the cursor: your commands in one click, actions for the active window, media and search.",
           "Un meniu circular lângă cursor: comenzile tale dintr-un clic, acțiuni pentru fereastra activă, media și căutare."),
-        False,
+        True,
         (_hotkey("ctrl+alt+c"),
-         Setting("items", "int", L("Пунктов в круге", "Items in the circle", "Elemente în cerc"), 8, minimum=4, maximum=12, suffix=_ITEMS)),
+         Setting("items", "int", L("Пунктов в круге", "Items in the circle", "Elemente în cerc"), 10, minimum=4, maximum=12,
+                 suffix=_ITEMS,
+                 hint=L("Сначала ваши команды, потом поиск, окно и медиа; что не помещается — не показывается.",
+                        "Your commands first, then search, window and media; what does not fit is left out.",
+                        "Întâi comenzile tale, apoi căutarea, fereastra și media; ce nu încape nu apare.")),
+         Setting("commands", "tags", L("Команды в круге", "Commands in the circle", "Comenzi în cerc"), "",
+                 hint=L("Названия команд из библиотеки команд. Пусто — ваши первые 4 команды.",
+                        "Command names from the command library. Empty — your first 4 commands.",
+                        "Numele comenzilor din biblioteca de comenzi. Gol — primele tale 4 comenzi.")),
+         Setting("show_search", "bool", L("Поиск выделенного текста", "Search the selected text", "Caută textul selectat"), True),
+         Setting("search_engine", "choice", L("Поисковик", "Search engine", "Motor de căutare"), "google",
+                 options=(("google", L("Google", "Google", "Google")), ("duckduckgo", L("DuckDuckGo", "DuckDuckGo", "DuckDuckGo")),
+                          ("bing", L("Bing", "Bing", "Bing")))),
+         Setting("show_window", "bool", L("Действия для окна", "Window actions", "Acțiuni pentru fereastră"), True,
+                 hint=L("Свернуть, развернуть, поверх всех, закрыть — для окна, которое было активным.",
+                        "Minimize, maximize, always on top, close — for the window that was active.",
+                        "Minimizează, maximizează, deasupra tuturor, închide — pentru fereastra activă.")),
+         Setting("show_media", "bool", L("Медиа", "Media", "Media"), True,
+                 hint=L("Пауза / играть, следующий трек, без звука.", "Play / pause, next track, mute.",
+                        "Pauză / redă, piesa următoare, fără sunet."))),
     ),
     Plugin(
         "pc_control", "control", "send", "#21a366",
@@ -1011,6 +1030,7 @@ SECTIONS = {
 
 # A setting is editable only while another setting has one of these values.
 ENABLED_IF = {
+    "quick_circle": {"search_engine": ("show_search", (True,))},
     "read_aloud": {"translate_to": ("translate", (True,))},
     "notification_reader": {"quiet_from": ("quiet_enabled", (True,)), "quiet_to": ("quiet_enabled", (True,))},
     "converter": {"folder": ("destination", ("folder",))},
@@ -1051,6 +1071,15 @@ BASIC_NOTE = {
                              "Notificările sunt mesajele tale. Jarvis păstrează doar ultimele 20 în memorie și nu scrie nimic pe "
                              "disc sau în jurnale. Traducerea se face pe acest PC — textul notificărilor nu pleacă nicăieri. Cât "
                              "PC-ul e blocat, nu se citește nimic."),
+    "quick_circle": L("Нажмите клавишу — у курсора откроется круг. Выбор: мышью, стрелками и Enter или цифрами 1–9; "
+                      "Esc или щелчок в центре закрывает. Действия окна относятся к окну, которое было активным; "
+                      "«Закрыть окно» работает как крестик — программа может спросить о сохранении.",
+                      "Press the key — the circle opens at the cursor. Choose with the mouse, the arrows and Enter, or "
+                      "the digits 1–9; Esc or a click in the centre closes it. Window actions apply to the window that "
+                      "was active; «Close window» works like its ✕ — the program may ask to save.",
+                      "Apasă tasta — cercul se deschide lângă cursor. Alegi cu mouse-ul, cu săgețile și Enter sau cu "
+                      "cifrele 1–9; Esc sau un clic în centru îl închide. Acțiunile pentru fereastră se aplică "
+                      "ferestrei care era activă; „Închide fereastra” e ca ✕ — programul poate întreba de salvare."),
     "text_helper": L("Выделите текст в любой программе и нажмите клавишу: у курсора появятся действия (1–5) и поле для "
                      "своей команды. Ctrl+Enter заменяет выделенное результатом; перед вставкой Jarvis проверяет, что "
                      "окно то же. Перевод делается на этом ПК. Остальные действия — облачным ИИ (текст уходит только "

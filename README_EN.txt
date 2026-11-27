@@ -1,4 +1,10 @@
-LUXAI LOCAL (JARVIS) 0.4.3u — UPDATE 2026-11-27
+LUXAI LOCAL (JARVIS) 0.4.3v — UPDATE 2026-11-27
+
+0.4.3v: New plugin — «Action circle» (Extensions → PC and home control). Press Ctrl+Alt+C: a circle opens at
+the cursor with your commands (one click), a search for the selected text, actions for the active window
+(minimize, maximize, always on top, close) and media (play/pause, next track, mute). Choose with the mouse,
+the arrows and Enter, or the digits 1–9; Esc closes it. In the settings: which commands appear and how many
+items the circle has (4–12).
 
 0.4.3u: New plugin — «Text helper» (Extensions → Text and clipboard). Select text in any program and press
 Ctrl+Alt+T: the actions 1 Fix · 2 Improve · 3 Shorten · 4 Translate · 5 Reply to the message and a field

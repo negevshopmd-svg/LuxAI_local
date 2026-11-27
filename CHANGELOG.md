@@ -1,3 +1,22 @@
+## 0.4.3v — New plugin: Action circle (2026-11-27)
+
+- «Круг действий / Action circle / Cerc de acțiuni» is no longer «Soon». Ctrl+Alt+C opens a radial menu at the
+  cursor (the converter's `RadialMenu`: mouse, arrows + Enter, digits 1–9, Esc / centre closes) with, in order:
+  your commands (named in the settings by title or phrase, or your first 4 personal ones; agent commands never),
+  «Search selection» (Google / DuckDuckGo / Bing), window actions (minimize, maximize ↔ restore, always on top on/off,
+  close like its ✕ — Jarvis never closes its own window) and media (play/pause, next track, mute). «Items in the
+  circle» (4–12, default 10) — what does not fit is left out from the end.
+- Actions apply to the window that was in front when the circle opened; a command brings that window forward
+  first (a command that types or presses keys acts where it was meant to), then runs through
+  `run_command_entry(triggered=True)`.
+- New `luxai/action_circle.py`: slots, labels in three languages, search address, Win32 window operations through a
+  private `user32` with declared types — without them a 64-bit window handle above 2^31 overflowed and «Always on
+  top» was not applied (found by the real-window test).
+- Verified live: Notepad in front → the real runtime opens the circle (Romanian) → digit «3» → Notepad maximized;
+  maximize/restore, topmost on/off, minimize and close on a real Notepad window in the tests; the circle rendered in
+  ru / en / ro, dark and light.
+- Tests: `tests/test_action_circle_043v.py` (16).
+
 ## 0.4.3u — New plugin: Text helper (2026-11-27)
 
 - «Помощник текста / Text helper / Asistent de text» is no longer «Soon». Select text in any program and press

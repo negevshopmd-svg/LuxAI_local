@@ -2087,6 +2087,8 @@ class ExtensionsRuntime(QObject):
             self.read_selection()
         elif plugin_id == "text_helper":
             self.open_text_helper()
+        elif plugin_id == "quick_circle":
+            self.open_action_circle()
         elif plugin_id == "media_keys" and key in MEDIA_KEYS:
             press_virtual_key(MEDIA_KEYS[key])
         elif plugin_id == "screenshots":
@@ -4206,6 +4208,68 @@ class ExtensionsRuntime(QObject):
                 pass
 
         self._paste_into(target_hwnd, after=lambda: QTimer.singleShot(700, put_back), sequence=ours)
+
+    # -- action circle --
+    def open_action_circle(self):
+        """The hotkey: remember the window in front, then show the circle at the cursor."""
+        from luxai import action_circle as ac
+        from luxai.ui_convert_circle import RadialMenu
+        from luxai.screen_interact import _foreground_hwnd
+        hwnd = int(_foreground_hwnd() or 0)
+        items = ac.slots(self.settings("quick_circle"), self._registry_entries(), self.language)
+        if not items:
+            self._notify(ac.word("empty", self.language))
+            return None
+        cfg = getattr(self.host, "cfg", {}) or {}
+        theme = "light" if cfg.get("ui_theme") == "light" else "dark"  # the app's theme (not the converter's)
+        menu = RadialMenu(items, ac.word("title", self.language), theme=theme, accent=cfg.get("ui_accent", "#3978f6"))
+        menu.picked.connect(lambda slot: self._circle_pick(slot, hwnd))
+        menu.show_at()
+        self._action_circle = menu
+        return menu
+
+    def _circle_pick(self, slot: str, hwnd: int):
+        """Run the picked slot for the window that was in front when the circle opened."""
+        from luxai import action_circle as ac
+        if slot.startswith("cmd:"):
+            self._circle_command(slot[4:], hwnd)
+        elif slot in ac.MEDIA_CODES:
+            press_virtual_key(ac.MEDIA_CODES[slot])
+        elif slot in ac.WINDOW_ACTIONS:
+            message = ac.window_action(slot, hwnd)
+            if message:
+                self._notify(ac.word(message, self.language))
+        elif slot == "search_selection":
+            self._circle_search(hwnd)
+
+    def _circle_command(self, identifier: str, hwnd: int):
+        from luxai import action_circle as ac
+        entry = next((item for item in self._registry_entries() if item.get("id") == identifier), None)
+        runner = getattr(self.host, "run_command_entry", None)
+        if entry is None or not entry.get("enabled", True) or not callable(runner):
+            self._notify(ac.word("no_command", self.language).format(name=identifier))
+            return
+        if hwnd and ac.window_alive(hwnd) and not ac.is_own_window(hwnd):
+            _set_foreground(hwnd)  # a command that types or presses keys acts on the window it was meant for
+        runner(entry, triggered=True)
+
+    def _circle_search(self, hwnd: int):
+        from luxai import action_circle as ac
+        if not hwnd or not ac.window_alive(hwnd) or ac.is_own_window(hwnd) or not _set_foreground(hwnd):
+            self._notify(ac.word("no_selection", self.language))
+            return
+        engine = self.settings("quick_circle").get("search_engine", "google")
+
+        def search(selected: str):
+            text = selected.split("\n[Выделение сокращено", 1)[0].strip()
+            if not text:
+                self._notify(ac.word("no_selection", self.language))
+                return
+            from PySide6.QtCore import QUrl
+            from PySide6.QtGui import QDesktopServices
+            QDesktopServices.openUrl(QUrl(ac.search_url(text, engine)))
+
+        QTimer.singleShot(150, lambda: self._capture_selection(hwnd, search))
 
     # -- text helper --
     def open_text_helper(self):

@@ -26,7 +26,8 @@ file**, and keeps your settings, keys, commands and models. If anything fails, t
 - Voice and chat commands, a command library with folders, hotkeys, schedules and events.
 - Opens apps, sites, files and Steam games; controls volume, windows and the keyboard.
 - Discord control without the cloud (microphone, headphones, calls, channels).
-- Extensions: text helper (fix / improve / shorten / translate / reply to selected text), smart
+- Extensions: text helper (fix / improve / shorten / translate / reply to selected text), action circle
+  (radial menu: your commands, window actions, media, search), smart
   dictation, notification reader, read aloud, live captions, clipboard history,
   quick inserts, visual avatar, breaks, PC Control from your own Telegram bot, media keys,
   timers and alarms, converter (images, audio, video, GIF), screenshots, downloads cleanup.
