@@ -91,9 +91,33 @@ def slots(settings: dict, entries, language: str) -> list[tuple[str, str, str]]:
     if settings.get("show_media", True):
         fixed += MEDIA_ACTIONS
     commands = chosen_commands(entries, settings.get("commands", ""))
-    items = [(f"cmd:{entry['id']}", str(entry.get("title") or "")[:24], "zap") for entry in commands]
+    items = [(f"cmd:{entry['id']}", str(entry.get("title") or "")[:24], command_icon(entry)) for entry in commands]
     items += [(action, word(action, language), ICONS[action]) for action in fixed]
     return items[:room]
+
+
+# 0.4.4a: every group has its own colour in the circle (commands use the theme colour).
+GROUP_COLORS = {"search_selection": "#2dd4bf", "win_minimize": "#a78bfa", "win_maximize": "#a78bfa",
+                "win_topmost": "#a78bfa", "win_close": "#f87171", "media_play_pause": "#f472b6",
+                "media_next": "#f472b6", "media_mute": "#f472b6"}
+
+
+def tint(identifier: str) -> str | None:
+    """The colour of a circle item; None = the theme colour (your commands)."""
+    return GROUP_COLORS.get(str(identifier or ""))
+
+
+def command_icon(entry: dict) -> str:
+    """The icon of what a command does (opens an app, a site, a game…), as in the command library."""
+    try:
+        from luxai.action_catalog import ACTION_ICONS
+        from luxai.icons import ASSET_DIR
+    except Exception:
+        return "zap"
+    name = ACTION_ICONS.get(str(entry.get("action") or ""), "")
+    if name and ((ASSET_DIR / "lucide" / f"{name}.svg").is_file() or (ASSET_DIR / "project" / f"{name}.svg").is_file()):
+        return name
+    return "zap"
 
 
 def search_url(text: str, engine: str = "google") -> str:

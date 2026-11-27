@@ -4262,7 +4262,8 @@ class ExtensionsRuntime(IslandMixin, QObject):
             return None
         cfg = getattr(self.host, "cfg", {}) or {}
         theme = "light" if cfg.get("ui_theme") == "light" else "dark"  # the app's theme (not the converter's)
-        menu = RadialMenu(items, ac.word("title", self.language), theme=theme, accent=cfg.get("ui_accent", "#3978f6"))
+        menu = RadialMenu(items, ac.word("title", self.language), theme=theme, accent=cfg.get("ui_accent", "#3978f6"),
+                          tint=ac.tint)
         menu.picked.connect(lambda slot: self._circle_pick(slot, hwnd))
         menu.show_at()
         self._action_circle = menu

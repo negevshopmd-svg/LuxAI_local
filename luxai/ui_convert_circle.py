@@ -6,33 +6,66 @@ Esc / click in the centre / click outside closes it.
 from __future__ import annotations
 
 import math
+import time
 
-from PySide6.QtCore import QPointF, QRect, QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QCursor, QFont, QGuiApplication, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtCore import QPointF, QRect, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import (QColor, QCursor, QFont, QFontMetricsF, QGuiApplication, QPainter, QPainterPath, QPen,
+                           QPixmap, QRadialGradient)
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from luxai.icons import icon
 
 
 THEMES = {
-    "dark": {"bg": QColor(22, 25, 31, 238), "ring": QColor(44, 49, 58, 245), "text": QColor("#f0f2f6"),
-             "muted": QColor("#a6acb8"), "line": QColor(70, 76, 88)},
-    "light": {"bg": QColor(250, 251, 253, 240), "ring": QColor(233, 237, 244, 250), "text": QColor("#1c2738"),
-              "muted": QColor("#667184"), "line": QColor(205, 214, 228)},
+    "dark": {"disc": QColor(24, 27, 34, 246), "disc_edge": QColor(17, 19, 24, 246), "hub": QColor(34, 38, 48, 255),
+             "chip": QColor(255, 255, 255, 16), "chip_edge": QColor(255, 255, 255, 22), "text": QColor("#f2f4f8"),
+             "muted": QColor("#8f97a6"), "line": QColor(255, 255, 255, 26), "shadow": QColor(0, 0, 0, 70)},
+    "light": {"disc": QColor(252, 252, 254, 248), "disc_edge": QColor(238, 241, 246, 248), "hub": QColor(255, 255, 255, 255),
+              "chip": QColor(20, 30, 50, 12), "chip_edge": QColor(20, 30, 50, 18), "text": QColor("#18212f"),
+              "muted": QColor("#6b7586"), "line": QColor(20, 30, 50, 24), "shadow": QColor(20, 30, 50, 40)},
 }
+OPEN_SECONDS = 0.2
+HINT = "1–9 · Enter · Esc"
+
+
+def label_lines(label: str, metrics, width: float, most: int = 2) -> list[str]:
+    """A label in at most two lines that fit ``width``; only the last line is cut with «…»."""
+    words = str(label or "").split()
+    lines: list[str] = []
+    while words and len(lines) < most:
+        line = words.pop(0)
+        while words and metrics.horizontalAdvance(line + " " + words[0]) <= width:
+            line += " " + words.pop(0)
+        lines.append(line)
+    if words:
+        lines[-1] = lines[-1] + " " + " ".join(words)
+    return [metrics.elidedText(line, Qt.TextElideMode.ElideRight, width) for line in lines]
+
+
+def _ease_out(t: float) -> float:
+    t = max(0.0, min(1.0, t))
+    return 1 - (1 - t) ** 3
 
 
 class RadialMenu(QWidget):
-    """items: [(id, label, icon_name)]. Emits picked(id) or cancelled()."""
+    """items: [(id, label, icon_name)]. Emits picked(id) or cancelled().
+
+    0.4.4a: drawn as a ring of round buttons around a hub. The hub shows the pointed item's full name; every
+    button has its group's colour (``tint(id)``), grows and glows when pointed at, and the menu opens with a
+    short zoom. The geometry the tests and the keyboard rely on (sectors clockwise from the top) is unchanged.
+    """
     picked = Signal(str)
     cancelled = Signal()
 
-    def __init__(self, items, title="", *, theme="dark", accent="#3978f6", parent=None):
+    def __init__(self, items, title="", *, theme="dark", accent="#3978f6", parent=None, tint=None, hint=HINT):
         super().__init__(parent)
         self.items = list(items)[:12]
         self.title = title
+        self.hint = hint
         self.colors = THEMES.get(theme, THEMES["dark"])
+        self.dark = theme != "light"
         self.accent = QColor(accent)
+        self.tint = tint
         self.current = -1
         self._done = False
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint)
@@ -40,10 +73,17 @@ class RadialMenu(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.radius = 172 if len(self.items) > 6 else 145
-        self.inner = 56
-        size = self.radius * 2 + 16
+        self.radius = 176 if len(self.items) > 8 else 158
+        self.inner = 64
+        self.margin = 26  # room for the shadow
+        size = self.radius * 2 + self.margin * 2
         self.resize(size, size)
+        self._opened = time.monotonic()
+        self._hover = [0.0] * len(self.items)  # 0..1, follows the pointer smoothly
+        self._timer = QTimer(self)
+        self._timer.setInterval(16)
+        self._timer.timeout.connect(self._animate)
+        self._timer.start()
 
     # geometry
     def _center(self):
@@ -59,6 +99,23 @@ class RadialMenu(QWidget):
         span = 360 / len(self.items)
         return int(((angle + span / 2) % 360) // span)
 
+    def _item_center(self, index: int) -> QPointF:
+        center = self._center()
+        angle = math.radians(index * 360 / max(1, len(self.items)))
+        distance = (self.radius + self.inner) / 2 + 4
+        return QPointF(center.x() + math.sin(angle) * distance, center.y() - math.cos(angle) * distance)
+
+    def _color(self, index: int) -> QColor:
+        identifier = self.items[index][0]
+        value = None
+        if self.tint is not None:
+            try:
+                value = self.tint(identifier)
+            except Exception:
+                value = None
+        color = QColor(value) if value else QColor(self.accent)
+        return color if color.isValid() else QColor(self.accent)
+
     def show_at(self, point=None):
         point = point or QCursor.pos()
         screen = QGuiApplication.screenAt(point) or QGuiApplication.primaryScreen()
@@ -66,69 +123,157 @@ class RadialMenu(QWidget):
         x = min(max(area.left(), point.x() - self.width() // 2), area.right() - self.width())
         y = min(max(area.top(), point.y() - self.height() // 2), area.bottom() - self.height())
         self.move(x, y)
+        self._opened = time.monotonic()
         self.show()
         self.raise_()
         self.activateWindow()
         self.setFocus()
 
+    # animation
+    def _animate(self):
+        moving = time.monotonic() - self._opened < OPEN_SECONDS + 0.05
+        for index in range(len(self._hover)):
+            target = 1.0 if index == self.current else 0.0
+            value = self._hover[index]
+            if abs(target - value) > 0.01:
+                self._hover[index] = value + (target - value) * 0.32
+                moving = True
+            else:
+                self._hover[index] = target
+        if moving:
+            self.update()
+
     # painting
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+        opening = _ease_out((time.monotonic() - self._opened) / OPEN_SECONDS)
         center = self._center()
-        outer = QRectF(center.x() - self.radius, center.y() - self.radius, self.radius * 2, self.radius * 2)
-        painter.setPen(QPen(self.colors["line"], 1))
-        painter.setBrush(self.colors["bg"])
-        painter.drawEllipse(outer)
-        count = max(1, len(self.items))
-        span = 360 / count
-        for index, (_, label, icon_name) in enumerate(self.items):
-            start = 90 - index * span + span / 2  # Qt: 0° = 3 o'clock, counter-clockwise
-            if index == self.current:
-                path = QPainterPath()
-                path.moveTo(center)
-                path.arcTo(outer.adjusted(3, 3, -3, -3), start, -span)
-                path.closeSubpath()
-                highlight = QColor(self.accent)
-                highlight.setAlpha(210)
+        painter.translate(center)
+        painter.scale(0.9 + 0.1 * opening, 0.9 + 0.1 * opening)
+        painter.translate(-center)
+        painter.setOpacity(opening)
+        self._paint_disc(painter, center)
+        for index in range(len(self.items)):
+            self._paint_item(painter, index)
+        self._paint_hub(painter, center)
+
+    def _paint_disc(self, painter: QPainter, center: QPointF):
+        colors = self.colors
+        for step in range(5, 0, -1):  # a soft shadow under the disc
+            shade = QColor(colors["shadow"])
+            shade.setAlpha(int(colors["shadow"].alpha() * (6 - step) / 14))
+            grow = step * 4
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(shade)
+            painter.drawEllipse(QPointF(center.x(), center.y() + 6), self.radius + grow, self.radius + grow)
+        gradient = QRadialGradient(center, self.radius)
+        gradient.setColorAt(0.0, colors["disc"])
+        gradient.setColorAt(1.0, colors["disc_edge"])
+        painter.setBrush(gradient)
+        painter.setPen(QPen(colors["line"], 1))
+        painter.drawEllipse(center, self.radius, self.radius)
+        if 0 <= self.current < len(self.items):  # a soft beam from the hub to the pointed button
+            span = 360 / len(self.items)
+            outer = QRectF(center.x() - self.radius + 2, center.y() - self.radius + 2, (self.radius - 2) * 2,
+                           (self.radius - 2) * 2)
+            start = 90 - self.current * span + span / 2
+            path = QPainterPath()
+            path.moveTo(center)
+            path.arcTo(outer, start, -span)
+            path.closeSubpath()
+            beam = QRadialGradient(center, self.radius)
+            color = self._color(self.current)
+            soft = QColor(color)
+            soft.setAlpha(0)
+            strong = QColor(color)
+            strong.setAlpha(46 if self.dark else 34)
+            beam.setColorAt(0.3, soft)
+            beam.setColorAt(1.0, strong)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(beam)
+            painter.drawPath(path)
+            pen = QPen(color, 3)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawArc(outer.adjusted(2, 2, -2, -2), int((start - span * 0.18) * 16), int(-span * 0.64 * 16))
+
+    def _paint_item(self, painter: QPainter, index: int):
+        identifier, label, icon_name = self.items[index][:3]
+        point = self._item_center(index)
+        hover = self._hover[index] if index < len(self._hover) else 0.0
+        color = self._color(index)
+        radius = 23 + 4 * hover
+        if hover > 0.02:  # glow
+            for step in range(3, 0, -1):
+                glow = QColor(color)
+                glow.setAlpha(int(34 * hover / step))
                 painter.setPen(Qt.PenStyle.NoPen)
-                painter.setBrush(highlight)
-                painter.drawPath(path)
-            angle = math.radians(index * span)
-            distance = (self.radius + self.inner) / 2 + 2
-            x = center.x() + math.sin(angle) * distance
-            y = center.y() - math.cos(angle) * distance
-            color = QColor("#ffffff") if index == self.current else self.colors["text"]
-            if icon_name:
-                icon(icon_name, color=color.name(), size=22).paint(painter, int(x - 11), int(y - 22), 22, 22)
+                painter.setBrush(glow)
+                painter.drawEllipse(point, radius + step * 4, radius + step * 4)
+        base = QColor(color)
+        base.setAlpha(int(28 + 227 * hover))
+        rest = QColor(self.colors["chip"])
+        painter.setPen(QPen(self.colors["chip_edge"], 1))
+        painter.setBrush(rest)
+        painter.drawEllipse(point, radius, radius)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(base)
+        painter.drawEllipse(point, radius, radius)
+        glyph = QColor("#ffffff") if hover > 0.5 else (color.lighter(135) if self.dark else color.darker(115))
+        if icon_name:
+            side = 20 + 2 * hover
+            try:
+                icon(icon_name, color=glyph.name(), size=22).paint(
+                    painter, QRectF(point.x() - side / 2, point.y() - side / 2, side, side).toAlignedRect())
+            except Exception:
+                pass
+        if index < 9:  # the digit that picks it, in a tiny badge
+            badge = QPointF(point.x() + radius * 0.74, point.y() - radius * 0.74)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(self.colors["hub"])
+            painter.drawEllipse(badge, 8, 8)
             font = QFont(self.font())
-            font.setPixelSize(12)
-            font.setWeight(QFont.Weight.DemiBold)
+            font.setPixelSize(9)
+            font.setWeight(QFont.Weight.Bold)
             painter.setFont(font)
-            painter.setPen(color)
-            text_rect = QRectF(x - 44, y + 2, 88, 32)
-            painter.drawText(text_rect, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop | Qt.TextFlag.TextWordWrap, label)
-            if index < 9:  # digit shortcut, small, above the icon
-                small = QFont(font)
-                small.setPixelSize(10)
-                painter.setFont(small)
-                painter.setPen(QColor("#ffffff") if index == self.current else self.colors["muted"])
-                painter.drawText(QRectF(x - 20, y - 36, 40, 13), Qt.AlignmentFlag.AlignCenter, str(index + 1))
-        # separators
-        painter.setPen(QPen(self.colors["line"], 1))
-        for index in range(count):
-            angle = math.radians(index * span + span / 2)
-            painter.drawLine(QPointF(center.x() + math.sin(angle) * self.inner, center.y() - math.cos(angle) * self.inner),
-                             QPointF(center.x() + math.sin(angle) * self.radius, center.y() - math.cos(angle) * self.radius))
-        # centre
-        painter.setBrush(self.colors["ring"])
-        painter.drawEllipse(center, self.inner, self.inner)
-        painter.setPen(self.colors["muted"])
+            painter.setPen(color if hover > 0.5 else self.colors["muted"])
+            painter.drawText(QRectF(badge.x() - 8, badge.y() - 8, 16, 16), Qt.AlignmentFlag.AlignCenter, str(index + 1))
         font = QFont(self.font())
         font.setPixelSize(11)
+        font.setWeight(QFont.Weight.DemiBold if hover > 0.5 else QFont.Weight.Medium)
         painter.setFont(font)
-        painter.drawText(QRectF(center.x() - self.inner + 6, center.y() - self.inner + 6, (self.inner - 6) * 2,
-                                (self.inner - 6) * 2), Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap, self.title)
+        span = 2 * math.pi * ((self.radius + self.inner) / 2 + 4) / max(1, len(self.items))
+        width = max(60.0, min(100.0, span + 4))
+        lines = label_lines(label, QFontMetricsF(font), width)
+        painter.setPen(self.colors["text"] if hover > 0.5 else self.colors["muted"])
+        painter.drawText(QRectF(point.x() - width / 2, point.y() + radius + 2, width, 30),
+                         Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, "\n".join(lines))
+
+    def _paint_hub(self, painter: QPainter, center: QPointF):
+        colors = self.colors
+        painter.setPen(QPen(colors["line"], 1))
+        painter.setBrush(colors["hub"])
+        painter.drawEllipse(center, self.inner - 4, self.inner - 4)
+        box = QRectF(center.x() - self.inner + 12, center.y() - self.inner + 14, (self.inner - 12) * 2,
+                     (self.inner - 14) * 2)
+        pointed = 0 <= self.current < len(self.items)
+        name = self.items[self.current][1] if pointed else self.title
+        font = QFont(self.font())
+        font.setPixelSize(13 if pointed else 12)
+        font.setWeight(QFont.Weight.DemiBold)
+        painter.setFont(font)
+        painter.setPen(self._color(self.current) if pointed and not self.dark else colors["text"])
+        painter.drawText(box.adjusted(0, 0, 0, -16),
+                         Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom | Qt.TextFlag.TextWordWrap, name)
+        small = QFont(self.font())
+        small.setPixelSize(9)
+        painter.setFont(small)
+        painter.setPen(colors["muted"])
+        hint = f"{self.current + 1} · Enter" if pointed and self.current < 9 else ("Enter" if pointed else self.hint)
+        painter.drawText(QRectF(box.left(), box.bottom() - 13, box.width(), 13), Qt.AlignmentFlag.AlignCenter, hint)
 
     # interaction
     def mouseMoveEvent(self, event):

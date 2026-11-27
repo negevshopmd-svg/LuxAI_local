@@ -1,5 +1,10 @@
-LUXAI LOCAL 0.4.3z — ACTUALIZARE 2026-11-27
+LUXAI LOCAL 0.4.4a — ACTUALIZARE 2026-11-27
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.4a: Cercul de acțiuni arată nou: butoane rotunde pe un inel, colorate pe grupe (comenzile tale, căutare,
+fereastră, media), butonul de sub mouse crește lin și strălucește, iar în centru apare numele lui întreg.
+Comenzile au iconița potrivită (site, aplicație, joc…), etichetele încap pe două rânduri, iar cercul se
+deschide cu o animație scurtă. Același aspect îl are și cercul convertorului.
 
 0.4.3z: Fereastra de actualizare arată acum doar cât descarcă actualizarea însăși. Înainte număra tot traficul
 PC-ului, așa că o descărcare Steam în paralel părea o actualizare de 2 GB.

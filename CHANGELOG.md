@@ -1,3 +1,16 @@
+## 0.4.4a — A new look for the action circle (2026-11-27)
+
+`ui_convert_circle.RadialMenu` (also the converter's circle) is redrawn: a disc with a soft shadow and a gradient,
+round buttons on a ring around a hub instead of hard pie wedges with lines; each group has its colour
+(`action_circle.tint`: search teal, window violet, close red, media pink, your commands the theme colour); the pointed
+button grows smoothly, glows, and a coloured beam + arc point at it; the hub shows its full name and «5 · Enter»
+(else the title and «1–9 · Enter · Esc»); digits are small badges; labels take up to two lines (`label_lines`);
+the menu opens with a 0.2 s zoom and fade. Commands get the icon of what they do (`action_circle.command_icon` from
+the command library's action icons) instead of the same «zap». Geometry, keyboard and clicks are unchanged.
+
+Verified live: the circle on the desktop with the app's Onest font (opening frame and a pointed item).
+Tests: `tests/test_action_circle_look_044a.py` (7).
+
 ## 0.4.3z — The update window counts only the update's own downloads (2026-11-27)
 
 The setup window added up every byte the network card received while the update ran, so a Steam download at the same

@@ -1,4 +1,9 @@
-LUXAI LOCAL (JARVIS) 0.4.3z — UPDATE 2026-11-27
+LUXAI LOCAL (JARVIS) 0.4.4a — UPDATE 2026-11-27
+
+0.4.4a: A new look for the Action circle: round buttons on a ring, each group in its colour (your commands,
+search, window, media); the button under the mouse grows smoothly and glows, and its full name shows in the
+centre. Commands get a fitting icon (site, app, game…), labels fit in two lines, and the circle opens with a
+short animation. The converter's circle looks the same now.
 
 0.4.3z: The update window now shows only what the update itself downloads. Before, it counted all of the PC's
 traffic, so a Steam download at the same time looked like a 2 GB update.
