@@ -104,7 +104,7 @@ class ScriptTests(unittest.TestCase):
 
     def test_window_texts_and_countdown(self):
         source = (ROOT / "scripts" / "setup_ui.ps1").read_text(encoding="utf-8-sig")
-        for word in ("Скорость интернета", "Viteza internetului", "Internet speed", "Осталось", "closesIn"):
+        for word in ("Скорость загрузки", "Viteza descărcării", "Download speed", "Осталось", "closesIn"):  # 0.4.3z
             self.assertIn(word, source)
         self.assertNotIn("IsMouseOver) { $state.countdown = 60 }", source)  # the countdown never stuck at 59
 

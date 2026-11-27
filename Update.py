@@ -56,6 +56,35 @@ def ui_emit(**event) -> None:
         pass
 
 
+# 0.4.3z: the setup window counts only what the updater downloads (it used to add up the whole network card,
+# so a Steam download at the same time looked like a 2 GB update). The same marker and pip pattern as
+# luxai/download_meter.py (tests check both agree); copied because this file runs before luxai is updated.
+METER_ENV = "LUXAI_UPDATE_METER"
+_METER_LINE = re.compile(r"^LUXAI_GOT (\d{1,13})$")
+_PIP_SIZE = re.compile(r"^\s*Downloading \S+ \(([\d.,]+)\s*(B|kB|KB|MB|GB)\)")
+_SIZE_UNITS = {"B": 1, "kB": 1000, "KB": 1000, "MB": 1000 ** 2, "GB": 1000 ** 3}
+
+
+def ui_got(count: int) -> None:
+    """The updater downloaded ``count`` more bytes."""
+    if count > 0:
+        ui_emit(t="got", bytes=int(count))
+
+
+def downloaded_in_line(line: str) -> tuple[int, bool]:
+    """(bytes, is_marker) for one output line of a helper: our marker, or pip announcing a real download."""
+    marker = _METER_LINE.match(line.strip())
+    if marker:
+        return int(marker.group(1)), True
+    size = _PIP_SIZE.match(line)
+    if size:
+        try:
+            return int(float(size.group(1).replace(",", ".")) * _SIZE_UNITS[size.group(2)]), False
+        except (ValueError, KeyError):
+            return 0, False
+    return 0, False
+
+
 def ui_step(step: str, state: str) -> None:
     ui_emit(t="step", id=step, state=state)
 
@@ -204,6 +233,7 @@ def download(url: str, target: Path) -> None:
     req = urllib.request.Request(url, headers={"User-Agent": "LuxAI-Updater"})
     total = 0
     shown = 0.0
+    counted = 0
     with urllib.request.urlopen(req, timeout=60) as response, target.open("wb") as out:
         size = int(response.headers.get("Content-Length") or 0)
         while True:
@@ -214,9 +244,13 @@ def download(url: str, target: Path) -> None:
             if total > MAX_DOWNLOAD_BYTES:
                 raise RuntimeError("Arhiva depășește limita de siguranță de 500 MB.")
             out.write(chunk)
-            if progress and time.monotonic() - shown > 0.25:
+            if time.monotonic() - shown > 0.25:
                 shown = time.monotonic()
-                ui_emit(t="bytes", done=total, total=size)
+                ui_got(total - counted)
+                counted = total
+                if progress:
+                    ui_emit(t="bytes", done=total, total=size)
+    ui_got(total - counted)
     if progress:
         ui_emit(t="bytes", done=total, total=size or total)
 
@@ -1268,7 +1302,8 @@ def run_streamed(command: list[str], timeout: float, cwd: Path | None = None):
     """
     import threading
     process = subprocess.Popen(command, cwd=str(cwd or ROOT), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                               stdin=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace")
+                               stdin=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace",
+                               env=dict(os.environ, **{METER_ENV: "1"}))
 
     def pump():
         try:
@@ -1276,6 +1311,10 @@ def run_streamed(command: list[str], timeout: float, cwd: Path | None = None):
                 line = raw.rstrip()
                 if not line:
                     continue
+                got, marker = downloaded_in_line(line)
+                ui_got(got)
+                if marker:
+                    continue  # a byte count for the window, not a log line
                 _report_console(line)
                 ui_emit(t="log", text=line)
                 for pattern, (ro, ru, en) in _PIP_LINE:

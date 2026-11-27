@@ -1,5 +1,8 @@
-LUXAI LOCAL 0.4.3y — ACTUALIZARE 2026-11-27
+LUXAI LOCAL 0.4.3z — ACTUALIZARE 2026-11-27
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.3z: Fereastra de actualizare arată acum doar cât descarcă actualizarea însăși. Înainte număra tot traficul
+PC-ului, așa că o descărcare Steam în paralel părea o actualizare de 2 GB.
 
 0.4.3y: Insula de stare știe mai mult. Jocuri: iconița și numele jocului (din Steam — cu bannerul lui), cât
 timp ești în joc și cât azi; la pornire se deschide singură pentru 4 s, la ieșire spune „Ai jucat 1 h 05 min”.

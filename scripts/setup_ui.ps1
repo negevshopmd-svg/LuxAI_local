@@ -105,7 +105,7 @@ $fontFamily = $families -join ', '
 $T = @{
     ru = @{
         update = 'Обновление Jarvis'; install = 'Установка Jarvis'; preparing = 'Готовлю…'; version = 'Версия {0}'
-        speed = 'Скорость интернета'; downloaded = 'Скачано'; elapsed = 'Прошло'; left = 'Осталось ≈ {0}'
+        speed = 'Скорость загрузки'; downloaded = 'Скачано'; elapsed = 'Прошло'; left = 'Осталось ≈ {0}'
         details = 'Подробнее'; hide = 'Скрыть'; launch = 'Запустить Jarvis'; close = 'Закрыть'; log = 'Открыть журнал'
         doneUpdate = 'Готово — Jarvis обновлён'; doneInstall = 'Готово — Jarvis установлен'; failed = 'Не получилось'
         stopped = 'Установщик неожиданно остановился. Подробности — в журнале.'; closesIn = 'Окно закроется через {0} с'
@@ -117,7 +117,7 @@ $T = @{
     }
     ro = @{
         update = 'Actualizare Jarvis'; install = 'Instalare Jarvis'; preparing = 'Pregătesc…'; version = 'Versiunea {0}'
-        speed = 'Viteza internetului'; downloaded = 'Descărcat'; elapsed = 'Timp scurs'; left = 'Mai durează ≈ {0}'
+        speed = 'Viteza descărcării'; downloaded = 'Descărcat'; elapsed = 'Timp scurs'; left = 'Mai durează ≈ {0}'
         details = 'Detalii'; hide = 'Ascunde'; launch = 'Pornește Jarvis'; close = 'Închide'; log = 'Deschide jurnalul'
         doneUpdate = 'Gata — Jarvis e actualizat'; doneInstall = 'Gata — Jarvis e instalat'; failed = 'Nu a reușit'
         stopped = 'Instalarea s-a oprit neașteptat. Detaliile sunt în jurnal.'; closesIn = 'Fereastra se închide în {0} s'
@@ -129,7 +129,7 @@ $T = @{
     }
     en = @{
         update = 'Jarvis update'; install = 'Jarvis setup'; preparing = 'Preparing…'; version = 'Version {0}'
-        speed = 'Internet speed'; downloaded = 'Downloaded'; elapsed = 'Elapsed'; left = '≈ {0} left'
+        speed = 'Download speed'; downloaded = 'Downloaded'; elapsed = 'Elapsed'; left = '≈ {0} left'
         details = 'Details'; hide = 'Hide'; launch = 'Launch Jarvis'; close = 'Close'; log = 'Open log'
         doneUpdate = 'Done — Jarvis is up to date'; doneInstall = 'Done — Jarvis is installed'; failed = 'It did not work'
         stopped = 'Setup stopped unexpectedly. Details are in the log.'; closesIn = 'Closing in {0} s'
@@ -344,17 +344,14 @@ try {
 $state = @{
     steps = [ordered]@{}; current = $null; started = [DateTime]::Now; stepStarted = [DateTime]::Now
     bytesDone = 0.0; bytesTotal = 0.0; finished = $false; ok = $false; shownProgress = 0.0
-    lastRx = -1.0; lastRxAt = [DateTime]::Now; speed = 0.0; downloaded = 0.0; samples = New-Object System.Collections.ArrayList
+    lastRx = 0.0; lastRxAt = [DateTime]::Now; speed = 0.0; downloaded = 0.0; got = 0.0; samples = New-Object System.Collections.ArrayList
     position = 0L; log = New-Object System.Text.StringBuilder; countdown = -1; plannedOnce = $false; skipLine = $false
 }
 
+# 0.4.3z: only what the updater itself downloads ('got' events from Update.py and its helpers). The whole
+# network card was counted before, so a Steam download at the same time looked like a 2 GB update.
 function Get-ReceivedBytes {
-    $sum = 0.0
-    foreach ($nic in [Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces()) {
-        if ($nic.OperationalStatus -ne 'Up' -or $nic.NetworkInterfaceType -eq 'Loopback' -or $nic.NetworkInterfaceType -eq 'Tunnel') { continue }
-        try { $sum += $nic.GetIPStatistics().BytesReceived } catch { }
-    }
-    return $sum
+    return [double]$state.got
 }
 function Format-Bytes([double]$Value) {
     if ($Value -ge 1GB) { return ('{0:0.00} GB' -f ($Value / 1GB)) }
@@ -543,6 +540,7 @@ function Read-Events {
                     $state.bytesDone = [double]$e.done; $state.bytesTotal = [double]$e.total
                     $ui.StepBytes.Text = if ($state.bytesTotal -gt 0) { '{0} / {1}' -f (Format-Bytes $state.bytesDone), (Format-Bytes $state.bytesTotal) } else { Format-Bytes $state.bytesDone }
                 }
+                'got' { $state.got += [Math]::Max(0.0, [double]$e.bytes) }
                 'done' { Complete ([bool]$e.ok) (Get-EventText $e 'message') }
             }
         }

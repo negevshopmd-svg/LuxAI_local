@@ -201,9 +201,11 @@ def _restore_version(executable: str, version: str) -> bool:
                "--retries", "2", "--timeout", "35", "--extra-index-url", OFFICIAL_CPU_WHEELS,
                f"llama-cpp-python=={version}"]
     try:
+        start = LOG_FILE.stat().st_size if LOG_FILE.exists() else 0
         with LOG_FILE.open("a", encoding="utf-8") as output:
             subprocess.run(command, cwd=str(ROOT), stdout=output, stderr=subprocess.STDOUT,
                            timeout=INSTALL_TIMEOUT, check=False, **_quiet_process_options())
+        _report_pip_downloads(start)
     except (OSError, subprocess.TimeoutExpired) as exc:
         _append_log(f"Restore of {version} failed: {type(exc).__name__}.")
         return False
@@ -246,15 +248,29 @@ def _pip_upgrade(executable: str) -> int | None:
     ]
     try:
         LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        start = LOG_FILE.stat().st_size if LOG_FILE.exists() else 0
         with LOG_FILE.open("a", encoding="utf-8") as output:
-            return subprocess.run(
+            code = subprocess.run(
                 command, cwd=str(ROOT), stdout=output, stderr=subprocess.STDOUT,
                 timeout=INSTALL_TIMEOUT, check=False,
                 **_quiet_process_options(),
             ).returncode
+        _report_pip_downloads(start)
+        return code
     except (OSError, subprocess.TimeoutExpired) as exc:
         _append_log(f"Version check/install failed: {type(exc).__name__}.")
         return None
+
+
+def _report_pip_downloads(start: int) -> None:
+    """What pip really downloaded (its log since ``start``), for the update window (0.4.3z)."""
+    try:
+        from luxai.download_meter import pip_bytes, report
+        with LOG_FILE.open("rb") as handle:
+            handle.seek(start)
+            report(pip_bytes(handle.read(4_000_000).decode("utf-8", errors="replace")))
+    except OSError:
+        pass
 
 
 def _upgrade_until_it_starts(executable: str, working_version: str) -> tuple[bool, int | None]:

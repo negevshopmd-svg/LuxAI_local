@@ -1,4 +1,7 @@
-LUXAI LOCAL (JARVIS) 0.4.3y — UPDATE 2026-11-27
+LUXAI LOCAL (JARVIS) 0.4.3z — UPDATE 2026-11-27
+
+0.4.3z: The update window now shows only what the update itself downloads. Before, it counted all of the PC's
+traffic, so a Steam download at the same time looked like a 2 GB update.
 
 0.4.3y: The status island does more. Games: the game's icon and name (from Steam — with its banner), how
 long you have played and the total today; it opens by itself for 4 s when a game starts and says “You played

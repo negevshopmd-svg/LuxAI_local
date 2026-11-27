@@ -1,3 +1,18 @@
+## 0.4.3z — The update window counts only the update's own downloads (2026-11-27)
+
+The setup window added up every byte the network card received while the update ran, so a Steam download at the same
+time showed «Downloaded 2.12 GB» for a ~3 MB update. Now only the updater's own downloads count:
+- `Update.py` emits `got` events for the archive and for every helper line: `LUXAI_GOT <bytes>` markers and pip's
+  «Downloading x (6.9 MB)» lines («Using cached» is not counted); helpers run with `LUXAI_UPDATE_METER=1`.
+- `luxai/download_meter.py`: the marker and the pip sizes for the helpers; `ocr_setup` reports each chunk, the offline
+  translator the size its download added, `local_ai_setup` what pip wrote to its own log (it does not print to the
+  window).
+- `scripts/setup_ui.ps1` sums `got` events (no `GetIPStatistics`), starting at zero; the speed is the updater's
+  («Download speed» / «Скорость загрузки» / «Viteza descărcării»).
+
+Verified live: the real window with 3 MB of updater events showed «3,0 MB» while the PC had other traffic.
+Tests: `tests/test_update_meter_043z.py` (9).
+
 ## 0.4.3y — Status island: games, Steam downloads, Discord calls, priorities (2026-11-27)
 
 - Games (`luxai/game_detect.py`, on the probe thread): the foreground program is a game when its .exe is in a

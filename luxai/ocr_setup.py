@@ -189,6 +189,8 @@ def _download_bounded(url: str, destination: Path, *, limit: int) -> str:
                 raise OCRInstallError("Загружаемый OCR-файл слишком большой.")
             digest.update(chunk)
             output.write(chunk)
+            from luxai.download_meter import report
+            report(len(chunk))  # the update window counts what the updater downloads (0.4.3z)
     if bytes_read < 100_000:
         raise OCRInstallError("Загрузка OCR неполная или пустая.")
     return digest.hexdigest()

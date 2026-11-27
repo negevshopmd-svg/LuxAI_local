@@ -282,8 +282,13 @@ def ensure_downloaded(directory: Path | None = None) -> bool:
         _downloading = True
     try:
         from huggingface_hub import snapshot_download
+        from luxai.download_meter import folder_size, report
         folder = model_dir(directory)
-        snapshot_download(REPO, revision=REVISION, local_dir=str(folder), allow_patterns=FILES)
+        before = folder_size(folder)
+        try:
+            snapshot_download(REPO, revision=REVISION, local_dir=str(folder), allow_patterns=FILES)
+        finally:
+            report(folder_size(folder) - before)  # the update window counts what the updater downloads
         if not verified(directory):
             for name in SHA256:  # a damaged or swapped file is never loaded
                 (folder / name).unlink(missing_ok=True)
