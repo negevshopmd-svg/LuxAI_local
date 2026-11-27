@@ -252,6 +252,12 @@ class IslandMixin:
                                      f"{round(progress * 100)}%" if progress is not None else "", progress=progress))
         if self.captions_visible:
             found.append(si.Activity("captions", si.word("captions", language), si.word("captions_sub", language)))
+        session = getattr(self, "_meeting", None)
+        if session is not None:
+            from luxai.meeting_notes import stamp
+            paused = bool(session.get("paused"))
+            found.append(si.Activity("meeting", si.word("meeting_paused" if paused else "meeting", language), "",
+                                     data={"elapsed": stamp(self.meeting_seconds()), "paused": paused}))
         kind = getattr(self, "_break_card_kind", "")
         if kind:
             from luxai.extensions_runtime import break_message, break_title
@@ -318,7 +324,9 @@ class IslandMixin:
                    "voice": lambda _w: self._island_stop_voice(), "dictation": self._island_dictation,
                    "captions": lambda _w: self.hide_captions(), "dismiss": lambda _w: self._island_dismiss(),
                    "open": lambda _w: self._island_open(), "game": self._island_game_button,
-                   "discord": self._island_discord, "steam": self._island_steam}.get(group)
+                   "discord": self._island_discord, "steam": self._island_steam,
+                   "meeting": lambda what: self.pause_meeting() if what == "pause" else self._notify(self.stop_meeting())
+                   }.get(group)
         if handler is not None:
             handler(what)
         self._tick_island()
@@ -443,7 +451,7 @@ class IslandMixin:
                    "volume": self._island_dismiss, "battery": self._island_dismiss, "demo": self._island_dismiss,
                    "played": self._island_dismiss, "game": lambda: self._island.peek(5.0) if self._island else None,
                    "discord": lambda: self._island_discord("mic"), "steam": lambda: self._island_steam("open"),
-                   "steam_done": self._island_dismiss}
+                   "steam_done": self._island_dismiss, "meeting": self.pause_meeting}
         action = actions.get(kind, self._island_open)
         action()
 

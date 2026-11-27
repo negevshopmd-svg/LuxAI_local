@@ -16,7 +16,7 @@ import time
 from dataclasses import dataclass, field
 
 # Kinds in the order they win when several are active at once (first = most important).
-PRIORITY = ("ring", "error", "listening", "speaking", "working", "waiting", "break", "dictation", "convert",
+PRIORITY = ("ring", "error", "listening", "speaking", "working", "waiting", "break", "meeting", "dictation", "convert",
             "notification", "played", "steam_done", "volume", "reply", "discord", "game", "steam", "timer", "media",
             "captions", "battery", "demo")
 # Kinds that only flash for a few seconds.
@@ -27,7 +27,7 @@ COLORS = {
     "waiting": "#ffd60a", "break": "#32d74b", "dictation": "#ff375f", "convert": "#64d2ff", "notification": "#0a84ff",
     "volume": "#ffffff", "reply": "#5e9cff", "timer": "#ff9f0a", "media": "#ff375f", "captions": "#64d2ff",
     "battery": "#30d158", "demo": "#bf5af2", "game": "#30d158", "played": "#30d158",
-    "discord": "#5865f2", "steam": "#66c0f4", "steam_done": "#66c0f4",
+    "discord": "#5865f2", "steam": "#66c0f4", "steam_done": "#66c0f4", "meeting": "#ff453a",
 }
 # Which source each kind belongs to: every source has its own priority in the settings (or «Off»).
 SOURCE = {
@@ -35,7 +35,7 @@ SOURCE = {
     "waiting": "jarvis", "error": "jarvis", "reply": "jarvis", "break": "breaks", "dictation": "tools",
     "convert": "tools", "captions": "tools", "notification": "notifications", "volume": "volume", "media": "media",
     "battery": "battery", "game": "games", "played": "games", "discord": "discord", "steam": "steam",
-    "steam_done": "steam",
+    "steam_done": "steam", "meeting": "tools",
 }
 SOURCES = ("jarvis", "discord", "games", "steam", "media", "timers", "notifications", "volume", "tools", "breaks",
            "battery")
@@ -43,7 +43,7 @@ LEVELS = {"off": -1, "low": 0, "normal": 1, "high": 2, "top": 3}
 DEFAULT_LEVELS = {"jarvis": "normal", "discord": "normal", "games": "normal", "steam": "normal", "media": "normal",
                   "timers": "normal", "notifications": "off", "volume": "normal", "tools": "normal", "breaks": "normal",
                   "battery": "low"}
-BUBBLE_KINDS = ("timer", "media", "captions", "dictation", "convert", "game", "discord", "steam")
+BUBBLE_KINDS = ("timer", "media", "captions", "dictation", "convert", "game", "discord", "steam", "meeting")
 SIZES = {"85": 0.85, "100": 1.0, "115": 1.15, "130": 1.3}
 BACKGROUNDS = {"black": "#000000", "graphite": "#1c1c1e", "midnight": "#0b1530", "glass": "#10131a"}
 
@@ -553,6 +553,8 @@ WORDS = {
     "steam_paused": ("Пауза", "Paused", "Pauză"),
     "steam_done": ("Установлено", "Installed", "Instalat"),
     "eta": ("осталось {t}", "{t} left", "mai rămân {t}"),
+    "meeting": ("Запись конспекта", "Recording notes", "Înregistrez rezumatul"),
+    "meeting_paused": ("Конспект на паузе", "Notes paused", "Rezumat pe pauză"),
 }
 LANG_INDEX = {"ru": 0, "en": 1, "ro": 2}
 

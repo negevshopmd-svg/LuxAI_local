@@ -1,3 +1,27 @@
+## 0.4.4b — Video and call notes plugin (2026-11-27)
+
+The «Video and call notes» plugin works (Extensions → Voice and sound). Ctrl+Alt+N, the plugin's button or «начни
+конспект» / «start notes» / «începe rezumatul» starts; the same key, the pill's ■ or «stop notes» ends.
+- `luxai/meeting_notes.py`: `TrackWriter` writes each source (PC sound via process loopback that leaves Jarvis'
+  voice out; the microphone) as 16 kHz PCM to `.luxai_data/meetings/<time>/` on a wall-clock timeline (loopback
+  sends no packets while nothing plays — that silence is filled so the tracks stay in step), pause-aware, at most
+  6 h, readable after a crash. `Transcriber` (own thread) transcribes finished ≤30 s pieces cut in the quietest
+  0.1 s after 20 s, skips silence, drops Whisper's inventions and unsure segments, one line per sentence, «Me» /
+  «Others», written to `transcript.jsonl` as it goes; `drop_echo` removes the speakers heard by the mic.
+  `summarize` asks the AI for JSON notes (summary, topics, decisions, tasks with who/when, open questions) in
+  ≤5500-character parts and merges them (or keeps all parts when merging fails); `notes_markdown` in ru/en/ro.
+- `luxai/runtime_meeting.py`: the session, `MicTrack`, cloud AI → local model → transcript only, the Markdown
+  saved atomically to Documents\Jarvis\Notes (the real Documents folder, also when moved) and opened; the audio is
+  deleted unless «Keep the audio» (then a WAV per source next to the notes). Closing Jarvis while recording keeps
+  the tracks; the notes are written at the next start.
+- `luxai/ui_meeting.py`: the «● REC 00:12:34 ❚❚ ■» pill (draggable, breathing dot); the status island shows the
+  recording with Pause / Stop.
+
+Verified live: 5 s of real PC sound recorded and stopped through the runtime («no speech», working folder removed);
+the Russian news corpus through the real Whisper large-v3-turbo (49 s → 8 lines in 34 s) and the local Qwen3-8B
+(Romanian notes in 38 s). NOT live: a real call with the microphone (the mic was not recorded in the tests).
+Tests: `tests/test_meeting_notes_044b.py` (28).
+
 ## 0.4.4a — A new look for the action circle (2026-11-27)
 
 `ui_convert_circle.RadialMenu` (also the converter's circle) is redrawn: a disc with a soft shadow and a gradient,

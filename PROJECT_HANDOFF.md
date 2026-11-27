@@ -102,7 +102,9 @@ key is built into `Update.py` and `scripts/release_signature.py`. `.bat/.cmd` ar
   media session / volume / battery / toasts via WinRT in MTA, `ui_status_island.py` painted morphing window,
   `runtime_island.py` mixin of the runtime; `game_detect.py` games + Steam names/pictures, `steam_activity.py`
   Steam downloads from content_log, `discord_island.py` Discord call / mute / volume; per-source priorities `p_*`).
-  «Soon»: meeting notes, ask documents, desktop pet,
+  meeting notes (`meeting_notes.py` recording/transcription/notes, `runtime_meeting.py` session mixin,
+  `ui_meeting.py` REC pill).
+  «Soon»: ask documents, desktop pet,
   smart home, streamer helper.
 - **Translation:** `offline_translate.py` (NLLB-200 600M CTranslate2 int8, pinned revision + SHA-256,
   repair in background), `chat_translate.py` («translate …» in the chat).

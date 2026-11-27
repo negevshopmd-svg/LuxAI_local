@@ -30,7 +30,7 @@ QUICK_ICONS = {"mic": "mic", "quiet": "volume-x", "captions": "captions", "scree
 KIND_ICONS = {"listening": "mic", "speaking": "audio-lines", "working": "sparkles", "waiting": "message-circle",
               "error": "x", "reply": "jarvis", "break": "coffee", "dictation": "mic", "convert": "download",
               "notification": "bell", "captions": "captions", "demo": "sparkles", "timer": "clock", "ring": "bell",
-              "game": "gamepad-2", "played": "gamepad-2", "discord": "headphones", "steam": "download",
+              "game": "gamepad-2", "played": "gamepad-2", "discord": "headphones", "steam": "download", "meeting": "clipboard-list",
               "steam_done": "check"}
 DAYS = {"ru": ("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"), "en": ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"),
         "ro": ("Lu", "Ma", "Mi", "Jo", "Vi", "Sâ", "Du")}
@@ -284,7 +284,7 @@ class IslandWindow(QWidget):
         if main.kind == "volume":
             return self.s(240)
         text = compact_text(main)
-        if main.kind in ("timer", "game", "discord", "steam"):
+        if main.kind in ("timer", "game", "discord", "steam", "meeting"):
             indicator = 92
         elif main.kind in ("media", "listening", "speaking", "volume", "working", "convert"):
             indicator = 64
@@ -661,10 +661,10 @@ class IslandWindow(QWidget):
         """Right side of the compact pill; returns the width it used."""
         color = self.color_of(activity)
         kind = activity.kind
-        if kind in ("timer", "game", "discord", "steam"):
+        if kind in ("timer", "game", "discord", "steam", "meeting"):
             painter.setFont(self._font(15 if kind == "timer" else 13.5, True))
             painter.setPen(color if kind != "discord" else QColor(255, 255, 255, 220))
-            value = {"timer": "left", "game": "elapsed", "discord": "elapsed", "steam": "percent"}[kind]
+            value = {"timer": "left", "game": "elapsed", "discord": "elapsed", "steam": "percent", "meeting": "elapsed"}[kind]
             painter.drawText(rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight, activity.data.get(value, ""))
             if kind == "discord" and activity.data.get("mic_muted"):
                 width = QFontMetricsF(painter.font()).horizontalAdvance(activity.data.get("elapsed", ""))
@@ -802,6 +802,10 @@ class IslandWindow(QWidget):
             return [("discord:mic", "@icon:mic-off" if activity.data.get("mic_muted") else "@icon:mic"),
                     ("discord:deaf", "@icon:volume-x" if activity.data.get("deafened") else "@icon:headphones"),
                     ("discord:down", "@icon:minus"), ("discord:up", "@icon:plus")]
+        if kind == "meeting":
+            return [("meeting:pause", t("Продолжить", "Resume", "Continuă") if activity.data.get("paused")
+                     else t("Пауза", "Pause", "Pauză")),
+                    ("meeting:stop", t("Стоп и конспект", "Stop and notes", "Stop și rezumat"))]
         if kind == "steam":
             return [("steam:open", t("Открыть загрузки Steam", "Open Steam downloads", "Deschide descărcările Steam"))]
         if kind == "game":
@@ -959,7 +963,8 @@ class IslandWindow(QWidget):
         painter.setFont(self._font(12.5, True))
         for index, (name, label) in enumerate(controls):
             button = QRectF(x, rect.top(), width, rect.height() - self.s(2))
-            primary = index == 0 and activity.kind in ("ring", "break", "dictation", "speaking")
+            primary = (index == 0 and activity.kind in ("ring", "break", "dictation", "speaking")) or \
+                (name == "meeting:stop")
             self._button_back(painter, button, name, primary=primary, color=self.color_of(activity))
             painter.setPen(QColor(0, 0, 0, 230) if primary else QColor(255, 255, 255, 230))
             painter.drawText(button, Qt.AlignmentFlag.AlignCenter,

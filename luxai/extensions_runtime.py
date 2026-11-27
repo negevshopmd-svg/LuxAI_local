@@ -666,9 +666,10 @@ class AsyncReply(str):
 
 
 from luxai.runtime_island import IslandMixin  # noqa: E402
+from luxai.runtime_meeting import MeetingMixin  # noqa: E402
 
 
-class ExtensionsRuntime(IslandMixin, QObject):
+class ExtensionsRuntime(IslandMixin, MeetingMixin, QObject):
     """Starts/stops ready plugins. ``host`` is the MainWindow-like object.
 
     The host may provide: ``cfg`` (dict), ``tray_icon``, ``_queue_speech(text, lang)``,
@@ -719,6 +720,7 @@ class ExtensionsRuntime(IslandMixin, QObject):
     _clip_history_loaded = Signal(object, int)  # loaded ClipboardHistory, load generation (audit 2 #17)
     _island_probe_report = Signal(object)  # media / volume / battery snapshot from the island probe thread
     _island_toasts = Signal(object)  # new Windows notifications for the island
+    _meeting_done = Signal(str, str)  # notes file ("" = none), status ok | plain | empty | error:…
     _island_discord_done = Signal(str)  # what Discord's mic / headphones button did (from a worker thread)
 
     def __init__(self, host, parent=None):
@@ -894,6 +896,7 @@ class ExtensionsRuntime(IslandMixin, QObject):
         self._pc_status.connect(self._on_pc_status)
         self._break_card_test = False
         self._island_init()
+        self._meeting_init()
 
     # -- helpers --
     @property
@@ -970,6 +973,10 @@ class ExtensionsRuntime(IslandMixin, QObject):
         self._apply_timers()
         self._apply_notifications()
         self._apply_island()
+        if self.enabled("meeting_notes"):
+            QTimer.singleShot(8000, self._recover_meetings)
+        elif self.meeting_recording:
+            self.stop_meeting()  # turning the plugin off ends the recording and still writes the notes
         if self.enabled("downloads_cleanup") and self.settings("downloads_cleanup").get("auto"):
             if not self._cleanup_timer.isActive():
                 self._cleanup_timer.start()
@@ -2091,6 +2098,7 @@ class ExtensionsRuntime(IslandMixin, QObject):
             self._finish_clip_saves_at_exit(None)  # a save that already started finishes first (audit 2 #15)
         self._close_avatar()
         self._close_island()
+        self._meeting_on_exit()
         self.hide_captions()
         self._notif_timer.stop()
         self._timer_tick.stop()
@@ -2125,6 +2133,8 @@ class ExtensionsRuntime(IslandMixin, QObject):
             self.open_action_circle()
         elif plugin_id == "status_island":
             self.toggle_island()
+        elif plugin_id == "meeting_notes":
+            self._notify(self.toggle_meeting())
         elif plugin_id == "media_keys" and key in MEDIA_KEYS:
             press_virtual_key(MEDIA_KEYS[key])
         elif plugin_id == "screenshots":
@@ -2156,6 +2166,8 @@ class ExtensionsRuntime(IslandMixin, QObject):
             ("quick_inserts", "open"): lambda: self.open_snippets(paste=False),
             ("breaks", "test"): lambda: self.remind_break(force=True),
             ("status_island", "demo"): self.show_island_demo,
+            ("meeting_notes", "toggle"): lambda: self._notify(self.toggle_meeting()),
+            ("meeting_notes", "open_folder"): self.open_meeting_folder,
             ("breaks", "try_eyes"): lambda: self.show_break_card("eyes", test=True),
             ("breaks", "try_stretch"): lambda: self.show_break_card("stretch", test=True),
             ("breaks", "try_water"): lambda: self.show_break_card("water", test=True),
@@ -3017,7 +3029,8 @@ class ExtensionsRuntime(IslandMixin, QObject):
         """Typed or spoken requests handled by extensions (notifications, timers)."""
         return (self.handle_notification_request(text) or self.handle_timer_request(text)
                 or self.handle_clipboard_request(text) or self.handle_captions_request(text)
-                or self.handle_avatar_request(text) or self.handle_translate_request(text))
+                or self.handle_avatar_request(text) or self.handle_translate_request(text)
+                or self.handle_meeting_request(text))
 
     def handle_translate_request(self, text: str) -> str | None:
         """«Переведи …» / «Tradu …» / «Translate …» in the chat: the offline translator answers (≈0.5 s).

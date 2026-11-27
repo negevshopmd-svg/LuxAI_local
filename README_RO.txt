@@ -1,5 +1,12 @@
-LUXAI LOCAL 0.4.4a — ACTUALIZARE 2026-11-27
+LUXAI LOCAL 0.4.4b — ACTUALIZARE 2026-11-27
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.4b: Plugin nou — „Rezumat video și apeluri” (Extensii → Voce și sunet). Apasă Ctrl+Alt+N sau spune
+„începe rezumatul”: Jarvis înregistrează sunetul PC-ului și microfonul (apare banda „● REC” cu pauză și stop)
+și transcrie din mers. După Stop face un rezumat — pe scurt, teme, decizii, sarcini (cine / ce / când) și
+întrebări deschise — și îl deschide ca fișier în Documente\Jarvis\Rezumate. Rezumatul îl scrie AI-ul din cloud
+sau modelul local; fără AI primești transcrierea. Sunetul rămâne pe PC și se șterge după rezumat.
+Înregistrează alți oameni doar cu acordul lor.
 
 0.4.4a: Cercul de acțiuni arată nou: butoane rotunde pe un inel, colorate pe grupe (comenzile tale, căutare,
 fereastră, media), butonul de sub mouse crește lin și strălucește, iar în centru apare numele lui întreg.

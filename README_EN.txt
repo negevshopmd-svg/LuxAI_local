@@ -1,4 +1,11 @@
-LUXAI LOCAL (JARVIS) 0.4.4a — UPDATE 2026-11-27
+LUXAI LOCAL (JARVIS) 0.4.4b — UPDATE 2026-11-27
+
+0.4.4b: New plugin “Video and call notes” (Extensions → Voice and sound). Press Ctrl+Alt+N or say “start
+notes”: Jarvis records the PC sound and the microphone (a “● REC” pill with pause and stop appears) and
+transcribes as it goes. After Stop it writes notes — in short, topics, decisions, tasks (who / what / when)
+and open questions — and opens them as a file in Documents\Jarvis\Notes. The cloud AI or the local model
+writes them; without AI you get the transcript. The sound stays on the PC and is deleted after the notes.
+Record other people only with their consent.
 
 0.4.4a: A new look for the Action circle: round buttons on a ring, each group in its colour (your commands,
 search, window, media); the button under the mouse grows smoothly and glows, and its full name shows in the

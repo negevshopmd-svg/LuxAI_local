@@ -343,14 +343,51 @@ PLUGINS: tuple[Plugin, ...] = (
           "topics, decisions, tasks and open questions.",
           "Înregistrează sunetul PC-ului și microfonul, transcrie, apoi face un rezumat: "
           "teme, decizii, sarcini și întrebări deschise."),
-        False,
-        (Setting("sources", "choice", L("Источники звука", "Audio sources", "Surse audio"), "both",
+        True,
+        (_hotkey("ctrl+alt+n", L("Начать / остановить", "Start / stop", "Pornește / oprește")),
+         Setting("sources", "choice", L("Источники звука", "Audio sources", "Surse audio"), "both",
                  options=(("both", L("Компьютер и микрофон", "PC and microphone", "PC și microfon")),
                           ("system", L("Только звук компьютера", "PC audio only", "Doar sunetul PC")),
-                          ("mic", L("Только микрофон", "Microphone only", "Doar microfonul")))),
+                          ("mic", L("Только микрофон", "Microphone only", "Doar microfonul"))),
+                 hint=L("Компьютер — собеседники и видео, микрофон — вы. В расшифровке они подписаны «Собеседники» и «Я».",
+                        "PC — the others and videos, microphone — you. The transcript marks them “Others” and “Me”.",
+                        "PC — ceilalți și video, microfon — tu. Transcrierea îi marchează „Ceilalți” și „Eu”.")),
+         Setting("language", "choice", L("Язык речи", "Speech language", "Limba vorbirii"), "auto",
+                 options=(("auto", L("Определять сам", "Detect it", "Detectează singur")), ("ru", L("Русский", "Russian", "Rusă")),
+                          ("ro", L("Румынский", "Romanian", "Română")), ("en", L("Английский", "English", "Engleză")))),
+         Setting("quality", "choice", L("Расшифровка", "Transcription", "Transcriere"), "accurate",
+                 options=(("accurate", L("Точная", "Accurate", "Precisă")), ("fast", L("Быстрая", "Fast", "Rapidă"))),
+                 hint=L("Точная — модель large-v3-turbo (лучше для русского и румынского), быстрая — small. Обе работают "
+                        "на этом ПК.",
+                        "Accurate — the large-v3-turbo model (better for Russian and Romanian), fast — small. Both run "
+                        "on this PC.",
+                        "Precisă — modelul large-v3-turbo (mai bun pentru rusă și română), rapidă — small. Ambele merg "
+                        "pe acest PC.")),
+         Setting("ai_source", "choice", L("Кто пишет конспект", "Who writes the notes", "Cine scrie rezumatul"), "auto",
+                 options=(("auto", L("Облачный ИИ, иначе локальный", "Cloud AI, else local", "AI cloud, altfel local")),
+                          ("cloud", L("Только облачный ИИ", "Cloud AI only", "Doar AI cloud")),
+                          ("local", L("Только локальная модель", "Local model only", "Doar modelul local")),
+                          ("none", L("Без ИИ — только расшифровка", "No AI — transcript only", "Fără AI — doar transcriere"))),
+                 hint=L("С облачным ИИ расшифровка уходит к вашему провайдеру. Локальная модель — всё остаётся на ПК.",
+                        "With the cloud AI the transcript goes to your provider. The local model — everything stays on the PC.",
+                        "Cu AI cloud transcrierea ajunge la furnizorul tău. Modelul local — totul rămâne pe PC.")),
+         Setting("notes_language", "choice", L("Язык конспекта", "Notes language", "Limba rezumatului"), "auto",
+                 options=(("auto", L("Как интерфейс Jarvis", "Jarvis' interface language", "Ca interfața Jarvis")),
+                          ("ru", L("Русский", "Russian", "Rusă")), ("ro", L("Румынский", "Romanian", "Română")),
+                          ("en", L("Английский", "English", "Engleză")))),
          Setting("folder", "folder", L("Папка для конспектов", "Notes folder", "Dosar pentru rezumate"), "",
-                 hint=L("Пусто — «Документы\\Jarvis\\Конспекты».", "Empty — “Documents\\Jarvis\\Notes”.", "Gol — „Documente\\Jarvis\\Rezumate”.")),
-         Setting("keep_audio", "bool", L("Сохранять аудиозапись", "Keep the audio recording", "Păstrează înregistrarea audio"), False)),
+                 hint=L("Пусто — «Документы\\Jarvis\\Конспекты».", "Empty — “Documents\\Jarvis\\Notes”.",
+                        "Gol — „Documente\\Jarvis\\Rezumate”.")),
+         Setting("transcript", "bool", L("Добавить полную расшифровку", "Add the full transcript", "Adaugă transcrierea completă"),
+                 True),
+         Setting("open_after", "bool", L("Открыть конспект, когда готов", "Open the notes when ready",
+                                         "Deschide rezumatul când e gata"), True),
+         Setting("keep_audio", "bool", L("Сохранять аудиозапись", "Keep the audio recording", "Păstrează înregistrarea audio"),
+                 False, hint=L("WAV рядом с конспектом (≈115 МБ в час на источник). Выключено — запись удаляется.",
+                               "A WAV next to the notes (≈115 MB per hour per source). Off — the recording is deleted.",
+                               "Un WAV lângă rezumat (≈115 MB pe oră pe sursă). Oprit — înregistrarea se șterge."))),
+        (("toggle", L("Начать / остановить запись", "Start / stop recording", "Pornește / oprește înregistrarea")),
+         ("open_folder", L("Открыть папку конспектов", "Open the notes folder", "Deschide dosarul cu rezumate"))),
     ),
     # --- Text and clipboard ----------------------------------------------
     Plugin(
@@ -1200,6 +1237,7 @@ _ON_LEVELS = ("low", "normal", "high", "top")
 # A setting is editable only while another setting has one of these values.
 ENABLED_IF = {
     "quick_circle": {"search_engine": ("show_search", (True,))},
+    "meeting_notes": {"notes_language": ("ai_source", ("auto", "cloud", "local"))},
     "status_island": {"notification_text": ("p_notifications", _ON_LEVELS),
                       "notification_seconds": ("p_notifications", _ON_LEVELS),
                       "flash_seconds": ("p_volume", _ON_LEVELS), "paused_media": ("p_media", _ON_LEVELS),
@@ -1256,6 +1294,18 @@ BASIC_NOTE = {
                        "principală (pauză la muzică, „Gata” pentru pauză, oprește alarma), clic dreapta închide, dublu clic "
                        "deschide Jarvis. Ctrl+Alt+I o deschide și o fixează. Titlurile pieselor și notificările nu se salvează "
                        "nicăieri."),
+    "meeting_notes": L("Нажмите Ctrl+Alt+N или скажите «начни конспект» — появится плашка «● REC» с паузой и стопом. "
+                       "Расшифровка идёт во время записи, после «Стоп» конспект сохраняется в Markdown и открывается. "
+                       "Звук не покидает этот ПК; запись удаляется, если не включено «Сохранять аудиозапись». "
+                       "Записывайте других людей только с их согласия.",
+                       "Press Ctrl+Alt+N or say “start notes” — a «● REC» pill appears with pause and stop. "
+                       "Transcription runs while recording; after Stop the notes are saved as Markdown and opened. "
+                       "The sound never leaves this PC; the recording is deleted unless “Keep the audio” is on. "
+                       "Record other people only with their consent.",
+                       "Apasă Ctrl+Alt+N sau spune „începe rezumatul” — apare banda „● REC” cu pauză și stop. "
+                       "Transcrierea merge în timpul înregistrării; după Stop rezumatul se salvează în Markdown și se "
+                       "deschide. Sunetul nu pleacă de pe acest PC; înregistrarea se șterge dacă nu e pornit „Păstrează "
+                       "înregistrarea audio”. Înregistrează alți oameni doar cu acordul lor."),
     "quick_circle": L("Нажмите клавишу — у курсора откроется круг. Выбор: мышью, стрелками и Enter или цифрами 1–9; "
                       "Esc или щелчок в центре закрывает. Действия окна относятся к окну, которое было активным; "
                       "«Закрыть окно» работает как крестик — программа может спросить о сохранении.",
