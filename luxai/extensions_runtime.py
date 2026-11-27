@@ -700,6 +700,7 @@ class ExtensionsRuntime(QObject):
     _cap_engine_partial = Signal(str, int)
     _cap_engine_final = Signal(str, int)
     _cap_engine_corrected = Signal(str, str, int)
+    _cap_engine_corrected_many = Signal(object, object, int)  # draft lines, corrected lines, engine number
     _film_report = Signal(object)  # a player report from the Chrome extension (film captions in advance)
     _film_error = Signal(str)
     _cap_notice = Signal(str)  # «system» (fell back to all PC sound) / «recovered»
@@ -782,6 +783,8 @@ class ExtensionsRuntime(QObject):
             lambda text, gen: self._on_cap_final(text) if gen == self._cap_engine_gen else None)
         self._cap_engine_corrected.connect(
             lambda draft, precise, gen: self._on_cap_corrected(draft, precise) if gen == self._cap_engine_gen else None)
+        self._cap_engine_corrected_many.connect(
+            lambda drafts, lines, gen: self._on_cap_corrected_many(drafts, lines) if gen == self._cap_engine_gen else None)
         self._film_report.connect(self._on_film_report)
         self._film_error.connect(self._on_film_error)
         self._cap_notice.connect(self._on_cap_notice)
@@ -1183,7 +1186,9 @@ class ExtensionsRuntime(QObject):
                                lambda text: self._cap_engine_final.emit(text, gen),
                                on_error=self._cap_error.emit, precise_provider=precise if hybrid else None,
                                on_correct=(lambda draft, text: self._cap_engine_corrected.emit(draft, text, gen))
-                               if hybrid else None)
+                               if hybrid else None,
+                               on_correct_many=(lambda drafts, lines: self._cap_engine_corrected_many.emit(
+                                   list(drafts), list(lines), gen)) if hybrid else None)
         self._cap_phrase += 1
         source = str(settings.get("source") or "")
         pid = app_pid(source) if source else 0
@@ -1791,6 +1796,25 @@ class ExtensionsRuntime(QObject):
             engine = self._captions_engine
             source = (getattr(engine, "detected", None) or self._caption_language() or "") if engine else ""
             self._queue_caption_translation(precise, target, source)
+
+    def _on_cap_corrected_many(self, drafts, lines):
+        """Hybrid (0.4.3w): one precise pass corrected several draft lines at once — its sentences replace them,
+        and each new sentence is translated."""
+        bar = self._captions_bar
+        if bar is None or self._film_active or not lines:
+            return
+        target = self._caption_target()
+        from luxai.translation import text_language
+        translate = target is not None and any(text_language(line) != target for line in lines)
+        if not bar.replace_lines(list(drafts), list(lines), pending=translate) or not translate:
+            return
+        engine = self._captions_engine
+        source = (getattr(engine, "detected", None) or self._caption_language() or "") if engine else ""
+        for line in lines:
+            if text_language(line) != target:
+                self._queue_caption_translation(line, target, source)
+            else:
+                bar.set_translation(line, "")
 
     def _on_cap_partial_translated(self, text: str, translated: str, phrase: int):
         if phrase == self._cap_phrase:

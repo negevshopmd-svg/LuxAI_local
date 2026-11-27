@@ -660,13 +660,11 @@ class FilmTranscriber:
         peak = float(np.max(np.abs(audio)))
         if 0.0 < peak < 0.1:
             audio = (audio * min(16.0, 0.1 / peak)).astype(np.float32)
+        # 0.4.3w: the film's language comes from the transcription pass itself (Whisper's detection reuses that
+        # pass's encoder output) — a separate detect_language() was one more full pass exactly while the video waits
+        # for its first phrase. It is kept only when Whisper is sure (≥ 0.7); a music intro no longer locks a wrong
+        # language for the whole film — the next piece detects again.
         language = self.language
-        if not language and hasattr(model, "detect_language"):
-            try:
-                language = model.detect_language(audio)[0]
-                self.language = language
-            except Exception:
-                language = None
         from luxai.live_captions import lone_filler, trustworthy
         from luxai.voice_rules import is_hallucinated_outro, is_repetitive_transcript
 
@@ -681,11 +679,16 @@ class FilmTranscriber:
             position = self.clock.position()
             return not start - 1.0 <= position <= begin + len(audio) / 16000
         pass_id = next(_PASS_IDS)
-        segments, _info = model.transcribe(
+        segments, info = model.transcribe(
             audio, language=language, beam_size=1 if self._urgent else 2, temperature=0.0, vad_filter=True,
             vad_parameters={"min_silence_duration_ms": 300, "speech_pad_ms": 200},
             condition_on_previous_text=False, initial_prompt=self._prompt or None, word_timestamps=True,
             no_speech_threshold=0.6, log_prob_threshold=-1.0, compression_ratio_threshold=2.4)
+        if not self.language:
+            detected = getattr(info, "language", None)
+            probability = getattr(info, "language_probability", 0.0)
+            if isinstance(detected, str) and isinstance(probability, (int, float)) and probability >= 0.7:
+                self.language = detected
         reached = begin + len(audio) / 16000
         next_start = reached
         committed = max(start, begin)

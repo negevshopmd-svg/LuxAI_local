@@ -1,4 +1,10 @@
-LUXAI LOCAL (JARVIS) 0.4.3v — UPDATE 2026-11-27
+LUXAI LOCAL (JARVIS) 0.4.3w — UPDATE 2026-11-27
+
+0.4.3w: Much more accurate live captions. The precise model now corrects EVERY line (before, many stayed
+drafts), reading all phrases finished meanwhile in one pass. Measured on test speech in real time: errors
+in Russian 11.4% → 4.5%, Romanian 19.5% → 6.7%, English 2.2% → 1.9%; 3–4 times fewer lost words; the first
+words appear ~0.7–1 s sooner. Romanian keeps its diacritics. Film captions no longer lock a wrong language
+when a film starts with music.
 
 0.4.3v: New plugin — «Action circle» (Extensions → PC and home control). Press Ctrl+Alt+C: a circle opens at
 the cursor with your commands (one click), a search for the selected text, actions for the active window

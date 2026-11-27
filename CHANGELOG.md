@@ -1,3 +1,36 @@
+## 0.4.3w — Live captions: every line corrected, measured before/after (2026-11-27)
+
+New benchmark `tests/captions_bench/` (dev only): `make_corpus.py` builds ~50–60 s «news» streams per language from
+known sentences read by the local Piper voices (ru / en / ro), with pauses, continuous speech, varied rate and
+background noise; `run_bench.py` feeds a stream IN REAL TIME through `CaptionEngine` exactly as the app's «Hybrid»
+(auto language: small draft + large-v3-turbo correction) and measures word error rate, lost words and delays;
+`window_bench.py` measures one Whisper pass per model.
+
+Found:
+- One pass costs the same for any phrase length (small ≈1.2 s, turbo ≈4.8 s; a shorter `chunk_length` changes
+  nothing — faster-whisper still pads to 30 s). Sentence by sentence turbo reaches 1.9 / 5.7 / 10.1 % WER (en/ru/ro),
+  but live the final text was 2.2 / 11.4 / 19.5 %: most lines were never corrected — a phrase waiting for the precise
+  model was replaced by the newer one and stayed a draft.
+- The precise pass got the DRAFT as its context; small writes Romanian without diacritics and turbo copied that.
+- With auto language, a separate detect_language() pass delayed the first words by ~1 s.
+
+Changed:
+- `CaptionEngine` queues finished phrases; ONE precise pass reads all of them (≤ 26 s) and its sentences replace the
+  draft lines (`on_correct_many` → `CaptionBar.replace_lines`, each new sentence is translated). A pass ends only at a
+  phrase that ended in a pause (never half a word at its edge), or when much is waiting.
+- A correction with < 60 % or > 170 % of the draft words is refused (a pass that stopped early once dropped two whole
+  sentences); the next pass's context is the corrected text.
+- While the language is not sure yet, Whisper detects it in the transcription pass (`_vote_from_pass`).
+- Film captions: the language comes from the transcription pass too, kept only at ≥ 0.7 probability (a music intro
+  no longer locks a wrong language for the whole film; no extra pass while the video waits).
+- Browser extension reviewed: no fault found. DASH manifests are not added — DASH players play through MediaSource,
+  which the page hook already captures on any site while captions are on.
+
+Before → after (2 real-time runs each, same corpus, mean): final WER en 2.2 → 1.9 %, ru 11.4 → 4.5 %,
+ro 19.5 → 6.7 %; lost words en 0.5 → 1, ru 5.5 → 2, ro 7.5 → 2; first words on the bar en 3.6 → 2.7 s,
+ru 3.8 → 3.1 s, ro 4.9 → 3.9 s; finished line 2.3–2.9 → 1.7–2.2 s; correction 10–12.3 → 8.6–10.4 s.
+Tests: `tests/test_live_captions_043w.py` (15).
+
 ## 0.4.3v — New plugin: Action circle (2026-11-27)
 
 - «Круг действий / Action circle / Cerc de acțiuni» is no longer «Soon». Ctrl+Alt+C opens a radial menu at the

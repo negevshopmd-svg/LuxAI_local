@@ -1,5 +1,11 @@
-LUXAI LOCAL 0.4.3v — ACTUALIZARE 2026-11-27
+LUXAI LOCAL 0.4.3w — ACTUALIZARE 2026-11-27
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.3w: Subtitrări live mult mai exacte. Modelul precis corectează acum FIECARE rând (înainte multe rânduri
+rămâneau ciorne), citind într-o singură trecere toate frazele terminate între timp. Măsurat pe vorbire de
+test în timp real: greșeli în rusă 11,4% → 4,5%, în română 19,5% → 6,7%, engleză 2,2% → 1,9%; cuvinte
+pierdute de 3–4 ori mai puține; primele cuvinte apar cu ~0,7–1 s mai devreme. Româna păstrează acum
+diacriticele. Subtitrările filmelor nu mai fixează o limbă greșită dacă filmul începe cu muzică.
 
 0.4.3v: Plugin nou — „Cerc de acțiuni” (Extensii → Control PC și casă). Apasă Ctrl+Alt+C: lângă cursor
 se deschide un cerc cu comenzile tale (dintr-un clic), căutarea textului selectat, acțiuni pentru
