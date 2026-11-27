@@ -484,7 +484,7 @@ QPushButton#SettingsNav[selected="true"] {
     border-left: 3px solid $accent;
     color: $text;
 }
-QLineEdit, QTextEdit, QComboBox, QSpinBox, QTimeEdit {
+QLineEdit, QTextEdit, QPlainTextEdit, QComboBox, QSpinBox, QTimeEdit {
     background: $field;
     color: $text;
     border: 1px solid $border;
@@ -492,7 +492,7 @@ QLineEdit, QTextEdit, QComboBox, QSpinBox, QTimeEdit {
     padding: 8px;
     selection-background-color: $accent;
 }
-QLineEdit:focus, QTextEdit:focus, QComboBox:focus {
+QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus, QComboBox:focus {
     border-color: $accent;
 }
 QComboBox {

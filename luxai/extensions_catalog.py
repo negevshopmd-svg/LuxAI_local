@@ -361,16 +361,39 @@ PLUGINS: tuple[Plugin, ...] = (
           "translate or reply — and replace it in one click.",
           "Selectează text în orice program și apasă tasta: corectează, îmbunătățește, scurtează, "
           "traduce sau răspunde — și înlocuiește cu un clic."),
-        False,
+        True,
         (_hotkey("ctrl+alt+t"),
          Setting("default_action", "choice", L("Действие по умолчанию", "Default action", "Acțiune implicită"), "fix",
+                 hint=L("Срабатывает по Enter в окне помощника.", "Runs on Enter in the helper window.",
+                        "Rulează la Enter în fereastra asistentului."),
                  options=(("fix", L("Исправить ошибки", "Fix mistakes", "Corectează greșelile")),
                           ("improve", L("Улучшить стиль", "Improve style", "Îmbunătățește stilul")),
                           ("shorten", L("Сократить", "Shorten", "Scurtează")),
-                          ("translate", L("Перевести", "Translate", "Tradu")))),
-         Setting("translate_to", "choice", L("Переводить на", "Translate to", "Tradu în"), "en",
-                 options=(("ru", L("Русский", "Russian", "Rusă")), ("ro", L("Румынский", "Romanian", "Română")),
-                          ("en", L("Английский", "English", "Engleză"))))),
+                          ("translate", L("Перевести", "Translate", "Tradu")),
+                          ("reply", L("Ответить на сообщение", "Reply to the message", "Răspunde la mesaj")))),
+         Setting("show_menu", "bool", L("Сначала показать меню действий", "Show the action menu first",
+                                        "Arată întâi meniul de acțiuni"), True,
+                 hint=L("Выключено — клавиша сразу выполняет действие по умолчанию и показывает результат.",
+                        "Off — the key runs the default action at once and shows the result.",
+                        "Oprit — tasta rulează direct acțiunea implicită și arată rezultatul.")),
+         Setting("translate_to", "choice", L("Переводить на", "Translate to", "Tradu în"), "auto",
+                 hint=L("«Авто» — на язык Jarvis; текст на этом языке — на английский.",
+                        "«Auto» — into Jarvis' language; text already in it — into English.",
+                        "„Auto” — în limba lui Jarvis; textul deja în ea — în engleză."),
+                 options=(("auto", L("Авто", "Auto", "Auto")),
+                          ("ru", L("Русский", "Russian", "Rusă")), ("ro", L("Румынский", "Romanian", "Română")),
+                          ("en", L("Английский", "English", "Engleză")))),
+         Setting("ai_source", "choice", L("Какой ИИ работает", "Which AI does the work", "Ce AI lucrează"), "auto",
+                 hint=L("Перевод идёт офлайн-переводчиком на этом ПК. Локальная модель работает без интернета, "
+                        "но медленнее.",
+                        "Translation uses the offline translator on this PC. The local model works without "
+                        "internet, but slower.",
+                        "Traducerea folosește traducătorul offline de pe acest PC. Modelul local merge fără "
+                        "internet, dar mai încet."),
+                 options=(("auto", L("Облачный, если подключён, иначе локальный",
+                                     "Cloud when connected, otherwise local", "Cloud dacă e conectat, altfel local")),
+                          ("cloud", L("Только облачный", "Cloud only", "Doar cloud")),
+                          ("local", L("Только локальная модель", "Local model only", "Doar modelul local"))))),
     ),
     Plugin(
         "clipboard_history", "text", "clipboard-paste", "#c47a2c",
@@ -1028,6 +1051,18 @@ BASIC_NOTE = {
                              "Notificările sunt mesajele tale. Jarvis păstrează doar ultimele 20 în memorie și nu scrie nimic pe "
                              "disc sau în jurnale. Traducerea se face pe acest PC — textul notificărilor nu pleacă nicăieri. Cât "
                              "PC-ul e blocat, nu se citește nimic."),
+    "text_helper": L("Выделите текст в любой программе и нажмите клавишу: у курсора появятся действия (1–5) и поле для "
+                     "своей команды. Ctrl+Enter заменяет выделенное результатом; перед вставкой Jarvis проверяет, что "
+                     "окно то же. Перевод делается на этом ПК. Остальные действия — облачным ИИ (текст уходит только "
+                     "вашему провайдеру) или локальной моделью (никуда не уходит).",
+                     "Select text in any program and press the key: the actions (1–5) and a field for your own request "
+                     "appear at the cursor. Ctrl+Enter replaces the selection with the result; Jarvis checks first that "
+                     "it is still the same window. Translation happens on this PC. The other actions use the cloud AI "
+                     "(the text goes only to your provider) or the local model (it goes nowhere).",
+                     "Selectează text în orice program și apasă tasta: lângă cursor apar acțiunile (1–5) și un câmp "
+                     "pentru cererea ta. Ctrl+Enter înlocuiește selecția cu rezultatul; Jarvis verifică întâi că e "
+                     "aceeași fereastră. Traducerea se face pe acest PC. Celelalte acțiuni folosesc AI-ul din cloud "
+                     "(textul merge doar la furnizorul tău) sau modelul local (nu pleacă nicăieri)."),
     "converter": L("Картинки — силами Pillow, звук и видео — встроенным FFmpeg (PyAV). Ничего докачивать не нужно; "
                    "OGG сохраняется с кодеком Opus.",
                    "Images via Pillow, audio and video via the built-in FFmpeg (PyAV). Nothing to download; "

@@ -1,5 +1,11 @@
-LUXAI LOCAL 0.4.3t — ACTUALIZARE 2026-11-24
+LUXAI LOCAL 0.4.3u — ACTUALIZARE 2026-11-27
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.3u: Plugin nou — „Asistent de text” (Extensii → Text și clipboard). Selectează text în orice program
+și apasă Ctrl+Alt+T: lângă cursor apar acțiunile 1 Corectează · 2 Îmbunătățește · 3 Scurtează ·
+4 Tradu · 5 Răspunde la mesaj și un câmp pentru cererea ta („fă-l mai politicos”). Rezultatul se poate
+edita; Ctrl+Enter îl pune în locul textului selectat. Traducerea merge offline; celelalte folosesc AI-ul
+din cloud dacă e conectat, altfel modelul local (fără internet, ~8–10 s).
 
 0.4.3t: AI-ul local funcționează din nou. Actualizarea motorului (llama-cpp-python 0.3.38) nu pornește
 pe unele procesoare (eroarea „instrucțiune ilegală”), deși verificarea spunea că e în regulă. Jarvis

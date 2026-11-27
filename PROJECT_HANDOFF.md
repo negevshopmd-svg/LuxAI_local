@@ -86,7 +86,7 @@ key is built into `Update.py` and `scripts/release_signature.py`. `.bat/.cmd` ar
   `discord_*` (visual, verified flows), `steam_games.py`, `steam_profile_visual.py`, `websites.py`,
   `web_research.py`, `research_notepad.py`, `weather_service.py`.
 - **Extensions (plugins page):** `extensions_catalog.py` (22 plugins, settings schema),
-  `extensions_runtime.py` (behaviour of the 15 working ones), UI `ui_extensions.py`, `ui_extension_settings.py`.
+  `extensions_runtime.py` (behaviour of the 16 working ones), UI `ui_extensions.py`, `ui_extension_settings.py`.
   Working: smart dictation (`dictation.py`), notification reader (`notifications.py`), read aloud
   (`translation.py`), live captions (`live_captions.py`, `loopback_audio.py`; «Hybrid»: fast draft + translation,
   precise correction on its own thread), film captions in advance (`film_captions.py` + the Chrome/Edge
@@ -94,8 +94,10 @@ key is built into `Update.py` and `scripts/release_signature.py`. `.bat/.cmd` ar
   gateway `media_proxy.py`: public addresses, verified HTTPS, rewritten HLS playlists, per-film sessions), clipboard history
   (`clipboard_store.py`, `clipboard_native.py`, `ui_clipboard.py`), quick inserts, visual avatar
   (`avatar.py`), breaks, PC Control via Telegram bot (`telegram_control.py`), media keys, timers and
-  alarms (`timers.py`), converter (`converter.py`, `ui_convert_circle.py`), screenshots, downloads cleanup.
-  «Soon»: meeting notes, text helper, ask documents, desktop pet, status island, action circle,
+  alarms (`timers.py`), converter (`converter.py`, `ui_convert_circle.py`), screenshots, downloads cleanup,
+  text helper (`text_helper.py` + `ui_text_helper.py`: selection → fix / improve / shorten / translate / reply /
+  own request → replace; cloud AI or the local GGUF model, offline NLLB for translation).
+  «Soon»: meeting notes, ask documents, desktop pet, status island, action circle,
   smart home, streamer helper.
 - **Translation:** `offline_translate.py` (NLLB-200 600M CTranslate2 int8, pinned revision + SHA-256,
   repair in background), `chat_translate.py` («translate …» in the chat).

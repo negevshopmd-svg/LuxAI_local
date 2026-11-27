@@ -1,4 +1,10 @@
-LUXAI LOCAL (JARVIS) 0.4.3t — UPDATE 2026-11-24
+LUXAI LOCAL (JARVIS) 0.4.3u — UPDATE 2026-11-27
+
+0.4.3u: New plugin — «Text helper» (Extensions → Text and clipboard). Select text in any program and press
+Ctrl+Alt+T: the actions 1 Fix · 2 Improve · 3 Shorten · 4 Translate · 5 Reply to the message and a field
+for your own request («make it more polite») appear at the cursor. You can edit the result; Ctrl+Enter
+puts it in place of the selection. Translation works offline; the rest uses the cloud AI when connected,
+otherwise the local model (no internet, ~8–10 s).
 
 0.4.3t: The local AI works again. The engine update (llama-cpp-python 0.3.38) does not start on some
 processors («illegal instruction»), although the check said it was fine. Jarvis now really starts the

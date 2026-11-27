@@ -706,6 +706,7 @@ class ExtensionsRuntime(QObject):
     _extension_hello = Signal(object)  # the browser extension says it is installed
     _cap_error = Signal(str)
     _clip_ai_ready = Signal(str, str)  # mode, result ("" = failed)
+    _text_helper_ready = Signal(int, str, str, str)  # request number, result, who, error code
     _clip_image_ready = Signal(bytes, bytes, int, int, str, int)  # png, thumb, width, height, app, clear gen
     _clip_native_ready = Signal(object)  # what the worker read from the clipboard (audit 2 #14)
     _auto_cleanup_done = Signal(object, str)  # (moved, trashed, errors), day (audit 2 #19)
@@ -751,6 +752,9 @@ class ExtensionsRuntime(QObject):
         self._clip_persist_seen = None  # audit 7 #17: «keep after restart» turned off deletes the file
         self._stopping = False
         self._clip_ai_ready.connect(self._on_clip_ai_ready)
+        self._text_helper_ready.connect(self._on_text_helper_ready)
+        self._text_popup = None
+        self._text_request = 0
         self.captions_visible = False
         self._captions_bar = None
         self._captions_capture = None
@@ -2081,6 +2085,8 @@ class ExtensionsRuntime(QObject):
             self.open_snippets()
         elif plugin_id == "read_aloud":
             self.read_selection()
+        elif plugin_id == "text_helper":
+            self.open_text_helper()
         elif plugin_id == "media_keys" and key in MEDIA_KEYS:
             press_virtual_key(MEDIA_KEYS[key])
         elif plugin_id == "screenshots":
@@ -4201,6 +4207,124 @@ class ExtensionsRuntime(QObject):
 
         self._paste_into(target_hwnd, after=lambda: QTimer.singleShot(700, put_back), sequence=ours)
 
+    # -- text helper --
+    def open_text_helper(self):
+        """The hotkey: read the selection of the window in front, then show the actions at the cursor."""
+        from luxai.screen_interact import _foreground_hwnd
+        if self._text_popup is not None:
+            try:
+                self._text_popup.close()
+            except RuntimeError:
+                pass
+        hwnd = _foreground_hwnd()
+        self._capture_selection(hwnd, lambda selected: self._show_text_helper(selected, hwnd))
+
+    def _text_words(self, key: str) -> str:
+        words = {
+            "empty": ("Сначала выделите текст, потом нажмите клавишу помощника.",
+                      "Select some text first, then press the helper's key.",
+                      "Selectează întâi un text, apoi apasă tasta asistentului."),
+            "no_ai": ("Для этого нужен ИИ: подключите облачный ключ или выберите локальную модель в настройках Jarvis.",
+                      "This needs an AI: add a cloud key or choose a local model in Jarvis settings.",
+                      "E nevoie de un AI: adaugă o cheie cloud sau alege un model local în setările Jarvis."),
+            "no_answer": ("ИИ не ответил. Попробуйте ещё раз или другое действие.",
+                          "The AI did not answer. Try again or another action.",
+                          "AI nu a răspuns. Încearcă din nou sau altă acțiune."),
+            "busy": ("Локальная модель занята другим запросом — попробуйте через несколько секунд.",
+                     "The local model is busy with another request — try again in a few seconds.",
+                     "Modelul local e ocupat cu altă cerere — încearcă peste câteva secunde."),
+            "no_text": ("В выделении нет текста.", "The selection has no text.", "Selecția nu conține text."),
+            "copied": ("Готово — результат в буфере обмена. Ctrl+V вставит его.",
+                       "Done — the result is on the clipboard. Ctrl+V pastes it.",
+                       "Gata — rezultatul e în clipboard. Ctrl+V îl lipește."),
+            "doubtful": ("ИИ вернул совсем другой текст вместо исправления (возможно, выполнил команду из самого "
+                         "текста) — ничего не предлагаю. Попробуйте «Улучшить стиль».",
+                         "The AI returned a quite different text instead of a correction (perhaps it obeyed an "
+                         "instruction inside the text) — nothing is offered. Try «Improve style».",
+                         "AI a întors un text cu totul diferit în loc de corectură (poate a ascultat o comandă din "
+                         "text) — nu propun nimic. Încearcă „Îmbunătățește stilul”."),
+            "cut": ("Выделение длинное: обработаны первые {n} символов.",
+                    "Long selection: the first {n} characters were used.",
+                    "Selecție lungă: am folosit primele {n} caractere."),
+        }[key]
+        return _tr3(*words, self.language)
+
+    def _show_text_helper(self, selected: str, hwnd: int):
+        from luxai.text_helper import MAX_CHARS
+        from luxai.ui_text_helper import TextHelperPopup
+        selected = selected.split("\n[Выделение сокращено", 1)[0]
+        if not selected.strip():
+            self._notify(self._text_words("empty"))
+            return
+        if len(selected) > MAX_CHARS:
+            self._notify(self._text_words("cut").format(n=MAX_CHARS))
+            selected = selected[:MAX_CHARS]
+        settings = self.settings("text_helper")
+        popup = TextHelperPopup(selected, self.language, settings.get("default_action", "fix"))
+        popup.action_chosen.connect(lambda action, request: self._run_text_action(popup, selected, action, request))
+        popup.replace_requested.connect(lambda value: self._insert_text(value, hwnd, paste=True, restore=True))
+        popup.copy_requested.connect(self._copy_text_result)
+        popup.destroyed.connect(lambda *_: self._forget_text_popup(popup))
+        self._text_popup = popup
+        popup.show_at_cursor()
+        if not settings.get("show_menu", True):
+            self._run_text_action(popup, selected, popup.default_action, "")
+
+    def _forget_text_popup(self, popup):
+        if self._text_popup is popup:
+            self._text_popup = None
+            self._text_request += 1  # an answer still on its way is dropped
+
+    def _copy_text_result(self, value: str):
+        self._insert_text(value, 0, paste=False, restore=False)
+        self._notify(self._text_words("copied"))
+
+    def _run_text_action(self, popup, selected: str, action: str, request: str):
+        """The work runs on a worker; the answer comes back through ``_text_helper_ready`` with its number."""
+        from luxai import offline_translate, text_helper
+        from luxai.response_language import reply_language
+        settings = self.settings("text_helper")
+        cfg = getattr(self.host, "cfg", {}) or {}
+        target = text_helper.translation_target(selected, settings.get("translate_to", "auto"), reply_language(cfg))
+        translate = None
+        if action == "translate":
+            if offline_translate.installed():
+                from luxai.translation import translate_offline
+                translate = translate_offline
+            else:
+                offline_translate.download_in_background()  # the AI translates meanwhile
+        planner = getattr(self.host, "online_planner", None)
+        agent = getattr(self.host, "agent", None)
+        source = settings.get("ai_source", "auto")
+        self._text_request += 1
+        number = self._text_request
+        popup.show_busy(action)
+
+        def work():
+            try:
+                result, who = text_helper.run_action(selected, action, planner=planner, agent=agent, source=source,
+                                                     target=target, instruction=request, translate=translate)
+                self._text_helper_ready.emit(number, result, who, "")
+            except text_helper.TextHelperError as error:
+                self._text_helper_ready.emit(number, "", "", error.code)
+            except Exception:
+                self._text_helper_ready.emit(number, "", "", "no_answer")
+
+        threading.Thread(target=work, daemon=True, name="JarvisTextHelper").start()
+
+    def _on_text_helper_ready(self, number: int, result: str, who: str, code: str):
+        popup = self._text_popup
+        if number != self._text_request or popup is None or getattr(self, "_stopping", False):
+            return  # the window was closed or another action was chosen meanwhile
+        try:
+            if result:
+                popup.show_result(result, who)
+            else:
+                popup.show_error(self._text_words(
+                    code if code in ("no_ai", "busy", "no_text", "doubtful") else "no_answer"))
+        except RuntimeError:
+            self._text_popup = None
+
     # -- read aloud --
     def reading_language(self) -> str:
         from luxai.response_language import reply_language
@@ -4277,10 +4401,21 @@ class ExtensionsRuntime(QObject):
             if hasattr(self.host, "stop_speaking"):
                 self.host.stop_speaking()
             return
-        from luxai.selection import copy_selected_text, finish_selected_copy
         from luxai.screen_interact import _foreground_hwnd
+
+        def read(selected):
+            limit = int(settings.get("max_chars", 4000))
+            selected = selected.split("\n[Выделение сокращено", 1)[0][:limit]
+            self.read_text(selected)
+
+        self._capture_selection(_foreground_hwnd(), read)
+
+    def _capture_selection(self, hwnd, deliver):
+        """Copy the selection of window ``hwnd`` and call ``deliver(text)`` on the Qt thread (the clipboard is
+        put back). Shared by «read aloud» and the Text helper. Electron apps that ignore a synthetic Ctrl+C are
+        read through Windows UI Automation; a window run as administrator is explained."""
+        from luxai.selection import copy_selected_text, finish_selected_copy
         clipboard = QApplication.clipboard()
-        hwnd = _foreground_hwnd()
         try:
             _, before, saved = copy_selected_text(clipboard, hwnd)
         except Exception as error:
@@ -4296,7 +4431,7 @@ class ExtensionsRuntime(QObject):
                 pass  # nothing changed, nothing to restore
             text_found = selected_text_by_automation(hwnd)
             if text_found:
-                read(text_found)
+                deliver(text_found)
                 return
             from luxai.selection import admin_window_message, window_runs_as_admin
             if window_runs_as_admin(hwnd):
@@ -4306,11 +4441,6 @@ class ExtensionsRuntime(QObject):
                 finish_selected_copy(clipboard, hwnd, before, saved)
             except Exception as error:
                 self._notify(str(error))
-
-        def read(selected):
-            limit = int(settings.get("max_chars", 4000))
-            selected = selected.split("\n[Выделение сокращено", 1)[0][:limit]
-            self.read_text(selected)
 
         def finish(attempt=0):
             # Check at once and then often; Electron apps (Discord) may need ~1-2 s.
@@ -4328,7 +4458,7 @@ class ExtensionsRuntime(QObject):
             except Exception as error:
                 self._notify(str(error))
                 return
-            read(selected)
+            deliver(selected)
 
         QTimer.singleShot(20, finish)
 
