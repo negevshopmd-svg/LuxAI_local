@@ -103,6 +103,7 @@
       "0a686d90efc932a1dc7c6ac1878215573463263f748720516b75e660d36a66f1",
       "0b846e572ee51aad1b82cd389c036ccf3e6c92ec4510cc10eb2989a380573514",
       "0e74d0450a0bc68cd89edbe31c2ccb3d12b7134823ad4f8d5294bd94df45f3d5",
+      "0f1e6b1b9c8918ae2c125f4e477522b3f14dc202c076d033f3b5928ed6d7309e",
       "0f59426ddc05a70790a851d6e5b899fd4b4bbfd90821a56557e4477beda852c9",
       "0fca45637b50252d044e7d726191eb046eede665abb74f360102c46c077f2cb6",
       "1233e7c54985c1273abd3122696ab6ff53c6da4e180bca4f9b80c2f8e510b133",
@@ -117,6 +118,7 @@
       "16e20757dfc390a93afa5751157ad97537c9e79b9b95773fda1a4e4acd6ae0f6",
       "17c7f01fd329eab737892d4fb9cc6604ba749a0bfaa5dbfbadfb3def93969d7b",
       "18b7c4afe6b6e2d31c6d4e65f1e296c6f560e9561ce82c228b216773b97fb4aa",
+      "19e65ddb279e6494fe3023c63d5783fc2be8ff69ddcab7b881c33c6af84a9146",
       "1c98a10b875fe3aae6011092ec145ce09ad2b14f7077a35cd9b2921652139b64",
       "1d336c3655918221ed3542a8e7cc45fb13fab53f175c81a826210466805b7c71",
       "1eefc22f4fd8e7f2857d82f9d342e55cbb2c9b94dea337e7979faf9cc919dd15",
@@ -738,9 +740,16 @@
       "50b6a24677ec9ccf5ec6b45ae118e6902d1b79989f031973db5c5d099fbc97bb",
       "eaa3e4b2feb94b520ff2be5f68cd482f0a856766a8133a7f858c91c8a63162ba"
     ],
+    "tests/command_bench/accuracy_bench.py": [
+      "e0484af8c967c53cae18ad45915f70a13a474a5857bdfb25c8df94ee988e65cb"
+    ],
     "tests/command_bench/endpoint_bench.py": [
       "bc1c4291c5060907b6e0542d99a12e93cba59f48fb98d32a0075357e57730b8c",
       "df2772b9eba61c296af04ca7d6e8514c00158402c9ef4ae233803e3eff5cb94b"
+    ],
+    "tests/command_bench/phrases_ru.py": [
+      "eb8635724d6e2f9c0d673925483a880eefc9744a9ab53792d577476b0236955b",
+      "f0079af325dca71e5010f18ff89ffdc490cce214ca51be80a4b2d05475ea5420"
     ],
     "tests/command_bench/prompt_bench.py": [
       "97a35f0fbad8892e8af3d451dfbc10bb6ff3c0bc60ae8026c480cba2ac2f417b",
@@ -869,6 +878,7 @@
     "tests/test_asr_auto_context.py": [
       "34cdfb7ce892164c466c26d3f654b9d1dae1cc3b86b228aa0f1d377114c2e01f",
       "3c788ff0e04badade715aedf9ed0fae8b55dc487365acd60ea7eb1716702d4bd",
+      "528add494a437db6a78018525653839a1742c21b22308ff66225e3505fb32d9e",
       "d74ba27a85f63e74cafcbe9da551749ae3b94c0f7699424c45531e1e1606a37b"
     ],
     "tests/test_attachment_chat_039.py": [
@@ -1116,6 +1126,7 @@
       "95e602693499f47cc04cc4cf0777656fe56ea4db94a4c1c42e49a1e9bacf997c"
     ],
     "tests/test_command_speed_044c.py": [
+      "9271ba76ed36823c843a26ca85f4211a6313b171967ec3105548a4180187c041",
       "d4a253743cfd87a3ee12075cdf599214100cfa05b34268e6e00a9d7500e2e7eb"
     ],
     "tests/test_command_storage_093c.py": [
@@ -1133,6 +1144,10 @@
     "tests/test_command_triggers_039.py": [
       "1a926f309484924f1a51a1ebf0327f745f48b1a731657d58185611a3ec7473af",
       "faf8b35a31e4fa00c159bbbf72ed9779cb784adaeae637ef09901dd5e47b930f"
+    ],
+    "tests/test_command_words_044d.py": [
+      "163d72a8f8a710574c842ca3fd6c7804c280197cdf58fc96c699b0fa67470624",
+      "b6937ef5539c605f5e308cbc5bb1fb9b3f4fd4794c8bf73dc8948f87ed447dce"
     ],
     "tests/test_command_workspace_093d.py": [
       "08a38a1f5f1748b08d32fa1f1a50428ad100b866cee07936ba0cd1e8d4b6198f",

@@ -1,4 +1,8 @@
-LUXAI LOCAL (JARVIS) 0.4.4c — UPDATE 2026-11-28
+LUXAI LOCAL (JARVIS) 0.4.4d — UPDATE 2026-11-28
+
+0.4.4d: Fewer recognition errors at the same speed. Tested on 149 commands (Steam, Discord, apps, music, windows,
+timers…) read by three different voices: wrong first word 19% → 12%, word errors 19% → 16%. Jarvis now repairs a
+garbled first word of a Russian command («Окрой» → «Открой»).
 
 0.4.4c: Commands are faster and better understood. Jarvis starts recognising at the first short pause and, when
 it is a known command, does it at once — without waiting for the whole pause after speech (measured: 6.4 s →

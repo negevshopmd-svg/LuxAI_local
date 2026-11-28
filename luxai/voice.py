@@ -17,7 +17,7 @@ from .voices import playback_active, barge_in_ready
 from .voices import speak  # noqa: F401 - re-exported: main.py imports speak from luxai.voice
 from .voice_rules import (
     recognition_options, speech_pause_seconds,
-    is_hallucinated_outro, is_repetitive_transcript, is_stop_speech_command,
+    is_hallucinated_outro, is_repetitive_transcript, is_stop_speech_command, fix_command_words,
 )
 
 
@@ -251,7 +251,7 @@ class VoiceListener:
         utterance = " ".join(segment.text.strip() for segment in segments).strip()
         if is_hallucinated_outro(utterance) or is_repetitive_transcript(utterance):
             return ""
-        return utterance
+        return fix_command_words(utterance)  # 0.4.4d: «Окрой калькулятор» → «Открой калькулятор»
 
     def _accepts_early(self, text: str) -> bool:
         if not text or self.early_accept is None:

@@ -1,3 +1,28 @@
+## 0.4.4d — Fewer recognition errors, same speed (2026-11-28)
+
+New dev benchmark `tests/command_bench/accuracy_bench.py` + `phrases_ru.py`: 129 NEW Russian commands (Steam,
+Discord, apps, web, media, windows, timers, weather, Jarvis' own features, keys) read in turn by three different
+voices — Piper «dmitri», Windows «Irina» and «Pavel» — fast / normal / slow, quiet / normal / loud microphone, three
+noise levels, a small room echo for a third; plus the 20 tuning commands of 0.4.4c. Scores: word errors (Latin and
+Cyrillic names count as the same word), the share of commands with a WRONG FIRST WORD, and the time of one pass.
+
+Found: most errors are a lost or garbled first sound of the verb («Окрой», «Крой», «Делай», «Запустит», «Напомню,»,
+«Найти», «Копируй», «Убей звук»), which also made fast commands miss the early answer.
+
+Measured and rejected (no better on the new set, Whisper medium): three other prompts (verb first / dialogue /
+wider vocabulary), `hotwords`, `without_timestamps`, `chunk_length` 10 / 15 (no effect in faster-whisper 1.2.1),
+louder input normalisation, pre-emphasis.
+
+Changed: `voice_rules.fix_command_words` repairs ONLY the first word, ONLY into the command it can only mean, and
+keeps the rest as heard; `VoiceListener._recognize` applies it, so the early answer, saved commands and the planner
+all get the repaired text.
+
+Result (Whisper medium): new set — word errors 18.6 % → 15.6 %, wrong first word 19.4 % → 12.4 %; tuning set —
+22.0 % → 16.7 %, 35 % → 15 %. 96 results better, 0 worse; the time of a pass is unchanged (a text rule).
+Not measured: a real human voice (the two Windows voices are already 3–10 % word errors; most of the rest is
+the fast, quiet Piper voice).
+Tests: `tests/test_command_words_044d.py` (4).
+
 ## 0.4.4c — Commands: faster and better understood (2026-11-28)
 
 New dev benchmark `tests/command_bench/` (`stt_bench.py`, `prompt_bench.py`, `endpoint_bench.py`): everyday

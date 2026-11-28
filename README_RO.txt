@@ -1,5 +1,9 @@
-LUXAI LOCAL 0.4.4c — ACTUALIZARE 2026-11-28
+LUXAI LOCAL 0.4.4d — ACTUALIZARE 2026-11-28
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.4d: Mai puține greșeli de recunoaștere, aceeași viteză. Testat pe 149 de comenzi (Steam, Discord, aplicații,
+muzică, ferestre, timere…) citite de trei voci diferite: primul cuvânt greșit 19% → 12%, greșeli de cuvinte
+19% → 16%. Jarvis repară acum primul cuvânt stâlcit („Окрой” → „Открой”, „Делай тише” → „Сделай тише”).
 
 0.4.4c: Comenzile merg mai repede și sunt înțelese mai bine. Jarvis începe să recunoască fraza la prima pauză
 scurtă și, dacă e o comandă cunoscută, o face imediat — fără să aștepte toată pauza de după vorbire (măsurat:

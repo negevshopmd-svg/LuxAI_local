@@ -17,6 +17,35 @@ RUSSIAN_PROMPT = (
 )
 
 
+# 0.4.4d: Whisper sometimes drops or garbles the first sound of a short Russian command (measured with
+# tests/command_bench/accuracy_bench.py). Only the FIRST word is repaired, only into the verb it can only mean,
+# and only when the rest of the phrase is kept as heard.
+import re as _re
+_FIRST_WORD_FIXES = (
+    (_re.compile(r"^(?:окрой|ткрой|откой|крой|открой-?ка)(?=[\s,.!?]|$)", _re.I), "Открой"),
+    (_re.compile(r"^делай(?=\s+(?:по)?(?:громче|тише|скриншот|снимок)\b)", _re.I), "Сделай"),
+    (_re.compile(r"^запустит(?:е|ь|ься)?(?=[\s,.!?]|$)", _re.I), "Запусти"),
+    (_re.compile(r"^копируй(?=\s|$)", _re.I), "Скопируй"),
+    (_re.compile(r"^убей(?=\s+(?:звук|громкость)\b)", _re.I), "Убавь"),
+    (_re.compile(r"^напомню(?=[\s,]+(?:через|в|завтра|мне)\b)", _re.I), "Напомни"),
+    (_re.compile(r"^найти(?=\s+(?:в|на|мне)\b)", _re.I), "Найди"),
+)
+
+
+def fix_command_words(text: str) -> str:
+    """«Окрой калькулятор» → «Открой калькулятор», «Делай тише» → «Сделай тише», «Напомню, через…» → «Напомни…»."""
+    value = str(text or "")
+    stripped = value.lstrip()
+    for pattern, verb in _FIRST_WORD_FIXES:
+        match = pattern.match(stripped)
+        if match:
+            fixed = verb + stripped[match.end():]
+            if verb == "Напомни":
+                fixed = _re.sub(r"^Напомни,\s*", "Напомни ", fixed)
+            return fixed
+    return value
+
+
 AUTO_PROMPT = ROMANIAN_PROMPT + (
     " Русский: открой Discord, нажми клавишу Q, запусти War Thunder."
     " English: open Discord, press the Q key, open War Thunder. Jarvis."
