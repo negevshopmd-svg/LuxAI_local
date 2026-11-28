@@ -66,10 +66,11 @@ from GitHub `main` — push first, then the index follows). Use it before editin
 - `graphify_callers`, `graphify_tests_for` → who breaks and which tests to run;
 - `graphify_file_neighbors` → what a file imports and who imports it; `query_graph` for «where does X happen?».
 Check `freshness.commit` in the answer: it describes the indexed commit, not the working tree.
-Visual module map (130 modules, zones, imports, tests): https://claude.ai/artifact/YCQ7u1eEcAmt3h5xxmjMQx
-Most imported (change carefully): `fast_intents` (22 modules), `icons` (19), `secure_keys` (18), `api_providers` (17),
-`visual_click` (15); biggest files: `main.py` (5.3k lines), `luxai/extensions_runtime.py` (4.0k),
-`luxai/ui_extension_settings.py` (2.0k), `Update.py` (1.8k).
+Visual module map (145 modules at 0.4.4b, zones, imports, tests): https://claude.ai/artifact/YCQ7u1eEcAmt3h5xxmjMQx
+Most imported (change carefully): `fast_intents` (22 modules), `icons` (21), `secure_keys` (18), `api_providers` (17),
+`visual_click` and `action_catalog` (15); biggest files: `main.py` (5.4k lines), `luxai/extensions_runtime.py` (4.8k),
+`luxai/ui_extension_settings.py` (2.1k), `Update.py` (2.0k), `luxai/extensions_catalog.py` (1.7k).
+New runtime parts live in mixins next to it: `runtime_island.py` (status island), `runtime_meeting.py` (call notes).
 
 ## Where things are (short)
 - Start: `run_windows.bat` → `launch_windows.py` (single-instance mutex, refuses during an update,
