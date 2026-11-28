@@ -21,6 +21,9 @@ from .voice_rules import (
 )
 
 
+EARLY_PAUSE_SECONDS = 0.6
+
+
 class ModelLoadError(RuntimeError):
     """The selected Whisper model failed to load, rather than the microphone."""
 
@@ -86,12 +89,17 @@ class VoiceListener:
                  microphone_name="", microphone_hostapi="", sensitivity=1.0,
                  status_callback=None, level_callback=None, speech_pause=2.3,
                  capture_allowed=None, interrupt_predicate=None,
-                 preserve_interrupt_text=False):
+                 preserve_interrupt_text=False, early_accept=None):
         self.status_callback = status_callback
         self.level_callback = level_callback
         self.capture_allowed = capture_allowed
         self.interrupt_predicate = interrupt_predicate or is_stop_speech_command
         self.preserve_interrupt_text = preserve_interrupt_text
+        # 0.4.4c: ``early_accept(text) -> bool`` says a phrase is already a complete command. The listener starts
+        # recognising at the first short pause and, when the phrase is such a command and you did not go on
+        # speaking, acts at once instead of waiting the whole «pause after speech».
+        self.early_accept = early_accept
+        self.early_pause = EARLY_PAUSE_SECONDS
         self._stop_event = threading.Event()
         self.prefix_enabled = prefix_enabled
         self.prefix = (prefix or "Jarvis").strip()
@@ -236,12 +244,33 @@ class VoiceListener:
             logging.getLogger(__name__).debug("Stop-word recognition failed")
         return None
 
+    def _recognize(self, audio) -> str:
+        """One phrase → text ("" for noise, Whisper inventions or repetitions). Raises like model.transcribe."""
+        segments, _info = self.model.transcribe(
+            self._normalize_audio(audio), **recognition_options(self.language, self.beam_size))
+        utterance = " ".join(segment.text.strip() for segment in segments).strip()
+        if is_hallucinated_outro(utterance) or is_repetitive_transcript(utterance):
+            return ""
+        return utterance
+
+    def _accepts_early(self, text: str) -> bool:
+        if not text or self.early_accept is None:
+            return False
+        try:
+            return bool(self.early_accept(text))
+        except Exception:
+            return False
+
     def listen(self):
         output_rate = 16000
         input_rate = self._sample_rate()
         input_samples = max(1, int(round(input_rate * 0.03)))
         frame_samples = 480
         silence_frames_needed = round(self.speech_pause / 0.03)
+        early_frames = max(1, round(self.early_pause / 0.03))
+        from concurrent.futures import ThreadPoolExecutor
+        guesser = ThreadPoolExecutor(max_workers=1, thread_name_prefix="JarvisEarlyGuess")
+        guess = None  # {"future", "frames"}: the phrase recognised at its first short pause
         pre_roll_frames = 14
         # Keep longer descriptions together, instead of interrupting after
         # each small pause or forcing an arbitrary 24-second cutoff.
@@ -388,6 +417,8 @@ class VoiceListener:
                         self._emit("input_silent", message="The microphone is sending silence. Check mute, headset input and Windows microphone permissions.")
                     detected = self._frame_detected(chunk, rms, noise_samples, vad, output_rate)
 
+                    if speech_started and detected and guess is not None:
+                        guess = None  # you went on speaking: that early guess is for a shorter phrase
                     if not speech_started:
                         pre_roll.append(chunk)
                         if not detected:
@@ -398,6 +429,7 @@ class VoiceListener:
                         if candidate_frames < min_speech_frames:
                             continue
                         speech_started = True
+                        guess = None  # a new phrase never inherits the guess of an earlier one
                         self._emit("speech_started")
                         parts = list(pre_roll)
                         active_frames = candidate_frames
@@ -409,8 +441,35 @@ class VoiceListener:
                             silence_frames = 0
                         else:
                             silence_frames += 1
+                    if (speech_started and guess is None and self.early_accept is not None
+                            and silence_frames == early_frames and active_frames >= min_speech_frames):
+                        sample = np.concatenate(parts).astype(np.float32, copy=False)
+                        if len(sample) >= 6080:
+                            guess = {"future": guesser.submit(self._recognize, sample), "frames": len(parts)}
+                    early_text = None
+                    if speech_started and guess is not None and guess["future"].done() and silence_frames > 0:
+                        try:
+                            early_text = guess["future"].result()
+                        except (OSError, RuntimeError, ValueError):
+                            early_text = None
+                        if not self._accepts_early(early_text):
+                            early_text = None  # not a complete command: wait for the whole pause as before
+                    if speech_started and early_text:
+                        parts = []
+                        pre_roll.clear()
+                        speech_started = False
+                        active_frames = silence_frames = candidate_frames = 0
+                        guess = None
+                        if not self._stop_event.is_set():
+                            self._emit("transcribing")
+                            yield early_text
+                            self._emit("listening", device=self._device_info.get("name", ""),
+                                       device_index=self.microphone_device, sample_rate=input_rate)
+                        continue
                     if speech_started and (silence_frames >= silence_frames_needed or len(parts) >= max_frames):
                         audio = np.concatenate(parts).astype(np.float32, copy=False)
+                        ready = guess  # recognised at the short pause, nothing said since: reuse it
+                        guess = None
                         enough_speech = active_frames >= min_speech_frames and len(audio) >= 6080
                         parts = []
                         pre_roll.clear()
@@ -420,11 +479,11 @@ class VoiceListener:
                             continue
                         self._emit("transcribing")
                         try:
-                            segments, _info = self.model.transcribe(
-                                self._normalize_audio(audio), **recognition_options(self.language, self.beam_size)
-                            )
-                            utterance = " ".join(segment.text.strip() for segment in segments).strip()
-                            if is_hallucinated_outro(utterance) or is_repetitive_transcript(utterance):
+                            if ready is not None:
+                                utterance = ready["future"].result()
+                            else:
+                                utterance = self._recognize(audio)
+                            if not utterance:
                                 self._emit("ignored_hallucination", message="Whisper noise/repetition/outro hallucination ignored.")
                             elif utterance and not self._stop_event.is_set():
                                 yield utterance

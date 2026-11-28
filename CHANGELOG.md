@@ -1,3 +1,34 @@
+## 0.4.4c — Commands: faster and better understood (2026-11-28)
+
+New dev benchmark `tests/command_bench/` (`stt_bench.py`, `prompt_bench.py`, `endpoint_bench.py`): everyday
+commands read by the local Piper voices, recognised exactly as the listener does, and fed to the real
+`VoiceListener.listen()` through a fake microphone in real time.
+
+Found:
+- From the last word to the command took 6.4 s with the user's settings (Whisper medium, «pause after speech»
+  2.3 s): the whole pause, then a 3.5 s recognition pass.
+- Russian had no recognition prompt (Romanian had one): Whisper often lost the first sound («Открой» → «Рывай»,
+  «Сделай» → «Делай»); 37.8 % word errors on commands with medium.
+- «сделай громче / тише», «следующий трек», «пауза», «закрой окно», «turn the volume up», «dă mai tare» had NO
+  local rule: they went to the AI planner (seconds, internet) although each is one key or one Windows call.
+
+Changed:
+- Early answer (`luxai/voice.py`, `luxai/early_command.py`): at the first 0.6 s pause the phrase is recognised in
+  the background; a whole known command (a saved command, volume, media, window, app, site, game, timer, weather,
+  Discord mic) runs at once; anything else waits the whole pause as before but reuses that pass; speaking on
+  drops it. Messages, chains («и потом»), questions and long sentences are never cut. `early_commands` in
+  config.json turns it off.
+- `RUSSIAN_PROMPT` (general command vocabulary): medium 37.8 % → 23.3 % word errors, small 55 % → 37 %.
+  Measured and rejected: beam 3 (24.5 %, slower), large-v3-turbo (36.6 %, 5.2 s a pass), extra leading silence.
+- `luxai/quick_actions.py`: volume ±10 % (or «на 20%»), mute, play/pause, next/previous track, close / minimise /
+  maximise the window in front, show the desktop — ru / ro / en whole phrases, tolerant of the usual slips
+  («Делай тише», «Следующий тригг»), done locally in ~50 ms; the answer is shown, not spoken (no voice over music).
+
+Result (20 Russian commands, Whisper medium): last word → command 6.37 s → 4.52 s (all 20 faster, same text);
+15 of 20 commands are answered at the short pause. Volume up+down live on this PC: 47 ms, read back 50→60→50 %.
+Not measured: real human speech (Piper voices only), the time of the AI / TTS part of an answer.
+Tests: `tests/test_command_speed_044c.py` (15).
+
 ## 0.4.4b — Video and call notes plugin (2026-11-27)
 
 The «Video and call notes» plugin works (Extensions → Voice and sound). Ctrl+Alt+N, the plugin's button or «начни

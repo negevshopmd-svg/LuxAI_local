@@ -339,6 +339,7 @@
       "fbd9a0fbd5d613c6156d1d1df6ceb035db09d9cc6af56d2af673e2d19dd0d4f2",
       "fc6a3f5a767c53d3ba9f52b192b9b5f1bac1e289930f915d4418c679d3368b32",
       "fc8cb16516573f55669e98b29aeb4cfe21c3b6e08a1ef4f7165a6defbdaab5db",
+      "fde2d6201efc383ec20a5bb0d64a42faaddf29103b776d376bf9815ebeabf9c5",
       "fde3eebbacc5332d36990dd89198be60b79f36df462da7165c2253216cd4508b",
       "fe7b032a9fd2360b2f23d9fdac8caf9f9ae420e32bbd44a6cf45009c3ec10546",
       "fe82a9b11d02128e2fd5eda63151e481590255a36dcba717b400b7e690f9125b",
@@ -737,6 +738,18 @@
       "50b6a24677ec9ccf5ec6b45ae118e6902d1b79989f031973db5c5d099fbc97bb",
       "eaa3e4b2feb94b520ff2be5f68cd482f0a856766a8133a7f858c91c8a63162ba"
     ],
+    "tests/command_bench/endpoint_bench.py": [
+      "bc1c4291c5060907b6e0542d99a12e93cba59f48fb98d32a0075357e57730b8c",
+      "df2772b9eba61c296af04ca7d6e8514c00158402c9ef4ae233803e3eff5cb94b"
+    ],
+    "tests/command_bench/prompt_bench.py": [
+      "97a35f0fbad8892e8af3d451dfbc10bb6ff3c0bc60ae8026c480cba2ac2f417b",
+      "b9f2eaba0a52b673bf14b12ef16de3d2259cba1e15d8dc022d942425088b2889"
+    ],
+    "tests/command_bench/stt_bench.py": [
+      "0903b2528dae0eb639cf8a2620b4e9b60066f90feaeffa4095da1f12ee677750",
+      "1afc1e4dcfea4cade48cc26a876f10194ad97706f870897057eaaedf24d0b188"
+    ],
     "tests/js/activation_harness.js": [
       "cf95ce81b4eb048e0c9edb33e0f7a13ba8d802f24b1778ccce97bba0857586da",
       "e00fd89cbfedd2842dc1f63926f87f509492ba16278beafa76d68724d75f18ec"
@@ -855,7 +868,8 @@
     ],
     "tests/test_asr_auto_context.py": [
       "34cdfb7ce892164c466c26d3f654b9d1dae1cc3b86b228aa0f1d377114c2e01f",
-      "3c788ff0e04badade715aedf9ed0fae8b55dc487365acd60ea7eb1716702d4bd"
+      "3c788ff0e04badade715aedf9ed0fae8b55dc487365acd60ea7eb1716702d4bd",
+      "d74ba27a85f63e74cafcbe9da551749ae3b94c0f7699424c45531e1e1606a37b"
     ],
     "tests/test_attachment_chat_039.py": [
       "4c34e94ffdca66fb83a9479f115ebb06077179cc232fcb8bebc45876e6594a4e",
@@ -1100,6 +1114,9 @@
     "tests/test_command_runtime_039.py": [
       "8d7df7a6531a360e0764e7633bcabae1bb5d77d4aad4593fef9ad975d72b87a1",
       "95e602693499f47cc04cc4cf0777656fe56ea4db94a4c1c42e49a1e9bacf997c"
+    ],
+    "tests/test_command_speed_044c.py": [
+      "d4a253743cfd87a3ee12075cdf599214100cfa05b34268e6e00a9d7500e2e7eb"
     ],
     "tests/test_command_storage_093c.py": [
       "2d736d7673e3e373128088dc8f6db25bb2f77ccb3a12655f191ec360ab5c13c2",

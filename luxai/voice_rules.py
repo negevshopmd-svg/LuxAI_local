@@ -8,6 +8,15 @@ ROMANIAN_PROMPT = (
 )
 # Auto still detects the language acoustically. Context helps short commands
 # containing English app/key names without forcing the result into one language.
+# 0.4.4c: Russian had no prompt. Measured on spoken commands (tests/command_bench, medium, beam 1): word errors
+# 37.8 % → 23.3 %; small 55 % → 37 %. Without it the first syllable was often lost («Открой» → «Рывай», «Сделай» →
+# «Делай»). General command vocabulary only, never a fixed list of the user's commands.
+RUSSIAN_PROMPT = (
+    "Разговор с голосовым помощником Джарвис. Открой YouTube, Discord, Steam, Telegram, калькулятор. "
+    "Сделай громче, сделай тише. Поставь таймер. Сделай скриншот. Закрой окно."
+)
+
+
 AUTO_PROMPT = ROMANIAN_PROMPT + (
     " Русский: открой Discord, нажми клавишу Q, запусти War Thunder."
     " English: open Discord, press the Q key, open War Thunder. Jarvis."
@@ -21,7 +30,8 @@ def recognition_options(language: str | None, beam_size: int) -> dict:
         "best_of": 1,
         "vad_filter": False,
         "condition_on_previous_text": False,
-        "initial_prompt": ROMANIAN_PROMPT if language == "ro" else AUTO_PROMPT if language is None else None,
+        "initial_prompt": ROMANIAN_PROMPT if language == "ro" else RUSSIAN_PROMPT if language == "ru"
+        else AUTO_PROMPT if language is None else None,
         "temperature": 0.0,
         "no_speech_threshold": 0.65,
     }

@@ -27,7 +27,10 @@ class AutomaticRecognitionRulesTests(unittest.TestCase):
             options = recognition_options(language, 1)
             self.assertEqual(options["language"], language)
             self.assertEqual(options["beam_size"], 1)
-            self.assertIsNone(options["initial_prompt"])
+        self.assertIsNone(recognition_options("en", 1)["initial_prompt"])
+        # 0.4.4c: Russian got a command prompt (word errors on commands 37.8 % → 23.3 %, tests/command_bench).
+        from luxai.voice_rules import RUSSIAN_PROMPT
+        self.assertEqual(recognition_options("ru", 1)["initial_prompt"], RUSSIAN_PROMPT)
         romanian = recognition_options("ro", 1)
         self.assertEqual(romanian["language"], "ro")
         self.assertEqual(romanian["initial_prompt"], ROMANIAN_PROMPT)

@@ -1,5 +1,11 @@
-LUXAI LOCAL 0.4.4b — ACTUALIZARE 2026-11-27
+LUXAI LOCAL 0.4.4c — ACTUALIZARE 2026-11-28
 (Același ghid în rusă: README_RU.txt, în engleză: README_EN.txt.)
+
+0.4.4c: Comenzile merg mai repede și sunt înțelese mai bine. Jarvis începe să recunoască fraza la prima pauză
+scurtă și, dacă e o comandă cunoscută, o face imediat — fără să aștepte toată pauza de după vorbire (măsurat:
+6,4 s → 4,5 s de la ultimul cuvânt). Rusa are acum un indiciu pentru recunoaștere (greșeli 38% → 23%). „Mai
+tare / mai încet”, „pauză”, „piesa următoare”, „închide fereastra” merg acum direct pe PC, fără AI și fără
+internet.
 
 0.4.4b: Plugin nou — „Rezumat video și apeluri” (Extensii → Voce și sunet). Apasă Ctrl+Alt+N sau spune
 „începe rezumatul”: Jarvis înregistrează sunetul PC-ului și microfonul (apare banda „● REC” cu pauză și stop)

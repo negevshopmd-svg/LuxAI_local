@@ -1,4 +1,9 @@
-LUXAI LOCAL (JARVIS) 0.4.4b — UPDATE 2026-11-27
+LUXAI LOCAL (JARVIS) 0.4.4c — UPDATE 2026-11-28
+
+0.4.4c: Commands are faster and better understood. Jarvis starts recognising at the first short pause and, when
+it is a known command, does it at once — without waiting for the whole pause after speech (measured: 6.4 s →
+4.5 s after the last word). Russian now has a recognition hint (errors 38% → 23%). “Louder / quieter”, “pause”,
+“next track”, “close the window” now run right on the PC — no AI, no internet.
 
 0.4.4b: New plugin “Video and call notes” (Extensions → Voice and sound). Press Ctrl+Alt+N or say “start
 notes”: Jarvis records the PC sound and the microphone (a “● REC” pill with pause and stop appears) and

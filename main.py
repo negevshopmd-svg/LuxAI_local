@@ -241,10 +241,19 @@ class VoiceWorker(QThread):
     status = Signal(str)
     state = Signal(str, object)
     level = Signal(float)
-    def __init__(self, cfg):
+    def __init__(self, cfg, registry=None):
         super().__init__()
         self.cfg = cfg
+        self.registry = registry  # 0.4.4c: a whole known command is run at the first short pause
         self.listener = None
+
+    def _early_accept(self, text):
+        if not self.cfg.get("early_commands", True):
+            return False
+        from luxai.early_command import complete
+        return complete(text, self.registry, self.cfg.get("wake_prefix", "Jarvis"), _command_match_options(self.cfg),
+                        prefix_required=bool(self.cfg.get("prefix_enabled", False)))
+
     def stop_capture(self):
         if self.listener is not None:
             self.listener.stop()
@@ -271,6 +280,7 @@ class VoiceWorker(QThread):
                 # Smart dictation closes this gate: dictated words are not commands.
                 "capture_allowed": lambda: capture_allowed(self.cfg) and not DICTATION_ACTIVE.is_set(),
                 "preserve_interrupt_text": True,
+                "early_accept": self._early_accept,
                 "interrupt_predicate": lambda text: (
                     is_stop_speech_command(text) or mode_control(text, self.cfg) == "stop"
                 ),
@@ -2217,7 +2227,7 @@ class MainWindow(QMainWindow):
             self._on_audio_state("stopped", {})
             return
         self._listener_restart_pending = False
-        self.worker = VoiceWorker(dict(self.cfg))
+        self.worker = VoiceWorker(dict(self.cfg), getattr(self, "command_registry", None))
         self.worker.finished.connect(self._on_listener_finished)
         self.worker.transcript.connect(self._on_voice_transcript)
         self.worker.status.connect(self._on_voice_status)
@@ -3343,6 +3353,8 @@ class MainWindow(QMainWindow):
             if message["missing"]:
                 self._ask_discord_message_details(text, message)
                 return True
+        if not manual_saved and not protected_workflow and MainWindow._route_quick_action(self, text):
+            return True
         if not manual_saved and not protected_workflow:
             from luxai.steam_games import local_game_request
             from luxai.task_intents import system_volume_request
@@ -3366,6 +3378,20 @@ class MainWindow(QMainWindow):
                 self._start_visual_reasoner(text, feedback=feedback)
             return True
         return False
+
+    def _route_quick_action(self, text):
+        """0.4.4c: volume, media keys and the window in front — one local step, done at once (no AI, no internet).
+        The answer is shown in the chat but not spoken: a voice over the music after «next track» helps nobody."""
+        from luxai.quick_actions import parse, run
+        command = parse(text)
+        if command is None:
+            return False
+        self._current_route = "быстрое действие"
+        if self._command_queue:
+            self._command_queue[0]["quiet"] = True
+        hwnd = int(getattr(self, "_last_external_hwnd", 0) or 0)
+        self._resolved_command(text, run(command, reply_language(self.cfg, text), hwnd))
+        return True
 
     def _route_local_and_saved(self, text, ctx):
         """Stage 4: selection, Discord mic, direct input, websites/files, saved commands, visual and live planning."""
@@ -5056,7 +5082,7 @@ class MainWindow(QMainWindow):
             else:
                 self.mic_status.setText("Готово: " + (", ".join(routes) or "локально"))
             origin = group.get("origin") or {}
-            if self.cfg.get("tts_enabled", True) and origin.get("speak", True):
+            if self.cfg.get("tts_enabled", True) and origin.get("speak", True) and not group.get("quiet"):
                 self._queue_speech(result, reply_language(self.cfg, group.get("original_text", "")))
         else:
             self.mic_status.setText("")
